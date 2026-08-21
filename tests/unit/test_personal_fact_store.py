@@ -284,3 +284,58 @@ def test_prune_stale_drops_low_conf_old_stance():
     removed = u.prune_stale(min_confidence=0.3, stale_after=8)
     assert removed == 1
     assert u.query_stance("fad") is None
+
+
+# ───────── Residual limitation #1 (round 2026-08-20T0701Z): stance provenance ─────────
+# A stance is keyed on a SUBORDINATE concept ("silence") while the user's
+# utterance also names the SALIENT broader concept ("winter"). A later query
+# about the broader concept must bridge to the held stance instead of returning
+# None (which previously forced the "honest i don't have a read" fallback even
+# though the user clearly expressed a view). This is the provenance-bridge
+# capability: record the salient nouns of the producing utterance and let the
+# resolver link a co-mention back to the stance.
+
+def test_stance_provenance_bridges_broader_concept_query():
+    u = UserStanceStore()
+    # The miner keys the stance on the subordinate head "silence" but records
+    # the salient nouns of the whole object phrase as provenance.
+    u.express_stance("silence", polarity=1.0, confidence=0.8,
+                     provenance=["silence", "deep", "winter"])
+    # Exact / substring / Jaccard all MISS: "winter" is not the key nor a token
+    # of it. Only the provenance bridge resolves it.
+    assert u.resolve_topic("winter") == "silence"
+    # A phrase that co-mentions the salient noun also bridges.
+    assert u.resolve_topic("am i for or against winter") == "silence"
+
+
+def test_stance_provenance_empty_seed_does_not_fabricate():
+    u = UserStanceStore()
+    u.express_stance("silence", polarity=1.0, confidence=0.8)  # no provenance
+    # Without provenance there is nothing to bridge -> honest abstention.
+    assert u.resolve_topic("winter") is None
+
+
+def test_stance_provenance_persists_across_serialization():
+    u = UserStanceStore()
+    u.express_stance("silence", polarity=1.0, confidence=0.8,
+                     provenance=["silence", "deep", "winter"])
+    state = u.get_state()
+    u2 = UserStanceStore()
+    u2.set_state(state)
+    st = u2.query_stance("silence")
+    assert set(st.provenance) == {"silence", "deep", "winter"}
+    # The bridge survives the round-trip.
+    assert u2.resolve_topic("winter") == "silence"
+
+
+def test_stance_provenance_merges_across_encounters():
+    u = UserStanceStore()
+    u.express_stance("silence", polarity=1.0, confidence=0.8,
+                     provenance=["silence", "deep", "winter"])
+    # A second encounter about the same keyed topic with a different salient
+    # noun must union into the held provenance (online growth).
+    u.express_stance("silence", polarity=1.0, confidence=0.8,
+                     provenance=["silence", "snow"])
+    st = u.query_stance("silence")
+    assert set(st.provenance) == {"silence", "deep", "winter", "snow"}
+

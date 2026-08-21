@@ -112,8 +112,79 @@ def parse_causal_edges(text: str) -> List[Tuple[str, str]]:
             cause, effect = m.group(1).strip(), m.group(2).strip()
             # Drop leading articles / weak subjects like "an explosion occurs" handled elsewhere
             if cause and effect and not re.match(r"^(what|who|where)\b", cause):
+                # Source-monitoring guard (D3, round 2026-08-19T1628Z): a
+                # premise whose EFFECT is the speaker's own felt/affective
+                # state — "the parking lot plan makes my blood boil", "that
+                # makes me furious" — is a subjective feeling report, NOT a
+                # world-state transition the causal "physics engine"
+                # (dorsal fronto-parietal simulator) should bind and replay.
+                # Treating it as a causal edge lets the reasoner echo the
+                # user's own clause back as the "answer" to an affective
+                # query — a confabulation of the user's words as RAVANA's
+                # reasoning. The brain does not simulate "X makes me angry"
+                # as a manipulable cause→effect; it attributes the feeling.
+                # We refuse to bind the edge so the turn falls through to the
+                # genuine affective-response path instead. Detection is
+                # SEED-DRIVEN (no authored reply): first-person pronoun + an
+                # affect-bearing word read from RAVANA's own learnable VAD
+                # lexicon (_VAD_SEED, grown online via Hebbian learning) — so
+                # the notion of "affective" expands as the system learns, and
+                # the capability is not a frozen keyword table.
+                if _is_first_person_affect(effect):
+                    continue
                 edges.append((cause, effect))
     return edges
+
+
+# ── Affective-effect guard (D3 source-monitoring) ──────────────────────────
+# First-person pronouns whose presence marks an EFFECT as the speaker's own
+# felt state rather than an external world transition. Closed-class grammar
+# words (definitionally not learnable content), so a fixed set is correct here.
+_FP_PRON = frozenset({
+    "i", "me", "my", "mine", "we", "us", "our", "ours", "myself", "im", "i'm",
+})
+
+
+def _is_first_person_affect(effect: str) -> bool:
+    """True when `effect` is a first-person affective self-report.
+
+    Structural test: the phrase contains a first-person pronoun AND at least
+    one content word carrying affective load, where "affective load" is read
+    from RAVANA's own VAD lexicon (seed + online-learned), never a hardcoded
+    reply. Mirrors how the intent router already consults VAD to classify
+    user affect — same seed knowledge, reused, so the detector stays
+    consistent with the rest of the architecture and grows as the lexicon
+    learns new feeling words.
+    """
+    eff = _norm(effect)
+    if not eff:
+        return False
+    toks = re.findall(r"[a-z0-9']+", eff)
+    has_fp = any(t in _FP_PRON for t in toks)
+    if not has_fp:
+        return False
+    # Lazy import avoids a circular import at module load (mirror -> this
+    # module is not imported by mirror, but the VAD seed lives there).
+    try:
+        from ravana.core.mirror import UserEmotionDetector
+    except Exception:
+        return False
+    _det = getattr(_is_first_person_affect, "_det", None)
+    if _det is None:
+        _det = UserEmotionDetector()
+        _is_first_person_affect._det = _det
+    for t in toks:
+        if t in _FP_PRON:
+            continue
+        vad = _det._lookup_word(t)
+        if vad is None:
+            continue
+        # Affective load = strong valence (positive or negative) OR high
+        # arousal. Thresholds match the affect-detector's own "felt" band.
+        v, a = float(vad[0]), float(vad[1])
+        if abs(v) >= 0.4 or a >= 0.5:
+            return True
+    return False
 
 
 def _phrase_keys(phrase: str) -> Set[str]:

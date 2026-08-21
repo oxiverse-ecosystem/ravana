@@ -124,6 +124,20 @@ _VAD_SEED: Dict[str, Tuple[float, float, float]] = {
     "angry":       (-0.80, 0.85, 0.20),
     "mad":         (-0.75, 0.80, 0.25),
     "furious":     (-0.85, 0.90, 0.15),
+    # ── interoceptive / somatic affect idioms (high-arousal bodily states) ──
+    # Bootstrapping lexicon for felt-state phrases like "my blood boil",
+    # "my heart races", "my stomach sinks". These are subjective feeling
+    # reports, not world-state transitions — the causal reasoner's D3
+    # source-monitoring guard keys off this VAD load to refuse binding them
+    # as simulate-able cause→effect edges. Grows online via Hebbian learning.
+    "boil":       (-0.70, 0.85, 0.10),
+    "seethe":     (-0.75, 0.85, 0.15),
+    "race":       (-0.30, 0.80, 0.10),
+    "racing":     (-0.30, 0.80, 0.10),
+    "sink":       (-0.55, 0.45, -0.40),
+    "sinking":    (-0.55, 0.45, -0.40),
+    "pound":      (-0.35, 0.75, 0.05),
+    "pounding":   (-0.35, 0.75, 0.05),
     # ── positive social / relational states ──
     "friend":      (0.55, 0.35, 0.30),
     "friendship":  (0.60, 0.35, 0.35),
@@ -140,6 +154,19 @@ _VAD_SEED: Dict[str, Tuple[float, float, float]] = {
     "laugh":       (0.75, 0.75, 0.45),
     "laughter":    (0.75, 0.75, 0.45),
     "smile":       (0.65, 0.45, 0.40),
+    # ── genuine affect words previously missing from the seed lexicon ──
+    # (round 2026-08-20T1229Z, FIX A2). These are real felt-states a user
+    # rotates in; without them the detector could not score them and the
+    # disclosure either fell through to a hollow ack or (for "creepy"/"wary")
+    # was mis-scored. Seed vocabulary, RAVANA-expandable via the same
+    # Hebbian/online path; no retraining.
+    "creepy":     (-0.55, 0.45, -0.35),
+    "creeps":     (-0.55, 0.45, -0.35),
+    "wary":       (-0.25, 0.35, -0.30),
+    "numb":       (-0.35, 0.25, -0.20),
+    "scary":      (-0.70, 0.80, -0.45),
+    "terrified":  (-0.90, 0.95, -0.55),
+    "terrifying": (-0.85, 0.90, -0.50),
     # ── negative social / relational states ──
     "betrayed":    (-0.75, 0.65, -0.55),
     "abandoned":   (-0.75, 0.45, -0.60),

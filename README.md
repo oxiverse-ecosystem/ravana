@@ -43,23 +43,210 @@ on this codebase:
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
+- **Records its own opinions and answers "do you still feel that way?" from the
+  record.** Asked its own view — *"what do you think about open source"* — it
+  replies *"i strongly value open source. knowledge should be shared, not locked
+  away."* and **records that stance durably** (survives save/load). A later
+  *"do you still feel that way about open source?"* is answered **from that
+  recorded stance** — *"yeah, i still strongly value open source — that hasn't
+  shifted for me. knowledge should be shared, not locked away"* — not recomputed
+  fresh. A revisit on a topic it never stated a view on is answered honestly
+  (*"i don't actually have a recorded view on … from before"*) instead of
+  fabricated. No LLM, no per-topic reply table. See
+  `docs/CAPABILITY_AGENT_OWN_STANCE_PERSISTENCE.md`.
 - **Reverses a held stance.** If you later change your mind — *"i flipped, the
   reef tank is more work than joy"* — it **recodes** the stance you already held
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
   stale one or stacking a contradiction. A flip on a topic you never stated an
   attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
+- **Recodes a held stance on a FREE-FORM contradiction (no retraction keyword).**
+  You don't have to say *"i flipped"* — an opposed restatement with no retraction
+  cue still recodes the stance you hold: *"not all street art is good"* after
+  *"i love street art"* moves `street art` from +0.95 to −0.275; *"actually i've
+  gone off winter"* recodes the `silence` stance it already holds (the broader
+  co-mention bridges via provenance). Detection is a seed reassessment-affect
+  lexicon + `recode_stance_toward` (decisive blend toward the new value); a
+  same-sign reassessment or a neutral utterance leaves the stance untouched, and
+  there is no guessed reversal. No LLM, no retraining. See
+  `docs/CAPABILITY_FREE_FORM_CONTRADICTION_RECODE.md`.
+- **Links a broader-concept co-mention back to a held stance (provenance
+  bridge).** Told *"i love the silence of deep winter"* it records the stance
+  keyed on the subordinate head *silence* **and** keeps the salient broader
+  concept *winter* it co-named as provenance. A later *"am i for or against
+  winter?"* then resolves through that provenance to the held stance and answers
+  *"from what you've told me, you're strongly for silence"* — instead of falling
+  to the *"i don't have a read"* hedge it used before. Provenance is grown online
+  from the real utterance and merged across encounters; there is no per-topic
+  table and no retraining. The same bridge fixes the street-art reversal class
+  (a reversal naming *street art* links to a stance keyed *murals*). See
+  `docs/CAPABILITY_STANCE_PROVENANCE.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
   `from what you've told me, you live in berlin; your cat is rex; …`
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Mines activity durations into dated facts.** Told *"i've been brewing beer
+  for a decade"* (or *"a few years"*, *"two decades"*, *"several years"*, *"many
+  years"*) it resolves the fuzzy span to a start year (`now − n`) and stores a
+  `since` fact — then answers date queries through the **same** resolver as
+  explicit years: `when did i start brewing beer` → `you started brew in 2016.`
+  No per-phrase code; the resolver already knows how to read a `since` fact.
+  See `docs/CAPABILITY_DURATION_MINING.md`.
+- **Recalls the right dated fact even when you paraphrase.** A rotated query that
+  shares no word with the stored activity still recalls it — *"what year did i
+  start all this volcano stuff again"* → *"you started studying volcanoes back in
+  2015."* — because the resolver links each `does`/`event` fact to the dated
+  `since` activity by **morphological stem** (so *volcano* in a separate
+  `start studying volcanoes` fact reaches the `study 2015` fact). The reply is
+  also grammatical: the stored verb is realized as a **gerund** ("started
+  **studying** volcanoes", not "started **study**"), and a redundant inceptive
+  ("started studying…") is collapsed to the gerund. No LLM, no per-topic reply
+  table. See `docs/CAPABILITY_DATE_RECALL_PARAPHRASE.md`.
+- **Tells two activities apart when they share a verb but differ by object.**
+  Told *"i've been building frames since 2019"* and *"i started building cabinets
+  in 2021"*, it mines the object (`frames` / `cabinets`) into each dated fact and
+  recalls the right one: *"when did i start building frames"* → *"you started
+  building frames in 2019."*, and *"since what year have i been building
+  cabinets"* → *"you started building cabinets in 2021."* Previously both returned
+  the same (wrong) year because only the verb head was stored. No LLM, no
+  per-topic reply table. See `docs/CAPABILITY_OBJECT_DISAMBIGUATED_DATE_RECALL.md`.
+- **Mines possession-attribute disclosures into structured, correctable facts.**
+  Told *"the cabin is a hand-hewn pine lodge with a sod roof"* it stores the
+  material under the **entity** (`cabin.madeof = pine`), not a whole-sentence
+  echo of you — so a later *"what's my cabin made of"* returns the clean
+  structured answer *"your cabin is made of pine."* A feature noun after the
+  material scopes the fact (*"my desk is oak frame"* → `desk.frame = oak`,
+  recalled as *"your desk's frame is oak."*). A possession with no recognised
+  material (*"the river is a fast mountain stream"*) is correctly **not** mined
+  (fail-closed, no echo). The material/kind vocabulary is seed data that grows
+  at runtime (`learn_material`) — no code change, no retraining, no LLM. See
+  `docs/CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
-  coffee?"* before forming its own position, it returns an honest non-answer
+  coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
+- **Reflects on its model of you (meta-identity).** Asked *"do i seem like a
+  real person to you"*, *"what am i to you"*, or *"what have you learned about
+  me"*, it answers from its **live** accumulated model of you — your real name,
+  the stances and facts it has picked up, and its own self-coherence — instead
+  of a biographical fact lookup or an episodic echo:
+  `i know you as Corvin. and from what you've told me i've picked up 2 stances you've shared and 1 facts about your life. you've let me see where you stand on things like oysters, surveillance. my own sense of self is still forming — my self-coherence sits around 0.25 and is holding steady.`
+  Every word of content is read from runtime stores (no authored prose; the
+  prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
+  *"what's my name"* is not intercepted and still resolves from its own path. See
+  `docs/CAPABILITY_META_IDENTITY.md`.
+- **Reports the actual learned profile (content aggregation).** Asked *"what
+  have you picked up about me"*, *"describe me"*, *"what stands out about me"*,
+  *"tell me about myself"*, or *"what's your read on me"*, it surfaces the
+  **real content** of its model of you — your name, where you're from, disclosed
+  facts, stated beliefs, and the polarity of each stance it holds — read live
+  from the durable stores:
+  `here's what i've picked up about you so far: your name is corvin; you're from aldermoor in the hills; you grew village called aldermoor; you an astronomer who studies pulsars; on how you feel about things: you're strongly for sea; you're strongly against put.`
+  This is distinct from meta-identity (which reports *counts + topics*, not the
+  facts themselves). Previously these queries fell through to the
+  graceful-uncertainty path and emitted degenerate text despite real facts being
+  stored. Fail-closed: a brand-new user returns `None` and the honest path
+  answers. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_USER_MODEL_AGGREGATION.md`.
+- **Enumerates the entities it has learned in a category.** Asked *"name everyone
+  in my family"*, *"name all my pets"*, or *"who have i told you about"* — queries
+  with **no specific cue word** — it **scans its live PersonalFactStore** and
+  lists every relative and pet it mined, drawn from the real stored facts:
+  `you've told me about: your grandmother indira weaves baskets; your brother arjun climbs mountains; your cat is mochi; your dog is biscuit.`
+  Previously these fell through to a generic acknowledgement (*"noted."*) because
+  the cued-recall paths require a named entity. Category membership is decided by
+  the **shared** lexicon helpers the miner and cued-recall already use, so all
+  three paths agree on what counts as a relative/pet by construction (no
+  duplicated word list). A brand-new user with nothing disclosed gets an honest
+  *"you haven't told me about any family or pets yet."* instead of a fabricated
+  list. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_CATEGORY_ENUMERATION_RECALL.md`.
+- **Reads the USER's own held stance on a third-person query (self/other
+  boundary).** Asked *"do you think i like spicy food or not?"* — where *you* are
+  the attitude holder — it answers from **your** stored preference, not its own:
+  `from what you've told me, you're strongly for spicy food.` (a disclosure of
+  *"i hate cold coffee"* is later recalled the same way: *"you're strongly against
+  cold coffee."*). Previously these matched the broad self-opinion gate and RAVANA
+  answered from its *own* (empty) stance — the generic *"still figuring that out"*
+  hedge — a self/other confusion. The topic is resolved the **same way the stance
+  miner resolves it**, so a paraphrase (*"i adore jazz"* → query *"do you think i
+  love jazz"*) still links to the held stance; the polarity is rendered as ONE word
+  from the live store. Fail-closed: a topic you never stated a preference on, or a
+  genuine question about *RAVANA's* own view, falls through to the normal path and
+  is **not** answered with a fabricated stance. No LLM, no per-topic reply table,
+  no retraining. See `docs/CAPABILITY_USER_STANCE_RECALL.md`.
+- **Keeps a stance recallable when you name two activities in one breath.**
+  A disclosure like *"i adore cold water swimming jumping"* used to mine a
+  **run-on** stance key `cold water swimming jumping` that a later co-mention
+  (*"am i still into cold water swimming?"*) could never bridge — so the stance
+  was unrecallable. Now a morphological cut in `user_model._opinion_topic`
+  (`user_model.py:3658`) truncates the object head at the first second-activity
+  gerund, landing the key on the single salient activity (`cold water swimming`)
+  while leaving single-activity objects (`mountain climbing`, `fossil hunting`)
+  whole and still feeding the `does`/`event` fact miners through the same
+  chokepoint. No per-topic rule, no retraining. See
+  `docs/CAPABILITY_MULTI_ACTIVITY_STANCE_KEY.md`.
+- **Recalls what it knows about a named relationship or person from open
+  phrasing.** Asked *"tell me about my grandmother"*, *"who is my grandmother?"*,
+  *"what does my grandmother do?"*, *"what do you know about my brother"*, or
+  *"describe my niece priya"* — it reports the stored relationship/pet fact from
+  the **same** open phrasing, not just a bare *"who is X"*:
+  `your grandmother indira bakes sourdough bread.` (and *"who is theo?"* → *"your
+  brother theo fixes bicycles."*). Pets are covered too (*"tell me about my cat"*
+  → *"your cat is pixel."*). This needed two fixes: the relationship miner now
+  stores the named fact regardless of name casing (it previously required a
+  CAPITALIZED name and silently dropped lowercase chat names), and a new
+  recall branch keys on the relationship word itself when phrased openly. The
+  branch is gated on an interrogative frame so declarative disclosures (*"my
+  friend is hurting"*) still reach the empathy router, and an unknown relative
+  fails closed with honest uncertainty rather than a fabricated bio. No LLM, no
+  per-person reply table, no retraining. See
+  `docs/CAPABILITY_OPEN_ENDED_RELATIONSHIP_RECALL.md`.
+- **Mines relationship attribute / enumeration disclosures (no activity verb, no capitalized name).** Told *"my grandmother yaya speaks three languages: greek, french, and italian"* — a lowercase relative, a non-activity verb (`speaks`), and a colon-enumeration — it now mines the combined-attr fact (`('i','grandmother yaya') -> 'speaks three languages: greek, french, and italian'`) and recalls it grammatically, enumeration intact, **without** a spurious copula: *"your grandmother yaya speaks three languages: greek, french, and italian."* A paraphrase (*"does yaya still speak those three languages?"*) resolves to the same stored fact. This generalizes the existing relationship miner's verb gate to a **seed** relation-verb lexicon (`speaks/works/studies/plays/…`), so other relationships (`"my uncle ravi works as a mechanic"`) mine the same way; location verbs stay owned by the location miner (no double-store), and a name-less/no-content disclosure (`"my grandmother"`) is correctly skipped (no degenerate fact). No LLM, no per-relationship reply table, no retraining. See `docs/CAPABILITY_RELATIONSHIP_ATTR_ENUMERATION_MINING.md`.
+- **Recalls non-kin relationships (mentor / teacher / coach / friend) from open phrasing.** After a disclosure like *"my mentor Dr. Okonkwo taught me astronomy"*, asked *"who is my mentor?"*, *"tell me about my mentor"*, or *"what does my mentor do?"* — it reports the **full** relationship fact (`your mentor dr. okonkwo taught astronomy.`) from the same open phrasing as kin, with the full name + activity and no truncation. This needed a seed-vocabulary fix: non-kin role words (mentor, teacher, coach, friend, neighbour, boss, …) now live in the **shared** `relation_attrs` lexicon (single source of truth) instead of a duplicate local list, so the appositive-pet miner rejects them via its `relation_of()` guard instead of mis-storing *"my mentor Dr…"* as a bogus pet fact (`('i','mentor','dr')`) that truncated recall to *"your mentor is dr."* The role vocabulary is seed and grows at runtime via `learn_relation`. No LLM, no per-role reply table, no retraining. See `docs/CAPABILITY_NONKIN_ROLE_RECALL.md`.
+- **Answers what *you* have told *it* — autobiographical recall of the USER.** Asked *"what will you remember most about me?"* it composes from your REAL profile (the most-confident learned fact/stance first, then a short tail), e.g. *"the thing that stands out most is your brother theo restores vintage radios."* Asked *"did i tell you i liked cold-weather hiking?"* it confirms from your REAL stance (*"yes — you told me you're uncertain about cold weather hiking. i've kept that."*) — and says *"not that i recall"* honestly when nothing maps. Asked *"earlier i told you i loved X. does that still fit, or have i changed?"* it reports your CURRENT (already-reconciled) stance, not a stale echo. This fixes a self/other boundary inversion: those queries used to be misrouted into RAVANA's own-reply echo store (returning *"i said: good to know you love…"* about the user's own disclosure). The answers are composed entirely from the live `personal_facts` / `opinions.stances` / `belief_store` — no authored prose, no per-topic table, no retraining. Genuine agent-self questions (*"what did you say about music?"*) still fall through untouched. See `docs/CAPABILITY_AUTOBIOGRAPHICAL_RECALL.md`.
+- **Recalls a possession's name even when you PARAPHRASE the entity.** After *"i keep a sourdough starter i named doris"*, asked *"what did i name that sourdough culture on my counter?"* it links the paraphrase to the stored entity via cross-lemma GloVe cosine and answers *"your sourdough starter's name is doris."* — instead of leaking an unrelated "i"-scoped name fact (the R1 confabulation where it used to answer the best-friend's name). The linker shares the engine's seed GloVe embeddings, requires a verbatim head-word overlap as a confabulation bar, and **fails closed** (honest "i don't know" / no leak) when no stored entity clears the bar — so an unknown possession never gets a fabricated name. It runs before the self-profile scanners so a generic *"what is my name?"* is not hijacked by a possession. No LLM, no synonym table, no retraining. See `docs/CAPABILITY_ENTITY_LINKED_NAME_RECALL.md`.
+- **Separates world-knowledge questions from autobiographical recall.** Asked
+  *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
+  about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
+  as a general-knowledge question and falls through to internal-knowledge / web /
+  honest-uncertainty. The same phrase *"what is wrong with my car?"*, because it
+  references your **own** disclosed entity (*my* car), is still answered from
+  episodic memory (`gps`, `reboot`). The gate is a distribution-driven intent
+  classifier (explicit recall markers + a personal-possessive reference), not a
+  frozen topic list, so it generalizes across every subject and needs no
+  retraining. Fail-open: a general knowledge question can never be answered by an
+  autobiographical echo. See `docs/CAPABILITY_QUERY_INTENT_GATE.md`.
+- **Withholds word salad about a subject it has never learned (D4).** The
+  Situation-Model free-decode path used to restate a query's own near-neighbours
+  as a "fact" about a subject RAVANA has *no* durable knowledge of (e.g. *"tired"*
+  — no definition, no web source, not in the concept graph), and the grounding
+  monitor accepted it because those neighbours are all GloVe-similar. Now an
+  **unknown** subject — not in the concept graph / no definition / no web source
+  — can no longer be grounded by free-association similarity alone: its utterance
+  is withheld and the path falls back to honest uncertainty. A **known** concept
+  (already learned, or with a seeded definition) still grounds a genuine answer,
+  and a subject learned later online is re-admitted. No LLM, no per-topic reply
+  table. See `docs/CAPABILITY_SM_UNKNOWN_SUBJECT_GROUNDING.md`.
+- **Stops parroting your affect as its own reasoning (D3).** The in-prompt
+  causal reasoner used to intercept a combined *"statement + question"* turn like
+  *"that parking lot plan makes my blood boil. do you get why i'm furious?"*,
+  mine your **affective statement** as a causal premise, and replay your own
+  clause *"my blood boil"* verbatim as its reply — a source-monitoring failure.
+  Now `parse_causal_edges` refuses to bind a premise whose **effect is a
+  first-person affective self-report** (*"my blood boil"*, *"makes me furious"*,
+  *"my heart races"*): that is a felt state, not a world-state transition, so the
+  turn falls through to the genuine affective-response path. Detection is
+  **seed-driven** — first-person pronoun (closed-class grammar set) + an
+  affect-bearing word read from RAVANA's own learnable VAD lexicon (reused from
+  the intent router, grown online via Hebbian learning), not a keyword table or
+  authored prose. A legitimate world-state conditional (*"when you turn on the
+  lamp, it lights up"*) still binds and answers. No LLM, no per-topic reply table,
+  no retraining. See `docs/CAPABILITY_SOURCE_MONITORING_AFFECTIVE_ECHO.md`.
+- **Recalls relationship disclosures made with an auxiliary verb (does/did + activity).** Told *"my cousin Jin does competitive speedcubing"* — where *"does"* is neither an activity verb nor a relation verb — it no longer drops the disclosure and later answers *"what does my cousin jin do"* with *"your cousin jin does competitive speedcubing."* (copula-free, not *"is does"*, and not the prior *"cousin is a bit outside what i know right now"*). The auxiliary is now a **third** verb class in the relationship miner (after activity verbs and relation verbs, both already generalized), opening the same capture path (name = tokens before it, value = aux + activity noun-phrase). The recall grammar rule that drops the copula for verb-phrase values (`is_verb_phrase`) now covers all three classes. The aux vocabulary is seed data that grows at runtime — no code change, no retraining, no LLM, no per-relationship reply table. See `docs/CAPABILITY_AUX_VERB_RELATIONSHIP_RECALL.md`.
 
-These capabilities are backed by four durable stores — an **identity model**
+These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
 (`PersonalFactStore`), and **beliefs** (`BeliefStore`) — plus a **ConceptGraph**
 world-model. The README's benchmark and architecture sections describe the
