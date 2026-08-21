@@ -204,6 +204,49 @@ def is_aux_verb(word: str) -> bool:
     return False
 
 
+def _is_query(q: str) -> bool:
+    """True when `q` is an interrogative (question / imperative recall), so the
+    personal-fact miner must skip it. A question is never a self-disclosure, yet
+    the relationship/activity miners otherwise fire on query substrings (e.g.
+    "remind me what my brother Theo DOES for work" stored the degenerate
+    ('i','brother theo','does work') fact). The leading-question-word vocabulary
+    mirrors the recall resolvers' own _name_is_q gate, so the miner and the
+    recaller agree on what a question is — one source of truth, not a second
+    per-topic rule. Precise: a trailing '?', OR a leading recall-verb
+    (remind/tell/recall/...), OR a wh-word followed by an auxiliary (inverted
+    question), OR a leading yes/no auxiliary. A clause-leading disclosure
+    ("what i love is running") is NOT inverted (subject 'i' follows 'what', not
+    an aux) so it is correctly KEPT and still mined. Seed structure; no content.
+    """
+    q = (q or "").strip()
+    if not q:
+        return False
+    if q.endswith("?"):
+        return True
+    _AUX = {"is", "are", "was", "were", "am", "do", "does", "did", "can",
+            "could", "would", "will", "shall", "should", "may", "might",
+            "have", "has", "had"}
+    _RECALL = {"remind", "tell", "show", "explain", "describe", "recall",
+               "remember", "know", "say", "mention", "repeat", "list"}
+    m = re.match(
+        r"^(what|who|whom|whose|where|when|why|which|how|is|are|was|were|"
+        r"do|does|did|can|could|would|will|shall|should|may|might|"
+        r"remind|tell|show|explain|describe|recall|remember|know|say|"
+        r"mention|repeat|list)\b", q, re.IGNORECASE)
+    if not m:
+        return False
+    _w = m.group(1).lower()
+    if _w in _RECALL:
+        return True
+    if _w in ("what", "who", "whom", "whose", "where", "when", "why",
+              "which", "how"):
+        # wh-word is a question only when inverted (auxiliary before subject).
+        _nw = q[m.end():].strip().split()
+        return bool(_nw) and _nw[0].lower() in _AUX
+    # leading yes/no auxiliary (is/are/do/does/can/...) => question.
+    return True
+
+
 def is_verb_phrase(word: str) -> bool:
     """True when `word` heads a VERB-PHRASE personal fact (activity OR relation
     OR auxiliary verb). The single source of truth for the recall/ack grammar
@@ -993,6 +1036,15 @@ class UserModel:
         regex buckets — the store learns the rest from confirm/contradict.
         """
         q_clean = re.sub(r"\s+", " ", text).strip()
+        # INTERROGATIVE GUARD (round 2026-08-21T2156Z, defect D3): a question is
+        # never a self-disclosure, so do not mine it. Without this, query
+        # substrings ("remind me what my brother Theo DOES for work") reached the
+        # relationship/activity miners and stored degenerate facts (('i','brother
+        # theo','does work')) that later recall rendered as broken English. See
+        # _is_query for the precise (inverted-question-aware) test; it reuses the
+        # same leading-question-word vocabulary the recall resolvers use.
+        if _is_query(q_clean):
+            return
         # Correction cue (B4 wiring, investigation Gap 1): when the user is
         # correcting us ("no, my cat is milo", "actually i live in paris"),
         # a mined fact whose attribute already holds a DIFFERENT active value
