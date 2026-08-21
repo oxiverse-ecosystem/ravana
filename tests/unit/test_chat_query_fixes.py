@@ -110,6 +110,38 @@ def test_definitional_not_conditional(engine, q):
     assert engine._is_conditional_query(q) is False
 
 
+# ── Fix: epistemic-hedge preamble must NOT be routed to the counterfactual
+# forward-simulator (same category-error family as the definitional fix above).
+# A first/second-person hedge — "if i had to bet", "if i'd say", "if you ask
+# me", "if i'm being honest" — wraps a PERSONAL OPINION / conviction, not a
+# hypothetical scenario. Routing it into the simulator resolved the intervened
+# node to the hedge verb and emitted garbage ("bet would lead to attention").
+# These must fall through to the opinion/belief-mining path. Genuine conditionals
+# ("if the sun disappeared", "if i were a bird") contain no hedge verb and must
+# still promote to the simulator.
+@pytest.mark.parametrize("q", [
+    "if i had to bet, i'd say attention is the most valuable thing anyone owns",
+    "if i'd say privacy matters, it's because trust is fragile",
+    "if you ask me, loud fireworks are selfish",
+    "if i'm being honest, i can't stand fresh-cut grass in summer",
+    "if i just had to guess, most arguments online are people talking past each other",
+])
+def test_hedge_preamble_not_conditional(engine, q):
+    assert engine._is_conditional_query(q) is False
+
+
+@pytest.mark.parametrize("q", [
+    "if the sun disappeared what would happen",
+    "if i were a bird where would i migrate",
+    "suppose water froze instantly",
+    "what if humans could fly",
+])
+def test_genuine_conditional_still_routes(engine, q):
+    # The exclusion must NOT swallow real counterfactuals (regression guard:
+    # "were"/"disappeared"/"froze"/"could fly" are not hedge verbs).
+    assert engine._is_conditional_query(q) is True
+
+
 def test_conditional_not_a_preamble_route():
     """The process_turn gate must skip the preamble hold for a conditional.
 

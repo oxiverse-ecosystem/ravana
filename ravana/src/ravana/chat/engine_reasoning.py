@@ -2623,7 +2623,23 @@ class ReasoningMixin:
                     r"who (is|was|were)|where (is|was|were)|"
                     r"explain|describe|"
                     r"how (does|do|is|are|can|could|would|should)|"
-                    r"what (causes|makes)|why (is|are|do|does) (?!.*\b(if|would|could))\b)", t):
+                    r"what (causes|makes)|why (is|are|do|does) (?!.*\b(if|would|could)))\b", t):
+            return False
+
+        # Epistemic-hedge preamble exclusion (SAME category-error family as the
+        # definitional exclusion above). First/second-person hedges — "if i had
+        # to bet", "if i'd say", "if i'm being honest", "if you ask me" — wrap a
+        # PERSONAL OPINION or conviction, NOT a counterfactual scenario. Routing
+        # them into the forward-simulator resolves the intervened node to the
+        # hedge verb and emits absurd chains ("bet would lead to attention").
+        # They must fall through to the opinion/belief-mining path. Genuine
+        # conditionals ("if the sun disappeared", "if i were a bird") contain no
+        # hedge verb and are unaffected (verified: 'were'/'disappeared' are not
+        # in the hedge set, so they still promote to the simulator).
+        if re.match(
+            r"^if\s+(i|you|we|they|he|she|one)\s*"
+            r"(had to|would|just|guess|bet|say|am|being|asked|ask|have to|got to|"
+            r"'d|'m)\b", t):
             return False
 
         # Stage 3 (M-A) promoted route: the fused prototype router drives the
