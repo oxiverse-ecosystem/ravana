@@ -130,11 +130,26 @@ def relation_of(word: str) -> Optional[str]:
     """Canonical relationship for a surface kin word, or None if not a relation.
 
     Two-token forms ("mother in law") are tried both joined and with a hyphen so
-    that surface variations resolve to one canonical relation.
+    that surface variations resolve to one canonical relation. Multi-word kin
+    MODIFIERS are normalized to a single head ("great-aunt" / "great aunt" /
+    "grand-aunt" -> "aunt", "step-brother" -> "brother") so a disclosure like
+    "my great-aunt Hortense ..." mines + recalls through the SAME path as "my
+    aunt" — no second branch. Round 2026-08-21T2156Z defect D2: the bare word
+    "great" is not a relationship, so "great-aunt" was previously unmapped and
+    the disclosure was dropped. The mapping is seed structure (RAVANA-extendable
+    via learn_relation); it names NO person, only the modifier->head collapse.
     """
     w = (word or "").strip().lower()
     if not w:
         return None
+    # Normalize multi-word kin modifiers to a single canonical head.
+    _norm = w.replace("-", " ").strip()
+    _norm = re.sub(r"\s+", " ", _norm)
+    if _norm != w:
+        _head = _norm.split()[-1]  # "great aunt" -> "aunt", "step brother" -> "brother"
+        _canon = _RELATION_SEED.get(_head) or _RELATION_LEARNED.get(_head)
+        if _canon is not None:
+            return _canon
     joined = w.replace(" ", "")
     return (_RELATION_SEED.get(w) or _RELATION_SEED.get(joined)
             or _RELATION_LEARNED.get(w) or _RELATION_LEARNED.get(joined))

@@ -763,6 +763,23 @@ _REASSESS_NEG_SET = frozenset(_REASSESS_NEG)
 _REASSESS_POS_SET = frozenset(_REASSESS_POS)
 
 
+# Negation tokens that flip a reassessment term's sign. Seed structure
+# (RAVANA-expandable); no topic is named here. A negation immediately
+# preceding/near an affect term inverts its polarity, so "i DON'T actually
+# HATE crowds" is read as a POSITIVE reassessment of a held-NEGATIVE stance
+# (and must recode it), not a same-sign echo that leaves the stale attitude
+# in place. Round 2026-08-21T2156Z defect D1: the prior scorer did dumb
+# substring matching and read "hate" inside "i don't actually hate crowds" as
+# negative (same sign as the held -0.95 stance), so the contradiction was
+# never detected and a later "do you think i like crowds" reported "strongly
+# against crowds" — contradicting the user's own retraction.
+_REASSESS_NEGATORS = (
+    "not", "n't", "dont", "don't", "aint", "ain't", "never", "no longer",
+    "no more", "barely", "hardly", "scarcely", "wont", "won't", "cannot",
+    "can't", "cant", "rarely", "seldom",
+)
+
+
 def _assess_reversal_polarity(text: str) -> Optional[float]:
     """Estimate the NEW attitude polarity of a free-form reassessment utterance.
 
@@ -770,19 +787,46 @@ def _assess_reversal_polarity(text: str) -> Optional[float]:
     term present, or None when the utterance carries no reassessment signal (so a
     contradiction is never guessed from neutral wording). Seed lexicon; RAVANA can
     extend the term sets at runtime as new reassessment phrasings are observed.
+
+    NEGATION-AWARE (round 2026-08-21T2156Z defect D1): a negation token within a
+    small window BEFORE the affect term flips its sign. "i don't actually HATE
+    crowds" -> the negated "hate" is read as a POSITIVE reassessment
+    (recodes a held-negative stance toward neutral/pro-positive), whereas the old
+    dumb-substring scorer read the bare word "hate" and treated it as same-sign,
+    silently dropping the contradiction. The window is bounded (cheap + bounded
+    false-positive surface); a negation more than ~4 tokens away does not flip.
     """
     t = (text or "").lower()
     if not t:
         return None
+    _tokens = re.findall(r"[a-z']+", t)
+    _neg_idx = {i for i, w in enumerate(_tokens) if w in _REASSESS_NEGATORS}
+
+    def _negated(term):
+        # True when a negation token sits within a 4-token window BEFORE the
+        # affect term's head — bounded false-positive surface (a negation more
+        # than ~4 tokens away does not flip the term's sign).
+        _head = term.split()[0]
+        for i, w in enumerate(_tokens):
+            if w == _head or w.startswith(_head):
+                return any(j in _neg_idx for j in range(max(0, i - 4), i))
+        return False
+
     _best_pol = None
     _best_len = 0
-    for term in _REASSESS_NEG_SET:
-        if term in t and len(term) > _best_len:
-            _best_pol, _best_len = -0.8, len(term)
-    for term in _REASSESS_POS_SET:
-        if term in t and len(term) > _best_len:
-            _best_pol, _best_len = 0.8, len(term)
-    return _best_pol
+    _best_neg = False
+    for _sign, _set in ((-0.8, _REASSESS_NEG_SET), (0.8, _REASSESS_POS_SET)):
+        for term in _set:
+            if term not in t:
+                continue
+            if len(term) > _best_len:
+                _best_len = len(term)
+                _best_pol = _sign
+                _best_neg = _negated(term)
+    if _best_pol is None:
+        return None
+    # A negation flips whatever sign the WINNING (longest) affect term carried.
+    return -_best_pol if _best_neg else _best_pol
 
 # Conjoined multi-pet disclosure pattern: "i have a ferret named pim and a
 # parrot called coco". One regex captures the whole chain; the miner expands it
@@ -1874,9 +1918,24 @@ class UserModel:
         # This is structural — one verb lexicon, no per-name table, no case
         # assumption — and generalizes to any name casing/length. Content comes
         # from the user's own words; no authored reply, no retraining.
-        _mk = re.search(r"\bmy\s+([a-z][a-z]+)\b\s*(.*)", q_clean)
+        _mk = re.search(r"\bmy\s+([a-z][a-z-]+)\b\s*(.*)", q_clean)
         if _mk:
             _kin = _mk.group(1).lower()
+            # GENERALIZE (round 2026-08-21T2156Z defect D2): a multi-word kin
+            # modifier ("great-aunt" / "great aunt") is normalized to its head
+            # relationship word via the SHARED relation_attrs.relation_of
+            # vocabulary, so "my great-aunt Hortense ..." is accepted by the same
+            # role gate as "my aunt" (the bare word "great" is not a relation,
+            # so it was previously dropped). The hyphenated form is captured by
+            # the relaxed char class above; normalization happens here, before
+            # the relation_of() gate below. Seed structure, no per-kin branch.
+            try:
+                from .relation_attrs import relation_of as _mk_rel_of
+                _kin_norm = _mk_rel_of(_kin)
+                if _kin_norm:
+                    _kin = _kin_norm
+            except Exception:
+                pass
             # GENERALIZE (round 2026-08-17T1730Z): a relationship disclosure is
             # not restricted to blood kin. Mentors, teachers, coaches, friends,
             # neighbors, bosses, colleagues, roommates, landlords, and any
@@ -1979,6 +2038,7 @@ class UserModel:
                 # the user's own relation word, the name the user's own noun, the
                 # verb (when present) real content from the user's words.
                 _put_fact_done = False
+                _val = ""
                 if _vidx is None:
                     _name_toks = []
                     for _t in _toks:
@@ -1993,10 +2053,27 @@ class UserModel:
                         # nothing informative to store (e.g. "my grandmother
                         # last spring") — skip to avoid a bogus fact.
                         _put_fact_done = True
+                    else:
+                        # GENERALIZE (round 2026-08-21T2156Z defect D2): a
+                        # disclosure with a recognized NAME but an UNrecognized
+                        # verb ("my great-aunt Hortense folds a thousand paper
+                        # cranes every winter" — "folds" is not in the activity
+                        # lexicon) still carries real content. Capture the
+                        # trailing clause AFTER the name as the value (trimmed at
+                        # a clause boundary) so the fact is informative and the
+                        # degenerate-fact guard below keeps it. Content is the
+                        # user's own words; no per-relationship branch.
+                        _after = " ".join(
+                            _t.strip(".,!?") for _t in _toks[len(_name_toks):])
+                        _after = re.split(
+                            r"\s*(?:[.!?]+|where|that|which|when|but)\b",
+                            _after)[0].strip(" ,.!?;:")
+                        _after = re.sub(r"\s+", " ", _after).lower()
+                        if _after and len(_after.split()) <= 12:
+                            _val = _after
                 else:
                     _name = " ".join(_toks[:_vidx]).lower()
                     _name = _strip_obj_framers(_name).strip(" .,!?")
-                _val = ""
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
@@ -2045,6 +2122,69 @@ class UserModel:
                         _obj = _strip_obj_framers(_obj)
                         if _obj and len(_obj.split()) <= 5:
                             _val = f"{_verb} {_obj}"
+                # GENERALIZE (round 2026-08-21T2156Z defect D2): an EMBEDDED
+                # relative clause ("my friend wren, she's a ceramicist") has no
+                # activity verb before the name, and the name is LOWERCASE after
+                # a comma, so the name-only fallback (which requires a leading
+                # CAPITALIZED token) found nothing and the disclosure was dropped.
+                # Capture the "<Name>, <pronoun>'s a <descriptor>" shape: a comma,
+                # a pronoun subject (she/he/they/it), a copula (is/'s), then a
+                # noun-phrase descriptor. The name is the leading capitalized OR
+                # lowercase run before the comma; the descriptor becomes the
+                # value. Structural — generalizes to ANY relationship word
+                # RAVANA has learned (the head is the user's own relation word);
+                # the descriptor is the user's own noun-phrase, so content is real
+                # and recall renders "your <rel> <name> is a <descriptor>". No
+                # per-relationship branch, no authored reply, no retraining.
+                if not _name and _toks:
+                    # FIX (round 2026-08-21T2156Z defect D2): detect the comma
+                    # on the RAW token (a trailing comma survived by the lower()
+                    # in q_clean), NOT after rstrip(',') — rstrip removes it
+                    # before endswith(',') can match, so the embedded-relative
+                    # path never fired.
+                    _comma = next((i for i, _t in enumerate(_toks)
+                                   if _t.endswith(",")), None)
+                    if _comma is not None:
+                        # The name may be IN the comma token itself
+                        # ("my friend wren, she's a ceramicist" -> token
+                        # "wren,") or in the tokens BEFORE a separate comma
+                        # ("my aunt maya, ..."). Strip a trailing comma off the
+                        # leading token so the name is extracted cleanly.
+                        if _comma == 0:
+                            _name = _toks[0].strip(".,!?").lower()
+                        else:
+                            _name = " ".join(
+                                _t.strip(".,!?").lower()
+                                for _t in _toks[:_comma]).strip()
+                        # a leading comma with nothing before it, or a name that
+                        # is itself a closed-class word, is not informative.
+                        if _name and _name.split()[0] not in (
+                                "the", "a", "an", "my", "your", "i", "you"):
+                            _rel_clause = " ".join(
+                                _t.strip(".,!?") for _t in _toks[_comma + 1:])
+                            _mc = re.match(
+                                r"^\s*(?:she|he|they|it|who|that)\b\s*"
+                                r"(?:is|'s|was|are|were|be|being|been)\s*"
+                                r"(?:a|an|the)?\s*(.+?)\s*$",
+                                _rel_clause, re.IGNORECASE)
+                            if _mc:
+                                _desc = _mc.group(1).strip().lower()
+                                _desc = re.sub(r"\s+", " ", _desc)
+                                if _desc and len(_desc.split()) <= 8:
+                                    # keep a leading article so recall renders
+                                    # "your <rel> <name> is a <descriptor>".
+                                    if not _desc.startswith(("a ", "an ", "the ")):
+                                        _desc = "a " + _desc
+                                    _val = _desc
+                                    _put_fact_done = False
+                                else:
+                                    _put_fact_done = True
+                            else:
+                                # comma present but not a relative clause we
+                                # recognize — nothing informative to store.
+                                _put_fact_done = True
+                        else:
+                            _put_fact_done = True
                 # COMBINED-attr storage: (i, "<rel> <name>", "<verb> <object>").
                 # Reachable from recall branch (c) / open-ended recaller by the
                 # relation head. A name-less disclosure (e.g. "my grandmother
