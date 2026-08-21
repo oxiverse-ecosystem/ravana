@@ -761,6 +761,29 @@ _REASSESS_POS = (
 )
 _REASSESS_NEG_SET = frozenset(_REASSESS_NEG)
 _REASSESS_POS_SET = frozenset(_REASSESS_POS)
+# GENERALIZE (round 2026-08-21T2156Z, this round's marathon-gap fix): base
+# SENTIMENT verbs, not just the reassessment IDIOMS above. The idiom sets only
+# caught phrasings like "gone off" / "come around to" / "hate" / "dislike";
+# a BASE positive verb ("love" / "like" / "enjoy" / "adore") used in a
+# contradiction ("i don't actually LOVE marathon running") was invisible to the
+# scorer, so the free-form recode never fired and a held +0.95 stance persisted
+# (measured: marathon retraction left running-marathons at +0.95). Mirror the
+# idiom sets with base-verb sets so a negated base-positive verb reads as a
+# NEGATIVE reassessment of a held-positive stance, and a negated base-negative
+# verb as a POSITIVE one — the SAME sign-flip rule as the idioms, no second
+# code path. Seed structure (RAVANA-extendable); no per-topic rule, no retrain.
+_REASSESS_SENT_POS = (
+    "love", "loves", "loved", "like", "likes", "liked", "enjoy", "enjoys",
+    "enjoyed", "adore", "adores", "adored", "cherish", "treasure", "relish",
+    "savor", "savour", "prefer", "prefers", "fond of", "care for",
+)
+_REASSESS_SENT_NEG = (
+    "hate", "hates", "hated", "dislike", "dislikes", "detest", "loathe",
+    "despise", "abhor", "can't stand", "cant stand", "can't bear",
+    "cant bear", "dread", "resent",
+)
+_REASSESS_SENT_POS_SET = frozenset(_REASSESS_SENT_POS)
+_REASSESS_SENT_NEG_SET = frozenset(_REASSESS_SENT_NEG)
 
 
 # Negation tokens that flip a reassessment term's sign. Seed structure
@@ -815,18 +838,45 @@ def _assess_reversal_polarity(text: str) -> Optional[float]:
     _best_pol = None
     _best_len = 0
     _best_neg = False
-    for _sign, _set in ((-0.8, _REASSESS_NEG_SET), (0.8, _REASSESS_POS_SET)):
+    # Scan ALL reassessment lexicons with their base sign. A negation within the
+    # 4-token window flips the sign (so "don't actually LOVE X" reads as a
+    # NEGATIVE reassessment of a held-positive stance, and "don't actually HATE
+    # X" as a POSITIVE one). Base-verb sets mirror the idiom sets so the same
+    # sign-flip rule covers both — no second code path, no per-topic branch.
+    #
+    # PRECEDENCE (round 2026-08-21T2156Z, this round's marathon-gap fix): a
+    # NEGATED term is a CONTRADICTION signal and must outrank any non-negated
+    # term regardless of length. Without this, a co-mentioned fresh preference
+    # ("i don't actually LOVE marathon running, i PREFER short sprints") let the
+    # longer non-negated "prefer" (+0.8) win over the negated "love" (-0.8), so
+    # the held +0.95 stance was never recoded (measured: marathon retraction
+    # left running-marathons at +0.95). A retraction is the salient intent; the
+    # new preference is the replacement, handled downstream by the resolver
+    # against the PRIOR stance. So: if ANY negated term is present, it wins;
+    # only when none is negated do we fall back to the longest non-negated term
+    # (original behavior).
+    _neg_pol = None
+    _neg_len = 0
+    for _sign, _set in ((-0.8, _REASSESS_NEG_SET),
+                        (0.8, _REASSESS_POS_SET),
+                        (-0.8, _REASSESS_SENT_NEG_SET),
+                        (0.8, _REASSESS_SENT_POS_SET)):
         for term in _set:
             if term not in t:
                 continue
-            if len(term) > _best_len:
+            if _negated(term):
+                if len(term) > _neg_len:
+                    _neg_len = len(term)
+                    _neg_pol = -_sign
+            elif _best_pol is None or len(term) > _best_len:
                 _best_len = len(term)
                 _best_pol = _sign
-                _best_neg = _negated(term)
+    if _neg_pol is not None:
+        # A contradiction signal dominates — return its (flipped) polarity.
+        return _neg_pol
     if _best_pol is None:
         return None
-    # A negation flips whatever sign the WINNING (longest) affect term carried.
-    return -_best_pol if _best_neg else _best_pol
+    return _best_pol
 
 # Conjoined multi-pet disclosure pattern: "i have a ferret named pim and a
 # parrot called coco". One regex captures the whole chain; the miner expands it
