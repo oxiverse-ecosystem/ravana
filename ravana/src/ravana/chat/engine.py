@@ -2974,7 +2974,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # is not hijacked. Fail-closed: returns None when no stance resolves,
         # so a genuinely unstored topic reaches honest uncertainty.
         if opinions is not None:
-            _prior_q = bool(re.search(
+            # Only treat this as a PRIOR-STANCE RECALL when the user is ASKING
+            # (interrogative). A declarative "i used to think cities were X but
+            # now Y" is a live reversal act that mine_stance_reversal must
+            # handle — it must NOT be hijacked into a recall. Gate on a question
+            # mark OR an interrogative front (did/were/do/what/how + auxiliary).
+            _q_front = re.compile(
+                r"^\s*(?:did|do|does|are|were|was|have|has|what|how|who|"
+                r"when|why|which|is|can|would|could|will|should)\b", re.I)
+            _is_question = ("?" in q) or bool(_q_front.match(q))
+            _prior_q = _is_question and bool(re.search(
                 r"\b(used to|original|before (?:i|you)|earlier|initially|"
                 r"at first|back then|what was my|did i (?:used to|once)|"
                 r"how did i (?:feel|think) (?:before|about .* before)|"
@@ -3032,7 +3041,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # they haven't changed).
                         _w = self._polarity_word(_s.polarity)
                         return f"from what you've told me, you're {_w} {_topic}."
-            return None
+            # NOTE: do NOT return None here for a non-prior query — that would
+            # short-circuit the rest of _structured_recall (1c/1d biographical
+            # and relationship-enumeration recall). Only a genuinely-prior query
+            # that resolved to nothing falls through to honest uncertainty, and
+            # that is handled by returning None *inside* the `if _prior_q:` block
+            # below. A non-prior query must fall through to the later branches.
 
         # ── (1c) Possessive-entity + count + activity biographical recall ──
         # These were PREVIOUSLY NESTED inside the (1b) "_TOLD" block, so they
