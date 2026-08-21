@@ -102,3 +102,16 @@ def test_affect_verb_reversal_later_operable():
     assert after is not None, "reversal must find the mined stance"
     assert after.polarity > before, \
         "reversal must move the stance toward positive"
+
+
+def test_affect_verb_fail_closed_unknown_verb_outside_seed_class():
+    """Fail-closed: a verb that is NEITHER in the shared VAD matrix NOR in the
+    seed affect-verb class must NOT mine a stance. The construction only encodes
+    attitude when the verb is a known affect term; an unknown verb (here
+    'wibbles') scores 0.0 and is skipped — no confabulated polarity. This is the
+    documented fail-closed branch; it lacked explicit coverage before this test.
+    """
+    um = _um("the tax form wibbles me something fierce")
+    key = um.opinions.resolve_topic("tax form")
+    assert key is None or key not in um.opinions.stances, \
+        "unknown verb outside VAD+seed-class must not mine a stance"
