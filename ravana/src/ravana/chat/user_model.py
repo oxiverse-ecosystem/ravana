@@ -3293,7 +3293,19 @@ class UserModel:
             # (honest — we never guess a reversal from neutral wording).
             _new_pol = _assess_reversal_polarity(text)
             if _new_pol is not None:
-                _target = self.opinions.resolve_topic(text)
+                # Resolve against the LIVE stance store, but the free-form
+                # recode only ever acts on a stance the user ALREADY HELD in a
+                # PRIOR turn. The opinion miner in the SAME turn may have just
+                # created a fresh stance from a co-mentioned concept (e.g.
+                # "the cold gets to me now" -> a new "cold" stance), and
+                # `resolve_topic` can bind to that fresh stance via substring
+                # precedence, leaving the genuinely-held stance (bridged through
+                # provenance, e.g. "silence" co-mentioned with "winter") never
+                # reached. Restrict resolution to PRIOR-turn stances so the
+                # recode targets the held valuation, never a coincidental
+                # same-turn co-mention. (Honest: a topic with no PRIOR stance is
+                # left alone — we never walk back a brand-new attitude.)
+                _target = self.opinions._resolve_prior_stance(text)
                 if _target is not None:
                     _held = self.opinions.stances.get(_target)
                     # Guard: only RECODE a stance the user ALREADY HELD in a PRIOR
@@ -3310,6 +3322,7 @@ class UserModel:
                             # leave it — no double-write.
                             and (_new_pol * _held.polarity) < 0.0):
                         try:
+                            self.opinions._soft_reversal = True
                             self.opinions.recode_stance_toward(
                                 _target, new_polarity=_new_pol,
                                 blend=0.7, utterance=text)

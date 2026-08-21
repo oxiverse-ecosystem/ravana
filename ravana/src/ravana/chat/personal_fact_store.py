@@ -438,6 +438,60 @@ class UserStanceStore:
             return _best
         return None
 
+    def _resolve_prior_stance(self, phrase: str) -> Optional[str]:
+        """Resolve `phrase` to a stance the user ALREADY HELD in a PRIOR turn.
+
+        Same linkage logic as ``resolve_topic`` (exact / substring /
+        content-word Jaccard / provenance bridge) but it SKIPS any stance whose
+        ``turn_number`` equals the current turn — i.e. one the opinion miner just
+        created in THIS turn from a co-mentioned concept ("the cold gets to me
+        now" -> fresh "cold" stance). A free-form contradiction recode must walk
+        back a HELD valuation, never a brand-new same-turn attitude, so a fresh
+        co-mention must not preempt the genuinely-held (provenance-bridged) topic
+        (e.g. "silence" co-mentioned with "winter"). Generic and store-driven:
+        identical resolution, just scoped to prior turns. Returns None when no
+        prior stance plausibly matches.
+        """
+        stances = self.stances
+        if not stances:
+            return None
+        head = (phrase or "").lower().strip()
+        _prior = {k: s for k, s in stances.items()
+                  if getattr(s, "turn_number", 0) < self.turn_num}
+        if not _prior:
+            return None
+        if head in _prior:
+            return head
+        for k in _prior:
+            if head and (head in k or k in head):
+                return k
+        hw = set(re.findall(r"[a-z']+", head)) - STOP_WORDS - _FILLER_TOKENS
+        best, best_j = None, 0.0
+        for k in _prior:
+            kw = set(re.findall(r"[a-z']+", k)) - STOP_WORDS - _FILLER_TOKENS
+            if not hw or not kw:
+                continue
+            j = len(hw & kw) / len(hw | kw)
+            if j > best_j:
+                best, best_j = k, j
+        if best is not None and best_j >= 0.4:
+            return best
+        # PROVENANCE BRIDGE (scoped to prior stances only).
+        if hw:
+            _best, _best_score = None, 0.0
+            for k, s in _prior.items():
+                _prov = getattr(s, "provenance", None) or []
+                if not _prov:
+                    continue
+                _overlap = len(hw & set(_prov))
+                if _overlap <= 0:
+                    continue
+                _score = _overlap + 0.001 * s.confidence
+                if _score > _best_score:
+                    _best, _best_score = k, _score
+            return _best
+        return None
+
     def reinforce(self, topic: str) -> None:
         s = self.stances.get(topic.lower().strip())
         if s is None:
