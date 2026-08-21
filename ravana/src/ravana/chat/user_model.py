@@ -3634,6 +3634,45 @@ class UserModel:
             head.append(t)
         if not head:
             return None
+        # MULTI-ACTIVITY CUT (feature t_46c07b5d, D5 residual from round
+        # 2026-08-19T1628Z): a disclosure can name TWO activities as one object
+        # span — "i adore cold water swimming jumping", "nothing beats cold
+        # water swimming jumping", "i care for cold water swimming jumping" —
+        # where the second verb/gerund ("jumping") is appended to the first
+        # ("swimming") into a single run-on stance key ("cold water swimming
+        # jumping"). The resolver + reversal miner can NEVER bridge a later
+        # co-mention ("am i still into cold water swimming?") to that key, so
+        # the stance is unrecallable (a real defect, not a seed). Morphological
+        # gate: cut the head at the FIRST gerund token that is NOT the leading
+        # content word (a second activity), so the key lands on the single
+        # salient activity ("cold water swimming"). Agerund is a content word
+        # ending in "ing" of length >= 5 that is NOT an aspectual/framer residue
+        # already excluded by _OBJ_NONCONTENT ("coming"/"keeping"/"going"/
+        # "starting"/"burning"/"ringing"/"taking"/"making"). The leading token
+        # is always kept — so a single-activity object ("swimming", "mountain
+        # climbing", "fossil hunting", "river kayaking") survives WHOLE (it is
+        # the first and only gerund) and continues to feed the `does`/`event`
+        # fact stores that reuse this method (rule 6g: one shared chokepoint,
+        # no per-verb branch, no retraining). The cut is purely morphological
+        # and generalizes to ANY two-activity disclosure the user rotates in.
+        _saw_gerund = False
+        _cut_at = None
+        for _i, _t in enumerate(head):
+            if _i == 0:
+                # never cut the leading token — it is the content head.
+                if _t.endswith("ing") and len(_t) >= 5 and _t not in _OBJ_NONCONTENT:
+                    _saw_gerund = True
+                continue
+            if _t.endswith("ing") and len(_t) >= 5 and _t not in _OBJ_NONCONTENT:
+                if _saw_gerund:
+                    # second activity in the span — stop here.
+                    _cut_at = _i
+                    break
+                _saw_gerund = True
+        if _cut_at is not None:
+            head = head[:_cut_at]
+        if not head:
+            return None
         # Drop trailing closed-class/modifier words as a final safety.
         while len(head) > 1 and head[-1] in self._OPINION_STOP:
             head.pop()
