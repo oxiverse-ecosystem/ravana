@@ -2254,6 +2254,60 @@ class UserModel:
                         _obj = _strip_obj_framers(_obj)
                         if _obj and len(_obj.split()) <= 5:
                             _val = f"{_verb} {_obj}"
+                        else:
+                            # GENERALIZE (feature t_6b93e125, round
+                            # 2026-08-22T0058Z residual DEFECT B-variant): a
+                            # relationship disclosure can carry its object as a
+                            # NON-NOUN-PHRASE CLAUSE — "my mentor taught me how
+                            # to read the hive's mood", "my grandmother showed
+                            # me where the river bends", "my uncle taught me
+                            # why the stars wheel at night". The opinion-topic
+                            # resolver is built to collapse such clauses to a
+                            # content HEAD ("read" / "where" / "why") and then
+                            # REJECT that head as verb-residue (it lives in
+                            # _OBJ_NONCONTENT), so _obj comes back EMPTY and the
+                            # degenerate-fact guard drops the WHOLE disclosure.
+                            # The raw clause is real, informative content the
+                            # user said, so we keep it verbatim instead of
+                            # dropping it. This mirrors the relation-verb path
+                            # above (which preserves the user's own enumerated
+                            # phrase rather than trimming it to a content head).
+                            # We only fall back to the raw clause when the
+                            # topic-resolver produced nothing — genuine
+                            # noun-phrase objects still go through the resolver
+                            # and keep the existing "real concept head" shape.
+                            # The fallback is BOUNDED (<= 12 tokens, trailing
+                            # closed-class framers stripped) so a runaway clause
+                            # cannot swallow the sentence, and we re-use the
+                            # same clause-boundary splitter used by the
+                            # relation-verb path so a trailing ".!?" / "where|
+                            # that|which|when|but" cleanly ends the value.
+                            # Content comes verbatim from the user's own words;
+                            # no authored reply; no per-relationship table; no
+                            # retraining. RAVANA-expandable: the same
+                            # PersonalFactStore the user can correct.
+                            _raw = re.split(
+                                r"\s*(?:[.!?]+|where|that|which|when|but)\b",
+                                _obj_rest)[0].strip(" ,.!?;:")
+                            # drop a leading possessive framer ("me", "us") that
+                            # opens a taught/showed clause but carries no
+                            # content ("my mentor taught me HOW...").
+                            _raw_toks = _raw.lower().split()
+                            if _raw_toks and _raw_toks[0] in (
+                                    "me", "us", "them", "him", "her", "you",
+                                    "myself", "himself", "herself"):
+                                _raw_toks = _raw_toks[1:]
+                            # strip trailing closed-class framer / preposition
+                            _FALLBACK_PREP = (
+                                "up", "down", "from", "at", "in", "on", "with",
+                                "to", "of", "by", "for", "about", "into",
+                                "onto", "over", "under", "near", "behind",
+                                "beside", "off", "out", "as")
+                            while _raw_toks and _raw_toks[-1] in _FALLBACK_PREP:
+                                _raw_toks.pop()
+                            _raw = " ".join(_raw_toks).strip()
+                            if _raw and len(_raw.split()) <= 12:
+                                _val = f"{_verb} {_raw}"
                 # GENERALIZE (round 2026-08-21T2156Z defect D2): an EMBEDDED
                 # relative clause ("my friend wren, she's a ceramicist") has no
                 # activity verb before the name, and the name is LOWERCASE after
