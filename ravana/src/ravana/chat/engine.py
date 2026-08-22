@@ -3343,7 +3343,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fabricate). Reuses the shared pet lexicon (pet_slots.species_of) and
         # the data-driven _activity_query_overlap scorer so matching is by
         # topical overlap, not a frozen verb allowlist.
-        if pf is not None:
+        # GATE on a genuine INTERROGATIVE frame (round 2026-08-22T0703Z CI
+        # fix): this resolver is a RECALL path, but nothing below previously
+        # checked whether the input was a QUESTION at all. A declarative pet
+        # disclosure ("my cat is pixel") named the species and the name, so
+        # the scorer below matched it and echoed the statement back as if it
+        # had been asked ("your cat is pixel.") instead of leaving it to
+        # fact-mining. Same structural fix as branch (b) above: require a
+        # trailing "?" or a sentence-initial interrogative/recall word.
+        _pet_is_q = bool(
+            re.search(r"\?$", q.strip())
+            or re.match(
+                r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                r"do|does|did|has|have|had|can|could|would|will|tell|"
+                r"said|say|recall|remember|know|mention)\b", q.strip()))
+        if pf is not None and _pet_is_q:
             try:
                 from .pet_slots import species_of as _ps_of
             except Exception:
@@ -3425,7 +3439,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "play", "eats", "eat", "chase", "chases", "steal",
                     "steals", "sleep", "sleeps", "bark", "barks",
                 }
-                _ask_activity = bool(_q_set & _ACT_CUES)
+                # (round 2026-08-22T0703Z CI fix) a query can also ask about
+                # the activity by naming its CONTENT directly ("which of my
+                # pets hides things in the couch?") without any generic cue
+                # word from the fixed list above. Reuse the SAME topical
+                # overlap already computed for scoring: if the winning pet's
+                # stored activity shares a content word with the query, the
+                # query is asking about that activity. Data-driven, not a
+                # bigger allowlist.
+                _act_words = (set(re.findall(r"[a-z']+", _act.lower())) - _STOP
+                              if _act else set())
+                _ask_activity = bool(_q_set & _ACT_CUES) or bool(_act_words & _q_set)
                 if _ask_activity and _act:
                     return f"your {_sp} {_nm} {_act}."
                 # NAME answer (the pet's identity) — correct for identity queries
