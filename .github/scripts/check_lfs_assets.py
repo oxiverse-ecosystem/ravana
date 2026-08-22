@@ -29,6 +29,12 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 # git-lfs pointer files always begin with this exact version line.
 _LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 
+# Non-fatal mode: when CI runs with RAVANA_OFFLINE=1 the engine is told NOT to
+# fetch GloVe at runtime. This is now irrelevant because the GloVe cache is
+# supplied via actions/cache (the warm-glove-cache job), not git-lfs. Kept as a
+# guard constant in case a future job runs offline without the cache.
+_NONFATAL = os.environ.get("RAVANA_OFFLINE", "") == "1"
+
 # (path relative to repo root, minimum plausible real size in bytes)
 _REQUIRED_ASSETS = [
     (os.path.join("data", "ravana_glove_cache.npz"), 1_000_000),
@@ -76,10 +82,9 @@ def main() -> int:
         print("\nERROR: git-lfs assets did not resolve:\n", file=sys.stderr)
         print("\n".join(failures), file=sys.stderr)
         print(
-            "\nTests would fall back to downloading glove.6B.zip (~822 MB), "
-            "which cannot complete inside the job timeout.\n"
-            "Fix: ensure the checkout step sets `lfs: true` and that the "
-            "repository has git-lfs bandwidth available, then re-run.",
+            "\nThe GloVe cache is supplied via actions/cache (warm-glove-cache job), "
+            "not git-lfs. If it is missing, the warm-glove-cache job failed or the "
+            "cache was evicted — re-run the workflow so the cache is repopulated.",
             file=sys.stderr,
         )
         return 1
