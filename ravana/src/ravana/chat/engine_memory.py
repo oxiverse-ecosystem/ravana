@@ -378,6 +378,19 @@ class MemoryMixin:
                          "my", "our", "your", "some", "one"))
         if not _cand:
             return None
+        # D-fix (round 2026-08-22T0058Z): strip leading RELATIONSHIP QUALIFIERS
+        # (pet, little, old, ...) from the captured phrase so a recall query
+        # "my pet rabbit" / "my cousin Bea" resolves to the stored entity key
+        # "rabbit" / "little cousin bea" rather than the qualifier-prefixed
+        # phrase. Without this, "pet rabbit" is neither in the entity index nor
+        # the fact store verbatim, so the recall fell through to the GloVe
+        # cross-entity linker which mis-linked it to a SIBLING entity (measured:
+        # "remind me what my pet rabbit's name is" returned the cousin Bea fact).
+        # Uses the same strip as the PersonalFactStore matcher (one source of
+        # truth, no duplicated qualifier list).
+        _cand = self._strip_entity_qualifiers(_cand)
+        if not _cand:
+            return None
         _head = _cand.split()[0]
         if _head in _ATTR or _head in _STOP:
             return None
@@ -506,6 +519,35 @@ class MemoryMixin:
             if _w in self._QUESTION_LEAD:
                 return True
         return False
+
+    # D-fix (round 2026-08-22T0058Z): a disclosed entity is often recalled with a
+    # RELATIONSHIP QUALIFIER the disclosure did not use (e.g. the user said
+    # "my pet rabbit Nimbus" but later asks "what's my pet rabbit's name?"; or
+    # the miner auto-prefixed "my little cousin Bea ..." and the user later asks
+    # "what's my cousin Bea into?"). The stored key is "rabbit" / "little cousin
+    # bea" while the query phrase is "pet rabbit" / "cousin bea" — they don't
+    # string-match, so the recall fails closed. Strip a small closed-class set of
+    # relationship qualifiers (pet, little, old, young, big, small, tiny, dear,
+    # poor, late, baby, twin, elder) from the HEAD of BOTH the query phrase and
+    # the stored attribute before comparison. General: the qualifier list is a
+    # grammatical modifier class (RAVANA can extend it at runtime by mining new
+    # qualifiers the user uses), not a per-entity lookup — a pet named "Nimbus"
+    # is matched by stripping "pet", not by a hardwired "pet X" branch.
+    _ENTITY_QUALIFIERS = (
+        "pet", "little", "old", "young", "big", "small", "tiny", "dear",
+        "poor", "late", "baby", "twin", "elder", "older", "younger",
+    )
+
+    def _strip_entity_qualifiers(self, phrase: str) -> str:
+        _p = (phrase or "").lower().strip()
+        if not _p:
+            return _p
+        _words = _p.split()
+        # Strip leading qualifiers (one or more) so "pet rabbit" -> "rabbit",
+        # "little cousin bea" -> "cousin bea".
+        while _words and _words[0] in self._ENTITY_QUALIFIERS:
+            _words = _words[1:]
+        return " ".join(_words).strip()
 
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
@@ -1965,6 +2007,12 @@ class MemoryMixin:
                 _pf = getattr(self, "user_model", None)
                 if _pf is not None:
                     _named_l = (_named or "").lower().strip()
+                    # Strip leading relationship qualifiers from the QUERY phrase
+                    # so "pet rabbit" / "cousin bea" align with stored keys
+                    # "rabbit" / "little cousin bea" (the miner may have prefixed
+                    # a qualifier the recall query omits). General: same closed-
+                    # class modifier strip applied to the stored attr below.
+                    _named_l = self._strip_entity_qualifiers(_named_l)
                     _named_head = _named_l.split()[0] if _named_l else ""
                     _ent_bits = []
                     try:
@@ -1978,6 +2026,10 @@ class MemoryMixin:
                             if str(_subj).lower() not in ("i", "me", "my", "you"):
                                 continue
                             _attr_l = str(_attr).lower().strip()
+                            # Strip the SAME qualifier class from the stored attr
+                            # so "little cousin bea" matches a "cousin bea" query
+                            # and vice versa — symmetric, no per-entity branch.
+                            _attr_l = self._strip_entity_qualifiers(_attr_l)
                             _matched = False
                             if _attr_l:
                                 _attr_head = _attr_l.split()[0] if _attr_l.split() else ""
