@@ -2171,6 +2171,27 @@ class UserModel:
                 except Exception:
                     pass
             if _role:
+                # HEADLESS-POSSESSIVE GUARD (round 2026-08-22T0703Z, DEFECT D2):
+                # a disclosure like "my daughter name is ingrid" has the shape
+                # "<kin> <relation-word> <copula> <value>" — a HEADLESS
+                # possessive, NOT a "<kin> <Name> <verb>...>" activity disclosure.
+                # mine_personal_facts already handles it correctly via the generic
+                # `my X is Y` pattern + _split_possessive_attr into an
+                # entity-scoped fact (('daughter','name','ingrid')). If this kin
+                # block ALSO mines it, its comma/embedded-relative name-extractor
+                # mis-reads the leading relation word ("name") as the relationship
+                # head and the copula ("is") as the name, producing a MALFORMED
+                # fact (('i','daughter name is','...')). Root cause: the kin block
+                # fired on a shape the generic possessive path owns. Fix: when the
+                # FIRST token after the relationship word is itself a relation
+                # word (name/age/job/...), this is a headless possessive — return
+                # so only the correct entity-scoped fact survives. Structural:
+                # reuses the shared _REL_WORDS vocabulary the possessive splitter
+                # already consults, so miner + recaller agree by construction; no
+                # per-role branch, no authored reply, no retraining.
+                _rest0_toks = _rest0.split()
+                if _rest0_toks and _rest0_toks[0].strip(".,!?").lower() in _REL_WORDS:
+                    return
                 _rest = _rest0
                 _toks = _rest.split()
                 _vidx = None

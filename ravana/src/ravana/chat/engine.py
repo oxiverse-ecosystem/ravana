@@ -3367,21 +3367,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
                         continue
-                    if _k[0] != "i" or getattr(_f, "superseded", False):
+                    if getattr(_f, "superseded", False):
                         continue
+                    _subj = _k[0]
                     _attr = _k[1].lower()
                     _val = (getattr(_f, "value", "") or "").strip()
-                    # Activity / date facts are owned by the activity (1b/1c) and
-                    # date-grounded (1f) resolvers. Branch (1d) is the
-                    # relationship/person/pet recall path; letting it answer from
-                    # `does`/`event`/`since`/`since_age` facts hijacks temporal
-                    # and activity queries (round 2026-08-17 bug: "when did i
-                    # start building frames" -> "your does is ..."). The SAME
-                    # name-match rule (b) that latched a `does` fact also latches
-                    # a `since` fact ("... your since is study volcanoes 2015."),
-                    # so `since`/`since_age` MUST be excluded here too, not just
-                    # `does`/`event`. This only NARROWS the matcher; no reply
-                    # string is added.
+                    # GENERALIZE (round 2026-08-22T0703Z, DEFECT D2): relationship
+                    # facts may be stored ENTITY-scoped (subject == the relation
+                    # word, e.g. ('daughter','name','ingrid') from a headless
+                    # possessive "my daughter name is ingrid") rather than under
+                    # subject 'i'. The reverse-name resolver ("who is ingrid to me")
+                    # must resolve these too, so it scans BOTH subject=='i' facts
+                    # and entity-scoped facts. For an entity-scoped fact the
+                    # relationship label is the entity (subject) itself; we match
+                    # when the query's name token equals the stored value. This
+                    # keeps the resolver type-agnostic (any relationship the user
+                    # named), not a per-entity branch; content from the store.
+                    _ent_scoped = (_subj != "i")
+                    if _ent_scoped:
+                        # only consider entity-scoped facts whose VALUE names the
+                        # queried person (e.g. name=='ingrid')
+                        if _qr_name is None or _val.lower().split()[0] != _qr_name:
+                            continue
+                        # render the relationship as the entity word
+                        _ans = f"your {_subj}." if not _val else f"your {_subj} is {_val}."
+                        return _ans
                     if _attr in ("does", "event", "since", "since_age"):
                         continue
                     _matched = False
