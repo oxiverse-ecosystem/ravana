@@ -331,13 +331,55 @@ class MemoryMixin:
         _STOP = ("i", "you", "me", "my", "your", "we", "our", "what", "who",
                  "where", "when", "why", "how", "it", "that", "this", "he",
                  "she", "they", "one", "some", "any", "its")
-        _m = re.search(r"\b(?:my|our|your)\s+([a-z']+?)(?:'s)?\b", q) or \
-             re.search(r"\b([a-z']+?)'s\b", q)
+        # D-fix (round 2026-08-22T0058Z): capture the FULL possessive noun
+        # phrase (head + following name words), not just the single token
+        # after the possessive. A disclosure like "my brother Finn" is stored
+        # under the multi-word entity key "brother finn"; the old
+        # single-token capture returned "brother", which is NOT a stored key,
+        # so the cued recall failed closed and the query fell through to the
+        # generic "i" self-profile dump (measured: "remind me what my brother
+        # Finn does" -> "you do keep pet gecko named ziggy; you do lost old
+        # horse bramble..."). Cap at 4 following words (a kin/relation head +
+        # a multi-word name); strip a trailing possessive marker and
+        # determiners. "my cat's name" -> "cat"; "my brother finn" ->
+        # "brother finn". General (regex/grammar), no per-name branch; RAVANA
+        # grows these entity keys from conversation, so it is seed structure,
+        # not a lookup table.
+        # D-fix (round 2026-08-22T0058Z): capture the FULL possessive noun
+        # phrase (head + following name words), not just the single token
+        # after the possessive. A disclosure like "my brother Finn" is stored
+        # under the multi-word entity key "brother finn"; the old
+        # single-token capture returned "brother", which is NOT a stored key,
+        # so the cued recall failed closed and the query fell through to the
+        # generic "i" self-profile dump. Case-insensitive (re.I) so CAPITALIZED
+        # entity names ("Finn", "Vega", "Ilse") are part of the phrase, not
+        # split off after the head token (a lowercase-only class matched
+        # "brother" then failed on the capital "F" in "Finn", silently
+        # degrading to the single head token). Apostrophes are EXCLUDED from
+        # the char class so a possessive ("my cat's") yields the head "cat"
+        # without a dedicated strip; the second alternative handles the bare
+        # "X's" form. Cap at 4 following words (kin head + multi-word name).
+        # General (regex/grammar), no per-name branch; RAVANA grows these
+        # entity keys from conversation.
+        _m = re.search(
+            r"\b(?:my|our|your)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,4})", q, re.I) or \
+            re.search(r"\b([a-zA-Z]+?)'s\b", q, re.I)
         if not _m:
             return None
-        _cand = _m.group(1)
+        _cand = _m.group(1).strip()
         _cand = _cand[:-2] if _cand.endswith("'s") else _cand
-        if _cand in _ATTR or _cand in _STOP:
+        # drop leading/trailing determiners so "my old horse bramble" ->
+        # "old horse bramble" (the stored key may be "horse bramble"); keep the
+        # head word so a genuine self-attribute query ("what is my name") still
+        # resolves to None via the _ATTR/_STOP guard below.
+        _cand = " ".join(
+            w for w in _cand.split()
+            if w not in ("the", "a", "an", "this", "that", "these", "those",
+                         "my", "our", "your", "some", "one"))
+        if not _cand:
+            return None
+        _head = _cand.split()[0]
+        if _head in _ATTR or _head in _STOP:
             return None
         return _cand
 
@@ -434,6 +476,36 @@ class MemoryMixin:
                     continue
                 _best = max(_best, float(np.dot(key_vec, _wv)))
         return _best
+
+    # D-fix (round 2026-08-22T0058Z): a stored episode that is ITSELF a question
+    # carries no answer content, so it must never be retrieved AS the answer to
+    # a cued recall. Without this, re-asking a prior question (e.g. "what are my
+    # work hours again?" after the user already asked "what are my work hours?")
+    # returned the PRIOR QUESTION episode verbatim instead of the answer that
+    # was given (measured T62 defect). Structural: questions are identified by
+    # interrogative syntax (a question mark, or an auxiliary/question-word
+    # leading an utterance), not a topic keyword list. RAVANA grows no special
+    # table for this — it is grammar.
+    _QUESTION_LEAD = (
+        "what", "where", "when", "who", "whom", "whose", "which", "why", "how",
+        "do", "does", "did", "is", "are", "was", "were", "can", "could", "will",
+        "would", "should", "may", "might", "shall", "am", "have", "has", "had",
+    )
+
+    def _is_question(self, text: str) -> bool:
+        _t = (text or "").strip().lower()
+        if not _t:
+            return False
+        if "?" in _t:
+            return True
+        _first = re.findall(r"[a-z']+", _t)
+        if not _first:
+            return False
+        # Allow a short lead-in ("so, ..." / "and ...") before the question word.
+        for _w in _first[:3]:
+            if _w in self._QUESTION_LEAD:
+                return True
+        return False
 
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
@@ -781,7 +853,8 @@ class MemoryMixin:
                     r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
                     _t) or re.search(
                     r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
-                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t):
+                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t) or \
+                    self._is_question(_t):
                     continue  # skip prior recall queries (no content)
                 # Count how many cue tokens' STEMS appear in this episode's
                 # stemmed token stream (morphology-invariant match).
@@ -831,7 +904,7 @@ class MemoryMixin:
                 text.lower()) or re.search(
                 r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
                 r"\b(told|said|mentioned|asked|tell|remember|recall)\b",
-                text.lower()):
+                text.lower()) or self._is_question(text):
                 continue
             score = 0.0
             _strong_link = False
@@ -1873,6 +1946,54 @@ class MemoryMixin:
                 _ep = self._retrieve_episodic(user_input)
                 if _ep is not None:
                     return _ep
+            # D-fix (round 2026-08-22T0058Z): a SPECIFIC-ENTITY cued recall whose
+            # named entity (now the full noun phrase, e.g. "brother finn") lives
+            # in the PersonalFactStore but NOT the in-memory episodic index must
+            # still resolve to THAT entity's facts — not fall through to the
+            # generic whole-"i" profile dump (the T46 defect: "remind me what my
+            # brother Finn does" returned "you do keep pet gecko named ziggy;
+            # you do lost old horse bramble..."). When _named is set and the cued
+            # episodic path did not fire, look the entity up in the
+            # PersonalFactStore (the canonical disclosure store) and render ONLY
+            # its stored facts. This generalizes across every relative/pet/
+            # possession entity (brother finn, cousin vega, grandmother ilse,
+            # pet gecko, ...) with ONE path — no per-name branch, no authored
+            # prose, content from the live store. If the named entity matches no
+            # stored attribute, fail CLOSED (honest miss) rather than dumping the
+            # user's whole profile.
+            if _named is not None:
+                _pf = getattr(self, "user_model", None)
+                if _pf is not None:
+                    _named_l = (_named or "").lower().strip()
+                    _named_head = _named_l.split()[0] if _named_l else ""
+                    _ent_bits = []
+                    try:
+                        for _k, _v in _pf.personal_facts.facts.items():
+                            if getattr(_v, "superseded", False):
+                                continue
+                            if not (isinstance(_k, (tuple, list)) and len(_k) >= 3):
+                                continue
+                            _subj = _k[0]
+                            _attr = _k[1]
+                            if str(_subj).lower() not in ("i", "me", "my", "you"):
+                                continue
+                            _attr_l = str(_attr).lower().strip()
+                            _matched = False
+                            if _attr_l:
+                                _attr_head = _attr_l.split()[0] if _attr_l.split() else ""
+                                _matched = (_attr_l == _named_l
+                                            or _attr_l.startswith(_named_l + " ")
+                                            or _named_l.startswith(_attr_l + " ")
+                                            or (_named_head != "" and _named_head == _attr_head))
+                            if _matched:
+                                _val = getattr(_v, "value", _v)
+                                if _val:
+                                    _ent_bits.append(
+                                        self._render_fact_line(_attr, _val))
+                    except Exception:
+                        _ent_bits = []
+                    if _ent_bits:
+                        return "; ".join(dict.fromkeys(_ent_bits)) + "."
             # Generic self-recall: reconstruct a gist from ALL disclosed user
             # facts held in the hippocampal entity index (Tulving encoding
             # specificity: a self-directed memory query without a target
