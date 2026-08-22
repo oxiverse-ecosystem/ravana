@@ -2028,32 +2028,44 @@ class UserModel:
                 _mk_rel_of = lambda w: None
             _kin = _mk.group(1).lower()
             _rest0 = _mk.group(2)
-            # GENERALIZE (round 2026-08-22T0058Z, DEFECT B): a leading MODIFIER
-            # can sit between "my" and the relationship word — "my OLD mentor
-            # Dr. Osei", "my DEAR friend Priya", "my LATE uncle Bram". The OLD
-            # code took only the FIRST word after "my" as the relation head, so
-            # "old"/"dear"/"late" (not relationship words) became the head and
-            # the WHOLE disclosure was dropped — a later "who is my mentor?"
-            # had nothing to recall. Fix: if the captured head is NOT a
-            # relationship word but the NEXT token in the remainder IS (after
-            # relation_of normalization), shift that token into the head and
-            # advance the remainder. This is bounded (one modifier) and preserves
-            # the existing embedded-clause path: a bare "my friend wren, she's a
-            # ceramicist" still keeps "wren" in the remainder so the name-only /
-            # embedded-clause branch (below) captures it. Seed vocabulary
-            # consulted via relation_of, not a per-role table; no authored
-            # prose; no retraining. When no relationship word is found the block
-            # falls through unchanged (honest no-match, no fictitious fact).
+            # GENERALIZE (round 2026-08-22T0058Z, DEFECT B): a relationship
+            # disclosure can carry one or more LEADING MODIFIERS before the
+            # relationship word — "my OLD mentor Dr. Osei", "my OLD BEEKEEPING
+            # mentor Dr. Osei", "my DEAR friend Priya", "my LATE uncle Bram".
+            # The OLD code took only the FIRST word after "my" as the relation
+            # head, so "old"/"dear"/"late" (not relationship words) became the
+            # head and the WHOLE disclosure was dropped — a later "who is my
+            # mentor?" had nothing to recall.
+            #
+            # Fix: scan the remainder left-to-right for the FIRST token that is
+            # a relationship word (via relation_of). Everything before it is a
+            # modifier and is dropped; that token becomes the head. SCAN STOPS
+            # at the first CAPITALIZED proper-noun name (e.g. "wren" in "my
+            # friend wren, she's a ceramicist") so a bare "<rel> <Name>, <clause>"
+            # disclosure keeps the Name in the remainder for the embedded-clause
+            # path below — this preserves the pre-existing behavior that the
+            # first attempt at this fix broke. When no relationship word is
+            # found before a name or the end, the head is unchanged and the
+            # block falls through honestly (no fictitious fact).
+            #
+            # Seed vocabulary consulted via relation_of / learn_relation (RAVANA
+            # runtime-extensible), not a per-role table; no authored prose; no
+            # retraining. Bounded by the remainder length.
             if _mk_rel_of(_kin) is None and _rest0:
-                _rest_toks0 = _rest0.split()
-                if _rest_toks0:
-                    # strip trailing punctuation (commas/periods) so "old
-                    # mentor," / "old mentor." resolves the head word cleanly.
-                    _first = _rest_toks0[0].lower().strip(".,!?;:\"'" + "'")
-                    _shift = _mk_rel_of(_first)
-                    if _shift:
-                        _kin = _shift
-                        _rest0 = " ".join(_rest_toks0[1:])
+                _rt = _rest0.split()
+                _head_found = False
+                for _j, _tk in enumerate(_rt):
+                    _wt = _tk.lower().strip(".,!?;:\"'" + "'")
+                    if _mk_rel_of(_wt) is not None:
+                        _kin = _mk_rel_of(_wt)
+                        _rest0 = " ".join(_rt[_j + 1:])
+                        _head_found = True
+                        break
+                    # a capitalized proper noun is the entity NAME, not a
+                    # modifier — stop scanning so the embedded-clause path can
+                    # capture it.
+                    if _tk[:1].isupper():
+                        break
             _kin_norm = _mk_rel_of(_kin)
             if _kin_norm:
                 _kin = _kin_norm
@@ -2082,7 +2094,6 @@ class UserModel:
                 _ra_learn = lambda w: ""
             if _kin in _KIN or _ra_of(_kin) is not None:
                 _role = True
-                # GROW the shared relationship vocabulary (relation_attrs)
                 # from the live disclosure, so the recaller (engine.py 1c/1d),
                 # which already consults relation_of / is_relation_attribute /
                 # base_relation, generalizes to this role WITHOUT a per-role

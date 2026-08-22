@@ -61,7 +61,13 @@ def test_defect_a_stance_flip_reflected():
 
 
 def test_defect_b_leading_modifier_relationship():
-    """Relationship disclosure with a leading modifier must mine + recall."""
+    """Relationship disclosure with a leading modifier must mine + recall.
+
+    DEFECT B (round 2026-08-22T0058Z): the miner took only the FIRST word
+    after "my" as the relation head, so "my OLD mentor Dr. Osei" put "old"
+    (not a relationship word) in the head slot and dropped the WHOLE
+    disclosure — "who is my mentor?" later had nothing to recall.
+    """
     eng = _new_engine("test_dB")
     with contextlib.redirect_stdout(io.StringIO()):
         eng.process_turn("my old mentor, Dr. Osei, taught me field biology "
