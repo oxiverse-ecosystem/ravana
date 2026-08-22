@@ -3139,6 +3139,41 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"\b(made of|made from|made out of|built of|built from|"
                 r"material|composed of)\b", q))
             if _is_question and not _is_material:
+                # PET ACTIVITY PRIORITY (round 2026-08-22T0703Z, DEFECT D1): when
+                # the query names a pet and an activity fact exists for it, report
+                # the activity FIRST — "what does my ferret do?" / "what does Pip
+                # do with the car keys" ask for the ACTIVITY, not the name. This
+                # runs before the name-only companion return so pet recall is
+                # symmetric with kin recall. Store-driven; no authored reply.
+                try:
+                    from .pet_slots import species_of as _ps_of2
+                    _pet_acts = {}
+                    for _pk, _pf in pf.facts.items():
+                        if not (isinstance(_pk, tuple) and len(_pk) == 3):
+                            continue
+                        if _pk[0] != "i" or getattr(_pf, "superseded", False):
+                            continue
+                        _pa = _pk[1].lower()
+                        if _pa.endswith("_activity"):
+                            _ps = _pa[:-len("_activity")]
+                            _pet_acts[_ps] = _pf.value.strip()
+                    _q_toks2 = set(re.findall(r"[a-z']+", q.lower()))
+                    for _pk, _pf in pf.facts.items():
+                        if not (isinstance(_pk, tuple) and len(_pk) == 3):
+                            continue
+                        if _pk[0] != "i" or getattr(_pf, "superseded", False):
+                            continue
+                        _p_attr = _pk[1].lower()
+                        _p_sp = _ps_of2(_p_attr)
+                        if _p_sp is None:
+                            continue
+                        if _p_sp == _p_attr and _p_sp in _pet_acts:
+                            # query names this pet (by species or by its name)
+                            _p_name = _pf.value.strip().lower().split()[0]
+                            if _p_sp in _q_toks2 or _p_name in _q_toks2:
+                                return f"your {_p_sp} {_pf.value.strip()} {_pet_acts[_p_sp]}."
+                except Exception:
+                    pass
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
                         continue
@@ -3158,6 +3193,85 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _vv and _vv.split() and _is_act(_vv.split()[0]):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
+        # ── (1c-pet) PET ACTIVITY RECALL (round 2026-08-22T0703Z, DEFECT D1) ──
+        # A pet disclosure now stores a companion fact ("i",
+        # "<species>_activity", "<verb> <object>") alongside the name (mined
+        # by mine_personal_facts). This resolver lets RAVANA REPORT that stored
+        # activity so pet recall is symmetric with kin recall:
+        #   - "which of my pets hides things in the couch" / "what does my cat
+        #     do with the router" -> the pet whose activity overlaps the query.
+        #   - "what does Pip do with the car keys" / "what does my ferret do"
+        #     -> the pet named/identified in the query.
+        # Fully store-driven; no authored reply; no per-animal table; no
+        # retraining. Honest None fallback when no pet activity matches (never
+        # fabricate). Reuses the shared pet lexicon (pet_slots.species_of) and
+        # the data-driven _activity_query_overlap scorer so matching is by
+        # topical overlap, not a frozen verb allowlist.
+        if pf is not None:
+            try:
+                from .pet_slots import species_of as _ps_of
+            except Exception:
+                _ps_of = lambda w: None
+            _q_toks = re.findall(r"[a-z']+", q.lower())
+            _q_set = set(_q_toks)
+            _STOP = {
+                "the", "a", "an", "of", "about", "on", "my", "i", "you", "what",
+                "who", "which", "where", "when", "why", "how", "is", "are", "was",
+                "were", "to", "in", "for", "with", "that", "this", "it", "and",
+                "or", "but", "from", "by", "as", "at", "me", "do", "does", "did",
+            }
+            # Collect pet name facts + their companion activity facts.
+            _pets = []  # (species, name, activity_or_None)
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] != "i" or getattr(_f, "superseded", False):
+                    continue
+                _a = _k[1].lower()
+                _sp = _ps_of(_a)
+                if _sp is None:
+                    continue
+                # The name fact has attr == the bare species slot; the activity
+                # fact has attr == "<species>_activity".
+                if _a == _sp:
+                    _pets.append([_sp, _f.value.strip(), None])
+            # attach activity companions
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] != "i" or getattr(_f, "superseded", False):
+                    continue
+                _a = _k[1].lower()
+                # Companion activity facts are stored with a "_activity"
+                # suffix on the bare species slot (e.g. "ferret_activity").
+                if _a.endswith("_activity"):
+                    _sp = _a[:-len("_activity")]
+                    for _p in _pets:
+                        if _p[0] == _sp:
+                            _p[2] = _f.value.strip()
+                            break
+            # Score each pet match against the query.
+            _best = None
+            _best_score = 0.0
+            for _sp, _nm, _act in _pets:
+                _score = 0.0
+                # (a) the query names this pet explicitly
+                if _nm and _nm.split()[0] in _q_set:
+                    _score += 2.0
+                # (b) topical overlap of the pet's activity with the query
+                if _act:
+                    _act_set = set(re.findall(r"[a-z']+", _act.lower())) - _STOP
+                    _overlap = len(_act_set & _q_set)
+                    if _overlap:
+                        _score += 1.0 + 0.5 * _overlap
+                # (c) the query names the species
+                if _sp in _q_set:
+                    _score += 1.0
+                if _score > _best_score:
+                    _best_score = _score
+                    _best = (_sp, _nm, _act)
+            if _best is not None and _best_score > 0.0 and _best[2]:
+                return f"your {_best[0]} {_best[1]} {_best[2]}."
         # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
         # feature t_1a4a3938, round 2026-08-17T1126Z) ───────────────────────
         # Queries that name a relationship (kin) or a specific person/entity and

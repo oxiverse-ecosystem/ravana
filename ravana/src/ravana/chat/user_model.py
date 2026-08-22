@@ -86,6 +86,16 @@ _ACTIVITY_VERB_LEXICON = {
     "show", "showed", "told", "say", "said", "call", "called", "visit",
     "visited", "help", "helped", "love", "loved", "like", "hate", "hated",
     "feed", "fed", "walk", "walked", "care", "cared", "protect", "protected",
+    # PET ACTIVITY VERBS (round 2026-08-22T0703Z, DEFECT D1): core verbs a pet
+    # does that a disclosure may report as an ACTIVITY (so the companion-fact
+    # miner captures them, parallel to kin activity mining). Seed lexicon,
+    # RAVANA-expandable via the same store; not a per-animal table.
+    "hide", "hides", "steal", "steals", "sleep", "sleeps", "bark", "barks",
+    "chase", "chases", "catch", "catches", "climb", "climbs", "dig", "digs",
+    "fetch", "fetches", "guard", "guards", "pounce", "pounces", "nudge",
+    "nudges", "bring", "brings", "carry", "carries", "drop", "drops",
+    "sit", "sits", "roll", "rolls", "spin", "spins", "meow", "meows",
+    "purr", "purrs", "chew", "chews", "lick", "licks", "paw", "paws",
 }
 
 
@@ -1654,7 +1664,32 @@ class UserModel:
                             while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
                                 _i += 1
                             _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
+                            # GENERALIZE (round 2026-08-22T0703Z, DEFECT D1): a pet
+                            # disclosure that carries an ACTIVITY ("my ferret Pip
+                            # hides my car keys under the couch", "my cat Mochi
+                            # sleeps on the router") was stored as NAME ONLY — the
+                            # activity was dropped, so a later "what does Pip do with
+                            # the keys" / "which of my pets hides things in the
+                            # couch" had nothing to recall (measured: both returned
+                            # metacognitive uncertainty). Kin disclosures already
+                            # capture verb+object activity into a combined-attr fact;
+                            # pets must do the same so recall is symmetric.
+                            # Capture a verb-phrase tail (any verb + object) after the
+                            # NAME as a pet-activity fact keyed on the SAME species
+                            # slot (a "_activity" suffix), consumed by the pet
+                            # reverse-lookup resolver in engine.py. Verbs come from
+                            # the SHARED is_activity_verb / is_relation_verb /
+                            # is_aux_verb lexicons (RAVANA-extensible, no per-animal
+                            # table, no authored reply, no retraining). The object is
+                            # a real concept (resolved through _opinion_topic), not a
+                            # filler; bounded to <=5 tokens. Content is the user's own
+                            # words; the recaller renders it through the same D7
+                            # copula rule. Honest None fallback when no verb follows.
+                            _tail = q_clean[_m.end():].lstrip()
+                            _act = self._mine_pet_activity(_tail, _nm, _sp)
+                            if _act:
+                                _put_fact(f"{_pet_slots.slot_for(_species, _i)}_activity", _act, 0.55)
+                            continue
                 # GENERAL 'species named/called Name' CATCH-ALL (round
                 # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
                 # Expand multi-name spans ("collie named Biscuit and Rex") so each
@@ -1819,6 +1854,31 @@ class UserModel:
                         while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
                             _i += 1
                         _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                        # GENERALIZE (round 2026-08-22T0703Z, DEFECT D1): a pet
+                        # disclosure that carries an ACTIVITY ("my ferret Pip
+                        # hides my car keys under the couch", "my cat Mochi
+                        # sleeps on the router") was stored as NAME ONLY — the
+                        # activity was dropped, so a later "what does Pip do with
+                        # the keys" / "which of my pets hides things in the
+                        # couch" had nothing to recall (measured: both returned
+                        # metacognitive uncertainty). Kin disclosures already
+                        # capture verb+object activity into a combined-attr fact;
+                        # pets must do the same so recall is symmetric.
+                        # Capture a verb-phrase tail (any verb + object) after the
+                        # NAME as a pet-activity fact keyed on the SAME species
+                        # slot (a "_activity" suffix), consumed by the pet
+                        # reverse-lookup resolver in engine.py. Verbs come from
+                        # the SHARED is_activity_verb / is_relation_verb /
+                        # is_aux_verb lexicons (RAVANA-extensible, no per-animal
+                        # table, no authored reply, no retraining). The object is
+                        # a real concept (resolved through _opinion_topic), not a
+                        # filler; bounded to <=5 tokens. Content is the user's own
+                        # words; the recaller renders it through the same D7
+                        # copula rule. Honest None fallback when no verb follows.
+                        _tail = q_clean[_m.end():].lstrip()
+                        _act = self._mine_pet_activity(_tail, _nm, _sp)
+                        if _act:
+                            _put_fact(f"{_pet_slots.slot_for(_species, _i)}_activity", _act, 0.55)
                     continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
@@ -4195,6 +4255,43 @@ class UserModel:
         }
         out = [t for t in out if t not in _PARTICLES]
         return out
+
+    def _mine_pet_activity(self, tail: str, name: str, species: str) -> Optional[str]:
+        """Extract a pet's verb-phrase ACTIVITY from the tail after the name.
+
+        Round 2026-08-22T0703Z, DEFECT D1: pet disclosures like "my ferret
+        Pip hides my car keys under the couch" were mined as NAME ONLY, dropping
+        the activity, so later cued/pet recall ("which of my pets hides things
+        in the couch") had nothing to surface. Kin disclosures already capture
+        verb+object activity; pets now do too so recall is symmetric.
+
+        Returns the verb+object head (e.g. "hides car keys"), or None when the
+        tail has no recognized verb. Verbs come from the SHARED verb lexicons
+        (is_activity_verb / is_relation_verb / is_aux_verb — RAVANA-extensible,
+        no per-animal table, no authored reply, no retraining). The object is a
+        real concept resolved through _opinion_topic; bounded to <=5 tokens so a
+        runaway clause cannot swallow the sentence. Content is the user's own
+        words.
+        """
+        if not tail:
+            return None
+        _toks = re.findall(r"[a-z'][a-z']*", tail.lower())
+        _vidx = None
+        for _i, _t in enumerate(_toks):
+            if is_activity_verb(_t) or is_relation_verb(_t) or is_aux_verb(_t):
+                _vidx = _i
+                break
+        if _vidx is None:
+            return None
+        _verb = _toks[_vidx]
+        _obj_rest = " ".join(_toks[_vidx + 1:])
+        # Reuse the same object-head extraction the kin/opinion paths use so the
+        # activity value is a real concept, not a filler/preposition tail.
+        _obj = self._opinion_topic(_obj_rest) or ""
+        _obj = _strip_obj_framers(_obj).strip()
+        if _obj and len(_obj.split()) <= 5:
+            return f"{_verb} {_obj}"
+        return None
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.
