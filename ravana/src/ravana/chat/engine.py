@@ -2506,6 +2506,111 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return v
 
 
+    def _split_compound_query(self, q: str) -> List[str]:
+        """Split a genuine MULTI-PART interrogative into independent sub-queries.
+
+        Used by the compound-query decomposition resolver (branch 1z, round
+        2026-08-22T0703Z residual). The engine's recall resolvers are
+        single-shot: a compound question ("what's X's name and what does it
+        do") matches the FIRST clause and returns, dropping the rest. This
+        splits such queries into their clauses so each can be resolved
+        independently and the answers combined.
+
+        General, deterministic, no hardcoding:
+
+        * The query MUST be a genuine compound — it must CONTAIN a coordinat-
+          ing "and" that joins two interrogative clauses, OR be two "?"-ended
+          questions ("...? ...?"). A single bare "and" inside a non-question
+          ("i live in berlin and i work in munich") is NOT a query and is
+          returned whole (callers that run this on a declarative turn will get
+          the whole string back, which is the safe no-op).
+        * We split on the TOP-LEVEL " and " (not "and" inside a quoted
+          clause) — a simple but robust heuristic that covers the observed
+          compound shapes without an LLM or a parser.
+        * Each resulting clause is re-validated as an interrogative (ends with
+          "?" OR begins with an interrogative word) so a trailing "and then
+          the cat knocked it over" fragment is NOT treated as a second query.
+        * Empty / non-interrogative fragments are dropped.
+
+        Returns a list of 1+ sub-query strings (the original q if no split
+        happened). The caller only acts when len(result) >= 2.
+        """
+        _q = (q or "").strip()
+        if not _q:
+            return [_q]
+        _clauses: List[str] = []
+        # (a) Two "?"-terminated questions joined loosely ("a? b?").
+        if _q.count("?") >= 2:
+            for _seg in re.split(r"\?+", _q):
+                _seg = _seg.strip()
+                if _seg:
+                    _clauses.append(_seg + "?")
+        else:
+            # (b) A coordinating " and " between two interrogatives.
+            #     Split on the LITERAL " and " (top-level only — no nested
+            #     clause handling, which is fine for the observed shapes).
+            if " and " in _q.lower():
+                _raw = re.split(r"\band\b", _q, flags=re.IGNORECASE)
+                _clauses = [_c.strip() for _c in _raw if _c.strip()]
+        if len(_clauses) < 2:
+            return [_q]
+        # (c) Keep only clauses that are genuinely interrogative; otherwise
+        #     the compound isn't a real multi-question and we bail to single.
+        _INTERR = re.compile(
+            r"^(\?|what|who|which|where|when|why|how|is|are|was|were|do|does|"
+            r"did|has|have|had|can|could|would|will|tell|said|say|recall|"
+            r"remember|know|mention|describe|everything|all|name|list|show)",
+            re.IGNORECASE)
+        _kept = [c for c in _clauses if _INTERR.match(c) or c.endswith("?")]
+        if len(_kept) < 2:
+            return [_q]
+        return _kept
+
+
+    def _compound_recall(self, q: str) -> Optional[str]:
+        """Resolve a genuine multi-part (compound) interrogative as a WHOLE.
+
+        Residual limitation (round 2026-08-22T0703Z): the recall resolvers are
+        single-shot — a compound question such as "what's my ferret's name and
+        what does he do with my keys?" matched the FIRST conjunct and returned,
+        dropping the second ("what does he do with my keys"). That is a general
+        multi-part-query decomposition gap, not pet-specific (it would also hit
+        "who is X and what do they do", "what's my brother's name and where
+        does he live").
+
+        This capability is GENERAL and store-driven: split the compound into its
+        independent sub-queries with `_split_compound_query`, run the EXISTING
+        durably-store-backed resolver on each clause (so every clause benefits
+        from entity-scoped names, pet activity, kin activity, stance, reverse-
+        name — no re-specialization, no per-topic table), then combine the
+        DISTINCT answers with a coordinating "and". No LLM, no retraining, no
+        hardcoded reply. Fail-closed: if fewer than two clauses resolve to
+        distinct answers, return None so the caller's single-shot resolver (or
+        the honest pipeline) handles it — never a partial or fabricated answer.
+        """
+        try:
+            _parts = self._split_compound_query(q)
+            if len(_parts) < 2:
+                return None
+            _answers: List[str] = []
+            _seen: Set[str] = set()
+            for _sub in _parts:
+                _ans = self._structured_recall(_sub)
+                if _ans and _ans not in _seen:
+                    _seen.add(_ans)
+                    _answers.append(_ans)
+            if len(_answers) >= 2:
+                # Each clause answer already ends with a period (the resolvers
+                # render "…."); strip a single trailing "." before joining so
+                # we don't produce "... ." / double periods.
+                _clean = [_a.rstrip().rstrip(".") for _a in _answers]
+                return " and ".join(_clean) + "."
+        except Exception:
+            # Best-effort; never let decomposition errors mask the answer.
+            pass
+        return None
+
+
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
 
@@ -2533,6 +2638,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        # (0z) COMPOUND / MULTI-PART QUERY DECOMPOSITION (round 2026-08-22T0703Z
+        # residual). The resolvers below are single-shot: a compound
+        # interrogative ("what's my ferret's name and what does he do with my
+        # keys?") matches the FIRST conjunct and returns, silently dropping the
+        # rest. Decompose FIRST — split into independent sub-queries, resolve
+        # each through the SAME store-driven machinery, and combine the distinct
+        # answers. Fail-closed: returns None when no genuine compound / <2
+        # distinct answers, so the single-shot resolvers below still own
+        # simple queries untouched. No LLM, no retraining, no hardcoding.
+        _cmp = self._compound_recall(q)
+        if _cmp is not None:
+            return _cmp
         um = getattr(self, "user_model", None)
         pf = getattr(um, "personal_facts", None) if um else None
         opinions = getattr(um, "opinions", None) if um else None
