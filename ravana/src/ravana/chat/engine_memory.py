@@ -73,6 +73,8 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
 from .web_learning import WebLearningMixin
 from ravana._import_guard import report_missing  # non-silent import-guard logging
 from . import pet_slots as _pet_slots
+from . import possession_attrs as _poss_attrs
+
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
 # the old heuristic floor remains the backstop, never weakened).
@@ -165,6 +167,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
+from .user_model import is_verb_phrase as _mem_is_activity_verb
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -311,6 +314,241 @@ class MemoryMixin:
             idx[attr] = val
         return facts
 
+    def _specific_recall_entity(self, q: str):
+        """Return the SPECIFIC possessive/referred entity a cued recall names
+        (e.g. 'my cat', 'our dog', "partner's", 'my brother'), or None for a
+        generic self-attribute recall ('what is my name', 'where do i live') or
+        a bare self-recall ('what have you learned about me').
+
+        Implements the specific-entity-before-generic rule: a cued recall that
+        names a CONCRETE entity the user may have disclosed must resolve from
+        THAT entity's store, never be aliased onto the user's own 'i' profile
+        (which would dump unrelated facts — the documented confabulation
+        defect: 'remember my cat's name' -> 'your favorite book is dune').
+        """
+        _ATTR = ("live", "lives", "from", "city", "town", "country", "born",
+                 "grew", "located", "location", "origin", "name")
+        _STOP = ("i", "you", "me", "my", "your", "we", "our", "what", "who",
+                 "where", "when", "why", "how", "it", "that", "this", "he",
+                 "she", "they", "one", "some", "any", "its")
+        # D-fix (round 2026-08-22T0058Z): capture the FULL possessive noun
+        # phrase (head + following name words), not just the single token
+        # after the possessive. A disclosure like "my brother Finn" is stored
+        # under the multi-word entity key "brother finn"; the old
+        # single-token capture returned "brother", which is NOT a stored key,
+        # so the cued recall failed closed and the query fell through to the
+        # generic "i" self-profile dump (measured: "remind me what my brother
+        # Finn does" -> "you do keep pet gecko named ziggy; you do lost old
+        # horse bramble..."). Cap at 4 following words (a kin/relation head +
+        # a multi-word name); strip a trailing possessive marker and
+        # determiners. "my cat's name" -> "cat"; "my brother finn" ->
+        # "brother finn". General (regex/grammar), no per-name branch; RAVANA
+        # grows these entity keys from conversation, so it is seed structure,
+        # not a lookup table.
+        # D-fix (round 2026-08-22T0058Z): capture the FULL possessive noun
+        # phrase (head + following name words), not just the single token
+        # after the possessive. A disclosure like "my brother Finn" is stored
+        # under the multi-word entity key "brother finn"; the old
+        # single-token capture returned "brother", which is NOT a stored key,
+        # so the cued recall failed closed and the query fell through to the
+        # generic "i" self-profile dump. Case-insensitive (re.I) so CAPITALIZED
+        # entity names ("Finn", "Vega", "Ilse") are part of the phrase, not
+        # split off after the head token (a lowercase-only class matched
+        # "brother" then failed on the capital "F" in "Finn", silently
+        # degrading to the single head token). Apostrophes are EXCLUDED from
+        # the char class so a possessive ("my cat's") yields the head "cat"
+        # without a dedicated strip; the second alternative handles the bare
+        # "X's" form. Cap at 4 following words (kin head + multi-word name).
+        # General (regex/grammar), no per-name branch; RAVANA grows these
+        # entity keys from conversation.
+        _m = re.search(
+            r"\b(?:my|our|your)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+){0,4})", q, re.I) or \
+            re.search(r"\b([a-zA-Z]+?)'s\b", q, re.I)
+        if not _m:
+            return None
+        _cand = _m.group(1).strip()
+        _cand = _cand[:-2] if _cand.endswith("'s") else _cand
+        # drop leading/trailing determiners so "my old horse bramble" ->
+        # "old horse bramble" (the stored key may be "horse bramble"); keep the
+        # head word so a genuine self-attribute query ("what is my name") still
+        # resolves to None via the _ATTR/_STOP guard below.
+        _cand = " ".join(
+            w for w in _cand.split()
+            if w not in ("the", "a", "an", "this", "that", "these", "those",
+                         "my", "our", "your", "some", "one"))
+        if not _cand:
+            return None
+        # D-fix (round 2026-08-22T0058Z): strip leading RELATIONSHIP QUALIFIERS
+        # (pet, little, old, ...) from the captured phrase so a recall query
+        # "my pet rabbit" / "my cousin Bea" resolves to the stored entity key
+        # "rabbit" / "little cousin bea" rather than the qualifier-prefixed
+        # phrase. Without this, "pet rabbit" is neither in the entity index nor
+        # the fact store verbatim, so the recall fell through to the GloVe
+        # cross-entity linker which mis-linked it to a SIBLING entity (measured:
+        # "remind me what my pet rabbit's name is" returned the cousin Bea fact).
+        # Uses the same strip as the PersonalFactStore matcher (one source of
+        # truth, no duplicated qualifier list).
+        _cand = self._strip_entity_qualifiers(_cand)
+        if not _cand:
+            return None
+        _head = _cand.split()[0]
+        if _head in _ATTR or _head in _STOP:
+            return None
+        return _cand
+
+    # ── R1 (2026-08-18T1340Z round): cross-lemma entity linking ──────────────
+    # A cued recall may paraphrase the user's own entity ("sourdough culture")
+    # with DIFFERENT surface words than the stored key ("sourdough starter").
+    # The single-token scan below only links when a query token equals a store
+    # key verbatim, so multi-word / paraphrased entities silently fail and the
+    # recall falls through to the wrong stored fact. This pass is a genuine
+    # entity-linker: it scores the QUERY'S multi-word entity phrase against
+    # every stored entity key via GloVe cosine (the SAME seed embeddings the
+    # rest of the engine reasons over — no synonym table, no LLM, no retrain),
+    # and returns the best-linked key when it clears the bar. The embedding
+    # space is learned/online: as the user teaches RAVANA new words, the
+    # projector (already acquired at runtime) produces vecs for them, so the
+    # linker generalizes to entities RAVANA has never seen hard-coded.
+    _RECALL_ENTITY_LINK_COS = 0.30  # bar; measured above noise floor (see probe)
+
+    def _link_recall_entity(self, q: str,
+                            entity_keys: Set[str]) -> Optional[str]:
+        """Resolve a (possibly paraphrased, multi-word) query entity to a stored
+        entity key by SEMANTIC similarity, not string matching.
+
+        Returns the best-linked key, or None if nothing clears the bar (so the
+        caller fails CLOSED — the RAVANA confabulation bar stands). Verbatim
+        single-token hits are handled separately by the caller's exact scan;
+        this is the fallback for when that scan misses.
+        """
+        if not entity_keys:
+            return None
+        # build the query's candidate entity phrase: the longest run of content
+        # words (excluding pronouns/determiners) preceding a query noun like
+        # 'culture'/'thing'/'one'/'starter'/'pet' — but simplest robust choice
+        # is to score EVERY maximal multi-word window of the query against keys.
+        _qwords = [w for w in re.findall(r"[a-z']+", (q or "").lower())
+                   if w not in ("i", "you", "me", "my", "your", "we", "our",
+                                "what", "who", "where", "when", "why", "how",
+                                "it", "that", "this", "the", "a", "an", "is",
+                                "are", "was", "were", "on", "in", "of", "to",
+                                "do", "did", "name", "named")]
+        if len(_qwords) < 2:
+            return None
+        # score each stored key phrase against the query phrase windows
+        _best_key, _best_score = None, -1.0
+        for _key in entity_keys:
+            _key_words = [w for w in re.findall(r"[a-z']+", _key.lower())
+                          if w not in ("i", "you", "my", "your")]
+            if not _key_words:
+                continue
+            # SAFETY GATE (RAVANA confabulation bar): only consider a key whose
+            # head word appears VERBATIM in the query. This prevents binding a
+            # query that names Entity A onto a stored Entity B just because a
+            # tail word is loosely similar (e.g. "...sourdough counter" must not
+            # resolve to an unrelated 'starter' fact). The shared head word is
+            # the genuine lexical common ground; the tail word is what the
+            # cosine linker then bridges across paraphrase.
+            if not any(_kw == _qw for _kw in _key_words for _qw in _qwords):
+                continue
+            # phrase vector = mean of token vecs (handles multi-word keys too)
+            _kv = self._mean_vec(_key_words)
+            if _kv is None:
+                continue
+            # score against each query window of the same span length (and any
+            # window) using the max mean-cosine over all query word-windows.
+            _score = self._phrase_sim_to_query(_kv, _qwords)
+            if _score > _best_score:
+                _best_score, _best_key = _score, _key
+        if _best_key is not None and _best_score >= self._RECALL_ENTITY_LINK_COS:
+            return _best_key
+        return None
+
+    def _mean_vec(self, words):
+        _vecs = [self._glove_vector(w) for w in words]
+        _vecs = [v for v in _vecs if v is not None]
+        if not _vecs:
+            return None
+        return np.mean(_vecs, axis=0)
+
+    def _phrase_sim_to_query(self, key_vec, qwords) -> float:
+        """Max mean-cosine of key_vec against any query window (1..len words),
+        pooling per-window max so a shared head word ('sourdough') lifts the
+        score even when the tail word is paraphrased."""
+        _best = -1.0
+        _n = len(qwords)
+        # also include the full-query mean (catches 'sourdough culture' ~
+        # 'sourdough starter' via shared sourdough)
+        _qv_full = self._mean_vec(qwords)
+        if _qv_full is not None:
+            _best = max(_best, float(np.dot(key_vec, _qv_full)))
+        for _span in range(1, _n + 1):
+            for _i in range(0, _n - _span + 1):
+                _wv = self._mean_vec(qwords[_i:_i + _span])
+                if _wv is None:
+                    continue
+                _best = max(_best, float(np.dot(key_vec, _wv)))
+        return _best
+
+    # D-fix (round 2026-08-22T0058Z): a stored episode that is ITSELF a question
+    # carries no answer content, so it must never be retrieved AS the answer to
+    # a cued recall. Without this, re-asking a prior question (e.g. "what are my
+    # work hours again?" after the user already asked "what are my work hours?")
+    # returned the PRIOR QUESTION episode verbatim instead of the answer that
+    # was given (measured T62 defect). Structural: questions are identified by
+    # interrogative syntax (a question mark, or an auxiliary/question-word
+    # leading an utterance), not a topic keyword list. RAVANA grows no special
+    # table for this — it is grammar.
+    _QUESTION_LEAD = (
+        "what", "where", "when", "who", "whom", "whose", "which", "why", "how",
+        "do", "does", "did", "is", "are", "was", "were", "can", "could", "will",
+        "would", "should", "may", "might", "shall", "am", "have", "has", "had",
+    )
+
+    def _is_question(self, text: str) -> bool:
+        _t = (text or "").strip().lower()
+        if not _t:
+            return False
+        if "?" in _t:
+            return True
+        _first = re.findall(r"[a-z']+", _t)
+        if not _first:
+            return False
+        # Allow a short lead-in ("so, ..." / "and ...") before the question word.
+        for _w in _first[:3]:
+            if _w in self._QUESTION_LEAD:
+                return True
+        return False
+
+    # D-fix (round 2026-08-22T0058Z): a disclosed entity is often recalled with a
+    # RELATIONSHIP QUALIFIER the disclosure did not use (e.g. the user said
+    # "my pet rabbit Nimbus" but later asks "what's my pet rabbit's name?"; or
+    # the miner auto-prefixed "my little cousin Bea ..." and the user later asks
+    # "what's my cousin Bea into?"). The stored key is "rabbit" / "little cousin
+    # bea" while the query phrase is "pet rabbit" / "cousin bea" — they don't
+    # string-match, so the recall fails closed. Strip a small closed-class set of
+    # relationship qualifiers (pet, little, old, young, big, small, tiny, dear,
+    # poor, late, baby, twin, elder) from the HEAD of BOTH the query phrase and
+    # the stored attribute before comparison. General: the qualifier list is a
+    # grammatical modifier class (RAVANA can extend it at runtime by mining new
+    # qualifiers the user uses), not a per-entity lookup — a pet named "Nimbus"
+    # is matched by stripping "pet", not by a hardwired "pet X" branch.
+    _ENTITY_QUALIFIERS = (
+        "pet", "little", "old", "young", "big", "small", "tiny", "dear",
+        "poor", "late", "baby", "twin", "elder", "older", "younger",
+    )
+
+    def _strip_entity_qualifiers(self, phrase: str) -> str:
+        _p = (phrase or "").lower().strip()
+        if not _p:
+            return _p
+        _words = _p.split()
+        # Strip leading qualifiers (one or more) so "pet rabbit" -> "rabbit",
+        # "little cousin bea" -> "cousin bea".
+        while _words and _words[0] in self._ENTITY_QUALIFIERS:
+            _words = _words[1:]
+        return " ".join(_words).strip()
+
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
         """Brain-faithful episodic recall (Tulving encoding specificity).
@@ -385,12 +623,41 @@ class MemoryMixin:
                         if getattr(_fact, "superseded", False):
                             continue
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
+                        _ent = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
                         _val = getattr(_fact, "value", _fact)
                         if _attr and _pet_slots.is_pet_attribute(_attr):
                             _sp = _pet_slots.base_species(_attr)
                             _m_idx = re.search(r"_(\d+)$", str(_attr))
                             _idxnum = _m_idx.group(1) if _m_idx else "1"
                             _entity_idx.setdefault(_sp, {})[_idxnum] = _val
+                        # Possession-NAME facts (round 2026-08-18T1340Z, R1 fix):
+                        # a named possession like ('sourdough starter','name',
+                        # 'doris') or ('best friend','name','tomas') is keyed
+                        # under the ENTITY, not the 'i' profile. It MUST be
+                        # folded into the entity index so a paraphrased cued
+                        # recall ("sourdough culture") can resolve to it via the
+                        # entity linker and render as "your <ent>'s name is X".
+                        # The old skip tuple excluded 'name' for ALL entities,
+                        # which silently dropped these possession-name facts from
+                        # the index and was the TRUE root cause of R1.
+                        elif _ent and _ent != "i" and _attr == "name":
+                            _entity_idx.setdefault(_ent, {})[_attr] = _val
+                        # Possession-attribute facts (round 2026-08-15T0830Z,
+                        # Bug 4) are stored under the ENTITY key (cabin / sword)
+                        # with attributes 'madeof' / a feature noun (roof/wall/..),
+                        # mirroring the pet folding above. Without this fold a
+                        # "what's my cabin made of" recall cannot resolve the
+                        # structured fact and falls through to a whole-sentence
+                        # echo. The render site (_reconstruct_entity) already
+                        # knows how to phrase 'madeof' / feature attrs via
+                        # possession_attrs.render, so folding here is sufficient
+                        # for a clean recall answer. The 'i' biographical profile
+                        # attrs (name/location/does/...) are handled separately by
+                        # the self-profile path and must NOT be folded here.
+                        elif _ent and _ent != "i" and _attr and _attr not in (
+                                "location", "does", "event", "is", "favorite",
+                                "likes", "background"):
+                            _entity_idx.setdefault(_ent, {})[_attr] = _val
         except Exception:
             pass
 
@@ -419,7 +686,17 @@ class MemoryMixin:
                     elif attr == "is":
                         bits.append(f"you are {val}")
                     else:
-                        bits.append(f"your {attr} is {val}")
+                        # A verb-phrase value (mined activity: "fixes bicycles",
+                        # "bakes sourdough bread") must NOT get a copula — "your
+                        # brother theo is fixes bicycles" is ungrammatical. Drop
+                        # the copula so it reads "your <attr> <val>" (matches the
+                        # D7 cued-recall render rule; seed lexicon, no authored
+                        # text). A plain noun value keeps the copula.
+                        _val_str = (val or "").strip()
+                        if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
+                            bits.append(f"your {attr} {_val_str}")
+                        else:
+                            bits.append(f"your {attr} is {_val_str}")
                 return bits
             for attr, val in facts.items():
                 if attr == "favorite":
@@ -436,13 +713,38 @@ class MemoryMixin:
                     bits.append(f"you live in {val}")
                 elif attr == "background":
                     bits.append(f"{val}")
+                # Possession-attribute facts (round 2026-08-15T0830Z, Bug 4):
+                # render 'madeof' as a natural clause and feature nouns
+                # (roof/wall/...) via the shared possession_attrs renderer, so a
+                # cued recall of a material fact reads cleanly ("your cabin is
+                # made of pine" / "your cabin's roof is sod") instead of the
+                # bare-slot form "your cabin's madeof is pine".
+                elif attr == "madeof":
+                    bits.append(f"your {ent} is made of {val}")
+                elif _poss_attrs.is_feature_noun(attr):
+                    bits.append(_poss_attrs.render(ent, attr, val))
                 # Pets are stored under a species-keyed slot (entity "cat",
                 # attr "1"/"2"). Render as a natural clause rather than
                 # "your cat's 1 is pixel".
                 elif (_pet := _pet_slots.render_pair(ent, attr, val)):
                     bits.append(_pet)
+                elif attr == "name" or (attr.startswith("name_") and attr[5:].isdigit()):
+                    # A named-entity fact (friend / pet / relation) whose
+                    # attribute resolved to "name" (possibly a disambiguated
+                    # "name_N" multi-instance slot). Render as a natural
+                    # possessive clause. Never emit the raw internal key
+                    # (e.g. "name_1"); strip the trailing "_<n>" so the reply
+                    # stays clean.
+                    bits.append(f"your {ent}'s name is {val}")
                 else:
-                    bits.append(f"your {ent}'s {attr} is {val}")
+                    # verb-phrase value: drop the copula (same rule as the
+                    # self-profile dump above + D7 cued recall) so a mined
+                    # activity reads "your cabin's roof <val>", not "is <val>".
+                    _val_str = (val or "").strip()
+                    if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
+                        bits.append(f"your {ent}'s {attr} {_val_str}")
+                    else:
+                        bits.append(f"your {ent}'s {attr} is {_val_str}")
             return bits
 
         # find an entity token from the query that exists in the index
@@ -481,6 +783,43 @@ class MemoryMixin:
                 # asks about a biographical attribute
                 if any(w in q for w in _LOC_WORDS) or "name" in q:
                     _generic_self = True
+        # SPECIFIC-ENTITY-BEFORE-GENERIC GUARD (round 2026-08-15T0830Z audit fix).
+        # When the query names a CONCRETE possessive/referred entity (e.g. "my
+        # cat", "partner's name", "our dog") the recall is about THAT entity, not
+        # the user's own profile. If that entity is NOT in the store, the user
+        # never disclosed it, so fail CLOSED (honest miss) — do NOT alias the
+        # named entity onto the user's "i" profile. The old alias let "remember
+        # my cat's name" (cat unstored) resolve the user's own "i" biographical
+        # profile and dump an unrelated fact ("your favorite book is dune") —
+        # the documented source-monitoring / confabulation defect. Only a
+        # genuinely GENERIC self-attribute recall ("what is my name", "where do
+        # i live") may use the "i" profile; a generic self-recall with no entity
+        # at all is handled separately by the caller's profile-summary path.
+        _named = self._specific_recall_entity(q)
+        if _named is not None:
+            _named_sp = _pet_slots.species_of(_named)
+            _named_key = _named_sp if _named_sp is not None else _named
+            if _named_key not in _entity_idx:
+                # Specific entity the user never disclosed -> nothing to
+                # retrieve. Return None so the caller fails closed (never
+                # confabulate a profile that wasn't the query's target).
+                _ent_hit = None
+                _generic_self = False
+        # R1 (2026-08-18T1340Z round): cross-lemma entity linking. The verbatim
+        # scan above only links when a query token EQUALS a stored key, so a
+        # PARAPHRASED entity ("sourdough culture" for stored "sourdough starter")
+        # slips past it and the recall falls through to the wrong fact. When the
+        # query named a specific entity (_named is not None) but it did NOT
+        # verbatim match the store, try GloVe cosine linking across the whole
+        # entity index before the generic-self fallback. If even the linker
+        # cannot resolve it, leave _ent_hit None so we fail CLOSED (never alias
+        # a specific-but-unresolved query onto the "i" profile). We do NOT link
+        # when _named is None (the query names no specific entity at all) — doing
+        # so would be confabulation, not recall.
+        if _ent_hit is None and _named is not None:
+            _linked = self._link_recall_entity(q, set(_entity_idx.keys()))
+            if _linked is not None:
+                _ent_hit = _linked
         if _ent_hit is None and _generic_self:
             _ent_hit = "i"
         if _ent_hit is not None:
@@ -556,7 +895,8 @@ class MemoryMixin:
                     r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
                     _t) or re.search(
                     r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
-                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t):
+                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t) or \
+                    self._is_question(_t):
                     continue  # skip prior recall queries (no content)
                 # Count how many cue tokens' STEMS appear in this episode's
                 # stemmed token stream (morphology-invariant match).
@@ -606,7 +946,7 @@ class MemoryMixin:
                 text.lower()) or re.search(
                 r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
                 r"\b(told|said|mentioned|asked|tell|remember|recall)\b",
-                text.lower()):
+                text.lower()) or self._is_question(text):
                 continue
             score = 0.0
             _strong_link = False
@@ -1089,6 +1429,95 @@ class MemoryMixin:
                 return "you told me " + "; ".join(bits) + "."
         return f"you mentioned: \"{rec.get('text', '')}\""
 
+    # ── D7/D9 (round 2026-08-21T2156Z): distinct-topic gist signal ──────────
+    # A self-recall like "what did i tell you about sourdough?" is cued by a
+    # DISTINCT TOPIC (not a possessive entity, not a biographical attribute).
+    # It must resolve to that one episode via the PRECISE scoped semantic
+    # retriever (which reconstructs the asked gist), never to the GENERIC
+    # whole-profile dump that otherwise surfaces sibling turns
+    # ("you bake sourdough; ...; you took glassblowing; you watch rings").
+    # That dump is correct ONLY for a true whole-profile recall ("what do you
+    # know about me?") — there, every disclosed fact belongs in the answer.
+    # A single-topic query that hits the dump is the D7/D9 wrong/episode-echo
+    # defect: an unrelated turn is returned alongside the asked one.
+    #
+    # Signal (structural, not a per-topic list): the query is a recollection
+    # speech act (already decided by _self_recall_struct/_intent above) AND it
+    # contains a topic noun that is NOT a generic self-pronoun and NOT a
+    # biographical-attribute word (live/name/city/... — those are the entity/
+    # attribute cues already handled by the _retrieve_episodic cued path) AND
+    # it is NOT one of the canonical whole-profile frames (which deliberately
+    # want the aggregate). We detect the "about X" / "regarding X" / bare
+    # topic-noun shape generically; the actual episode is found by the
+    # retriever, so no topic is hard-coded.
+    _WHOLE_PROFILE_FRAMES = (
+        "what do you know about me", "what have you learned about me",
+        "what do you remember about me", "what do you remember me telling you",
+        "tell me about myself", "everything you know about me",
+        "describe me", "what have i told you", "what stands out about me",
+        "what do you remember me telling you", "summarize me", "remind me who i am",
+    )
+
+    def _is_distinct_topic_recall(self, q: str) -> bool:
+        ql = (q or "").lower().strip()
+        if not ql:
+            return False
+        if any(fr in ql for fr in self._WHOLE_PROFILE_FRAMES):
+            return False
+        # Must be a recollection act (the caller only invokes this inside the
+        # self_recall branch, so this is redundant but fail-closed).
+        if not (re.search(r"\b(remember|recall|remind|told|said|tell|"
+                          r"learned?|know|found out|figured out|mentioned)\b", ql)):
+            return False
+        # Strip recollection scaffolding + self pronouns + question words.
+        _STOP = {
+            "remember", "recall", "remind", "remind me", "told", "said", "tell",
+            "telling", "mention", "mentioned", "ask", "asked", "what", "about",
+            "regarding", "on", "of", "the", "a", "an", "that", "this", "me",
+            "my", "i", "you", "your", "we", "our", "did", "do", "was", "were",
+            "is", "are", "have", "has", "had", "something", "anything", "thing",
+            "things", "everything", "tell", "you", "again", "exactly",
+            "remind me what", "ever", "all", "when", "where", "who", "how",
+            "why", "which",
+        }
+        _ATTR = {
+            "live", "lives", "from", "city", "town", "country", "born", "grew",
+            "located", "location", "origin", "name", "age", "height", "weight",
+            "work", "study", "studied", "school", "instrument", "hobby",
+        }
+        _topic = [w.strip(".,!?") for w in re.findall(r"[a-z']+", ql)
+                  if len(w) >= 3 and w not in _STOP and w not in _ATTR]
+        # A genuine topic noun remains (e.g. "sourdough", "marathon", "glassblowing").
+        # Single-char or pure-attribute queries have none -> whole-profile / attribute.
+        return bool(_topic)
+
+    def _scoped_topic_transcript(self, q: str) -> Optional[List[Dict[str, Any]]]:
+        """Reconstruct the transcript of the USER's own disclosures so a
+        single-topic gist recall resolves to the one relevant turn.
+
+        The episodic transcript (_episodic_transcript) stores the user turns
+        verbatim, so a cued recall over it returns the episode that actually
+        contained the topic — never a sibling. When that store is empty
+        (post-load, the transcript is not persisted), rebuild from the durable
+        hippocampal indexer the SAME way _retrieve_episodic already does, so
+        recall stays correct after a reload. Returns None only when there is
+        truly no disclosure history (then the caller fails closed).
+        """
+        _turns = getattr(self, "_episodic_transcript", None) or []
+        if _turns:
+            return [dict(t) for t in _turns]
+        try:
+            _idxr = getattr(self, "_episodic_indexer", None)
+            if _idxr is not None:
+                _rebuilt = [{"text": getattr(ep, "text", ""),
+                             "facts": getattr(ep, "facts", {}) or {}}
+                            for ep in _idxr.all()]
+                if _rebuilt:
+                    return _rebuilt
+        except Exception:
+            pass
+        return None
+
     def _episodic_remember(self, user_input: str) -> Optional[str]:
         """Handle a broad 'remember what I told you' recall query (Human-Likeness
         Plan C). Tries fact/slot retrieval and semantic gist retrieval over the
@@ -1500,6 +1929,26 @@ class MemoryMixin:
             # from the hippocampal entity index. Fail-closed: if the index is
             # empty, the summary path returns the honest "you haven't told me
             # much" line. This keeps "what have you learned about me" honest.
+            #
+            # D7/D9 (round 2026-08-21T2156Z): a DISTINCT-TOPIC gist recall
+            # ("what did i tell you about sourdough?") is neither a
+            # possessive-entity cue nor a biographical attribute, yet it is a
+            # specific recall of ONE episode — NOT a whole-profile dump. It must
+            # cede to the precise scoped semantic retriever (over the user's own
+            # disclosure transcript) so only the asked gist is reconstructed,
+            # never a sibling turn. The generic aggregate summary below is
+            # reserved for true whole-profile frames, where every disclosed fact
+            # legitimately belongs. Routing a single-topic query into that dump
+            # is the D7/D9 wrong/episode-echo defect. Fail-closed: if the scoped
+            # retriever finds nothing, fall through to the generic summary so a
+            # genuine whole-profile query still answers.
+            if self._is_distinct_topic_recall(user_input):
+                _scope = self._scoped_topic_transcript(user_input)
+                if _scope is not None:
+                    _topic_ep = self._retrieve_episodic(user_input,
+                                                       transcript=_scope)
+                    if _topic_ep is not None:
+                        return _topic_ep
             _idx = getattr(self, "_episodic_index", None) or {}
             _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
                           "born", "grew", "located", "location", "origin")
@@ -1517,10 +1966,86 @@ class MemoryMixin:
                 if _t in _LOC_WORDS or _t == "name":
                     _cue = True
                     break
+            # SPECIFIC-ENTITY-BEFORE-GENERIC GUARD (round 2026-08-15T0830Z audit
+            # fix). The cue loop above matches the bare word "name" even when a
+            # CONCRETE entity the user named (here "cat") is unstored. Routing
+            # such a query into _retrieve_episodic's loose semantic matcher (or
+            # its "i"-profile alias) returns an unrelated stored fact — the
+            # documented confabulation ("remember my cat's name" -> "your
+            # favorite book is dune"). If the query names a specific (non-self,
+            # non-attribute) entity that the user never disclosed, do NOT treat
+            # it as a generic self-recall cue; fall through to the honest
+            # generic self-profile summary (which fail-closes for an unknown cat)
+            # rather than entering the confabulating matcher. This preserves the
+            # honest "you haven't told me about your cat" behavior.
+            _named = self._specific_recall_entity((user_input or "").lower())
+            if _named is not None:
+                _named_sp = _pet_slots.species_of(_named)
+                _named_key = _named_sp if _named_sp is not None else _named
+                if _named_key not in _idx:
+                    _cue = False
             if _cue:
                 _ep = self._retrieve_episodic(user_input)
                 if _ep is not None:
                     return _ep
+            # D-fix (round 2026-08-22T0058Z): a SPECIFIC-ENTITY cued recall whose
+            # named entity (now the full noun phrase, e.g. "brother finn") lives
+            # in the PersonalFactStore but NOT the in-memory episodic index must
+            # still resolve to THAT entity's facts — not fall through to the
+            # generic whole-"i" profile dump (the T46 defect: "remind me what my
+            # brother Finn does" returned "you do keep pet gecko named ziggy;
+            # you do lost old horse bramble..."). When _named is set and the cued
+            # episodic path did not fire, look the entity up in the
+            # PersonalFactStore (the canonical disclosure store) and render ONLY
+            # its stored facts. This generalizes across every relative/pet/
+            # possession entity (brother finn, cousin vega, grandmother ilse,
+            # pet gecko, ...) with ONE path — no per-name branch, no authored
+            # prose, content from the live store. If the named entity matches no
+            # stored attribute, fail CLOSED (honest miss) rather than dumping the
+            # user's whole profile.
+            if _named is not None:
+                _pf = getattr(self, "user_model", None)
+                if _pf is not None:
+                    _named_l = (_named or "").lower().strip()
+                    # Strip leading relationship qualifiers from the QUERY phrase
+                    # so "pet rabbit" / "cousin bea" align with stored keys
+                    # "rabbit" / "little cousin bea" (the miner may have prefixed
+                    # a qualifier the recall query omits). General: same closed-
+                    # class modifier strip applied to the stored attr below.
+                    _named_l = self._strip_entity_qualifiers(_named_l)
+                    _named_head = _named_l.split()[0] if _named_l else ""
+                    _ent_bits = []
+                    try:
+                        for _k, _v in _pf.personal_facts.facts.items():
+                            if getattr(_v, "superseded", False):
+                                continue
+                            if not (isinstance(_k, (tuple, list)) and len(_k) >= 3):
+                                continue
+                            _subj = _k[0]
+                            _attr = _k[1]
+                            if str(_subj).lower() not in ("i", "me", "my", "you"):
+                                continue
+                            _attr_l = str(_attr).lower().strip()
+                            # Strip the SAME qualifier class from the stored attr
+                            # so "little cousin bea" matches a "cousin bea" query
+                            # and vice versa — symmetric, no per-entity branch.
+                            _attr_l = self._strip_entity_qualifiers(_attr_l)
+                            _matched = False
+                            if _attr_l:
+                                _attr_head = _attr_l.split()[0] if _attr_l.split() else ""
+                                _matched = (_attr_l == _named_l
+                                            or _attr_l.startswith(_named_l + " ")
+                                            or _named_l.startswith(_attr_l + " ")
+                                            or (_named_head != "" and _named_head == _attr_head))
+                            if _matched:
+                                _val = getattr(_v, "value", _v)
+                                if _val:
+                                    _ent_bits.append(
+                                        self._render_fact_line(_attr, _val))
+                    except Exception:
+                        _ent_bits = []
+                    if _ent_bits:
+                        return "; ".join(dict.fromkeys(_ent_bits)) + "."
             # Generic self-recall: reconstruct a gist from ALL disclosed user
             # facts held in the hippocampal entity index (Tulving encoding
             # specificity: a self-directed memory query without a target
@@ -1589,11 +2114,28 @@ class MemoryMixin:
                             _bits.append(f"your {_ent} is {_val}" if not _is_user
                                          else f"your {_attr} is {_val}")
                         elif _attr == "does":
-                            # D3 (round v3): self-disclosed activity
-                            # ("i run a chai stall" -> does=chai stall). Render
-                            # as "you do X" so the learned-profile summary
-                            # reflects what the user told us they do.
-                            _bits.append(f"you do {_val}")
+                            # D3 (round v3): self-disclosed activity. The mined
+                            # value is a full VERB-PHRASE clause ("spent whole
+                            # childhood", "got promoted last month", "read fish",
+                            # "learning jazz piano") — RAVANA stores the user's
+                            # own words verbatim, not a stripped object. Render it
+                            # as a first-person predicate ("you spent whole
+                            # childhood") so the learned-profile summary reads
+                            # naturally. The previous "you do X" frame produced
+                            # the garbled "you do spent whole childhood" (measured
+                            # round 2026-08-18T0937Z) because the value already
+                            # leads with a verb. Store-driven, no authored prose.
+                            _sv = (str(_val) or "").strip()
+                            _bits.append(f"you {_sv}")
+                        elif _attr == "event":
+                            # Self-disclosed EVENT the user experienced (mined
+                            # as event=<verb phrase>, e.g. "lose appetite",
+                            # "got promoted last month"). Render as an honest
+                            # "you mentioned <clause>" — the prior fall-through
+                            # produced the garbled "your event is lose appetite"
+                            # (round 2026-08-18T0937Z). Content comes from the
+                            # live fact store, no authored string.
+                            _bits.append(f"you mentioned {_val}")
                         elif _attr == "name":
                             # D6 (round 2026-08-08b-d): a possessive NAME fact
                             # (partner, pet, ...) must keep its OWNER in the
@@ -1619,8 +2161,20 @@ class MemoryMixin:
                         elif (_pet := _pet_slots.render_pair(_ent, _attr, _val)):
                             _bits.append(_pet)
                         else:
-                            _bits.append(f"your {_ent}'s {_attr} is {_val}" if not _is_user
-                                         else f"your {_attr} is {_val}")
+                            # verb-phrase value: drop the copula (same rule as
+                            # the D7 cued-recall + the other self-profile render
+                            # path) so a mined activity reads "your brother theo
+                            # fixes bicycles", not "is fixes bicycles". A plain
+                            # noun value keeps the copula.
+                            _sv = (str(_val) or "").strip()
+                            if _sv and _mem_is_activity_verb(_sv.split()[0]):
+                                _bits.append(
+                                    f"your {_ent}'s {_attr} {_sv}" if not _is_user
+                                    else f"your {_attr} {_sv}")
+                            else:
+                                _bits.append(
+                                    f"your {_ent}'s {_attr} is {_sv}" if not _is_user
+                                    else f"your {_attr} is {_sv}")
             if _bits:
                 # Case-insensitive dedup: the same fact can surface from both
                 # the personal-fact store ("your name is a hypocrite") and the
@@ -1760,9 +2314,20 @@ class MemoryMixin:
             # there is NO cue do we default to the immediately-preceding turn
             # (genuine "what did i just say?").
             _cue = ""
-            _m = re.search(r"\b(?:about|that|regarding|on)\s+([a-z']+)", t)
+            # Broaden cue capture (round 2026-08-14T1110Z): the old regex only
+            # matched `about/that/regarding/on <word>`, so a possessive/relative
+            # query like "what did i say MY BROTHER does" or "what did i tell you
+            # about MY CATS" (the latter actually matched via `about`) left the
+            # cue empty and fell through to a verbatim prior-turn echo. We now
+            # also capture `my <word>`, `the <word>`, and `<word>'s` so the
+            # query's real subject (brother, cat, ...) is used to retrieve the
+            # matching episode. This is structural (possessive/referent regex),
+            # not a per-topic table.
+            _m = re.search(
+                r"\b(?:about|that|regarding|on|my|the)\s+([a-z']+)"
+                r"|([a-z']+)'s\b", t)
             if _m:
-                _cue = _m.group(1).lower().strip(".,!?")
+                _cue = (_m.group(1) or _m.group(2) or "").lower().strip(".,!?")
             if _cue and len(_cue) >= 3:
                 # Delegate to _retrieve_episodic with the ORIGINAL query — it now
                 # does morphology-invariant (Porter-stem) cue matching and returns
