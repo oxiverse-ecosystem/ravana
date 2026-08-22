@@ -3432,17 +3432,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _best = (_sp, _nm, _act)
             if _best is not None and _best_score > 0.0:
                 _sp, _nm, _act = _best
-                # Round 2026-08-22T0703Z regression fix: only answer when the
-                # query is a genuine pet-recall question — it NAMES a pet (by
-                # name/species/generic "pet") AND is a question OR asks about
-                # the pet's activity. Distress/empathy queries that merely
-                # mention an animal word ("my dog died") must NOT be answered
-                # with a pet fact — they route to the empathy handler instead.
-                # A disclosure statement ("my dog is a sheepdog named cairn") is
-                # not a recall question and must fall through (not echo the fact).
+                # Genuine pet-recall guard (round 2026-08-22T0703Z, hardened):
+                # only answer when the query is actually ASKING about THIS pet.
+                #   - distress/empathy ("my dog died", "i am sad") must fall
+                #     through to the empathy handler, never echo a pet fact;
+                #   - declarative disclosures ("my dog is a sheepdog named cairn",
+                #     "my cat is pixel") are STORAGE events, not recall queries,
+                #     and must not be hijacked into a pet echo;
+                #   - a pet "name" match must be on a real name/species token,
+                #     not a stopword collision: a disclosure like "a sheepdog
+                #     named cairn" stored the article "a" as the name's first
+                #     word, which previously matched the article in unrelated
+                #     queries ("my child is a curious kid named Sam") and echoed
+                #     a stale pet fact.
                 _q_toks_g = re.findall(r"[a-z']+", q.lower())
                 _q_set_g = set(_q_toks_g)
-                _pet_mentioned_g = any(_ps_of(t) for t in _q_toks_g)
                 _distress_g = bool(_q_set_g & {
                     "died", "dead", "dies", "dying", "lost", "loss",
                     "sick", "ill", "hurt", "passed", "gone", "miss",
@@ -3466,15 +3470,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"^(what|who|which|where|when|why|how|is|are|was|were|"
                     r"do|does|did|has|have|had|can|could|would|will|tell|"
                     r"said|say|recall|remember|know|mention)\b", q.strip()))
-                _pet_in_q_set = bool(
-                    (_best[0] in _q_set_g) or (_best[1].split()[0] in _q_set_g)
-                    or any(t.startswith("pet") for t in _q_set_g))
-                if _pet_in_q_set and (_is_question_g or _ask_activity) and not _distress_g:
+                if _distress_g:
+                    pass  # bereavement / other-suffering -> empathy handler
+                elif not (_ask_activity or _is_question_g):
+                    pass  # declarative disclosure -> storage, not a recall query
+                else:
+                    # Activity answer: when the query asks about the pet's ACTIVITY
+                    # and a stored activity exists for the best-scoring pet, answer
+                    # with it. The scorer already confirmed topical overlap (the
+                    # activity object appears in the query), so pronoun/deictic
+                    # references ("he", "my keys") resolve here WITHOUT requiring
+                    # the pet's name/species token literally. This is what makes
+                    # "what does he do with my keys?" -> "your ferret pip hides car
+                    # keys." while still excluding disclosures/distress.
                     if _ask_activity and _act:
                         return f"your {_sp} {_nm} {_act}."
-                    # NAME answer (the pet's identity) — correct for identity
-                    # queries and the honest fallback when no activity is asked for.
-                    return f"your {_sp} is {_nm}."
+                    # NAME answer (the pet's identity) — only when the query
+                    # genuinely references THIS pet by species / real name token /
+                    # generic "pet" (stopwords stripped, so a leading article
+                    # accidentally stored as the name can't collide).
+                    _nm_tokens = set(re.findall(r"[a-z']+", _nm.lower())) - _STOP
+                    _references_pet = (
+                        (_sp in _q_set_g)
+                        or bool(_nm_tokens & _q_set_g)
+                        or any(t.startswith("pet") for t in _q_set_g)
+                    )
+                    if _references_pet:
+                        return f"your {_sp} is {_nm}."
                 # otherwise fall through (no pet answer) — let empathy /
                 # disclosure / generic recall handle the query.
         # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
