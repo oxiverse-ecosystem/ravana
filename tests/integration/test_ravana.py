@@ -180,12 +180,21 @@ def test_rlm_convergence():
 
     total = len(train_seq) - 1
     print(f"  Causal edges: {edges_found}/{total}")
-    return edges_found, total, rlm
+    # Real regression gate: RLM must learn the distant causal transitions.
+    # Previously this function RETURNED a tuple (pytest counts a non-None
+    # return as PASSED regardless of value -> the test could never fail).
+    # It must assert and return nothing (a non-None return re-triggers
+    # PytestReturnNotNoneWarning and is still "always green").
+    assert edges_found >= total * 0.75, (
+        f"RLM failed to learn distant causal transitions: "
+        f"only {edges_found}/{total} causal edges learned "
+        f"(needed >= {int(total * 0.75)})"
+    )
 
-edges, total, rlm = test_rlm_convergence()
-print(f"  RLM: {rlm}")
-assert edges >= total * 0.75, f"Failed: only {edges}/{total} causal edges learned"
-print("  ✓ RLM converges (learns distant causal transitions)")
+
+if __name__ == "__main__":
+    test_rlm_convergence()
+    print("  ✓ RLM converges (learns distant causal transitions)")
 
 # ─── Summary ────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
