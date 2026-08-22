@@ -1942,6 +1942,15 @@ class UserModel:
                 # recall reconstructor (_retrieve_episodic / _structured_recall)
                 # already keys possessive facts by owner, so this makes the
                 # MINER agree with the recaller by construction.
+                # GUARD (round 2026-08-22T0703Z CI fix): a pattern match can
+                # reach this point with _attr still None when the match's
+                # captured groups did not populate an attribute (e.g. a
+                # 0-group or non-attr pattern matched). _split_possessive_attr
+                # requires a str; passing None raises TypeError and aborts the
+                # whole mine. Skip such matches honestly — there is no
+                # possessive attribute to split, so nothing to store here.
+                if _attr is None:
+                    continue
                 _ent, _rel = _split_possessive_attr(_attr)
                 if _ent is not None:
                     _put_fact_ent(_ent, _rel, _val, 0.6)

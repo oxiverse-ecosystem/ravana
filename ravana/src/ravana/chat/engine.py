@@ -3262,33 +3262,52 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # do with the car keys" ask for the ACTIVITY, not the name. This
                 # runs before the name-only companion return so pet recall is
                 # symmetric with kin recall. Store-driven; no authored reply.
+                # GUARD (round 2026-08-22T0703Z CI fix): only fire when the
+                # query is actually asking about the ACTIVITY. A pure name query
+                # ("who is Pip to me?" / "what's my raccoon's name") must fall
+                # through to the name/relationship recall below and return the
+                # NAME ("your raccoon is pip."), not the activity. Detect an
+                # activity intent via the shared activity-cue lexicon; absent it,
+                # the name answer is the correct one. This keeps D1 behavior for
+                # the activity questions it was built for while fixing the
+                # regression where it shadowed a correct name recall.
                 try:
                     from .pet_slots import species_of as _ps_of2
-                    _pet_acts = {}
-                    for _pk, _pf in pf.facts.items():
-                        if not (isinstance(_pk, tuple) and len(_pk) == 3):
-                            continue
-                        if _pk[0] != "i" or getattr(_pf, "superseded", False):
-                            continue
-                        _pa = _pk[1].lower()
-                        if _pa.endswith("_activity"):
-                            _ps = _pa[:-len("_activity")]
-                            _pet_acts[_ps] = _pf.value.strip()
+                    _ACT_CUES = {
+                        "do", "does", "did", "doing", "what", "how", "act",
+                        "activity", "activities", "behavior", "behaviour",
+                        "habit", "habits", "routine", "routines", "likes",
+                        "like", "love", "loves", "enjoys", "enjoy", "plays",
+                        "play", "eats", "eat", "chase", "chases", "steal",
+                        "steals", "sleep", "sleeps", "bark", "barks",
+                    }
                     _q_toks2 = set(re.findall(r"[a-z']+", q.lower()))
-                    for _pk, _pf in pf.facts.items():
-                        if not (isinstance(_pk, tuple) and len(_pk) == 3):
-                            continue
-                        if _pk[0] != "i" or getattr(_pf, "superseded", False):
-                            continue
-                        _p_attr = _pk[1].lower()
-                        _p_sp = _ps_of2(_p_attr)
-                        if _p_sp is None:
-                            continue
-                        if _p_sp == _p_attr and _p_sp in _pet_acts:
-                            # query names this pet (by species or by its name)
-                            _p_name = _pf.value.strip().lower().split()[0]
-                            if _p_sp in _q_toks2 or _p_name in _q_toks2:
-                                return f"your {_p_sp} {_pf.value.strip()} {_pet_acts[_p_sp]}."
+                    _ask_activity = bool(_q_toks2 & _ACT_CUES)
+                    if _ask_activity:
+                        _pet_acts = {}
+                        for _pk, _pf in pf.facts.items():
+                            if not (isinstance(_pk, tuple) and len(_pk) == 3):
+                                continue
+                            if _pk[0] != "i" or getattr(_pf, "superseded", False):
+                                continue
+                            _pa = _pk[1].lower()
+                            if _pa.endswith("_activity"):
+                                _ps = _pa[:-len("_activity")]
+                                _pet_acts[_ps] = _pf.value.strip()
+                        for _pk, _pf in pf.facts.items():
+                            if not (isinstance(_pk, tuple) and len(_pk) == 3):
+                                continue
+                            if _pk[0] != "i" or getattr(_pf, "superseded", False):
+                                continue
+                            _p_attr = _pk[1].lower()
+                            _p_sp = _ps_of2(_p_attr)
+                            if _p_sp is None:
+                                continue
+                            if _p_sp == _p_attr and _p_sp in _pet_acts:
+                                # query names this pet (by species or by its name)
+                                _p_name = _pf.value.strip().lower().split()[0]
+                                if _p_sp in _q_toks2 or _p_name in _q_toks2:
+                                    return f"your {_p_sp} {_pf.value.strip()} {_pet_acts[_p_sp]}."
                 except Exception:
                     pass
                 for _k, _f in pf.facts.items():
@@ -3387,8 +3406,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if _score > _best_score:
                     _best_score = _score
                     _best = (_sp, _nm, _act)
-            if _best is not None and _best_score > 0.0 and _best[2]:
-                return f"your {_best[0]} {_best[1]} {_best[2]}."
+            if _best is not None and _best_score > 0.0:
+                _sp, _nm, _act = _best
+                # GUARD (round 2026-08-22T0703Z CI fix): a NAME/identity query
+                # ("who is Pip to me?" / "what's my raccoon's name") must return the
+                # NAME ("your raccoon is pip."), NOT the stored activity. An
+                # activity query ("what does Pip do?" / "what does my raccoon do")
+                # returns name + activity. The pet-activity companion exists to make
+                # pet recall symmetric with kin recall for ACTIVITY questions; it
+                # must not shadow a correct name recall. Activity intent is detected
+                # via the shared activity-cue lexicon; absent it, the name is the
+                # correct answer.
+                _ACT_CUES = {
+                    "do", "does", "did", "doing", "what", "how", "act",
+                    "activity", "activities", "behavior", "behaviour",
+                    "habit", "habits", "routine", "routines", "likes",
+                    "like", "love", "loves", "enjoys", "enjoy", "plays",
+                    "play", "eats", "eat", "chase", "chases", "steal",
+                    "steals", "sleep", "sleeps", "bark", "barks",
+                }
+                _ask_activity = bool(_q_set & _ACT_CUES)
+                if _ask_activity and _act:
+                    return f"your {_sp} {_nm} {_act}."
+                # NAME answer (the pet's identity) — correct for identity queries
+                # and the honest fallback when no activity is asked for.
+                return f"your {_sp} is {_nm}."
         # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
         # feature t_1a4a3938, round 2026-08-17T1126Z) ───────────────────────
         # Queries that name a relationship (kin) or a specific person/entity and
