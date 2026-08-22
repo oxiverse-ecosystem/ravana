@@ -2022,22 +2022,41 @@ class UserModel:
         # from the user's own words; no authored reply, no retraining.
         _mk = re.search(r"\bmy\s+([a-z][a-z-]+)\b\s*(.*)", q_clean)
         if _mk:
-            _kin = _mk.group(1).lower()
-            # GENERALIZE (round 2026-08-21T2156Z defect D2): a multi-word kin
-            # modifier ("great-aunt" / "great aunt") is normalized to its head
-            # relationship word via the SHARED relation_attrs.relation_of
-            # vocabulary, so "my great-aunt Hortense ..." is accepted by the same
-            # role gate as "my aunt" (the bare word "great" is not a relation,
-            # so it was previously dropped). The hyphenated form is captured by
-            # the relaxed char class above; normalization happens here, before
-            # the relation_of() gate below. Seed structure, no per-kin branch.
             try:
                 from .relation_attrs import relation_of as _mk_rel_of
-                _kin_norm = _mk_rel_of(_kin)
-                if _kin_norm:
-                    _kin = _kin_norm
             except Exception:
-                pass
+                _mk_rel_of = lambda w: None
+            _kin = _mk.group(1).lower()
+            _rest0 = _mk.group(2)
+            # GENERALIZE (round 2026-08-22T0058Z, DEFECT B): a leading MODIFIER
+            # can sit between "my" and the relationship word — "my OLD mentor
+            # Dr. Osei", "my DEAR friend Priya", "my LATE uncle Bram". The OLD
+            # code took only the FIRST word after "my" as the relation head, so
+            # "old"/"dear"/"late" (not relationship words) became the head and
+            # the WHOLE disclosure was dropped — a later "who is my mentor?"
+            # had nothing to recall. Fix: if the captured head is NOT a
+            # relationship word but the NEXT token in the remainder IS (after
+            # relation_of normalization), shift that token into the head and
+            # advance the remainder. This is bounded (one modifier) and preserves
+            # the existing embedded-clause path: a bare "my friend wren, she's a
+            # ceramicist" still keeps "wren" in the remainder so the name-only /
+            # embedded-clause branch (below) captures it. Seed vocabulary
+            # consulted via relation_of, not a per-role table; no authored
+            # prose; no retraining. When no relationship word is found the block
+            # falls through unchanged (honest no-match, no fictitious fact).
+            if _mk_rel_of(_kin) is None and _rest0:
+                _rest_toks0 = _rest0.split()
+                if _rest_toks0:
+                    # strip trailing punctuation (commas/periods) so "old
+                    # mentor," / "old mentor." resolves the head word cleanly.
+                    _first = _rest_toks0[0].lower().strip(".,!?;:\"'" + "'")
+                    _shift = _mk_rel_of(_first)
+                    if _shift:
+                        _kin = _shift
+                        _rest0 = " ".join(_rest_toks0[1:])
+            _kin_norm = _mk_rel_of(_kin)
+            if _kin_norm:
+                _kin = _kin_norm
             # GENERALIZE (round 2026-08-17T1730Z): a relationship disclosure is
             # not restricted to blood kin. Mentors, teachers, coaches, friends,
             # neighbors, bosses, colleagues, roommates, landlords, and any
@@ -2081,7 +2100,7 @@ class UserModel:
                 except Exception:
                     pass
             if _role:
-                _rest = _mk.group(2)
+                _rest = _rest0
                 _toks = _rest.split()
                 _vidx = None
                 _v_is_rel = False
