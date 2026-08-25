@@ -880,6 +880,17 @@ class MemoryMixin:
             "do", "you", "your", "i", "my", "we", "our", "me", "about",
             "on", "of", "the", "a", "an", "that", "this", "is", "are",
             "was", "were", "have", "has", "had", "name", "color", "colour",
+            # Round 2026-08-14T0103Z: question-scaffold words that are NOT
+            # content. A cued recall "remember when i told you about the
+            # commission" carries the real cue "commission" plus the
+            # interrogatives "when"/"for". Leaving them in _CUE_STOP's inverse
+            # dilute the content cue (1 real token of 3 -> frac 0.33 fails the
+            # 0.34 match bar -> _retrieve_episodic returns None and the query
+            # falls through to an adjacent-turn echo). Excluding the
+            # question scaffolds leaves the pure content cue ("commission") so
+            # the targeted episode is retrieved. Structural, generalizes across
+            # every recall query phrasing.
+            "when", "where", "why", "which", "how", "for", "from", "with",
         }
         _cue_tokens = [w.strip(".,!?") for w in re.findall(r"[a-z']+", q.lower())
                        if len(w) >= 3 and w not in _CUE_STOP]

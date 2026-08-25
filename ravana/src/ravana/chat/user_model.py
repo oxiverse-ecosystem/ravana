@@ -2004,7 +2004,63 @@ class UserModel:
                          "confused", "scared", "afraid", "excited",
                          "nervous", "calm", "what", "who", "why", "how",
                          "where", "when", "not", "no", "yes", "maybe")
-            if name_cand and name_cand.lower() not in _NON_NAME:
+            # DESCRIPTOR-NOUN deny set (round 2026-08-14T0103Z). "i'm
+            # vegetarian" / "i'm vegan" / "i'm a ceramicist" / "i'm an
+            # atheist" / "i'm a teacher" all reach the bare-copula name
+            # candidate path and were stored as the user's NAME (name
+            # poisoning: a later "what's my name" answered "Vegetarian" /
+            # "Ceramicist"). A name is a PROPER NOUN (mira, wren, tobias),
+            # never a common descriptor noun. This deny set covers the broad
+            # CATEGORIES of self-descriptor nouns (diet, religion/identity,
+            # occupation, nationality, orientation, family-role, political) as
+            # SEED vocabulary — RAVANA-expandable, not a per-name allowlist,
+            # so it generalizes to any descriptor the user might self-apply.
+            # Removing entries degrades gracefully (only loses one guard).
+            _NAME_REJECT_DESCRIPTOR = {
+                # diet / lifestyle
+                "vegetarian", "vegan", "omnivore", "pescatarian", "flexitarian",
+                "carnivore", "meat-eater", "teetotaler", "teetotaller",
+                # religion / belief / identity
+                "atheist", "agnostic", "christian", "muslim", "islamist",
+                "hindu", "buddhist", "jew", "jewish", "sikh", "pagan",
+                "catholic", "protestant", "mormon", "spiritual", "humanist",
+                "skeptic", "sceptic", "nihilist", "stoic", "optimist",
+                "pessimist", "realist", "idealist", "pragmatist",
+                # occupation / role
+                "ceramicist", "ceramist", "artist", "painter", "sculptor",
+                "writer", "author", "poet", "musician", "teacher", "student",
+                "engineer", "doctor", "nurse", "lawyer", "chef", "baker",
+                "programmer", "developer", "designer", "architect", "scientist",
+                "researcher", "farmer", "fisherman", "sailor", "soldier",
+                "officer", "clerk", "cashier", "waiter", "waitress", "barista",
+                "driver", "pilot", "carpenter", "plumber", "electrician",
+                "mechanic", "gardener", "librarian", "journalist", "editor",
+                "actor", "singer", "dancer", "photographer", "printmaker",
+                "potter", "weaver", "smith", "tailor", "cook", "builder",
+                # nationality / origin
+                "indian", "american", "british", "english", "scottish",
+                "welsh", "irish", "french", "german", "spanish", "italian",
+                "canadian", "australian", "chinese", "japanese", "korean",
+                "russian", "mexican", "brazilian", "dutch", "swiss", "swede",
+                "norwegian", "dane", "fin", "polish", "greek", "turk",
+                # orientation / identity
+                "straight", "gay", "lesbian", "bisexual", "transgender",
+                "queer", "cisgender", "pansexual", "asexual", "demisexual",
+                # family role (relative nouns can follow "i'm", e.g. "i'm a
+                # father" / "i'm someone's sister") — these are roles, never names
+                "father", "mother", "parent", "son", "daughter", "brother",
+                "sister", "uncle", "aunt", "auntie", "cousin", "grandfather",
+                "grandmother", "grandparent", "nephew", "niece",
+                # political / affiliation
+                "democrat", "republican", "socialist", "communist", "liberal",
+                "conservative", "anarchist", "centrist", "libertarian",
+                # general descriptors
+                "introvert", "extrovert", "ambivert", "minimalist",
+                "maximalist", "environmentalist", "feminist", "activist",
+            }
+            _nc_low = name_cand.lower()
+            if (name_cand and _nc_low not in _NON_NAME
+                    and _nc_low not in _NAME_REJECT_DESCRIPTOR):
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
@@ -3197,7 +3253,38 @@ class UserModel:
         #    can reconstruct "you dropped <x>" / "you lost <y>" grammatically
         #    (see engine_memory._reconstruct_entity + engine_reasoning
         #    ._derive_ack_from_store which now render the 'event' attr).
+        # Round 2026-08-13T2059Z: PRINCIPLED VERB PRUNE. The activity/event
+        # verb seeds below mix genuine activity/experience verbs with
+        # ACHIEVEMENT / COMMUNICATION verbs (got, said, made, gave, told,
+        # came, went, did, saw, met, sold, paid, sent, spent, bought, caught,
+        # brought, ate, drank, knew, wore, led, read, flew, swam, rode, drove,
+        # broke, spoke, woke, froze, chose, slept, felt, held, found, lost,
+        # kept, took, set, put, cut, hit, fed, bled, built, taught, wrote,
+        # drew, sang, grew, threw). Those fire on OUTCOME / UTTERANCE
+        # disclosures whose object is a bare noun naming a result
+        # ("i got the artist residency" -> does=got artist residency;
+        # "i said open-plan offices help" -> does=said open), and they echo
+        # verbatim in the self-summary as garbage. SEED set (RAVANA-
+        # expandable): these are communication/achievement verbs, not
+        # sustained activities or physical-world experiences; removing them
+        # degrades gracefully (one fewer outcome-class captured, which is
+        # correct — outcomes are not recurring activities). The genuine
+        # activity verbs (keep/grow/start/lost/found/build/throw/play/...)
+        # and experience verbs (drop/lose/find/break/heal/...) are kept,
+        # so the prior fact-mining tests (throw pots, grow air plants,
+        # repot juniper, lost favia coral, reef tank) stay GREEN.
+        _ACHIEVE_COMM_VERBS = frozenset({
+            "got", "get", "said", "say", "gave", "give",
+            "told", "tell", "came", "come", "went", "go", "did", "do",
+            "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy",
+            "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "know", "wore", "wear", "led", "lead",
+            "spoke", "speak", "woke", "wake",
+            "fed", "feed", "bled", "bleed",
+        })
         # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
+
         # PersonalFactStore the user can correct — NOT per-topic answers, NOT
         # authored prose). Covers everyday disclosure verbs so first-person
         # activities/experiences actually land.
@@ -3264,6 +3351,116 @@ class UserModel:
         # fragment (e.g. "i repotted the juniper and found a root..." ->
         # "juniper", not "juniper and found a root"). The verb is matched
         # with optional inflection so gerunds/continuous tenses are caught.
+        # Round 2026-08-14T0103Z: GENERAL verb-frame guard (defined BEFORE the
+        # seeded ACTIVITY/EVENT blocks so they can all use it). The open-class
+        # miner (and the seeded blocks) treat ANY word after "i" as the verb,
+        # so framer / temporal / negation words preceding the real activity
+        # verb were captured as the verb and stored as garbage 'does' facts:
+        # "i won't buy fish" -> does="won't buy fish"; "i used to love..." ->
+        # does="used love"; "i first lit a kiln" -> does="first lit";
+        # "i mis-spoke earlier" -> does="mis-spoke earlier". These are NOT
+        # activities RAVANA learned. Fix structurally: (a) NORMALISE the
+        # captured verb — strip an apostrophe contraction artifact and drop a
+        # leading "n't"/"not" so negations are not stored as the activity;
+        # (b) reject verbs that are FRAME / TEMPORAL / DISCOURSE words (used,
+        # first, mis-spoke, probably, still, just, really, also ...) — these
+        # precede the real verb and must never be the mined activity; (c) reject
+        # objects that are PURELY temporal/discourse tails ("earlier", "now",
+        # "today") or empty. Seed deny-sets (RAVANA-expandable, removing entries
+        # degrades gracefully), applied to ALL THREE capture blocks so the
+        # seeded whitelist and the open-class fallback agree by construction.
+        # No per-verb answer table, no hardcoded reply.
+        _STATIVE_DENY = frozenset({
+            # copula / existence
+            "am", "are", "is", "was", "were", "be", "been", "being",
+            "become", "seem", "appear", "remain",
+            # affect / cognition / volition (handled by opinion/benign paths)
+            "feel", "feels", "love", "like", "hate", "dislike", "prefer",
+            "think", "believe", "know", "understand", "want", "need", "wish",
+            "hope", "guess", "suppose", "mean", "wonder", "agree", "disagree",
+            "doubt", "fear", "regret", "suspect", "realize", "realise",
+            "remember", "recall", "imagine", "mind", "care",
+            "enjoy", "adore", "detest", "cherish", "miss",
+            # possession (handled by 'my X is Y' / have patterns)
+            "have", "has", "had", "own", "possess",
+            # communication / achievement utterances (echo verbatim as garbage;
+            # seeded out just like _ACHIEVE_COMM_VERBS above)
+            "got", "get", "said", "say", "gave", "give",
+            "told", "tell", "came", "come", "went", "go", "did", "do",
+            "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy",
+            "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "wore", "wear", "led", "lead",
+            "spoke", "speak", "woke", "wake",
+            "fed", "feed", "bled", "bleed",
+        })
+        _VERB_FRAME_DENY = frozenset({
+            # temporal / aspectual framers (not activities)
+            "used", "first", "last", "then", "next", "once", "twice",
+            "again", "finally", "recently", "lately", "soon", "already",
+            "just", "still", "now", "earlier", "later", "today", "tonight",
+            "yesterday", "tomorrow", "sometimes", "often", "usually",
+            "always", "never", "occasionally", "rarely",
+            # discourse / correction / stance framers
+            "mis-spoke", "misspoke", "meant", "suppose", "guess", "wonder",
+            "realize", "realise", "mean", "admit", "confess",
+            # modal-ish framers that are not the activity itself
+            "probably", "possibly", "maybe", "certainly", "definitely",
+            "really", "truly", "actually", "basically", "simply", "quite",
+            "very", "also", "even", "rather", "instead",
+            # modality / auxiliaries (never a mined activity): "i should
+            # handle" / "i can lift" / "i will finish" are modality, not a
+            # sustained activity, and questions like "how do you think i
+            # should handle that?" must not leak "should handle" as a 'does'.
+            "should", "would", "could", "can", "may", "might", "must",
+            "shall", "will", "ought",
+        })
+
+        def _norm_verb(v: str) -> str:
+            v = v.strip().lower().lstrip("'").rstrip("'")
+            # A captured verb containing an apostrophe is a CONTRACTION
+            # artifact ("won't", "can't", "don't", "isn't") — not a clean
+            # activity verb. Negation is better expressed via the
+            # opinion/stance path, so we normalize to empty and let _verb_ok
+            # reject it rather than storing "won't buy fish" as a 'does' fact.
+            if "'" in v:
+                return ""
+            if v.startswith("n't"):
+                v = v[3:] or v
+            elif v == "not":
+                v = ""
+            return v
+
+        def _verb_ok(v: str) -> bool:
+            v = _norm_verb(v)
+            if not v:
+                return False
+            if v in _STATIVE_DENY or v in _VERB_FRAME_DENY:
+                return False
+            return True
+
+        def _obj_ok(obj: str) -> bool:
+            o = (obj or "").strip().lower()
+            if not o:
+                return False
+            _OBJ_STOP = {"earlier", "later", "now", "today", "tonight",
+                         "yesterday", "tomorrow", "recently", "lately",
+                         "soon", "then", "next", "again"}
+            return o not in _OBJ_STOP
+
+        def _is_question(t: str) -> bool:
+            # A first-person activity/event can ONLY be mined from a
+            # DECLARATIVE self-report, never from a question. Mining a
+            # question ("how do you think i should handle that?") leaks
+            # modality tails ("should handle") as garbage 'does' facts.
+            t = (t or "").strip()
+            if t.endswith("?"):
+                return True
+            return bool(re.match(
+                r"^(what|who|when|where|why|how|which|is|are|do|does|did|"
+                r"can|could|would|should|will|may|might|am|have|has|had)\b",
+                t, re.IGNORECASE))
+
         _act_pat = re.compile(
             r"\bi\s+(?:" + _FRAMER_SKIP + r")?"
             r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
@@ -5834,6 +6031,7 @@ class UserModel:
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
             'interaction_history': self.interaction_history,
+            '_learned_relations': list(getattr(self, '_learned_relations', set())),
         }
 
     def set_state(self, state: Dict):
@@ -5857,6 +6055,7 @@ class UserModel:
         self.user_location = state.get('user_location', '')
         self.user_background = state.get('user_background', '')
         self.preferences = state.get('preferences', {})
+        self._learned_relations = set(state.get('_learned_relations', []))
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)
