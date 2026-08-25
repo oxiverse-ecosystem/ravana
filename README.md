@@ -43,6 +43,17 @@ on this codebase:
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
+- **Records its own opinions and answers "do you still feel that way?" from the
+  record.** Asked its own view — *"what do you think about open source"* — it
+  replies *"i strongly value open source. knowledge should be shared, not locked
+  away."* and **records that stance durably** (survives save/load). A later
+  *"do you still feel that way about open source?"* is answered **from that
+  recorded stance** — *"yeah, i still strongly value open source — that hasn't
+  shifted for me. knowledge should be shared, not locked away"* — not recomputed
+  fresh. A revisit on a topic it never stated a view on is answered honestly
+  (*"i don't actually have a recorded view on … from before"*) instead of
+  fabricated. No LLM, no per-topic reply table. See
+  `docs/CAPABILITY_AGENT_OWN_STANCE_PERSISTENCE.md`.
 - **Reverses a held stance.** If you later change your mind — *"i flipped, the
   reef tank is more work than joy"* — it **recodes** the stance you already held
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
@@ -102,43 +113,97 @@ on this codebase:
   coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
-- **Forms and recalls its own stance on a topic you've discussed.** Asked
-  *"what do you think about chanterelles?"* after you've said *"i really love
-  chanterelles"*, it answers from a stance it **derived and recorded as its own**
-  (`i'm strongly for chanterelles.`) — grounded in your real learned view,
-  attenuated (it leans, never copies), and persisted so it recalls the same stance
-  next time. On a topic with no evidence it stays honestly silent
-  (`i'm still figuring that out …`) instead of borrowing your opinion. No LLM, no
-  retrain, no authored reply pool. See `docs/AGENT_SELF_STANCE.md`.
-- **Engages BOTH sides of a binary self-opinion.** Asked *"what's your take on the
-  sea versus the mountains?"* or *"do you prefer the countryside or the cities?"*,
-  it splits on the contrastive connective (`versus` / `vs` / `or` / `over` /
-  `rather than`) and resolves **each** side through its real stance state — e.g.
-  `i'm for sea.; i'm still figuring out mountains.` — instead of collapsing to the
-  last token and dropping the other side. A side with no view is answered honestly,
-  never fabricated. No LLM, no retrain, no authored reply pool. See
-  `docs/CONTRASTIVE_SELF_OPINION.md`.
-- **Resolves a relative-clause topic to its content head in a self-opinion
-  query.** Asked *"your honest read on people who talk in theatres?"* or
-  *"what's your take on friends who keep their promises?"*, it no longer
-  collapses the topic to the trailing last token (`theatres` / `promises`) — it
-  resolves the **content head** (`people who talk` / `friends who keep`), which
-  matches the stance key it mined from you, so it engages the real lean it
-  learned (`i'm against people who talk.`) instead of the hollow
-  `i'm still figuring that out`. Flat topics (`"your honest read on privacy"` ->
-  `privacy`) are unchanged; an ungrounded relative clause stays honestly silent,
-  never fabricated. No LLM, no retrain, no authored reply pool. See
-  `docs/SELF_OPINION_RELATIVE_CLAUSE.md`.
-- **Remembers and totals counts you disclose.** Told *"i keep twelve racing
-  pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
-  structured state (not free text) so it can answer *"how many racing pigeons do i
-  keep?"* with `you have twelve racing pigeons.` and *"how many pets do i have in
-  total?"* with `you have 21 pets in total.` (losses aren't counted as pets) — and
-  a later *"it's seven hives now"* supersedes an earlier *"i keep six hives"*, so
-  recall returns the corrected `you have seven hives.` No LLM, no retrain, no
-  authored reply pool. See `docs/QUANTITY_MEMORY.md`.
-
-- **Answers a multi-part (compound) question in full — both conjuncts resolve.** Asked *"what's my ferret's name and what does he do with my keys?"* — where the recall resolvers are single-shot and used to answer the first clause and drop the rest — it now resolves BOTH and answers *"your ferret is pip and your ferret pip hides car keys."* (before the fix: only *"your ferret is pip."*). The capability is **general**: it deterministically splits a genuine compound interrogative (a coordinating `" and "` between two questions, or two `"?"`-terminated questions) into independent sub-queries, runs the **same** durable-store-backed recall resolver on each clause, and combines the distinct answers with `" and "`. A declarative `"and"` (a non-question) is left whole (safe no-op), and if fewer than two clauses resolve it **fails closed** rather than fabricating. No LLM, no per-topic reply table, no retraining. See `docs/CAPABILITY_COMPOUND_QUERY_DECOMPOSITION.md`.
+- **Reflects on its model of you (meta-identity).** Asked *"do i seem like a
+  real person to you"*, *"what am i to you"*, or *"what have you learned about
+  me"*, it answers from its **live** accumulated model of you — your real name,
+  the stances and facts it has picked up, and its own self-coherence — instead
+  of a biographical fact lookup or an episodic echo:
+  `i know you as Corvin. and from what you've told me i've picked up 2 stances you've shared and 1 facts about your life. you've let me see where you stand on things like oysters, surveillance. my own sense of self is still forming — my self-coherence sits around 0.25 and is holding steady.`
+  Every word of content is read from runtime stores (no authored prose; the
+  prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
+  *"what's my name"* is not intercepted and still resolves from its own path. See
+  `docs/CAPABILITY_META_IDENTITY.md`.
+- **Reports the actual learned profile (content aggregation).** Asked *"what
+  have you picked up about me"*, *"describe me"*, *"what stands out about me"*,
+  *"tell me about myself"*, or *"what's your read on me"*, it surfaces the
+  **real content** of its model of you — your name, where you're from, disclosed
+  facts, stated beliefs, and the polarity of each stance it holds — read live
+  from the durable stores:
+  `here's what i've picked up about you so far: your name is corvin; you're from aldermoor in the hills; you grew village called aldermoor; you an astronomer who studies pulsars; on how you feel about things: you're strongly for sea; you're strongly against put.`
+  This is distinct from meta-identity (which reports *counts + topics*, not the
+  facts themselves). Previously these queries fell through to the
+  graceful-uncertainty path and emitted degenerate text despite real facts being
+  stored. Fail-closed: a brand-new user returns `None` and the honest path
+  answers. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_USER_MODEL_AGGREGATION.md`.
+- **Enumerates the entities it has learned in a category.** Asked *"name everyone
+  in my family"*, *"name all my pets"*, or *"who have i told you about"* — queries
+  with **no specific cue word** — it **scans its live PersonalFactStore** and
+  lists every relative and pet it mined, drawn from the real stored facts:
+  `you've told me about: your grandmother indira weaves baskets; your brother arjun climbs mountains; your cat is mochi; your dog is biscuit.`
+  Previously these fell through to a generic acknowledgement (*"noted."*) because
+  the cued-recall paths require a named entity. Category membership is decided by
+  the **shared** lexicon helpers the miner and cued-recall already use, so all
+  three paths agree on what counts as a relative/pet by construction (no
+  duplicated word list). A brand-new user with nothing disclosed gets an honest
+  *"you haven't told me about any family or pets yet."* instead of a fabricated
+  list. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_CATEGORY_ENUMERATION_RECALL.md`.
+- **Reads the USER's own held stance on a third-person query (self/other
+  boundary).** Asked *"do you think i like spicy food or not?"* — where *you* are
+  the attitude holder — it answers from **your** stored preference, not its own:
+  `from what you've told me, you're strongly for spicy food.` (a disclosure of
+  *"i hate cold coffee"* is later recalled the same way: *"you're strongly against
+  cold coffee."*). Previously these matched the broad self-opinion gate and RAVANA
+  answered from its *own* (empty) stance — the generic *"still figuring that out"*
+  hedge — a self/other confusion. The topic is resolved the **same way the stance
+  miner resolves it**, so a paraphrase (*"i adore jazz"* → query *"do you think i
+  love jazz"*) still links to the held stance; the polarity is rendered as ONE word
+  from the live store. Fail-closed: a topic you never stated a preference on, or a
+  genuine question about *RAVANA's* own view, falls through to the normal path and
+  is **not** answered with a fabricated stance. No LLM, no per-topic reply table,
+  no retraining. See `docs/CAPABILITY_USER_STANCE_RECALL.md`.
+- **Recalls what it knows about a named relationship or person from open
+  phrasing.** Asked *"tell me about my grandmother"*, *"who is my grandmother?"*,
+  *"what does my grandmother do?"*, *"what do you know about my brother"*, or
+  *"describe my niece priya"* — it reports the stored relationship/pet fact from
+  the **same** open phrasing, not just a bare *"who is X"*:
+  `your grandmother indira bakes sourdough bread.` (and *"who is theo?"* → *"your
+  brother theo fixes bicycles."*). Pets are covered too (*"tell me about my cat"*
+  → *"your cat is pixel."*). This needed two fixes: the relationship miner now
+  stores the named fact regardless of name casing (it previously required a
+  CAPITALIZED name and silently dropped lowercase chat names), and a new
+  recall branch keys on the relationship word itself when phrased openly. The
+  branch is gated on an interrogative frame so declarative disclosures (*"my
+  friend is hurting"*) still reach the empathy router, and an unknown relative
+  fails closed with honest uncertainty rather than a fabricated bio. No LLM, no
+  per-person reply table, no retraining. See
+  `docs/CAPABILITY_OPEN_ENDED_RELATIONSHIP_RECALL.md`.
+- **Recalls non-kin relationships (mentor / teacher / coach / friend) from open phrasing.** After a disclosure like *"my mentor Dr. Okonkwo taught me astronomy"*, asked *"who is my mentor?"*, *"tell me about my mentor"*, or *"what does my mentor do?"* — it reports the **full** relationship fact (`your mentor dr. okonkwo taught astronomy.`) from the same open phrasing as kin, with the full name + activity and no truncation. This needed a seed-vocabulary fix: non-kin role words (mentor, teacher, coach, friend, neighbour, boss, …) now live in the **shared** `relation_attrs` lexicon (single source of truth) instead of a duplicate local list, so the appositive-pet miner rejects them via its `relation_of()` guard instead of mis-storing *"my mentor Dr…"* as a bogus pet fact (`('i','mentor','dr')`) that truncated recall to *"your mentor is dr."* The role vocabulary is seed and grows at runtime via `learn_relation`. No LLM, no per-role reply table, no retraining. See `docs/CAPABILITY_NONKIN_ROLE_RECALL.md`.
+- **Answers what *you* have told *it* — autobiographical recall of the USER.** Asked *"what will you remember most about me?"* it composes from your REAL profile (the most-confident learned fact/stance first, then a short tail), e.g. *"the thing that stands out most is your brother theo restores vintage radios."* Asked *"did i tell you i liked cold-weather hiking?"* it confirms from your REAL stance (*"yes — you told me you're uncertain about cold weather hiking. i've kept that."*) — and says *"not that i recall"* honestly when nothing maps. Asked *"earlier i told you i loved X. does that still fit, or have i changed?"* it reports your CURRENT (already-reconciled) stance, not a stale echo. This fixes a self/other boundary inversion: those queries used to be misrouted into RAVANA's own-reply echo store (returning *"i said: good to know you love…"* about the user's own disclosure). The answers are composed entirely from the live `personal_facts` / `opinions.stances` / `belief_store` — no authored prose, no per-topic table, no retraining. Genuine agent-self questions (*"what did you say about music?"*) still fall through untouched. See `docs/CAPABILITY_AUTOBIOGRAPHICAL_RECALL.md`.
+- **Recalls a possession's name even when you PARAPHRASE the entity.** After *"i keep a sourdough starter i named doris"*, asked *"what did i name that sourdough culture on my counter?"* it links the paraphrase to the stored entity via cross-lemma GloVe cosine and answers *"your sourdough starter's name is doris."* — instead of leaking an unrelated "i"-scoped name fact (the R1 confabulation where it used to answer the best-friend's name). The linker shares the engine's seed GloVe embeddings, requires a verbatim head-word overlap as a confabulation bar, and **fails closed** (honest "i don't know" / no leak) when no stored entity clears the bar — so an unknown possession never gets a fabricated name. It runs before the self-profile scanners so a generic *"what is my name?"* is not hijacked by a possession. No LLM, no synonym table, no retraining. See `docs/CAPABILITY_ENTITY_LINKED_NAME_RECALL.md`.
+- **Separates world-knowledge questions from autobiographical recall.** Asked
+  *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
+  about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
+  as a general-knowledge question and falls through to internal-knowledge / web /
+  honest-uncertainty. The same phrase *"what is wrong with my car?"*, because it
+  references your **own** disclosed entity (*my* car), is still answered from
+  episodic memory (`gps`, `reboot`). The gate is a distribution-driven intent
+  classifier (explicit recall markers + a personal-possessive reference), not a
+  frozen topic list, so it generalizes across every subject and needs no
+  retraining. Fail-open: a general knowledge question can never be answered by an
+  autobiographical echo. See `docs/CAPABILITY_QUERY_INTENT_GATE.md`.
+- **Withholds word salad about a subject it has never learned (D4).** The
+  Situation-Model free-decode path used to restate a query's own near-neighbours
+  as a "fact" about a subject RAVANA has *no* durable knowledge of (e.g. *"tired"*
+  — no definition, no web source, not in the concept graph), and the grounding
+  monitor accepted it because those neighbours are all GloVe-similar. Now an
+  **unknown** subject — not in the concept graph / no definition / no web source
+  — can no longer be grounded by free-association similarity alone: its utterance
+  is withheld and the path falls back to honest uncertainty. A **known** concept
+  (already learned, or with a seeded definition) still grounds a genuine answer,
+  and a subject learned later online is re-admitted. No LLM, no per-topic reply
+  table. See `docs/CAPABILITY_SM_UNKNOWN_SUBJECT_GROUNDING.md`.
 
 These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
