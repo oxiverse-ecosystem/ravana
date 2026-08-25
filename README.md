@@ -378,6 +378,7 @@ See [`docs/`](docs/README.md):
 - [Training](docs/TRAINING.md) — `train.py` modes and the LingGen promotion gate.
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
+- [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
 
 ## Benchmark results
 
