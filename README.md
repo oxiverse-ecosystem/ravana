@@ -380,6 +380,7 @@ See [`docs/`](docs/README.md):
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
 - [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
 - [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
+- [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
 
 ## Benchmark results
 

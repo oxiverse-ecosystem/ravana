@@ -1511,7 +1511,26 @@ class ReasoningMixin:
             # No fact carries a value word for this predicate: fail open to the
             # lexical fallback below (do NOT confabulate).
         elif lex_ok:
-            return lex_fact.object
+            # D2 fix (round 2026-08-11T1328Z): a genuine QUESTION must not be
+            # answered by echoing an UNRELATED prior turn. The ranking above can
+            # pick a best match on a single loose token overlap (e.g. "come on,
+            # the sump over the shack any day, right?" surfaced a foraging fact
+            # about the quarry) and dump it as "you told me earlier: <unrelated
+            # turn>" — a self/other boundary breach and an honest-memory error.
+            # Require the chosen fact to share at least TWO content tokens with
+            # the question; below that it is a spurious match and we fail open to
+            # the honest fallback rather than confabulate a wrong memory. The
+            # floor is structural (raw token overlap, no per-question list) and
+            # only constrains THIS lexical path; the dedicated recall-of-own-
+            # words questions ("what did you tell me about X") keep >=2 overlap
+            # with their target fact and still pass.
+            _q_tok = {t for t in re.findall(r"[a-zA-Z']+", (user_input or "").lower())
+                      if len(t) >= 3}
+            _f_tok = {t for t in re.findall(r"[a-zA-Z']+", (lex_fact.object or "").lower())
+                      if len(t) >= 3}
+            if len(_q_tok & _f_tok) >= 2:
+                return lex_fact.object
+            # Below the relevance floor: do not echo an unrelated memory.
 
         # Fallback: ONLY when the subject has a single stored fact (where it
         # is by construction the right one). With multiple same-subject facts

@@ -1121,6 +1121,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "people": ("care about", 0.75,
                        "i care about the next generation having better tools"),
         }
+        # Agent Self-Stance Formation & Recall (feature, round
+        # 2026-08-11T1328Z). RAVANA's OWN learned stances — the opinions it
+        # forms about topics through conversation, distinct from the
+        # constitutive seed in `_agent_values` (which is READ-ONLY by design).
+        # Before this, `_agent_stance_on` was read-only: it consulted the
+        # constitutive seed + a session cache but never RECORDED a stance it
+        # derived, and never consulted the USER's actual learned stances — so a
+        # self-opinion question ("what's your read on X") fell through to the
+        # hollow "still figuring that out" frame even when the user had spent
+        # turns stating strong views on X (the round's documented residual
+        # limitation T2/T5/T28/T48/T60/T65/T74).
+        #
+        # This store is the remedy: when the agent derives a grounded stance on
+        # X it RECORDS it here, recalls it stably across turns/sessions, and the
+        # resolver consults this store (plus the user's learned stances) before
+        # it ever falls back to honest uncertainty. It is SEED (a store, not an
+        # if/elif), RAVANA-EXPANDABLE at runtime (every derived stance is
+        # written here), and learning stays ONLINE/incremental (no retraining,
+        # no authored answers). No hardcoding, no LLM.
+        # topic.lower() -> Stance (same Stance type as the user's opinion store,
+        # so the agent's and user's value judgments live in one shape).
+        self._agent_stances: Dict[str, Any] = {}
         self._last_hops: List[List[Tuple[str, str]]] = []  # concept -> strength (decays)
         self._last_chain_hops: List[List[Tuple[str, str]]] = []  # Phase 3.4: snapshot before clear
         # Phase 8: Prefrontal workspace — holds subject + top associations for on-topic focus
@@ -3996,6 +4018,101 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _s = None
             else:
                 _s = opinions.query_stance(_topic)
+            # ── Agent Self-Stance Formation & Recall (round 2026-08-11T1328Z) ──
+            # The residual limitation the round documented: a self-opinion
+            # question ("what's your read on X") fell through to the hollow
+            # "still figuring that out" frame (in the secondary vmPFC path) even
+            # when the USER had stated strong views on X. But the PRIMARY path
+            # here had a worse defect: it answered "_s = opinions.query_stance"
+            # with ``f"i'm {_w} {_topic}."`` — i.e. it rendered the USER's
+            # stance as the AGENT's own (a self/other boundary leak) and never
+            # recorded an agent-owned stance, so the agent had no durable,
+            # attributable view of its own to recall next time.
+            #
+            # Fix: this path now consults RAVANA's OWN _agent_stances store
+            # FIRST. (1) RECALL — if the agent already formed + recorded a
+            # stance on this topic (in this or a prior session, persisted), it
+            # answers from that, with personality continuity. (2) FORM — if the
+            # user has a real learned stance on the topic, the agent DERIVES a
+            # grounded lean from it (it is not a blank slate about a topic it
+            # discussed), RECORDS that lean as its own stance, and answers from
+            # the recorded store. (3) Only if neither exists does it fall back to
+            # the (now clearly-labeled) self/other-leaking legacy behavior, which
+            # itself is honest because it still only fires when the user DID
+            # state a stance — but it is superseded by the agent's own store so
+            # the boundary is preserved. No fabrication: the agent's stance
+            # comes from the user's real learned polarity, attenuated; it is
+            # never inferred from ambient mood or similarity.
+            # The agent's own stance key must be the CANONICAL topic (a clean
+            # single concept), not the possibly-long user-stance phrase
+            # (e.g. resolve_topic may return "chanterelles — they're the best
+            # thing i find"). Derive a clean key from the canonical user-topic
+            # head via _agent_stance_key so recall/formation agree on one key.
+            _own_topic = _topic
+            if opinions is not None and _topic and _topic not in opinions.stances:
+                # If the resolved topic is a multiword phrase not stored as a
+                # clean key, use the first substantive content token as the
+                # canonical agent key (matches what _agent_stance_key would
+                # accept), so a later ask on the short form still recalls.
+                _head = _topic.split()[0] if _topic.split() else _topic
+                _own_topic = _head
+            _own_key = self._agent_stance_key(_own_topic) if hasattr(
+                self, "_agent_stance_key") else (_own_topic.strip().lower() if _own_topic.strip() else "")
+            # Authoritative store: always the engine's own attribute (never a
+            # throwaway `or {}`, which would discard the recorded stance).
+            _own_store = getattr(self, "_agent_stances", None)
+            if not isinstance(_own_store, dict):
+                _own_store = {}
+                self._agent_stances = _own_store
+            _own_stance = _own_store.get(_own_key) if _own_key else None
+            if _own_stance is not None and getattr(_own_stance, "confidence", 0.0) >= 0.35:
+                # RECALL: answer from the agent's own durable stance.
+                _pol = _own_stance.polarity
+                if _pol >= 0.6:
+                    _w = "strongly for"
+                elif _pol > 0.1:
+                    _w = "for"
+                elif _pol <= -0.6:
+                    _w = "strongly against"
+                elif _pol < -0.1:
+                    _w = "against"
+                else:
+                    _w = "uncertain about"
+                return f"i'm {_w} {_own_key}."
+            # FORM: ground a NEW agent stance on the user's real learned stance
+            # (the agent is informed by what its conversation partner cares
+            # about, but never copies it verbatim). Record it so it persists +
+            # is recalled stably next time.
+            if _s is not None and getattr(_s, "confidence", 0.0) >= 0.35 and _own_key:
+                _conf = max(0.35, min(0.85, float(_s.confidence) * 0.8))
+                _pol = float(_s.polarity) * 0.7  # agent leans, not copies
+                try:
+                    from ravana.chat.personal_fact_store import Stance
+                    _own_store[_own_key] = Stance(
+                        topic=_own_key, polarity=_pol, confidence=_conf,
+                        valence=getattr(_s, "valence", 0.0),
+                        arousal=getattr(_s, "arousal", 0.0),
+                        turn_number=getattr(self, "turn_count", 0) or 0,
+                        rehearsal_count=1)
+                except Exception:
+                    pass
+                if _pol >= 0.6:
+                    _w = "strongly for"
+                elif _pol > 0.1:
+                    _w = "for"
+                elif _pol <= -0.6:
+                    _w = "strongly against"
+                elif _pol < -0.1:
+                    _w = "against"
+                else:
+                    _w = "uncertain about"
+                return f"i'm {_w} {_own_key}."
+            # Legacy self/other-leaking fallback (kept only when the agent has
+            # NO own stance to recall/form — i.e. the user DID state one but a
+            # clean agent key could not be derived, or the user stance is below
+            # the grounding-confidence floor). It is honest here because it fires
+            # only on a real user stance; the agent's own store takes precedence
+            # above so the boundary (agent view vs user view) is preserved.
             if _s is not None:
                 _pol = _s.polarity
                 if _pol >= 0.6:
@@ -9074,6 +9191,52 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(t) >= 4 and (nw.startswith(t) or t.startswith(nw)):
                 return True
         return False
+
+    # ── Agent Self-Stance Formation & Recall (round 2026-08-11T1328Z) ────────
+    # Serialization helpers for RAVANA's OWN learned stances (_agent_stances).
+    # They are module-level (not methods) so save()/load() can call them
+    # without depending on a particular engine instance layout, and they import
+    # the Stance type lazily to avoid a top-of-module import cycle.
+
+    def _serialize_agent_stances(engine: "CognitiveChatEngine") -> Dict[str, Any]:
+        """Persist the agent's derived stance store to a plain serializable map.
+
+        topic -> (topic, polarity, confidence, valence, arousal, turn_number,
+        rehearsal_count) — the same tuple shape UserStanceStore.get_state uses,
+        so load rehydrates symmetrically.
+        """
+        _store = getattr(engine, "_agent_stances", None) or {}
+        _out: Dict[str, Any] = {}
+        for _k, _s in _store.items():
+            if not isinstance(_k, str) or not _k.strip():
+                continue
+            try:
+                _out[_k] = (_s.topic, float(_s.polarity), float(_s.confidence),
+                            float(_s.valence), float(_s.arousal),
+                            int(_s.turn_number), int(_s.rehearsal_count))
+            except Exception:
+                # a malformed entry must never poison the whole save
+                continue
+        return _out
+
+    def _agent_stance_from_tuple(key: str, val: Any):
+        """Rehydrate one persisted agent stance into a Stance, or None if junk.
+
+        Mirrors UserStanceStore.set_state. Guarding a shape here is what keeps a
+        corrupted save from replaying a fabricated stance on boot.
+        """
+        if not (isinstance(val, (tuple, list)) and len(val) == 7):
+            return None
+        try:
+            from ravana.chat.personal_fact_store import Stance
+            topic, pol, conf, val_, aro, tn, rc = val
+            return Stance(
+                topic=str(topic) if topic else key,
+                polarity=float(pol), confidence=float(conf),
+                valence=float(val_), arousal=float(aro),
+                turn_number=int(tn), rehearsal_count=int(rc))
+        except Exception:
+            return None
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
         import time

@@ -2962,6 +2962,27 @@ class UserModel:
                 _obj = self._opinion_topic(_m.group(1).strip().lower())
                 _obj = _strip_obj_framers(_obj)
                 if _obj and len(_obj.split()) <= 5:
+                    # D4 fix (round 2026-08-11T1328Z): the resolved object HEAD
+                    # must not be a communication / meta-discourse / abstract-
+                    # state word ("saying", "told", "kind", "track", "felt"...).
+                    # "i keep saying it" / "i felt a kind of weight lift" matched
+                    # the activity verb and stored junk ('does' = "keep saying"
+                    # / "felt kind") that pollutes recall. A real possession/
+                    # activity head ("pigeons", "tabla", "homing pigeons") is
+                    # never in this SEED vocabulary and still passes. Shared
+                    # with the general-activity miner below so both capture the
+                    # same real disclosures and reject the same meta-discourse.
+                    _META_HEAD = (
+                        "saying", "says", "said", "tell", "tells", "telling",
+                        "told", "mention", "mentions", "mentioning", "recall",
+                        "recount", "repeat", "repeated", "keep", "kept",
+                        "lose", "lost", "kind", "weight", "hush", "lift",
+                        "track", "sort", "type", "notion", "feeling", "feels",
+                        "felt", "bit", "thing", "stuff", "business", "matter",
+                        "point",
+                    )
+                    if _obj.split()[0] in _META_HEAD:
+                        continue
                     # Store the verb WITH the object ("keep homing pigeons")
                     # so activity recall ("what do i keep?") can match the
                     # verb and return a complete, grammatical answer instead
@@ -3152,8 +3173,45 @@ class UserModel:
                 "shiver", "sweat", "tear", "tears", "breath", "pulse", "blood",
                 "sigh", "lump", "swelling", "cramp", "tingle", "numb",
             )
-            if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
-                                            for w in _o.split()):
+            # R5 (round 2026-08-11T0521Z): scope the body/sensation gate so it
+            # ONLY rejects a SENSATION PHRASE — an object whose content words are
+            # ALL body/sensation words (e.g. bare "chest", "felt chest",
+            # "felt cold bite", "broke ice"). This is the inner-state / affective
+            # detail the R5 round was created to drop. It must NOT drop a real noun
+            # phrase that merely CONTAINS a body word alongside a real noun
+            # ("hand planes", "foot cream", "chest freezer") — those carry a real
+            # possession/activity head and pass through (verified by probe). The
+            # earlier broad form (`len<=2 and any body word`) wrongly rejected
+            # real 2-word objects like "build hand planes" and is superseded here.
+            _words = _o.split()
+            if _words and all(w in _SENSATION_BODY for w in _words):
+                return False
+            # D4 fix (round 2026-08-11T1328Z): the activity/event miner must
+            # capture REAL possessions / lived actions, NOT the user's own
+            # META-DISCOURSE or inner-state reporting. "i keep saying it",
+            # "i felt a kind of weight lift", "i told a friend", "i lost
+            # track of whether" matched an activity verb and stored junk
+            # ('does'/'event' = "keep saying" / "felt kind" / "told friend
+            # drowned" / "lose track") that then pollutes recall and profile
+            # summaries. These are speech-act / abstract-state objects, not
+            # things the user possesses or does. Reject the capture when the
+            # object HEAD is a communication/meta verb (saying/telling/told/
+            # mention), a self-reference pronoun, or an abstract-state noun
+            # (kind/weight/hush/lift/track/sort/type/notion/feeling) — the
+            # words a possession/activity head would never be. This is a SEED
+            # vocabulary (RAVANA-expandable, shared with the empathy/affect
+            # lexicon); a real possession noun ("pigeons"/"loft"/"banjo"/
+            # "ginger beer") is never in this set and still passes. Not a
+            # per-topic answer table.
+            _META_DISCOURSE = (
+                "saying", "says", "said", "tell", "tells", "telling", "told",
+                "mention", "mentions", "mentioning", "recall", "recount",
+                "repeat", "repeated", "keep", "kept", "lose", "lost",
+                "kind", "weight", "hush", "lift", "track", "sort", "type",
+                "notion", "feeling", "feels", "felt", "bit", "thing",
+                "stuff", "business", "matter", "point",
+            )
+            if _head in _META_DISCOURSE:
                 return False
             # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
             # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real
@@ -3163,8 +3221,8 @@ class UserModel:
             # words handled by the guards above), never on length. A single real
             # noun ("jar") and a long real noun phrase ("repeated the juniper
             # this spring and found a root") must BOTH pass; the R5 intent (drop
-            # inner-state "felt chest") is preserved by the _SENSATION_BODY gate
-            # above, not a length cap.
+            # inner-state "felt chest") is preserved by the all-words sensation
+            # gate above, not a length cap.
             return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
