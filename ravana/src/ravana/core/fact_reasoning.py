@@ -350,9 +350,7 @@ def conditional_answer(question: str,
 _ENUM_SELF = re.compile(
     r"\b(?:what|anything|tell me|something)\b.*\b(?:do\s+)?you\b.*\b(?:know|"
     r"remember|recall|learned?|figured out|care|think|make of|tell|told|"
-    r"said|formed|hold|believe|feel)\b.*\b(?:about me|me|my|myself|i)\b"
-    r"|\b(?:what|anything|tell me|something)\b.*\b(?:have|did|do)\s+i\s+"
-    r"(?:tell|told|say|said)\s+you\b",
+    r"said|formed|hold|believe|feel)\b.*\b(?:about me|me|my|myself|i)\b",
     re.IGNORECASE)
 _ENUM_Q = re.compile(
     r"\b(?:which|what)\b\s+(?:\w+\s+){0,6}?\b(?:of\s+(?:the|these|those|my|"

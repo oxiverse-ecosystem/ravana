@@ -16,7 +16,7 @@ for _p in (_PROJ, os.path.join(_PROJ, "ravana", "src"), os.path.join(_PROJ, "rav
 from ravana.chat.user_model import UserModel
 
 
-def test_possession_location_captured_and_trimmed(tmp_path):
+def test_possession_location_captured_and_trimmed():
     um = UserModel()
     um.mine_personal_facts("the slow coal is moored at bingley for the winter")
     f = um.personal_facts.get("slow coal", "location")
@@ -24,7 +24,7 @@ def test_possession_location_captured_and_trimmed(tmp_path):
     assert f.value == "bingley", f.value
 
 
-def test_possession_location_correction_supersedes(tmp_path):
+def test_possession_location_correction_supersedes():
     um = UserModel()
     um.mine_personal_facts("the slow coal is moored at bingley for the winter")
     um.mine_personal_facts("the slow coal is moored at saltaire now")
@@ -36,7 +36,7 @@ def test_possession_location_correction_supersedes(tmp_path):
     assert ("bingley", True) in [(v, sup) for k, v, sup in facts if k[1] == "location"], facts
 
 
-def test_possession_location_leading_hedge_not_new_entity(tmp_path):
+def test_possession_location_leading_hedge_not_new_entity():
     """A correction led by a discourse hedge ('actually the slow coal ...')
     must resolve to the SAME stored entity ('slow coal'), not a fragment
     ('ctually the slow coal'). Regression for a bug where the optional article
@@ -54,19 +54,17 @@ def test_possession_location_leading_hedge_not_new_entity(tmp_path):
     assert ("bingley", True) in active_loc, active_loc
 
 
-def _eng(tmp_path, suffix="test_entloc_recall"):
+def _eng():
     from ravana.chat.engine import CognitiveChatEngine
-    import tempfile
-    tmpdir = tempfile.mkdtemp(prefix=f"ravana_entloc_{suffix}_", dir=str(tmp_path))
     return CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
-                               user_suffix=suffix, data_dir=tmpdir)
+                               user_suffix="test_entloc_recall")
 
 
-def test_entity_location_recall_surfaced_not_echo(tmp_path):
+def test_entity_location_recall_surfaced_not_echo():
     """Limitation #1 (round 2026-08-10T0813Z): a stored entity-keyed location
     must be SURFACED on a 'where is X' query instead of falling through to the
     episodic echo of the raw utterance."""
-    eng = _eng(tmp_path)
+    eng = _eng()
     eng.process_turn("the slow coal is moored at bingley")
     ans = eng.process_turn("where's the slow coal moored?")
     assert "bingley" in ans, ans
@@ -79,17 +77,17 @@ def test_entity_location_recall_surfaced_not_echo(tmp_path):
         assert "you told me earlier" not in a, (q, a)
 
 
-def test_entity_location_recall_multiple_entities(tmp_path):
-    eng = _eng(tmp_path)
+def test_entity_location_recall_multiple_entities():
+    eng = _eng()
     eng.process_turn("the slow coal is moored at bingley")
     eng.process_turn("the van is parked in leeds")
     assert "bingley" in eng.process_turn("where's the slow coal moored?")
     assert "leeds" in eng.process_turn("where is the van?")
 
 
-def test_entity_location_recall_correction_composes(tmp_path):
+def test_entity_location_recall_correction_composes():
     """Stored fact correction (supersede) must be reflected in recall."""
-    eng = _eng(tmp_path)
+    eng = _eng()
     eng.process_turn("the slow coal is moored at bingley")
     eng.process_turn("actually the slow coal is moored at saltaire now")
     ans = eng.process_turn("where's the slow coal moored?")
@@ -97,11 +95,11 @@ def test_entity_location_recall_correction_composes(tmp_path):
     assert "bingley" not in ans, ans
 
 
-def test_entity_location_recall_unknown_fails_closed(tmp_path):
+def test_entity_location_recall_unknown_fails_closed():
     """No stored entity location -> honest uncertainty, not a confabulated
     place. ('where is paris' has no entity fact, so the engine must not
     fabricate a bingley-style 'the paris is at X' answer.)"""
-    eng = _eng(tmp_path)
+    eng = _eng()
     eng.process_turn("the slow coal is moored at bingley")
     ans = eng.process_turn("where is paris?")
     # Fail-closed property (deterministic, wording-independent): the reply must
@@ -120,10 +118,10 @@ def test_entity_location_recall_unknown_fails_closed(tmp_path):
         ans.lower()), ans
 
 
-def test_entity_location_recall_user_location_not_hijacked(tmp_path):
+def test_entity_location_recall_user_location_not_hijacked():
     """The user's own location ('i live in X') is answered by the biographical
     'where do i live' path, not swallowed as an entity whereabouts."""
-    eng = _eng(tmp_path)
+    eng = _eng()
     eng.process_turn("the slow coal is moored at bingley")
     eng.process_turn("i live in hexham")
     ans = eng.process_turn("where do i live?")

@@ -2543,12 +2543,30 @@ class ResponseGenMixin(ChainWalkerMixin):
         # was grounded; otherwise fall back to a light social acknowledgment.
         topic = (subject or "").strip().lower()
         is_about_user = bool(re.match(r"^(i|i'm|im|i am|we|we're|my|me)\b", t))
-        # Clean-topic gating (comparative / opinion / clause detection) now lives
-        # in realizer_lexicon.has_clean_topic(topic, t) — called below when
-        # composing the lead. Detecting these from the ORIGINAL utterance `t`
-        # (not the reduced content head) is what stops "you're {topic}" garble
-        # for clauses like "believe nuclear energy" or opinions like
-        # "i think i was wrong about cassettes".
+        # FIX (round v-aug06b): a comparative/contrastive statement
+        # ("ceramics is more meditative than painting") resolves its CONTENT
+        # HEAD to a bare noun ("ceramics meditative painting") that no longer
+        # contains the markers "more/than", so the clean-topic test below
+        # misses it and the topic gets planted into "you're {topic}" as garble.
+        # Detect the comparative from the ORIGINAL utterance instead (the
+        # markers survive there) and force the topic-less acknowledgment.
+        _is_comparative = bool(re.search(
+            r"\b(more|most|less|better|worse|rather|instead|than|versus|vs\.?|"
+            r"compared to|compared with|prefer .* (to|over)|as .* as)\b", t, re.IGNORECASE))
+        # D2 (round 2026-08-08b-d): the "you're {topic}" lead templates are for
+        # SELF-DESCRIPTIONS ("i'm a teacher" -> "so you're a teacher"). An
+        # OPINION statement ("i think i was wrong about cassettes", "i prefer
+        # tape") is not an identity claim, so planting the opinion topic into
+        # "so you're {topic}" produces garble ("so you're cassettes"). Force the
+        # topic-less acknowledgment whenever the turn leads with an
+        # opinion/belief verb (think/feel/believe/prefer/love/like/hate/wrong
+        # about...) — the reflect-the-topic template only fits a copula
+        # self-description. Structural: an opinion-lead regex, not a per-topic
+        # guard; generalizes across every opinion the user can state.
+        _is_opinion = bool(re.search(
+            r"\b(i\s+(?:think|feel|believe|prefer|love|like|hate|dislike|enjoy|"
+            r"reckon|suppose|was\s+wrong\s+about|was\s+right\s+about))\b",
+            t, re.IGNORECASE))
 
 
         # Affective self-disclosure ("i am sad", "i'm tired") must reach the
@@ -2590,10 +2608,21 @@ class ResponseGenMixin(ChainWalkerMixin):
         # subject carries no single reflectable noun, so we fall back to the
         # topic-less lead ("got it." / "nice.") which needs no slot and can
         # never garble. Only the clean-noun case uses the reflect-the-topic
-        # template. The gate itself lives in realizer_lexicon.has_clean_topic
-        # (single source of truth, shared with the unit test) so the runtime and
-        # the regression test cannot drift apart.
-        _has_clean_topic = has_clean_topic(topic, t)
+        # template. Generic: the clean-noun test is a small verb/copula set
+        # (closed-class, universal), not a per-topic table.
+        _has_clean_topic = bool(topic) and not re.search(
+            r"\b(believe|think|feel|am|is|are|was|were|been|being|love|like|"
+            r"hate|prefer|enjoy|dislike|mean|means|want|need|have|has|had|"
+            r"made|makes|say|says|got|get|know|knew|seem|seems|become|"
+            r"seriously|really|overrated|underrated|more|most|less|than|"
+            r"versus|vs\b|compared|rather|instead|better|worse)\b", topic)
+        if _is_comparative:
+            _has_clean_topic = False
+        if _is_opinion:
+            # An opinion ("i think i was wrong about cassettes") is not a
+            # self-description, so the "you're {topic}" template does not apply
+            # (it would yield "so you're cassettes"). Use the topic-less lead.
+            _has_clean_topic = False
         if is_about_user:
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:
@@ -4729,8 +4758,9 @@ class ResponseGenMixin(ChainWalkerMixin):
             else:
                 _word = strongest[1]
             self._update_vad_baseline(V_lex)
-            # DO NOT clear _tmp_signed here; _appraised_affective_reply needs it
-            # for mixed-affect detection.
+            # Preserve signed poles before cleanup so mixed-valence branch can use them.
+            self._preserved_signed = _signed
+            self._tmp_signed = None
             return (kind, _word)
 
         base = getattr(self, "_vad_baseline", {"mu": 0.0, "sigma": 0.3, "n": 0})
@@ -4752,8 +4782,9 @@ class ResponseGenMixin(ChainWalkerMixin):
             word = _signed["neg"][1]
         else:
             word = strongest[1] if strongest else None
-        # DO NOT clear _tmp_signed here; _appraised_affective_reply needs it
-        # for mixed-affect detection.
+        # Preserve signed poles before cleanup so mixed-valence branch can use them.
+        self._preserved_signed = _signed
+        self._tmp_signed = None
         return (kind, word)
 
     def _epistemic_vad(self) -> Dict[str, float]:
@@ -5003,8 +5034,6 @@ class ResponseGenMixin(ChainWalkerMixin):
             # so the reply falls back to the valence band, not a broken
             # "feeling <noun>" frame.
             affect_term = ""
-        else:
-            affect_term = _aw
         # C-fix (round 2026-08-08b): when the user EXPLICITLY names a felt state
         # via a feeling-copula ("i feel hollow", "i'm scared"), prefer that word
         # over a co-occurring EVENT word the detector scored higher. Otherwise
@@ -5038,23 +5067,20 @@ class ResponseGenMixin(ChainWalkerMixin):
             while len(_ftw) > 1 and _ftw[0] in _CLOSED:
                 _ftw = _ftw[1:]
             _ft = " ".join(_ftw)
-            # Accept the copula label as the felt term only when it is a
-            # RECOGNIZED affect/state word. A bare "i am <word>" where <word>
-            # is NOT an affect term (e.g. a name "i am noor", or a topic "i am
-            # tired of X") must NOT be forced into the empathy frame — doing so
-            # produced the regression "feeling noor is hard". The vocabulary is
-            # the shared broad affect-term lexicon (user_model.is_affect_term),
-            # sourced lazily to avoid an import cycle at module load. This is
-            # seed vocabulary, not an authored per-topic list. Generalized in
-            # round 2026-08-14T1110Z to a BROAD affect set (so rotated probes
-            # like "terrified" are caught) rather than the narrow prior
-            # lexicon that missed them.
+            # Only accept the copula label if it is a REAL affect/state word.
+            # A bare "i am <word>" where <word> is NOT an affect term (e.g. a
+            # name "i am noor", or a topic "i am tired of X") must NOT be
+            # forced into the empathy frame — doing so produced the regression
+            # "feeling noor is hard". The vocabulary is the engine's own affect
+            # lexicon (user_model._AFFECT_STATE_LEXICON), sourced lazily to
+            # avoid an import cycle at module load. This is seed vocabulary,
+            # not an authored per-topic list.
             try:
-                from .user_model import is_affect_term as _is_affect
+                from .user_model import _AFFECT_STATE_LEXICON as _AFFECT
             except Exception:
-                _is_affect = lambda w: False
-            _is_affect_word = _is_affect(_ft)
-            if _is_affect_word:
+                _AFFECT = set()
+            _is_affect = _ft in _AFFECT or (_ft.split() and _ft.split()[0] in _AFFECT)
+            if _is_affect:
                 affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
@@ -5076,33 +5102,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             # (mixed affect), acknowledge BOTH honestly instead of collapsing to
             # one positive gloss.
             _pos_word = affect_term or val_word
-            # R5 (round 2026-08-18T0937Z): the felt-word extractor can surface a
-            # HEDGE word as the "affect term" (e.g. "he's got like forty" ->
-            # "like", "got kind of hooked" -> "kind"), producing the dangling
-            # close "what's got you feeling like?" / "feeling kind?" (measured
-            # U3/U22). A hedge is not a felt state. If the resolved word is a
-            # hedge/non-affect term, do NOT splice it into the close — fall to
-            # the neutral open question instead. Seed stoplist (data), not
-            # authored prose; generalizes to any hedge the extractor mis-captures.
-            _HEDGE = {"like", "kind", "sort", "thing", "way", "bit", "lot",
-                      "something", "anything", "really", "quite", "very",
-                      "little", "some", "such"}
-            if not _pos_word or _pos_word in _HEDGE:
-                return ("i'm glad something came up for you. what's got you "
-                        "feeling good about it?", "emotional_empathy")
-            _signed = getattr(self, "_tmp_signed", None) or {}
+            _signed = getattr(self, "_preserved_signed", None) or {}
             _neg_word = _signed.get("neg")
             if _neg_word and _neg_word[1] not in (None, _pos_word):
                 # genuine mixed valence: name both poles, grounded in the user's
                 # own words, not a fixed cheerful template.
                 _neg_label = _neg_word[1]
-                self._tmp_signed = None
                 return (f"that's a real mix — feeling {_pos_word} and a bit "
                         f"{_neg_label} at once. what's the {_pos_word} part about?",
                         "emotional_empathy")
             close = (f"what's got you feeling {_pos_word}?"
                      if _pos_word not in ("good", "") else "what made today good?")
-            self._tmp_signed = None
             return (f"i'm glad something's got you feeling {_pos_word}. {close}",
                     "emotional_empathy")
 
@@ -6177,29 +6187,6 @@ class ResponseGenMixin(ChainWalkerMixin):
             "been", "being", "do", "does", "did", "have", "has", "had",
             "you", "your", "i", "my", "me", "we", "they", "he", "she",
         }
-        # R4 (round 2026-08-18T0937Z): subject extraction can also resolve to a
-        # MULTI-TOKEN NOUN PHRASE scraped from the whole user utterance
-        # ("microplastics time fish", "permian extinction wiped", "came back")
-        # instead of the single concept being asked about, producing garble
-        # like "i don't really have a solid grasp on microplastics time fish
-        # so far" (measured this round, U25/U49/U59). Reduce a multi-token
-        # subject to its single most salient CONTENT word — drop closed-class
-        # and query-stopword tokens; if nothing meaningful remains, fall back to
-        # "that". This is structural (token filtering), not a per-topic guard,
-        # and generalizes to any garbled multi-word subject.
-        _STOP_MULTI = _CLOSED | {
-            "time", "fish", "back", "wiped", "extinction", "wreck", "act",
-            "looks", "magic", "molten", "sand", "shape", "kinda", "feel",
-            "small", "worries", "makes", "our", "read", "saw", "spent",
-            "whole", "childhood", "thing", "things", "year", "years",
-        }
-        _mtoks = [w for w in re.findall(r"[a-z']+", subj_cap.lower())
-                  if w not in _STOP_MULTI and len(w) >= 3]
-        if _mtoks:
-            # Prefer the longest remaining content word (most specific concept).
-            subj_cap = max(_mtoks, key=len)
-        elif " " in (subject or ""):
-            subj_cap = "that"
         if subj_cap.lower().strip(" .,!?") in _CLOSED:
             subj_cap = "that"
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5

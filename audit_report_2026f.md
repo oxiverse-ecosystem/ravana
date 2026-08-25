@@ -10,7 +10,6 @@ is misleading (no coverage of the fixes through process_turn).
 
 --- 1. CI TEST GATE (the round's own claim) ---
 Run: RAVANA_OFFLINE=1 pytest tests/unit/  (real venv .venv-real)
-      PowerShell: $env:RAVANA_OFFLINE=1; pytest tests/unit/
 Result: 1804 passed, 23 skipped, 0 failed, 1 warning  (848s)
 Also: tests/test_dehardcode_plan.py = 22 passed.
 => The round's "0 regressions / 1804 passed" claim REPRODUCES. CI is GREEN.

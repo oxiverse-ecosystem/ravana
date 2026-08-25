@@ -75,219 +75,6 @@ _CORRECTION_FACT_PATTERNS = [
     r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
 ]
 
-
-# Activity-verb seed lexicon (shared by the relationship-activity miner D7 and
-# the cued-recall grammar fix). Used to tell a VERB-PHRASE personal fact
-# ("weaves baskets") from a NOUN-PHRASE fact ("an astronomer") so recall can
-# render "your grandmother indira weaves baskets" (no copula) vs "your niece
-# priya is an astronomer" (copula). This is SEED vocabulary (a data set, not an
-# answer path) — RAVANA-expandable by the same PersonalFactStore the user can
-# correct; removing entries degrades gracefully (one fewer verb-form recognized
-# for grammar). NOT a per-topic reply dictionary and NOT authored prose.
-_ACTIVITY_VERB_LEXICON = {
-    "run", "own", "operate", "play", "teach", "taught", "study", "manage", "drive",
-    "build", "built", "make", "made", "sell", "restore", "grow", "grew", "watch", "raise", "tend",
-    "brew", "bake", "write", "wrote", "read", "learn", "learned", "learnt", "practice", "collect", "fix",
-    "paint", "code", "design", "craft", "volunteer", "cook", "fish", "hike",
-    "garden", "farm", "lead", "organize", "keep", "kept", "grind", "race", "sail",
-    "knit", "sew", "weld", "forge", "carve", "compose", "record",
-    "perform", "coach", "train", "compete", "spin", "weave", "mount",
-    "trade", "host", "guide", "climb", "repair", "work", "draw", "drew",
-    # Round 2026-08-19T1026Z: broaden the seed verb vocabulary with common
-    # activity verbs the relationship/pet miner needs to split name/verb/object.
-    # Previously absent, so disclosures using them ("my sister Pora SENDS
-    # postcards", "my cat Mochi KNOCKS the vase", "my grandmother LEFT me a
-    # compass", "my aunt NAMED the gull Greywing", "the steppe PASSES through
-    # her letters") were dropped or had the whole clause merged into the name
-    # (measured T33/T58/T68 this round). Seed data, RAVANA-expandable; adding
-    # a verb only widens recognition, never reply content.
-    "send", "sent", "knock", "knocked", "give", "gave", "given", "leave",
-    "left", "name", "named", "pass", "passed", "passes", "bring", "brought",
-    "show", "showed", "told", "say", "said", "call", "called", "visit",
-    "visited", "help", "helped", "love", "loved", "like", "hate", "hated",
-    "feed", "fed", "walk", "walked", "care", "cared", "protect", "protected",
-    # PET ACTIVITY VERBS (round 2026-08-22T0703Z, DEFECT D1): core verbs a pet
-    # does that a disclosure may report as an ACTIVITY (so the companion-fact
-    # miner captures them, parallel to kin activity mining). Seed lexicon,
-    # RAVANA-expandable via the same store; not a per-animal table.
-    "hide", "hides", "steal", "steals", "sleep", "sleeps", "bark", "barks",
-    "chase", "chases", "catch", "catches", "climb", "climbs", "dig", "digs",
-    "fetch", "fetches", "guard", "guards", "pounce", "pounces", "nudge",
-    "nudges", "bring", "brings", "carry", "carries", "drop", "drops",
-    "sit", "sits", "roll", "rolls", "spin", "spins", "meow", "meows",
-    "purr", "purrs", "chew", "chews", "lick", "licks", "paw", "paws",
-}
-
-
-def is_activity_verb(word: str) -> bool:
-    """Return True if `word` is a (possibly inflected) activity verb from the
-    seed lexicon. Used by cued recall to render verb-phrase personal facts
-    without a spurious copula. Pure vocabulary lookup — no content."""
-    w = (word or "").strip().lower().strip(".,!?;:'\"")
-    if not w:
-        return False
-    if w in _ACTIVITY_VERB_LEXICON:
-        return True
-    # base-form recovery for inflected tokens not pre-listed
-    for suf in ("ing", "ed", "s", "es"):
-        if w.endswith(suf) and w[: -len(suf)] in _ACTIVITY_VERB_LEXICON:
-            return True
-    return False
-
-
-# Relation-verb seed lexicon (round 2026-08-20T1935Z residual fix, feature
-# t_ec6c6b51). A relationship disclosure often states a DURABLE ATTRIBUTE /
-# ABILITY about a named relative using a verb that is NOT in the activity
-# lexicon — the canonical case from the round: "my grandmother yaya SPEAKS
-# three languages: greek, french, italian". "speaks" is not an activity verb
-# (it names a capability, not a basket-weaving-style activity), so the
-# relationship miner's activity-verb gate missed the whole disclosure and the
-# enumeration was never stored. Other real disclosures of this shape: "my
-# uncle ravi WORKS as a mechanic", "my niece STUDIES medicine", "my brother
-# PLAYS the violin".
-#
-# This is SEED vocabulary (a data set, not an answer table) — RAVANA-expandable
-# by the same PersonalFactStore the user can correct; removing entries degrades
-# gracefully (one fewer relation-verb recognized for grammar). NOT a per-person
-# or per-relationship table, NOT authored prose. Deliberately EXCLUDES
-# pure-location verbs ("lives"/"resides"/"stays"/"live") — those are owned by
-# the dedicated location miner (m_loc), so admitting them here would
-# double-store "my grandmother lives in paris" under both the location and the
-# relationship key. The activity lexicon already covers the overlapping
-# activity verbs (climb/weave/teach/...); this set is the SUPPLEMENT of
-# attribute/ability verbs the activity set does not carry.
-_RELATION_VERB_LEXICON = {
-    # communication / language ability
-    "speaks", "speak", "talks", "talk", "communicates", "communicate",
-    # profession / role / study
-    "works", "work", "studies", "study", "studied", "teaches", "teach",
-    "taught", "practices", "practice", "practised", "performs", "perform",
-    "operates", "operate", "manages", "manage", "runs", "run", "owns",
-    "own", "keeps", "keep", "raises", "raise", "grows", "grow", "designs",
-    "design", "codes", "code", "builds", "build", "built", "repairs",
-    "repair", "crafts", "craft", "volunteers", "volunteer", "collects",
-    "collect", "trades", "trade", "hosts", "host", "guides", "guide",
-    "coaches", "coach", "trains", "train", "competes", "compete",
-    "composes", "compose", "records", "record", "mounts", "mount",
-    "knits", "knit", "sews", "sew", "welds", "weld", "forges", "forge",
-    "carves", "carve", "spins", "spin", "weaves", "weave", "sails", "sail",
-    "races", "race", "climbs", "climb", "hikes", "hike", "fishes", "fish",
-    "farms", "farm", "gardens", "garden", "bakes", "bake", "brews", "brew",
-    "cooks", "cook", "reads", "read", "writes", "write", "paints", "paint",
-    "draws", "draw", "sings", "sing", "dances", "dance", "swims", "swim",
-    "drives", "drive", "plays", "play", "learns", "learn", "learned",
-    "learnt",
-}
-
-
-def is_relation_verb(word: str) -> bool:
-    """Return True if `word` is a (possibly inflected) relation/attribute verb
-    from the seed lexicon — a durable capability/role a named relative is said
-    to HAVE (speaks/works/studies/plays/...). Used by the relationship miner to
-    recognize attribute disclosures that carry no activity verb, and by the
-    recall grammar rule to render them WITHOUT a spurious copula
-    ("your grandmother yaya speaks three languages", not "is speaks"). Pure
-    vocabulary lookup — no content. Excludes location verbs (owned by m_loc)."""
-    w = (word or "").strip().lower().strip(".,!?;:'\"")
-    if not w:
-        return False
-    if w in _RELATION_VERB_LEXICON:
-        return True
-    for suf in ("ing", "ed", "s", "es"):
-        if w.endswith(suf) and w[: -len(suf)] in _RELATION_VERB_LEXICON:
-            return True
-    return False
-
-
-# Auxiliary-verb seed lexicon (round 2026-08-21T0843Z feature card
-# t_16b15684). A relationship disclosure often states an activity through an
-# AUXILIARY verb instead of a bare activity/relation verb: "my cousin Jin DOES
-# competitive speedcubing", "my sister DID competitive debate", "my brother DOES
-# parkour". The earlier two verb classes (activity verbs, relation verbs) both
-# MISSED this shape — "does" is neither an activity verb nor a relation verb —
-# so the whole disclosure fell through to the name-only path and was dropped by
-# the degenerate-fact guard (the residual "cousin Jin's activity not recalled"
-# logged at the end of round 2026-08-21T0843Z). The auxiliary opens the SAME
-# capture path as the other two verb classes (name = tokens before it, value =
-# aux + activity noun-phrase resolved through _opinion_topic), so the disclosure
-# mines + recalls like any other. This is SEED vocabulary (a data set, not an
-# answer table) — RAVANA-expandable by the same PersonalFactStore the user can
-# correct; removing entries degrades gracefully (one fewer aux shape recognized).
-# NOT a per-relationship table and NOT authored prose.
-_AUX_VERB_LEXICON = {"do", "does", "did", "doing", "done"}
-
-
-def is_aux_verb(word: str) -> bool:
-    """True when `word` is an auxiliary verb that introduces an activity
-    noun-phrase in a relationship disclosure ("does"/"did"/"doing" + activity).
-    Recognized as a verb-phrase head for both mining and copula-free recall
-    rendering. Pure vocabulary lookup — no content."""
-    w = (word or "").strip().lower().strip(".,!?;:'\"")
-    if not w:
-        return False
-    if w in _AUX_VERB_LEXICON:
-        return True
-    # inflected forms not pre-listed
-    for suf in ("ing", "ed", "s", "es"):
-        if w.endswith(suf) and w[: -len(suf)] in _AUX_VERB_LEXICON:
-            return True
-    return False
-
-
-def _is_query(q: str) -> bool:
-    """True when `q` is an interrogative (question / imperative recall), so the
-    personal-fact miner must skip it. A question is never a self-disclosure, yet
-    the relationship/activity miners otherwise fire on query substrings (e.g.
-    "remind me what my brother Theo DOES for work" stored the degenerate
-    ('i','brother theo','does work') fact). The leading-question-word vocabulary
-    mirrors the recall resolvers' own _name_is_q gate, so the miner and the
-    recaller agree on what a question is — one source of truth, not a second
-    per-topic rule. Precise: a trailing '?', OR a leading recall-verb
-    (remind/tell/recall/...), OR a wh-word followed by an auxiliary (inverted
-    question), OR a leading yes/no auxiliary. A clause-leading disclosure
-    ("what i love is running") is NOT inverted (subject 'i' follows 'what', not
-    an aux) so it is correctly KEPT and still mined. Seed structure; no content.
-    """
-    q = (q or "").strip()
-    if not q:
-        return False
-    if q.endswith("?"):
-        return True
-    _AUX = {"is", "are", "was", "were", "am", "do", "does", "did", "can",
-            "could", "would", "will", "shall", "should", "may", "might",
-            "have", "has", "had"}
-    _RECALL = {"remind", "tell", "show", "explain", "describe", "recall",
-               "remember", "know", "say", "mention", "repeat", "list"}
-    m = re.match(
-        r"^(what|who|whom|whose|where|when|why|which|how|is|are|was|were|"
-        r"do|does|did|can|could|would|will|shall|should|may|might|"
-        r"remind|tell|show|explain|describe|recall|remember|know|say|"
-        r"mention|repeat|list)\b", q, re.IGNORECASE)
-    if not m:
-        return False
-    _w = m.group(1).lower()
-    if _w in _RECALL:
-        return True
-    if _w in ("what", "who", "whom", "whose", "where", "when", "why",
-              "which", "how"):
-        # wh-word is a question only when inverted (auxiliary before subject).
-        _nw = q[m.end():].strip().split()
-        return bool(_nw) and _nw[0].lower() in _AUX
-    # leading yes/no auxiliary (is/are/do/does/can/...) => question.
-    return True
-
-
-def is_verb_phrase(word: str) -> bool:
-    """True when `word` heads a VERB-PHRASE personal fact (activity OR relation
-    OR auxiliary verb). The single source of truth for the recall/ack grammar
-    rule that drops the copula for verb-phrase values (so "your cousin jin does
-    competitive speedcubing" is grammatical, not "is does"). Superset of
-    is_activity_verb + is_relation_verb + is_aux_verb; callers that previously
-    used is_activity_verb for the copula decision should use this so every verb
-    class renders correctly. Pure vocabulary lookup — no content."""
-    return is_activity_verb(word) or is_relation_verb(word) or is_aux_verb(word)
-
-
 # real affect categories in brain_regions._CAUSE_SEEDS and
 # support_router._SUPPORT_AFFECT). Used by the bare-copula name guard: a
 # first-person "i'm X" where X is any of these is a TRANSIENT STATE, never a
@@ -308,31 +95,6 @@ _AFFECT_STATE_LEXICON = {
     "fine", "good", "bad", "ok", "okay", "well", "ready", "done", "sure",
     "certain", "right", "wrong", "sorry", "here", "there", "home", "awake",
     "asleep", "late", "early", "busy",
-    # Round 2026-08-14T0608Z: broaden the affect/state noun set so a bare
-    # self-description ("i'm quiet", "i'm gutted", "i'm obsessed", "i'm
-    # devastated") is NEVER stored as the user's NAME. These are genuine
-    # affect/state words a real persona uses to describe a mood, not a proper
-    # noun. Seed vocabulary (RAVANA-expandable: shares the role of the affect
-    # lexicon the empathy gate uses; removing an entry degrades gracefully to
-    # one less guard). Covers the words the chat probe actually poisoned plus
-    # common synonyms so the next round's rotated probe can't re-expose them.
-    "quiet", "gutted", "devastated", "obsessed", "content", "peaceful",
-    "restless", "uneasy", "wound", "wounded", "broken", "crushed", "crush",
-    "freaked", "spent", "drained", "fried", "wired", "zinged", "giddy",
-    "bashful", "shy", "bold", "brave", "fearful", "moody", "snappy",
-    "bitter", "sour", "warm", "cold", "soft", "hard", "still", "silent",
-    "speechless", "numbed", "aching", "sore", "woozy", "faint", "weak",
-    "strong", "alive", "dead", "deadened", "flat", "blank", "void",
-    "comfortable", "uncomfortable", "safe", "unsafe", "free", "trapped",
-    "stuck", "lost", "found", "clear", "cloudy", "sharp", "dull",
-    "bright", "dim", "heavy", "light", "open", "closed", "honest",
-    "dishonest", "real", "fake", "true", "false", "certain", "uncertain",
-    "zen", "chill", "chilled", "mellow", "hyper", "wound", "upset",
-    "gleeful", "cheerful", "mournful", "somber", "sober", "tipsy", "drunk",
-    "soaked", "drenched", "freezing", "freezing", "boiling", "burning",
-    "melting", "shaking", "trembling", "quivering", "shivering", "sweating",
-    "ashamed", "guilty", "innocent", "proud", "humble", "vain", "jealous",
-    "envious", "furious", "livid", "irritated", "annoyed", "bothered",
     # stative / cognitive / feeling verbs (incl. participles + infinitives)
     "feeling", "felt", "feel", "love", "like", "hate", "dislike", "prefer",
     "think", "thinking", "believing", "believe", "guess", "guessing",
@@ -345,491 +107,7 @@ _AFFECT_STATE_LEXICON = {
     "sticking", "getting", "shaking", "crying", "dying", "lying", "trying",
     "running", "falling", "breaking", "caring", "waiting", "working",
     "learning", "growing", "changing", "feeling",
-    # Round 2026-08-13T2059Z: broaden to catch transient-state name
-    # poisoning from emotional / participle words the prior set missed
-    # (gutted / devastated / elated / shattered / drained / defeated /
-    # wrecked / crushed / broken / frozen / shaken / heartbroken /
-    # desolate / miserable / forlorn / wretched / bereft / gloomy / glum /
-    # morose / melancholy / mournful / dismal / bitter / gleeful / rueful /
-    # sorrowful / fretful / homesick / vexed / wistful / suspicious / wary /
-    # jubilant / content / serene / tranquil / smug / sheepish / blithe /
-    # coy / bashful / shy / sulky / querulous / uptight / vitriolic / void /
-    # dubious / sullen / edgy / queasy / ticked / bereaved / anguished /
-    # distraught / disheartened / dismayed). SEED vocabulary (RAVANA-
-    # expandable), not an authored answer path — removing entries degrades
-    # gracefully (one fewer guard), it is not content RAVANA can never change.
-    "gutted", "devastated", "elated", "crushed", "heartbroken", "thrilled",
-    "ecstatic", "miserable", "shattered", "wrecked", "defeated", "drained",
-    "bitter", "gleeful", "rueful", "overjoyed", "despondent", "desolate",
-    "forlorn", "wretched", "anguished", "bereft", "broken", "bereaved",
-    "inconsolable", "dejected", "sorrowful", "gloomy", "glum", "morose",
-    "melancholy", "mournful", "dismal", "crestfallen", "distraught",
-    "dismayed", "disheartened", "fretful", "homesick", "horrified",
-    "humiliated", "mortified", "terrified", "unnerved", "vexed", "wistful",
-    "yearning", "aggrieved", "appalled", "bewildered", "chagrined",
-    "daunted", "deflated", "delirious", "exasperated", "flabbergasted",
-    "incensed", "indignant", "infuriated", "outraged", "peeved", "perturbed",
-    "rattled", "resentful", "spooked", "startled", "stung", "sulky",
-    "suspicious", "wary", "jubilant", "gratified", "invigorated", "content",
-    "serene", "tranquil", "smug", "sheepish", "blithe", "coy", "bashful",
-    "shy", "sullen", "querulous", "uptight", "vitriolic", "void", "dubious",
-    "edgy", "queasy", "ticked", "frozen", "shaken",
 }
-
-# Round 2026-08-13T2059Z: stance-connector / function / common-adverb words
-# that may follow a bare "i'm" copula in an opinion or emotion frame, but are
-# NEVER proper-noun names. "i'm against plastics" / "i'm over the moon" /
-# "i'm still buzzing" must not store name=against / name=over / name=still.
-# SEED vocabulary (RAVANA-expandable via the shared lexicon), not a per-name
-# table; removing entries degrades gracefully. Combined with the verb-form
-# check (gerunds in 'ing', past/past-participle in 'ed') below, this rejects
-# transient states regardless of which token they occupy.
-_NAME_REJECT_FUNCTION = {
-    "against", "for", "with", "without", "over", "under", "about", "around",
-    "despite", "regardless", "beyond", "beneath", "beside", "except",
-    "plus", "minus", "near", "far", "via", "per", "yes", "no", "maybe",
-    "always", "never", "sometimes", "often", "usually", "already", "still",
-    "just", "really", "very", "quite", "too", "also", "even", "almost",
-    "nearly", "not", "actually", "basically", "probably", "definitely",
-    "surely", "clearly", "simply", "merely", "mostly", "partly", "fully",
-    "completely", "totally", "absolutely", "exactly", "particularly",
-    "especially", "generally", "naturally", "obviously", "truly", "honestly",
-    "frankly", "seriously", "admittedly", "ideally", "hopefully",
-    "personally", "ultimately", "virtually", "wrongly", "correctly",
-    "rightly", "rather", "instead", "though", "however", "whereas",
-    "although", "because", "since", "unless", "until", "whether", "either",
-    "neither", "both", "each", "every", "any", "some", "such", "same",
-    "other", "another", "own",
-}
-
-# Consolidated, RUNTIME-EXTENSIBLE reject set for the bare-copula name guard
-# ("i'm X" where X must NOT become the user's stored NAME). This is the single
-# source of truth the guard consults; it merges the affect/state lexicon above
-# with common self-descriptor adjectives and prepositions that introduce a
-# PREDICATE, never a proper noun ("i'm against geoengineering").
-#
-# WHY A SEED SET (not a per-word answer path): it is DATA RAVANA GROWS at
-# runtime. `register_name_reject()` is called by the empathy / support
-# classifier whenever it observes "i'm <word>" classifying as affect — so the
-# next "i'm <that word>" is rejected WITHOUT a code change. Removing an entry
-# degrades gracefully (one less guard). This is the seed-vs-hardcoding test
-# from the round brief satisfied: "can RAVANA change this by itself, through
-# experience?" -> YES. (A frozen stoplist that only ever lists the exact probe
-# words would be a fixed table wearing a seed's clothing — this set is the
-# structural vocabulary, and the runtime path is what makes it genuinely
-# growable rather than whack-a-mole.)
-_NAME_REJECT_SEED = {
-    # --- prepositions: "i'm against/for/with X" is a stance, not a name ---
-    "against", "for", "with", "about", "over", "under", "because",
-    "despite", "through", "without", "except", "besides", "unlike",
-    # --- common self-descriptor adjectives (single-token predicates) ---
-    "intense", "euphoric", "hooked", "careful", "stubborn", "loud",
-    "brave", "calm", "shy", "bold", "proud", "humble", "vain",
-    "jealous", "guilty", "innocent", "strong", "weak", "alive",
-    "dead", "free", "trapped", "stuck", "clear", "cloudy", "sharp",
-    "dull", "bright", "dim", "heavy", "light", "open", "closed",
-    "honest", "dishonest", "real", "fake", "true", "false", "zen",
-    "chill", "mellow", "hyper", "upset", "cheerful", "mournful",
-    "sober", "freezing", "boiling", "burning", "melting", "soaked",
-    "drenched", "drunk", "tipsy", "bashful", "bitter", "sour", "soft",
-    "hard", "still", "silent", "speechless", "numbed", "aching",
-    "sore", "woozy", "faint", "comfortable", "uncomfortable", "safe",
-    "unsafe", "found", "void", "blank", "flat", "warm", "cold",
-    "wound", "wounded", "broken", "gleeful", "somber", "restless",
-    "uneasy", "peaceful", "content", "moody", "snappy", "giddy",
-    "freaked", "spent", "drained", "fried", "wired", "zinged",
-}
-# Runtime-extensible half. The empathy/support classifier calls
-# register_name_reject() when it sees "i'm <word>" as genuine affect, so the
-# guard learns new predicates from conversation without a code deploy.
-_NAME_REJECT_RUNTIME: set = set()
-
-# ── Structural predicate-vs-name discriminator (round 2026-08-15T0326Z) ──
-# The OLD guard (2026-08-14T1110Z) leaned on a FROZEN affect/state reject
-# lexicon + a "runtime-extensible" half (register_name_reject). The runtime
-# half was DEAD CODE — nothing ever called register_name_reject, so a ROTATED
-# persona word that wasn't in the finite seed lexicon ("tender", in this
-# round's ELIAS probe) slipped straight through and got stored as the user's
-# NAME. A frozen lexicon is whack-a-mole: every new persona invents a new
-# predicate word and the list can never be complete.
-#
-# Structural fix: a bare-copula candidate "i'm X" is a PREDICATE (never a
-# name) whenever X has a lexical adjective sense in WordNet — because real
-# English names ("elias", "nadia", "petra", "wren") are proper nouns with NO
-# adjective sense, while every self-described state/predicate ("tender",
-# "proud", "bored", "furious", "intense", "calm") DOES. This is a property of
-# the language, not a curated word list, so it generalizes across EVERY future
-# rotated persona without a code change. WordNet is OPTIONAL (declared in
-# requirements.txt and cached under .venv-real/nltk_data); if it is missing we
-# fail CLOSED to the narrow seed lexicon above and log once — we never paper
-# over the import (per the project's silent-import-guard rule).
-try:
-    from nltk.corpus import wordnet as _WN
-    _WN.synsets("tender", pos="a")  # touch to force corpus load error early
-    _WN_AVAILABLE = True
-except Exception as _wn_err:  # pragma: no cover - optional dependency
-    _WN = None
-    _WN_AVAILABLE = False
-    import logging as _logging
-    _logging.getLogger("ravana.chat.user_model").warning(
-        "WordNet corpus unavailable (%s); name-poison guard falls back to the "
-        "narrow seed affect lexicon. Run: python -m nltk.downloader wordnet",
-        type(_wn_err).__name__)
-
-
-def _is_predicate_word(word: str) -> bool:
-    """Structural test: is `word` an English predicate (adjective/participle),
-    rather than a proper-noun name?
-
-    A real name has NO adjectival or verbal WordNet sense and NO predicate
-    morphology, so it is never rejected. A transient self-state ("i'm unmoored",
-    "i'm gut-punched", "i'm lit-up") is a verb participle / hyphenated emotion
-    compound and IS rejected.
-
-    ROUND 2026-08-15T1537Z FIX (D6): the previous test only checked WordNet
-    `pos="a"` (adjective). Verb participles ("unmoored" = unmoor+ed) and
-    hyphenated emotion compounds ("gut-punched", "lit-up") have NO adjective
-    sense, so a ROTATED probe word like "unmoored" slipped through and got
-    stored as the user's NAME ("your name is unmoored"). Fix: also accept a
-    verb-participle WordNet sense (`pos="v"`) AND the morphological fallback
-    (which already covers -ed/-ing participle and hyphenated compounds). This is
-    STRUCTURAL — it keys on predicate morphology, not a frozen list of feeling
-    words, so any future rotated self-state word is caught without a code change.
-    Real names (corvin/maren/nadia) have neither sense and are left accepted.
-
-    Finding 7 fix: restrict hyphenated-token and morphological suffix rejection
-    to cases with an affective or copula signal (WordNet pos match). Don't use
-    bare -y or -ed endings as rejection criteria alone; Emily, Fred, Ahmed,
-    Anne-Marie, Jean-Luc are valid names.
-    """
-    w = (word or "").strip().lower().strip("'\"")
-    if not w or " " in w or len(w) > 24:
-        return False
-
-    # Check WordNet first for strong predicate signal
-    _has_wordnet_sense = False
-    if _WN_AVAILABLE:
-        try:
-            _syns = _WN.synsets(w, pos="a") or _WN.synsets(w, pos="v")
-            if _syns:
-                _has_wordnet_sense = True
-            # WordNet only indexes base lemmas (not every inflection), so a
-            # participle like "unmoored" (unmoor+ed) has no direct sense. Fall
-            # through to the morphological heuristic below rather than returning
-            # False here — otherwise ROTATED predicate words with no WordNet
-            # entry ("unmoored", "gut-punched") slip through and become names.
-        except Exception:
-            pass
-
-    # Reject hyphenated compounds only when they have a WordNet sense or
-    # appear in affect/deny sets (strong predicate signals). Don't reject all
-    # hyphenated words (Anne-Marie, Jean-Luc are valid names).
-    if "-" in w and len(w) <= 24:
-        if _has_wordnet_sense or w in _AFFECT_TERM_LEXICON or w in _ACTIVITY_DENY:
-            return True
-
-    if _has_wordnet_sense:
-        return True
-
-    # Structural heuristic: common adjective/participle morphology is a
-    # predicate signal. Don't use bare -y or -ed endings as rejection criteria
-    # (Emily, Fred, Ahmed are valid names). Strong morphological signals
-    # (-ing, -ful, -ive, -ous, -less, -ish) remain standalone rejections.
-    if w.endswith(("ing", "ful", "ive", "ous", "less", "ish")):
-        return True
-
-    # Weak morphological signals (-ed, -y) require affect/deny confirmation
-    # to avoid rejecting valid names
-    if w.endswith(("ed", "y")):
-        if w in _AFFECT_TERM_LEXICON or w in _ACTIVITY_DENY:
-            return True
-
-    return False
-
-
-def register_name_reject(word: str) -> None:
-    """Grow the bare-copula name reject set from observed affect words.
-
-    Called by the empathy/support classifier (engine.py §3 affective-disclosure
-    gate) whenever an "i'm X" utterance is classified as a genuine affect/state
-    disclosure. This is how RAVANA extends the guard online (no retrain, no code
-    change) — satisfying the round's seed-vs-hardcoding test. The word is also
-    structurally re-confirmed as a predicate below, so we never add a real name
-    token to the deny set.
-    """
-    w = (word or "").strip().lower().strip("'\"")
-    if w and len(w) <= 24 and " " not in w and _is_predicate_word(w):
-        _NAME_REJECT_RUNTIME.add(w)
-
-
-def _name_rejectable(word: str) -> bool:
-    """True if `word` is a predicate, never a proper-noun name, so reject it as
-    a stored identity. Combines (a) the narrow seed affect lexicon (kept for
-    graceful degradation when WordNet is absent) and (b) the STRUCTURAL
-    WordNet adjective-sense test that generalizes to any rotated persona word."""
-    w = (word or "").strip().lower().strip("'\"")
-    if not w:
-        return False
-    return (w in _NAME_REJECT_SEED
-            or w in _NAME_REJECT_RUNTIME
-            or w in _AFFECT_STATE_LEXICON
-            or w in _ACTIVITY_DENY
-            or _is_predicate_word(w))
-
-
-# Broad affect-term vocabulary used to NAME a felt state in the empathy
-# responder (and to extract the user's own feeling word). This is SEED
-# vocabulary (RAVANA-expandable, degrades gracefully): a word set describing
-# human feeling states, NOT an authored reply path. It is intentionally broad
-# so a ROTATED probe ("i felt terrified", "i'm grief-stricken", "i'm furious")
-# is caught without enumerating every variant. Genuine affect naming — not a
-# frozen per-topic table.
-_AFFECT_TERM_LEXICON = frozenset({
-    # fear / anxiety
-    "terrified", "afraid", "scared", "scary", "frightened", "fearful",
-    "anxious", "anxiety", "panicked", "panic", "worried", "nervous",
-    "tense", "shaky", "alarmed", "uneasy", "restless",
-    # grief / loss / sadness
-    "grief", "grieving", "grief-stricken", "heartbroken", "devastated",
-    "sad", "sadness", "blue", "down", "depressed", "hopeless", "mournful",
-    "somber", "empty", "hollow", "lonely", "alone", "lost", "crushed",
-    "broken", "hurting", "hurt", "numb", "void",
-    # anger / agitation
-    "furious", "fury", "angry", "anger", "irritated", "annoyed", "enraged",
-    "livid", "mad", "bitter", "resentful", "upset",
-    # shame / guilt
-    "ashamed", "guilty", "embarrassed", "humiliated",
-    # overwhelm / exhaustion
-    "overwhelmed", "exhausted", "drained", "burned", "burnt", "spent",
-    "fried", "stressed", "pressure", "wired",
-    # positive
-    "happy", "joy", "joyful", "delighted", "thrilled", "euphoric",
-    "excited", "proud", "grateful", "relieved", "content", "peaceful",
-    "calm", "glad", "cheerful", "hopeful", "gleeful",
-})
-
-# Round 2026-08-17T1126Z: affective-object guard for the EVENT miner. A
-# first-person "i <event-verb> <object>" where the object is a SENTIMENT
-# adjective ("i find it fascinating", "i found that surprising") is a
-# cognitive-affective COPULA, not a discovery event — storing it as
-# `event: find fascinating` is garbage (measured: T16 of this round produced
-# exactly that). The verb "find" legitimately means find-a-lost-object
-# ("i found my keys"), so the verb must stay in _EVENT_VERBS; the guard is on
-# the OBJECT. This is seed vocabulary: sentiment adjectives RAVANA encounters.
-# Removing one only loses that one shape, never content RAVANA can't change. It
-# is not a per-topic answer table and not authored reply prose. RAVANA can
-# extend it at runtime the same way it extends the verb lexicons.
-_AFFECTIVE_OBJECT_ADJ = frozenset({
-    "fascinating", "interesting", "boring", "amazing", "amazed",
-    "surprising", "surprised", "strange", "odd", "weird", "wonderful",
-    "terrible", "awful", "beautiful", "ugly", "funny", "sad", "happy",
-    "annoying", "comforting", "disturbing", "delightful", "disappointing",
-    "exciting", "calming", "confusing", "clear", "obvious", "mysterious",
-    "scary", "frightening", "moving", "touching", "inspiring", "refreshing",
-    "reassuring", "overwhelming", "eye-opening", "mind-blowing", "deep",
-    "profound", "meaningful", "pointless", "useless", "helpful",
-    "rewarding", "worthwhile", "enjoyable", "pleasant", "unpleasant",
-})
-
-
-def is_affect_term(word: str) -> bool:
-    """True if `word` is a recognized human feeling word (used by the empathy
-    responder to decide whether a copula-extracted word names a felt state)."""
-    return (word or "").strip().lower().strip("'-") in _AFFECT_TERM_LEXICON
-
-
-# Round 2026-08-14T0608Z: ACTIVITY / EVENT verb deny set. The open-class
-# miner (and the seeded whitelist blocks) treat ANY word after "i" as the
-# verb, so emotion verbs ("felt") and pure communication/reporting verbs
-# ("said", "told") were captured as garbage 'does'/'event' facts
-# ("felt crushed", "said careless ones"). This set is NARROW by design: it
-# only contains verbs that are NEVER a real user activity or life event
-# (emotion/cognition/volition are handled by the opinion/empathy paths;
-# said/told are reporting utterances that echo verbatim). It deliberately does
-# NOT deny legitimate activity verbs like keep/start/take/build — those are
-# real things the user does, and denying them would also break the correction
-# detector (which mines the 'does' fact to supersede a prior count). Framer /
-# temporal words ("now", "just", "already", "take back") are handled at the
-# regex / object level (see _FRAMER_SKIP, _FRAMER_OBJ, retraction guard), not
-# here, so the real verb behind them is still captured. Seed vocabulary
-# (RAVANA-expandable; removing an entry degrades gracefully). No per-verb
-# answer table, no authored reply.
-_ACTIVITY_DENY = frozenset({
-    # emotion / cognition / volition (opinion + empathy paths handle these)
-    "feel", "feels", "felt", "feeling",
-    "love", "like", "hate", "dislike", "prefer",
-    "think", "thinks", "thought", "believe", "believes", "believed",
-    "know", "knows", "understand", "want", "wants", "need", "needs",
-    "wish", "hope", "guess", "suppose", "mean", "means", "meant",
-    "wonder", "agree", "disagree", "doubt", "fear", "fears",
-    "regret", "regrets", "suspect", "realize", "realises", "care", "mind",
-    # pure reporting / communication utterances (echo verbatim as garbage)
-    "said", "say", "says", "told", "tell", "tells",
-})
-
-# Framer / temporal / degree words that may immediately precede the REAL
-# activity verb ("i just started building", "i recently took up the cello").
-# Added to the capture-regex skip groups so the genuine verb is matched, not
-# the framer.
-_FRAMER_SKIP = (
-    "also|really|even|just|now|still|often|sometimes|usually|"
-    "already|recently|lately|soon|first|last|then|next|once|twice|again|"
-    "finally|today|tonight|yesterday|tomorrow|occasionally|rarely|"
-    "simply|quite|very|truly|actually|basically|probably|possibly|maybe|"
-    "certainly|definitely|rather|instead|"
-)
-
-# Non-content object heads: an activity/event object that resolves to ONLY
-# these words is not a real thing RAVANA learned (it is an aspectual/particle
-# verb residue, a bare timeframe, or a generic noun) and must not be stored as
-# a `does`/`event` fact. Seed vocabulary (RAVANA-expandable): removing an entry
-# only re-admits one low-value object shape. Used by the shared
-# _opinion_topic gate so both the activity and event miners reject junk via
-# the same chokepoint (rule 6g — extend existing logic, not per-verb branches).
-_OBJ_NONCONTENT = frozenset({
-    # aspectual / particle verb residues
-    "coming", "going", "keep", "keeping", "got", "went", "start", "started",
-    "starting", "found", "read", "said", "cared", "burned", "burning",
-    "ringing", "took", "taking", "made", "making", "did", "done",
-    # particles / framers
-    "out", "back", "up", "down", "off", "on", "in", "away", "over", "really",
-    "just", "only", "also", "even", "still", "already",
-    # bare timeframes
-    "last", "tonight", "yesterday", "today", "tomorrow", "now", "then",
-    "here", "there", "morning", "evening", "night", "day",
-    # generic nouns with no recallable content
-    "project", "projects", "thing", "things", "stuff", "lot", "lots",
-    "side", "way", "ways", "part", "bit", "it",
-})
-
-
-# Words that may LEAK into the captured OBJECT as a trailing framer
-# ("how many quail do i keep now" -> object "now"). Stripped from the resolved
-# object head so 'does'/'event' facts store a real concept, never a framer.
-_FRAMER_OBJ = frozenset({
-    "now", "already", "still", "just", "recently", "lately", "soon",
-    "today", "tonight", "yesterday", "tomorrow", "earlier", "later",
-    "currently", "right", "then", "here",
-})
-
-# Aspectual / framer verbs that LEAD an activity but are not the activity head
-# themselves ("i've BEEN building", "i STARTED keeping", "i got into"). When
-# extracting the activity verb for date mining, skip these and take the lexical
-# verb that follows. Defined once (round 2026-08-15T0326Z) so the date-miner
-# blocks (a)/(b)/(c) stay in sync instead of each hardcoding its own skip list.
-_ASPECTUAL_VERBS = frozenset({
-    "been", "have", "has", "had", "start", "starts", "started", "begin",
-    "begins", "began", "get", "gets", "got", "go", "goes", "went",
-})
-
-# Particles that turn a verb into a phrasal ("pick up", "took up", "got into").
-# Appended to the captured head verb so "i picked up the cello" stores
-# "pick up" (not just "pick"). Structural; generalizes across any phrasal verb.
-_PARTICLES = frozenset({"up", "on", "in", "out", "off", "down", "with", "into"})
-
-# Closed-class words that CLOSE the activity-object span (the object is the
-# verb's patient; prepositions / time / clause words end it). SEED vocabulary
-# (RAVANA-expandable): a word added here only changes where the object span
-# ends, never the answer. Generalizes across phrasal/time adjuncts.
-_OBJECT_STOP = frozenset({
-    "since", "in", "on", "at", "for", "from", "to", "by", "of",
-    "about", "around", "into", "during", "after", "before", "when", "while",
-    "where", "because", "but", "and", "or", "so", "that", "which", "what",
-    "who", "how", "why", "over", "near", "under", "with",
-})
-# Determiners / particles to SKIP (not close the span) before/within the
-# object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
-# "frame". Also SEED vocabulary; expanding it only changes which leading
-# function words are ignored.
-_OBJECT_SKIP = frozenset({
-    "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
-    "this", "these", "those", "some", "every", "all", "each",
-    "up", "out", "off", "down", "in", "on", "into", "back",
-})
-
-# Closed-class vocabulary for verb candidate selection (Finding 8): words that
-# should be skipped before calling _activity_verb_ok in temporal mining blocks.
-# Combines determiners, prepositions, conjunctions, and common non-activity
-# words to prevent them from being selected as activity verbs. SEED vocabulary.
-_VERB_CLOSED_CLASS = frozenset({
-    # Determiners
-    "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
-    "this", "these", "those", "that", "some", "every", "all", "each",
-    # Prepositions
-    "in", "on", "at", "for", "from", "to", "by", "of", "with", "about",
-    "since", "around", "into", "during", "after", "before", "over", "near",
-    "under", "through", "without", "despite", "except", "besides", "unlike",
-    # Conjunctions and clause markers
-    "and", "or", "but", "so", "because", "when", "while", "where", "if",
-    "that", "which", "what", "who", "how", "why",
-    # Copula and auxiliaries (already in _ASPECTUAL_VERBS, included for completeness)
-    "is", "are", "was", "were", "am", "be", "being",
-    # Common adverbs and framers
-    "now", "then", "here", "there", "already", "still", "just", "recently",
-    "lately", "soon", "today", "tonight", "yesterday", "tomorrow", "earlier",
-    "later", "currently", "really", "very", "quite", "pretty", "kind",
-    # Pronouns (not verbs)
-    "i", "me", "we", "us", "you", "he", "him", "she", "it", "they", "them",
-})
-
-
-def _activity_object(clause_tokens, verb_idx) -> str:
-    """Extract the activity object following the verb at verb_idx in a token
-    list (the verb patient, e.g. (frames) in (building frames since 2019)).
-
-    Structural, no per-topic table: skip leading determiners/particles
-    (_OBJECT_SKIP), collect the run of content words, and stop at the first
-    span-closing word in _OBJECT_STOP (prepositions / time / clause words like
-    (since)/(for)/(when)). Bounded to 5 tokens so a runaway clause cannot
-    swallow the whole sentence. The result is concatenated onto the mined
-    since/since_age value so a later DATE-GROUNDED recall can DISAMBIGUATE two
-    activities that share a verb head but differ by object (building frames vs
-    building cabinets) - the object is exactly what the user query names.
-    Returns empty string when there is no object (bare activity), so the
-    existing value shape (build 2019) is preserved for verb-only disclosures.
-    Fail-closed: out-of-range index returns empty.
-    """
-    if verb_idx < 0 or verb_idx + 1 >= len(clause_tokens):
-        return ""
-    _obj = []
-    for _t in clause_tokens[verb_idx + 1:]:
-        _tl = _t.lower()
-        if _tl in _OBJECT_STOP:
-            break
-        if _tl in _OBJECT_SKIP:
-            continue
-        if not _tl or _tl.startswith("'") or _tl.isdigit():
-            break
-        _obj.append(_tl)
-        if len(_obj) >= 5:
-            break
-    return " ".join(_obj)
-
-
-def _activity_verb_ok(verb: str) -> bool:
-    """True if `verb` is a legitimate activity/experience verb (not an
-    emotion/achieve-comm verb). Used by all three capture blocks so
-    'does'/'event' facts only store real activities RAVANA learned. Framer
-    words are NOT denied here — they are skipped at the regex level so the
-    real verb behind them is still captured."""
-    v = (verb or "").strip().lower().lstrip("'").rstrip("'")
-    if "'" in v:           # contraction artifact ("won't", "don't")
-        return False
-    if v.startswith("n't") or v == "not":
-        return False
-    return v not in _ACTIVITY_DENY
-
-
-def _strip_obj_framers(obj: str) -> str:
-    """Drop leading/trailing framer words so 'keep now' -> 'keep' and a real
-    object survives. Returns '' if nothing real remains."""
-    _toks = (obj or "").split()
-    while _toks and _toks[0] in _FRAMER_OBJ:
-        _toks.pop(0)
-    while _toks and _toks[-1] in _FRAMER_OBJ:
-        _toks.pop()
-    return " ".join(_toks)
-
 
 
 
@@ -1544,9 +822,7 @@ class UserModel:
         # an entity noun, locate the prior count/activity fact for that entity,
         # and supersede it via contradict() (online, no retrain). Content comes
         # from the live store; no per-topic table, no authored text.
-        # Guard on detected_correction_fact (matching pet-correction logic):
-        # only skip when a real correction FACT is already extracted.
-        if not self.detected_correction_fact:
+        if not self.detected_correction:
             _NUMWORDS = (r"(?:one|two|three|four|five|six|seven|eight|nine|"
                          r"ten|eleven|twelve|\d+)")
             _cnt = re.search(
@@ -1567,8 +843,7 @@ class UserModel:
                     for (s, a, v), f in self.personal_facts.facts.items():
                         if s == "i" and a in ("does", "count", "number", "qty") \
                                 and not getattr(f, "superseded", False) \
-                                and re.search(r'\b' + re.escape(_ent) + r'\b',
-                                              v.lower(), re.IGNORECASE):
+                                and _ent in v.lower():
                             _prior = (a, v)
                             break
                     if _prior is not None:
@@ -1622,7 +897,7 @@ class UserModel:
             # prepositions, reject it (no content to store).
             _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
                      "of", "by", "for", "about", "into", "onto", "over",
-                     "under", "near", "behind", "beside", "off", "out")
+                     "under", "near", "behind", "beside", "off")
             _vwords = _val.split()
             if _vwords and _vwords[-1] in _PREP:
                 # drop trailing prepositions and any words following the first
@@ -1647,7 +922,7 @@ class UserModel:
                                                 source="seed_regex")
 
         def _split_possessive_attr(attr: str):
-            r"""D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
+            """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
             an ENTITY (partner) and its attribute (name), not collapse onto the
             user's own self-profile. The multi-word attr pattern
             (r'\bmy\s+(...)\s+is\s+...') captures 'partner's name' as one attr
@@ -1662,41 +937,10 @@ class UserModel:
             'my cat's name is whiskers' -> entity=cat, attr=name). This is
             structural: any 'my <X>'s <Y> is Z' is stored under entity X, never
             under the user's 'i' subject. Generic — no per-entity table. The
-            entity grows from experience (the user can name any relation).
-
-            Round 2026-08-15T0326Z GENERALIZE: also handle the HEADLESS
-            possessive 'my <entity> <relation> is Z' (no apostrophe), e.g.
-            'my daughter name is petra' -> attr 'daughter name'. The old code
-            only matched the '<entity>'s <relation>' form, so 'daughter name'
-            fell through to subject 'i' (attr 'daughter name') and a later
-            'what's my daughter's name' echoed the USER's name instead. Now any
-            attr whose LAST token is a relation word resolves to
-            (entity=<head>, relation=<word>), so the miner agrees with the
-            recaller (_structured_recall._ENT_ATTR) by construction for BOTH
-            possessive shapes. Still returns (None, attr) for genuine self-facts
-            like 'favorite color' (neither head nor tail is a relation word)."""
+            entity grows from experience (the user can name any relation)."""
             _am = re.match(r"^([\w'-]+)'s\s+(.+)$", attr)
             if _am:
                 return _am.group(1).strip().lower(), _am.group(2).strip().lower()
-            # Headless possessive: 'my daughter name is petra' -> attr
-            # 'daughter name'. The trailing token is a relation word; the head
-            # is the entity. Reused _REL_WORDS (the same relation vocabulary the
-            # recaller keys on) so miner and recaller stay in sync.
-            # GUARD: a head that is a SELF-FACT QUALIFIER ('favorite', 'least',
-            # 'most', ...) is NOT an entity — 'my favorite color is ochre'
-            # stays a genuine self-fact (attr 'favorite color', subject 'i'),
-            # not an entity 'favorite' with relation 'color'. Without this guard
-            # the tail-relation test wrongly entity-scoped 'favorite color' and
-            # broke its recall (round 2026-08-15T0326Z regression check).
-            # Only a multi-word attr is split; a single-token attr ('cat',
-            # 'daughter', 'name') is left as-is so pet/self-fact mining keeps
-            # its existing subject='i' key (the single-token branch was removed:
-            # it entity-scoped 'my cat is pixel' as ('cat','is','pixel') and
-            # broke pet mining).
-            _toks = attr.split()
-            if len(_toks) >= 2 and _toks[-1] in _REL_WORDS \
-                    and _toks[0] not in _SELF_QUALIFIER:
-                return " ".join(_toks[:-1]).strip(), _toks[-1]
             return None, attr
 
         def _put_fact_ent(entity: str, attr: str, val: str, conf: float) -> None:
@@ -1706,7 +950,7 @@ class UserModel:
                 return
             _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
                      "of", "by", "for", "about", "into", "onto", "over",
-                     "under", "near", "behind", "beside", "off", "out")
+                     "under", "near", "behind", "beside", "off")
             _vwords = _val.split()
             if _vwords and _vwords[-1] in _PREP:
                 _cut = len(_vwords)
@@ -1996,51 +1240,27 @@ class UserModel:
                     "at", "of", "for", "with", "on", "in", "to", "about",
                     "the", "a", "an", "is", "are", "was", "were", "am",
                     "that", "this", "it", "my", "your", "from", "by", "as",
-                    "so", "but", "and", "or", "if", "because", "against",
-                    "over", "under", "through", "without", "despite",
-                    "except", "besides", "unlike", "into", "onto",
+                    "so", "but", "and", "or", "if", "because",
                 }
-                # A-name (round 2026-08-08c + 2026-08-14T1110Z): a bare
-                # "i'm X" copula is how users express TRANSIENT STATES
-                # ("i'm torn", "i'm shaking", "i'm proud", "i'm hollow") AND
-                # predicates ("i'm against geoengineering", "i'm intense but
-                # careful"). The old reject set was a FROZEN stoplist that only
-                # ever listed the exact words a prior probe poisoned, so a
-                # ROTATED probe (intense/euphoric/hooked/against) slipped
-                # straight through and got stored as the user's NAME. The fix
-                # is STRUCTURAL + GROWABLE, not a bigger list:
-                #   1. Any closed-class / preposition head ("against/for/with")
-                #      is a stance predicate, never a proper noun -> reject.
-                #   2. The candidate head is tested against the CONSOLIDATED,
-                #      runtime-extensible reject set (_name_rejectable), which
-                #      merges the affect/state lexicon, the activity-deny set,
-                #      and words the empathy/support classifier has observed
-                #      as genuine affect at runtime (register_name_reject).
-                # This is SEED vocabulary RAVANA GROWS by itself (no retrain,
-                # no code change) — satisfying the round's seed-vs-hardcoding
-                # test. Removing entries degrades gracefully. Covers
-                # participles, irregulars, stative/cognitive verbs, and common
-                # self-descriptor adjectives uniformly across every persona.
+                # A-name (round 2026-08-08c): a bare "i'm X" copula is how
+                # users express TRANSIENT STATES ("i'm torn", "i'm shaking",
+                # "i'm proud", "i'm hollow"). The old reject set was a frozen
+                # stoplist that missed "torn"/"shaking"/"proud", so they were
+                # stored as the user's NAME (name poisoning: a later "what's
+                # my name?" answered "torn"/"shaking"). Reject any candidate
+                # whose head token is an AFFECT / STATE / COGNITIVE word, drawn
+                # from the SAME seed vocabulary the empathy gate uses
+                # (brain_regions._CAUSE_SEEDS + support_router._SUPPORT_AFFECT),
+                # expressed here as one data set. This is SEED vocabulary (not
+                # an if/elif answer path): RAVANA can extend it at runtime via
+                # the shared affect lexicon; removing entries degrades
+                # gracefully (only loses one guard). Covers participles
+                # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
+                # stative/cognitive verbs ("thinking"/"convinced").
+                _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
                 _has_closed = any(w.lower() in _CLOSED for w in _nw)
-                _head_reject = _name_rejectable(_nw[0]) if _nw else False
-                # also reject any non-head token that is a rejectable predicate
-                # ("intense but careful" -> "intense" rejected).
-                _any_reject = _has_closed or _head_reject or any(
-                    _name_rejectable(w) for w in _nw[1:])
-                if len(_nw) > 2 or _any_reject:
-                    # GROW the runtime reject set from the predicate words we
-                    # just rejected, so a future rotated probe ("i'm <newword>")
-                    # is caught even if the seed lexicon never listed it. This
-                    # is how the guard learns online (no retrain, no code
-                    # change) — the round's seed-vs-hardcoding test satisfied:
-                    # RAVANA changes this by itself, through experience. We only
-                    # register words that were REJECTED as predicates (never
-                    # genuine name tokens), so a real name like "nadia" is
-                    # never added to the deny set.
-                    for _rw in _nw:
-                        _rl = _rw.lower().strip("'\"")
-                        if _rl and _name_rejectable(_rl):
-                            register_name_reject(_rl)
+                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
+                if len(_nw) > 2 or _has_closed or _head_verb:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
@@ -2565,38 +1785,7 @@ class UserModel:
                 # recall reconstructor (_retrieve_episodic / _structured_recall)
                 # already keys possessive facts by owner, so this makes the
                 # MINER agree with the recaller by construction.
-                # GUARD (round 2026-08-22T0703Z CI fix): a pattern match can
-                # reach this point with _attr still None when the match's
-                # captured groups did not populate an attribute (e.g. a
-                # 0-group or non-attr pattern matched). _split_possessive_attr
-                # requires a str; passing None raises TypeError and aborts the
-                # whole mine. Skip such matches honestly — there is no
-                # possessive attribute to split, so nothing to store here.
-                if _attr is None:
-                    continue
                 _ent, _rel = _split_possessive_attr(_attr)
-                # A NAME relation holds a short proper noun (the entity's name),
-                # never the trailing descriptive clause that often follows it
-                # ("my dog's name is wren and she's a scruffy terrier",
-                #  "my brother is arjun and he's learning to weld"). The old
-                # value trim (line ~1119) only split on a hard sentence break,
-                # so the whole post-copula clause ("wren and she's a scruffy
-                # terrier") was stored as the name value — which then broke
-                # reverse-lookups ("who is wren to me") and self-summaries.
-                # General fix: when the relation is a name, keep ONLY the
-                # leading proper-noun run and cut at the first coordinating
-                # clause / appositive (" and ", " but ", " who ", " she's ",
-                # " he's ", ", ", " with "). Multi-word proper names ("mary
-                # jane") survive because we stop at the clause boundary, not at
-                # the first space. Structural, not a per-entity table; the
-                # trimmed remainder is simply dropped (a name has no second
-                # fact). This also makes a later correction ("no, my dog is
-                # milo") supersede cleanly.
-                if _rel == "name":
-                    _val = re.split(
-                        r"\s+(?:and|but|who|that|which|,)\s+|\s+(?:she|he|it)'?s\s+"
-                        r"|\s+with\s+|\s*\.\s*|\s*\?\s*", _val)[0].strip()
-                    _val = _val.strip(".,!?;:'\"")
                 if _ent is not None:
                     _put_fact_ent(_ent, _rel, _val, 0.6)
                     continue
@@ -4441,6 +3630,274 @@ class UserModel:
                     "i", _kind, _cnt, _noun_raw, _canon, category=_cat,
                     confidence=0.6, source="seed_regex")
 
+        # FIX (round 2026-08-09T1953Z): general first-person activity +
+        # experience capture. The D3 activity loop above only matches BARE
+        # verb forms ("train", "keep") and omits common disclosure verbs
+        # ("throw", "shoot", "develop", "clean", "grow", "train"). Real chat
+        # is dominated by gerunds and continuous tenses ("i throw pots",
+        # "i've been training a juniper bonsai", "i shoot 35mm", "i keep air
+        # plants", "i clean the reef tank glass") — none of which the D3 loop
+        # caught, so they fell through to the hollow "got it — thanks for
+        # telling me." ack AND became unrecallable. This block generalises the
+        # capture to inflected forms and a broader closed VERB SEED set, and
+        # ADDS firsthand-experience (event) capture for disclosures like "i
+        # dropped half its needles", "i lost a favia coral to heat", "i
+        # repotted the juniper and found a root that went necrotic", "i
+        # removed the dead favia". These are real things the user did/experienced
+        # about their world and must land in the same PersonalFactStore so cued
+        # recall and the "what have you learned about me" summary can surface
+        # them (the old code only ever recalled 'does'/'likes' activity facts).
+        #
+        # DESIGN (per round hardcoding rule + seed-vs-hardcoding test):
+        #  - The verb vocabulary is SEED structure: a closed list of
+        #    activity/experience verbs. It is RAVANA-expandable in principle
+        #    (it feeds the same PersonalFactStore the user can correct/extend),
+        #    NOT a per-topic answer dictionary and NOT authored reply prose.
+        #    Removing an entry degrades gracefully (one fewer activity class
+        #    captured) — it is not content RAVANA can never change, so it is
+        #    seed knowledge, not hardcoding.
+        #  - The value is the resolved CONTENT HEAD of the object phrase
+        #    (_opinion_topic drops closed-class words), so the stored value is
+        #    a real concept ("pots", "bonsai", "35mm", "air plants", "reef
+        #    tank glass"), never a function word.
+        #  - Capture is GENERAL (any "i <verb> <object>"), so it fires on new
+        #    topics without retraining or per-topic tuning.
+        #  - Activity verbs -> attr "does" (consistent with the D3 loop).
+        #  - Experience/event verbs -> attr "event" (new), so a later recall
+        #    can reconstruct "you dropped <x>" / "you lost <y>" grammatically
+        #    (see engine_memory._reconstruct_entity + engine_reasoning
+        #    ._derive_ack_from_store which now render the 'event' attr).
+        # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
+        # PersonalFactStore the user can correct — NOT per-topic answers, NOT
+        # authored prose). Covers everyday disclosure verbs + common irregular
+        # past forms so first-person activities/experiences actually land.
+        _ACTIVITY_VERBS = (
+            "run", "own", "operate", "play", "teach", "study", "manage",
+            "drive", "build", "make", "sell", "restore", "grow", "watch",
+            "raise", "tend", "brew", "bake", "write", "read", "learn",
+            "practice", "collect", "fix", "paint", "code", "design", "craft",
+            "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
+            "organize", "keep", "grind", "race", "sail", "fly", "knit",
+            "sew", "weld", "forge", "carve", "compose", "record", "perform",
+            "coach", "train", "compete", "spin", "weave", "mount", "trade",
+            "host", "guide", "throw", "shoot", "develop", "clean", "reload",
+            "recharge", "assemble", "mix", "pour", "press", "roll", "fire",
+            "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
+            "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
+            "go", "use", "take", "make", "get", "built", "taught", "wrote",
+            "drew", "sang", "flew", "swam", "rode", "drove", "broke",
+            "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
+            "threw", "knew", "wore", "brought", "bought", "caught",
+            "kept", "slept", "left", "felt", "met",
+            "sent", "spent", "lost", "found", "held", "told", "sold",
+            "paid", "said", "gave", "came", "went", "did", "saw", "got",
+            "made", "took", "set", "put", "cut", "hit", "read", "led",
+            "fed", "bled", "fed",
+        )
+        _EVENT_VERBS = (
+            "drop", "lose", "find", "remove", "break", "discover", "notice",
+            "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
+            "ruin", "save", "nurse", "revive", "miss", "spot",
+            "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
+            "recover", "heal", "uproot", "freeze", "thaw", "hatch",
+            "bloom", "wilt", "die", "survive", "escape", "return", "birth",
+            "fall", "fell", "crash", "lose", "lost", "found", "kept",
+            "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
+            "made", "took", "gave", "came", "went", "did", "ate", "drank",
+            "grew", "knew", "threw", "froze", "bled", "fed", "died",
+        )
+        # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
+        # The object stops at a clause boundary (., !, ?, ",", " and ",
+        # " but ", " because ", " so ", " which ", " that ", " when ",
+        # " where ") so a multi-clause sentence stores only the relevant
+        # fragment (e.g. "i repotted the juniper and found a root..." ->
+        # "juniper", not "juniper and found a root"). The verb is matched
+        # with optional inflection so gerunds/continuous tenses are caught.
+        _act_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
+            r"(?:been\s+)?"
+            r"(" + "|".join(_ACTIVITY_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        # D5 (round 2026-08-10T0813Z): reject activity captures whose OBJECT
+        # is an embedded question, a meta-reflection, or a verbatim self-quote
+        # rather than a real possessed thing. "i lose track of whether i told
+        # you" matched the activity verb "told"/"lose" and stored junk
+        # ('does'/'event' = "told you", "lose track") that polluted later
+        # recall. The object clause is scanned for question-frames
+        # (whether/if/when/what/why/how/who + a second clause) and for the
+        # self-quote pronoun "you"/"me" as the object head (a quoted speech
+        # act, not a possession). Generic: structural grammar test, no
+        # per-topic list; the real possession object still passes through.
+        def _activity_obj_is_real(_obj: str, _raw: str = "") -> bool:
+            _o = (_obj or "").strip().lower()
+            if not _o:
+                return False
+            # Scan the RAW object clause (before _opinion_topic trims it) for
+            # an embedded/subordinate question ("of whether i told you",
+            # "why he left") — a meta-reflection, not a possessed thing. The
+            # head is often a content word ("track"), so the trimmed topic
+            # alone would pass; the raw clause exposes the quote/question.
+            _raw_l = (_raw or _o)
+            if re.search(
+                r"\b(?:of|about|whether|if|why|how|what|when|who|where|that)\b\s+"
+                r"(?:i|you|we|they|he|she|it|the|a|an|my|your|this|that)\b",
+                _raw_l):
+                return False
+            _head = _o.split()[0]
+            # object resolves to a quote/self-reference, not a thing
+            if _head in ("you", "me", "i", "im", "i'm", "we", "us", "they", "them"):
+                return False
+            # the trimmed topic is a single closed-class / particle word
+            # ("up", "off", "out") left after stripping the real object — a
+            # dangling verb-particle, not a possessed thing ("i mixed them
+            # up" -> topic "up", "i got it wrong" -> "wrong"). Reject.
+            if len(_o.split()) == 1 and _o in (
+                "up", "down", "off", "out", "around", "over", "wrong",
+                "right", "back", "in", "on"):
+                return False
+            # the object is a self-error / meta-reflection verb ("muddled",
+            # "confused", "mistaken") — "i got muddled" / "i was confused"
+            # reports the user's own slip, not a possession. A small seed of
+            # error-meta words (structural, RAVANA-expandable), not a per-topic
+            # answer table; the real disclosure object still passes through.
+            if len(_o.split()) == 1 and _o in (
+                "muddled", "confused", "mistaken", "tangled", "muddled",
+                "flustered", "garbled", "befuddled"):
+                return False
+            # R5 fix (round 2026-08-11T0521Z): reject body-part / sensation /
+            # feeling-word objects. "i felt it in my chest for days" resolved
+            # to the single word "chest" (a body part) and was stored as
+            # ('i','does','felt chest') — an experiential/affective detail, NOT
+            # a possession or activity. Same class as "felt cold bite" /
+            # "broke ice": the verb is a sensation verb and the object is a
+            # body/sensation word, so it is an inner state, not a thing the
+            # user does/keeps. A SEED vocabulary (RAVANA-expandable via
+            # learn_sensation; the real possession object still passes through
+            # because it is a noun like "pigeons"/"loft"/"banjo"). Not a
+            # per-topic answer table.
+            _SENSATION_BODY = (
+                "chest", "heart", "stomach", "head", "skin", "bone", "hand",
+                "arm", "leg", "eye", "ear", "lung", "brain", "back", "shoulder",
+                "spine", "knee", "foot", "finger", "toe", "face", "throat",
+                "bite", "burn", "chill", "cold", "heat", "pain", "ache",
+                "shiver", "sweat", "tear", "tears", "breath", "pulse", "blood",
+                "sigh", "lump", "swelling", "cramp", "tingle", "numb",
+            )
+            if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
+                                            for w in _o.split()):
+                return False
+            # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
+            # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real
+            # disclosures (single-noun possessions like "jar", and 6-7-word
+            # activity/event objects like "throw pots at a community studio").
+            # Reject only on CONTENT grounds (sensation/body/particle/error-meta
+            # words handled by the guards above), never on length. A single real
+            # noun ("jar") and a long real noun phrase ("repeated the juniper
+            # this spring and found a root") must BOTH pass; the R5 intent (drop
+            # inner-state "felt chest") is preserved by the _SENSATION_BODY gate
+            # above, not a length cap.
+            return bool(_obj)
+        for _am in _act_pat.finditer(q_clean):
+            _verb = _am.group(1).lower()
+            _raw_obj = _am.group(2).strip().lower()
+            _obj = self._opinion_topic(_raw_obj)
+            if _activity_obj_is_real(_obj, _raw_obj):
+                _put_fact("does", f"{_verb} {_obj}", 0.55)
+        # Experience / event capture: first-person "i <event-verb> <object>"
+        # describing something that happened to the user's world. Captured
+        # under attr "event" so it is recallable as a lived experience (not
+        # conflated with ongoing activity). Same clause-boundary + content-head
+        # rules as the activity capture above.
+        _evt_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+|has\s+|had\s+)?(?:almost\s+|nearly\s+)?"
+            r"(" + "|".join(_EVENT_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|\!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        for _em in _evt_pat.finditer(q_clean):
+            _verb = _em.group(1).lower()
+            _raw_obj = _em.group(2).strip().lower()
+            _obj = self._opinion_topic(_raw_obj)
+            if _activity_obj_is_real(_obj, _raw_obj):
+                _put_fact("event", f"{_verb} {_obj}", 0.5)
+
+        # Quantitative possession / activity capture (round 2026-08-11T0521Z):
+        # "i keep twelve racing pigeons", "i have three cats", "i bake two
+        # sourdough loaves", "i lost five hens" — extract the LEADING count +
+        # the noun phrase and store it as a structured (subject, kind, count,
+        # noun) record in self.quantity_memory. This decouples the NUMBER from
+        # the gist sentence so a later "how many racing pigeons do i keep" can
+        # be answered with a clean count and "how many pets in total" can be
+        # AGGREGATED across the store. The 'does'/'event' text fact (which
+        # already preserves the number) is still written above; this adds the
+        # structured count on top. Seed + online: the number-word lexicon and
+        # verb->category map live in QuantityMemory (extendable at runtime), so
+        # a new quantity phrasing is captured without retraining or a per-topic
+        # table. Structural: any "i <verb> <count> <noun>" lands here.
+        # Skip interrogatives — a count QUESTION ("how many cats do i have")
+        # must never be stored as if RAVANA had asserted a quantity. The
+        # mine runs for both declarative disclosures and (later) the opinion
+        # miner, which has its own _is_question guard; this one mirrors it so a
+        # first-person count question is never seeded as a fact.
+        _qty_is_question = (q_clean.rstrip().endswith("?")
+                             or bool(re.match(
+                                 r"^(what|who|when|where|why|how|which|is|are|"
+                                 r"do|does|did|can|could|would|should|will|may|"
+                                 r"might|am|have|has|had)\b", q_clean)))
+        _qty_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(" + "|".join(QuantityMemory.VERB_KIND.keys()) + r")"
+            r"(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+            r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+            r"eighteen|nineteen|twenty|\d+)\s+"
+            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|"
+            r"\s+from\s+))",
+            re.IGNORECASE)
+        if not _qty_is_question:
+            for _qm in _qty_pat.finditer(q_clean):
+                _v = _qm.group(1).lower()
+                _num_tok = _qm.group(2).lower()
+                _noun_raw = _qm.group(3).strip().lower()
+                _vk = QuantityMemory.VERB_KIND.get(_v)
+                if _vk is None:
+                    continue
+                _kind, _cat = _vk
+                _cnt = number_to_int(_num_tok)
+                if _cnt is None or _cnt <= 0:
+                    continue
+                # Resolve a canonical noun: an animal word -> its species (so
+                # "racing pigeons" aggregates with "homing pigeons" under
+                # "pigeon"); otherwise the last content noun, singularized.
+                _toks = [t for t in re.findall(r"[a-z']+", _noun_raw)
+                         if t not in self._OPINION_STOP]
+                if not _toks:
+                    continue
+                _spec = _pet_slots.species_of(_toks[-1]) or _pet_slots.species_of(
+                    _toks[0])
+                _canon = _spec if _spec else (
+                    _toks[-1][:-1] if len(_toks[-1]) > 3 and _toks[-1].endswith("s")
+                    else _toks[-1])
+                self.quantity_memory.assert_quantity(
+                    "i", _kind, _cnt, _noun_raw, _canon, category=_cat,
+                    confidence=0.6, source="seed_regex")
+
         # facts. Runs in the miner (not only observe_user_query) so opinions are
         # captured even when process_turn early-returns before Step 5b (e.g. a
         # bare "i really like cats" hits a preference handler). Polarity from
@@ -4560,117 +4017,6 @@ class UserModel:
             (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
              r"\b(.+?)\s+(?:is|are)\s+the\s+best\b"
              r"(?:\s+(?:kind|sort|type|breed|example|form|version|bit))?", 0.7, 0.55),
-            # ── Generalized opinion shapes (D-C, round 2026-08-13T0634Z) ──
-            # The classes above only catch a handful of grammatical shapes
-            # ("i think X is good", "X beats Y", "X is better than Y",
-            # "i like/hate X"). Natural opinions fell straight through:
-            #   "i think bookshops are worth more to a city than chains"
-            #   "i'm strongly against people who talk in theatres"
-            #   "teaching kids to cook is more important than coding"
-            # produced NO stance -> contradiction queries had nothing to cite.
-            # Fix: broaden with general GRAMMATICAL shapes backed by a small
-            # SENTIMENT LEXICON (seed vocabulary, expandable at runtime via
-            # the affect store — not a per-topic table). The content head is
-            # still resolved by _opinion_topic, so the stance lands on the
-            # real concept. Polarity is lexical (the lexicon is inherently
-            # valenced); RAVANA can still revise any stance by talking.
-            # (f) explicit for/against stance. Positive keywords (for/in favor/
-            #     in support/pro) -> +0.85; negative (against/opposed to/anti)
-            #     -> -0.85. Keywords are split so a single statement cannot
-            #     match both lanes.
-            (r"\bi(?:'m| am)\s+(?:really\s+|strongly\s+|firmly\s+)?"
-             r"(?:in\s+favor\s+of|in\s+support\s+of|for|pro)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.85, 0.6),
-            (r"\bi(?:'m| am)\s+(?:really\s+|strongly\s+|firmly\s+)?"
-             r"(?:opposed\s+to|against|anti)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.85, 0.6),
-            # (g) "i (really) (like|love|hate|...) X" — broaden the verb set
-            #     so attitudes like admire/despise/treasure are captured.
-            (r"\bi\s+(?:really\s+|truly\s+|deeply\s+)?"
-             r"(?:admire|respect|treasure|cherish|value|appreciate)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
-            (r"\bi\s+(?:really\s+|truly\s+|deeply\s+)?"
-             r"(?:despise|loathe|resent|detest|scorn|disdain|abhor)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
-            # (h) "[i think/believe/feel] X is (more) <VAL-ADJ> (than Y)" with a
-            #     broad value-adjective lexicon (the comparative slot makes it
-            #     "X over Y" without needing a literal "than"). Polarity from
-            #     the lexicon; the leading "i (think|believe|...)" frame is
-            #     OPTIONAL so X is the head whether or not the user fronts the
-            #     statement with an opinion verb — this is the limitation #3
-            #     (round 2026-08-13T1136Z) capability: a bare comparative
-            #     "teaching kids to cook is more important than coding" is now
-            #     mined as a real stance on X (+0.75), not dropped. The frame
-            #     is made optional INSIDE the single pattern (not as a separate
-            #     bare pattern) so it cannot re-match mid-string and seed a
-            #     second garbled topic that collides with the framed match —
-            #     that collision was the reason bare comparatives were
-            #     originally left un-mined. This mirrors pattern (a) above,
-            #     which already mines bare comparatives ("the sea is a better
-            #     teacher than any classroom") with an optional frame and no
-            #     collision. Grammatical/structural: seed valence lexicon, no
-            #     per-topic answers, no authored prose; RAVANA revises any
-            #     stance by talking.
-            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
-             r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
-             r"important|valuable|meaningful|useful|helpful|worthwhile|"
-             r"significant|relevant|fair|just|honest|beautiful|wonderful|"
-             r"vital|crucial|essential|wise|healthy|kind|free|true|real|"
-             r"alive|human|warm|clean|brave|strong|necessary|right)\b", 0.75, 0.5),
-            # (h-neg-q) the SAME copula shape but led by "less"/"fewer" — a
-            # DOWNWARD comparative ("X is less important than Y") is the
-            # negative mirror of (h) ("X is more important than Y"). The
-            # leading frame is optional (same limitation #3 capability) and
-            # the collision guard below drops any "believe X" garble. Seed
-            # valence lexicon, no per-topic answers; RAVANA revises by talking.
-            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
-             r"(?:much\s+|far\s+|way\s+)?less\s+(?:important|valuable|meaningful|"
-             r"useful|helpful|worthwhile|significant|relevant|fair|just|honest|"
-             r"beautiful|wonderful|vital|crucial|essential|wise|healthy|kind|"
-             r"free|true|real|alive|human|warm|clean|brave|strong|necessary|right)\b",
-             -0.75, 0.5),
-            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
-             r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
-             r"unimportant|worthless|meaningless|useless|harmful|pointless|"
-             r"pointless|trivial|irrelevant|unfair|dishonest|ugly|awful|"
-             r"terrible|harmful|wrong|cruel|false|empty|cold|dirty|weak|"
-             r"unnecessary|foolish|stupid|dangerous|toxic)\b", -0.75, 0.5),
-            # (i) value-verb comparative "i think X <value-verb> more than Y"
-            #     / "i believe X matters more than Y" / "X means more to me
-            #     than Y" — a GENERAL shape the (h) copula pattern missed
-            #     ("i think handwritten letters mean more than texts" produced
-            #     NO stance because the predicate was 'mean more than', not
-            #     'is <VAL-ADJ>'). The value-verb set is a small SEED
-            #     vocabulary (mean/matter/matters/matter more/outweigh/
-            #     outweighs/beat/trump/win/prefer/count more than) — expanded
-            #     at runtime via the affect/opinion store, NOT a per-topic
-            #     table. Polarity is +0.75 (the 'more than' comparative is
-            #     inherently X-over-Y; a negative value-verb like 'mean less
-            #     than' is covered by the negative branch below). The leading
-            #     'i think/believe/feel/find/reckon' frame is stripped so X is
-            #     the content head. A bare (no-leading-frame) form is NOT
-            #     added, per the NOTE below (it re-matched mid-string and
-            #     collided with the topic). Generalizes: 'handwritten letters
-            #     mean more than texts' -> +0.75 on 'handwritten letters'.
-            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+"
-             r"(?:means|mean|matters|matter|mattering|outweighs|outweigh|"
-             r"beats|trumps|wins\s+over|prefer|prefers|counts|count)"
-             r"(?:\s+(?:more|far|much|way))?\s+(?:than|over|to\s+me|to\s+us)"
-             r"(?:\s+.+?)?(?:[.!?]|\s+and\b|\s+but\b|$)", 0.75, 0.5),
-            # (i-neg) negative value-verb comparative "X means less than Y" /
-            #     "X matters less than Y" -> -0.75 on X. Same general shape,
-            #     opposite polarity; seed verb set, not a per-topic table.
-            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+"
-             r"(?:means|mean|matters|matter|mattering|outweighs|outweigh|"
-             r"beats|trumps|wins\s+over|prefer|prefers|counts|count)"
-             r"\s+(?:less|fewer|little)\s+(?:than|over)\s+.+?"
-             r"(?:[.!?]|\s+and\b|\s+but\b|$|,)", -0.75, 0.5),
-            # NOTE: a bare comparative "X is more <ADJ> than Y" (no leading
-            # "i think" frame) is intentionally NOT added as a separate
-            # pattern. The (h) pattern above already covers the user-opinion
-            # form ("i believe teaching kids to cook is more important than
-            # coding") which is the round's actual target. A standalone bare
-            # comparative pattern re-matched mid-string (after "i ") and
-            # seeded a second, garbled topic ("believe teaching kids") that
-            # collided with the (h) topic — so it was removed. Third-party
-            # bare comparatives remain un-mined, which is acceptable: the
-            # durable-stance goal is about the USER's own opinions.
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _raw = _m.group(_m.lastindex).strip().lower()
@@ -5117,112 +4463,6 @@ class UserModel:
                     except Exception:
                         pass
                     return
-            # R3 (round 2026-08-18T0937Z): FIRST-PERSON LIMITATION / AVERSION
-            # disclosure. A user can walk a stance back WITHOUT a retraction or
-            # concession keyword: "my knee's been acting up ... i can't really
-            # hike the way i used to", "loud music wrecks me now", "i can't
-            # handle that volume". These are sensory/affective LIMITATION
-            # statements about a topic RAVANA already holds a positive stance
-            # on. Previously they fell through to a hollow "noted." and the
-            # stale stance persisted (residual limitation #1 of round
-            # 2026-08-17T1730Z). Detect the limitation shape structurally
-            # (first person + a can't/can-not/cannot/wrecks-me/anymore cue) and
-            # resolve the topic against the LIVE stance store — including
-            # verb-stem matching so "hike" in the disclosure binds the stored
-            # "cold weather hiking" stance (whole-word match misses it). When a
-            # held stance is found, SOFTEN it toward neutral (a limitation is a
-            # relaxation, not an inversion). Generic: the topic is resolved, not
-            # hardcoded, so any held positive stance the user limits gets
-            # softened. No retraining, no per-topic table.
-            _limitation = re.search(
-                r"\b(i\b|my|me|we|us)\b.{0,40}?\b("
-                r"can'?t|can not|cannot|couldn'?t|no longer|anymore|"
-                r"wrecks? me|wears? me (?:down|out)|i can't handle|"
-                r"can't really|can't stand|harder than it used to|"
-                r"the way i used to|too much for me)\b", q)
-            if _limitation is not None:
-                _target = self._stance_key_in_text_stem(q)
-                if _target is not None:
-                    # R3 fix (round 2026-08-18T0937Z): a limitation/aversion
-                    # disclosure SOFTENS a stance the user ALREADY HELD in a
-                    # PRIOR turn. It must NOT fire on the VERY turn the user
-                    # first states the aversion (e.g. "i can't stand cilantro"
-                    # is mined fresh at -0.8 by mine_stance and must stay there
-                    # — the limitation branch was relaxing it to -0.333). Guard:
-                    # require the resolved stance to PREDATE the current turn (
-                    # strictly before, so a just-mined stance with
-                    # turn_number == turn_num is skipped). This preserves the
-                    # real feature — a HELD positive stance later limited by the
-                    # user ("i love hiking" -> "my knee's acting up, i can't
-                    # really hike anymore") still softens — while leaving fresh
-                    # first-person aversions at full strength.
-                    _existing = self.opinions.stances.get(_target)
-                    if _existing is None or _existing.turn_number >= self.opinions.turn_num:
-                        return  # freshly-mined this turn (or absent) -> not a limitation of a HELD stance
-                    try:
-                        self.opinions._soft_reversal = True
-                        self.opinions.reverse_stance(_target, utterance=text)
-                    except Exception:
-                        pass
-                    return
-            # FEATURE (round 2026-08-20T1229Z-followup, residual limitation #1):
-            # FREE-FORM contradiction recode. The branches above only fire on an
-            # explicit retraction keyword, a "but"/belief concession frame, or a
-            # "can't/anymore" limitation cue. But a user very often RE-STATES an
-            # attitude that OPPOSES a stance they already hold WITHOUT any of
-            # those shapes ("actually i've gone off winter, the cold gets to me
-            # now"; "not all street art is good"; "they wear me out these days").
-            # Previously none of the branches matched, the opinion miner extracted
-            # no fresh stance, and the stale held stance persisted un-reversed (the
-            # 0701Z contradiction-mining gap — provenance was later bridged for
-            # KEYING, but the reversal was still never *detected* for these). Detect
-            # a reassessment-affect signal (seed lexicon, RAVANA-extendable), resolve
-            # the topic against the LIVE stance store (the resolver already bridges a
-            # broader co-mention such as "winter" back to a stance keyed "silence"
-            # via provenance — so one mechanism covers both), and when the new
-            # attitude OPPOSES the held polarity, recalibrate the held stance toward
-            # the new value. Generic: the topic comes from the store, the new value
-            # from the user's real words, no per-topic rule, no retraining. If the
-            # utterance carries NO reassessment signal we leave the stance alone
-            # (honest — we never guess a reversal from neutral wording).
-            _new_pol = _assess_reversal_polarity(text)
-            if _new_pol is not None:
-                # Resolve against the LIVE stance store, but the free-form
-                # recode only ever acts on a stance the user ALREADY HELD in a
-                # PRIOR turn. The opinion miner in the SAME turn may have just
-                # created a fresh stance from a co-mentioned concept (e.g.
-                # "the cold gets to me now" -> a new "cold" stance), and
-                # `resolve_topic` can bind to that fresh stance via substring
-                # precedence, leaving the genuinely-held stance (bridged through
-                # provenance, e.g. "silence" co-mentioned with "winter") never
-                # reached. Restrict resolution to PRIOR-turn stances so the
-                # recode targets the held valuation, never a coincidental
-                # same-turn co-mention. (Honest: a topic with no PRIOR stance is
-                # left alone — we never walk back a brand-new attitude.)
-                _target = self.opinions._resolve_prior_stance(text)
-                if _target is not None:
-                    _held = self.opinions.stances.get(_target)
-                    # Guard: only RECODE a stance the user ALREADY HELD in a PRIOR
-                    # turn (same rule as the limitation branch). A stance mined THIS
-                    # turn conveys the user's CURRENT view and must not be walked
-                    # back by a coincidental reassessment term in the same turn.
-                    if (_held is not None
-                            and _held.turn_number < self.opinions.turn_num
-                            # Only act as a contradiction when the new attitude
-                            # actually OPPOSES the held value (sign differs, or it
-                            # pulls the held value across the pivot). Same-sign
-                            # reassessment ("i still love winter, it's the best")
-                            # is already handled by the weighted merge upstream, so
-                            # leave it — no double-write.
-                            and (_new_pol * _held.polarity) < 0.0):
-                        try:
-                            self.opinions._soft_reversal = True
-                            self.opinions.recode_stance_toward(
-                                _target, new_polarity=_new_pol,
-                                blend=0.7, utterance=text)
-                        except Exception:
-                            pass
-                        return
             return
         # A retraction cue is either a HARD recant ("i was wrong about X",
         # "i take it all back" — flip decisively) or a SOFTENING ("x isn't that

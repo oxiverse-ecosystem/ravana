@@ -602,62 +602,6 @@ class UserStanceStore:
         self.last_reversal = (existing.topic, old_polarity, existing.polarity)
         return existing
 
-    def recode_stance_toward(self, topic: str, new_polarity: float,
-                             blend: float = 0.7,
-                             utterance: Optional[str] = None) -> Optional[Stance]:
-        """Recalibrate a HELD stance toward a NEW expressed value (contradiction update).
-
-        Unlike ``reverse_stance`` (which flips toward the opposite pole of the
-        prior value, for explicit retractions), this is the delta-rule update for
-        a FREE-FORM contradiction: the user re-states an attitude on a topic they
-        already hold (e.g. "actually i've gone off winter" after "i love the
-        silence of deep winter"), and the new attitude has a polarity of its own.
-        The stance is moved toward that NEW value with a decisive blend, so a
-        clearly-stated reversal actually lands (a weighted merge alone is too weak
-        for a contradiction — see the feature round that added this).
-
-        Idempotent within a turn via the same utterance/turn guard as
-        ``reverse_stance``. Sets ``last_reversal`` so the ack composer can render
-        a linked "you've changed your mind about X" acknowledgment (no authored
-        reply string — the content comes from the recoded stance).
-        """
-        key = topic.lower().strip()
-        existing = self.stances.get(key)
-        if existing is None:
-            return None
-        _norm = re.sub(r"\s+", " ", (utterance or "").lower().strip())
-        _guard_key = _norm if _norm else self.turn_num
-        if self._reversed_utterance.get(key) == _guard_key:
-            return existing
-        old_polarity = existing.polarity
-        # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating (see
-        # reverse_stance for the rationale: feature round 2026-08-21T1653Z).
-        if old_polarity >= 0.6:
-            _prior_word = "strongly for"
-        elif old_polarity > 0.1:
-            _prior_word = "for"
-        elif old_polarity <= -0.6:
-            _prior_word = "strongly against"
-        elif old_polarity < -0.1:
-            _prior_word = "against"
-        else:
-            _prior_word = "uncertain about"
-        existing.prior_polarity = old_polarity
-        existing.prior_stance = f"{_prior_word} {key}"
-        # Decisive recode toward the newly-stated value (bounded blend).
-        _b = max(0.0, min(1.0, blend))
-        existing.polarity = old_polarity * (1.0 - _b) + float(new_polarity) * _b
-        # A contradiction injects uncertainty about the prior value, so confidence
-        # relaxes toward the new read rather than staying pinned at the old peak.
-        existing.confidence = max(0.15,
-                                  existing.confidence * (1.0 - _b * 0.5)
-                                  + 0.15 * _b)
-        existing.rehearsal_count += 1
-        existing.turn_number = self.turn_num
-        self._reversed_utterance[key] = _guard_key
-        self.last_reversal = (existing.topic, old_polarity, existing.polarity)
-        return existing
-
     def _decay_score(self, s: Stance) -> float:
         recency = 1.0 / (1.0 + (self.turn_num - s.turn_number) * 0.25)
         return s.confidence * recency
@@ -1232,6 +1176,276 @@ class QuantityMemory:
         out: Dict[str, int] = {}
         for cat, nouns in _by_cat.items():
             out[cat] = sum(r.count for r in nouns.values())
+        return out
+
+    def get_state(self) -> Dict:
+        return {
+            'records': {f"{k[0]}|{k[1]}|{k[2]}|{k[3]}": (
+                r.subject, r.kind, r.count, r.noun_phrase, r.noun_canonical,
+                r.category, r.confidence, r.turn_number, r.source, r.superseded)
+                for k, r in self.records.items()},
+            'turn_num': self.turn_num,
+        }
+
+    def set_state(self, state: Dict) -> None:
+        self.records = {}
+        for k, v in state.get('records', {}).items():
+            s, kind, cnt, np_, nc, cat, conf, tn, src, sup = v
+            self.records[(s.lower(), kind.lower(), nc.lower(), int(cnt))] = \
+                QuantityRecord(subject=s, kind=kind, count=int(cnt),
+                               noun_phrase=np_, noun_canonical=nc, category=cat,
+                               confidence=conf, turn_number=tn, source=src,
+                               superseded=sup)
+        self.turn_num = state.get('turn_num', 0)
+
+
+# ── Quantitative possession / activity memory ────────────────────────────────
+# A structured store for COUNT-bearing disclosures ("i keep twelve racing
+# pigeons", "i have three cats", "i bake two sourdough loaves", "i lost five
+# hens"). The activity/event miner already PRESERVES the number in the stored
+# 'does'/'event' value (e.g. "keep twelve racing pigeons"), but that is a raw
+# text blob: there is no way to SYNTHESIZE a clean count answer ("how many
+# racing pigeons do i keep" -> "twelve") and no way to AGGREGATE across the
+# store ("how many pets do i have in total"). This store captures the
+# (subject, kind, count, noun) as structured fields so both are possible.
+#
+# Brain basis: the hippocampus stores the episode, but the vmPFC also binds a
+# QUANTITY to a possession schema (how many of my X) independently of the
+# episodic gist — that is what lets a human answer "how many" without replaying
+# the whole memory. Decoupling the number from the gist sentence is the
+# structural fix for the report's line-86 limitation.
+#
+# SEED + ONLINE (no retraining, no authored answers): the number-word lexicon
+# is a tiny seed (one..twelve, dozen, half dozen, a/an=1) extended at runtime by
+# learn_number() so RAVANA grows its own number vocabulary; the verb->category
+# map is a small seed of everyday possession/activity verbs, not a per-topic
+# table. Both are overridable by the user at runtime via correct()/supersede.
+_NUMBER_WORDS: Dict[str, int] = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+    "twelve": 12, "dozen": 12, "half dozen": 6, "half a dozen": 6,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+_NUMBER_WORDS_LEARNED: Dict[str, int] = {}
+# inverse map int -> word, for rendering recalled counts as words (1-12).
+_NUMBER_WORDS_INV: Dict[int, str] = {
+    v: k for k, v in _NUMBER_WORDS.items()
+    if " " not in k and "dozen" not in k and "half" not in k}
+
+
+def learn_number(word: str, value: int) -> None:
+    """Grow the number-word lexicon from a live disclosure."""
+    w = (word or "").strip().lower()
+    if w and isinstance(value, int) and value > 0:
+        _NUMBER_WORDS_LEARNED[w] = value
+
+
+def number_to_int(token: str) -> Optional[int]:
+    """Parse a number word or digit to int, or None if not a number."""
+    t = (token or "").strip().lower()
+    if not t:
+        return None
+    if t.isdigit():
+        return int(t)
+    return _NUMBER_WORDS.get(t) or _NUMBER_WORDS_LEARNED.get(t)
+
+
+def render_count(count: int) -> str:
+    """Render a small integer count as a word when natural (1-12), else digit.
+
+    Mirrors the mined surface form: the activity/event miner stores counts as
+    words ("keep six hives"), so recall should echo "six", not "6", to stay
+    consistent with what the user said. Larger counts render as digits.
+    """
+    return _NUMBER_WORDS_INV.get(count, str(count))
+
+
+@dataclass
+class QuantityRecord:
+    subject: str               # entity the quantity is about, e.g. "i"
+    kind: str                  # possession verb family, e.g. "keep"/"have"/"bake"/"lose"
+    count: int                 # parsed integer count
+    noun_phrase: str           # full surface noun phrase, e.g. "racing pigeons"
+    noun_canonical: str        # canonical singular noun for matching/aggregation
+    category: str = "possession"  # possession | made | loss (for totals)
+    confidence: float = 0.6
+    turn_number: int = 0
+    source: str = "seed_regex"
+    superseded: bool = False
+
+
+class QuantityMemory:
+    """Structured count store for the user's possessions / activities.
+
+    Keyed by (subject, kind, noun_canonical, count) so a correction or update
+    opens a contradiction the same way PersonalFactStore does (active value
+    wins; the user is ground truth). Distinct from the 'does'/'event' text
+    facts: those preserve the gist sentence; this store preserves the NUMBER so
+    it can be retrieved and summed. Rides the engine's existing pickle/SQLite
+    persistence via get_state()/set_state() — no new database.
+    """
+
+    # verb family -> (kind, category). Seed; covers everyday disclosures.
+    # Past-tense forms are included so "i kept two rabbits" / "i had three
+    # dogs" / "i made five loaves" are captured the same way (the verb is
+    # normalized to its present family before lookup). Extendable, not a
+    # per-topic table.
+    VERB_KIND = {
+        "keep": ("keep", "possession"), "keep on": ("keep", "possession"),
+        "kept": ("keep", "possession"),
+        "have": ("have", "possession"), "have on": ("have", "possession"),
+        "had": ("have", "possession"),
+        "own": ("own", "possession"), "raise": ("raise", "possession"),
+        "raised": ("raise", "possession"),
+        "breed": ("breed", "possession"), "bred": ("breed", "possession"),
+        "run": ("run", "possession"), "ran": ("run", "possession"),
+        "grow": ("grow", "possession"), "grew": ("grow", "possession"),
+        "bake": ("bake", "made"), "make": ("make", "made"),
+        "made": ("make", "made"), "cook": ("cook", "made"),
+        "brew": ("brew", "made"),
+        "lose": ("lose", "loss"), "lost": ("lose", "loss"),
+        "drop": ("drop", "loss"), "dropped": ("drop", "loss"),
+        "break": ("break", "loss"), "broke": ("break", "loss"),
+    }
+
+    def __init__(self, decay_turns: int = 50):
+        self.records: Dict[Tuple[str, str, str, int], QuantityRecord] = {}
+        self.turn_num: int = 0
+        self._decay_turns = decay_turns
+
+    def advance_turn(self):
+        self.turn_num += 1
+
+    def _key(self, subject, kind, noun_canonical, count):
+        return (subject.lower().strip(), kind.lower().strip(),
+                noun_canonical.lower().strip(), int(count))
+
+    def assert_quantity(self, subject, kind, count, noun_phrase,
+                        noun_canonical, category="possession",
+                        confidence=0.6, source="seed_regex") -> None:
+        key = self._key(subject, kind, noun_canonical, count)
+        # Conflicting prior count for the same (subject, kind, noun_canonical)?
+        # Mark the old one superseded (the new disclosure is the active truth).
+        # Run this BEFORE checking the existing key, so re-asserting a prior
+        # count supersedes all other active counts for the same triplet.
+        for (s, k, nc, c), r in list(self.records.items()):
+            if (s == subject.lower().strip()
+                    and k == kind.lower().strip()
+                    and nc == noun_canonical.lower().strip()
+                    and c != int(count) and not r.superseded):
+                r.superseded = True
+        existing = self.records.get(key)
+        if existing is not None:
+            existing.confidence = min(1.0, existing.confidence + 0.1)
+            existing.turn_number = self.turn_num
+            existing.superseded = False
+            return
+        self.records[key] = QuantityRecord(
+            subject=subject, kind=kind, count=int(count),
+            noun_phrase=noun_phrase, noun_canonical=noun_canonical,
+            category=category, confidence=confidence,
+            turn_number=self.turn_num, source=source)
+
+    def correct(self, subject: str, noun: str, count: int,
+                category: str = "possession") -> None:
+        """Supersede any active record matching `noun` and store the new count.
+
+        Online correction path: when the user corrects a count ("it's seven
+        hives now"), the prior record is retired (not echoed) and the new count
+        becomes active. Matches by canonical noun OR by the noun appearing in
+        the stored phrase, so "hives" retires a record whose phrase is
+        "hives of bees". A user correction is authoritative — no retrain.
+        """
+        subj = subject.lower().strip()
+        _n = (noun or "").lower().strip()
+        if not _n or count is None:
+            return
+        _matched = False
+        for (s, k, nc, c), r in list(self.records.items()):
+            if s != subj or r.superseded:
+                continue
+            if (r.noun_canonical == _n
+                    or _n in self._noun_tokens(r.noun_phrase)):
+                r.superseded = True
+                _matched = True
+        if _matched:
+            # Re-assert the corrected count. Use the canonical noun from the
+            # most-recent matching record to keep the key stable.
+            _canon = _n
+            for (s, k, nc, c), r in self.records.items():
+                if (s == subj and r.superseded
+                        and (r.noun_canonical == _n
+                             or _n in self._noun_tokens(r.noun_phrase))):
+                    _prev_kind = k
+                    _prev_cat = r.category
+                    _canon = nc
+                    break
+            else:
+                _prev_kind = "keep"
+                _prev_cat = category
+            self.assert_quantity(subj, _prev_kind, count, _n, _canon,
+                                 category=_prev_cat, confidence=0.85,
+                                 source="correction")
+
+    def _noun_tokens(self, phrase: str) -> Set[str]:
+        return {w for w in re.findall(r"[a-z']+", (phrase or "").lower())
+                if len(w) > 1}
+
+    def query_count(self, noun_phrase: str, kind: Optional[str] = None,
+                    subject: str = "i") -> Optional[QuantityRecord]:
+        """Return the best active record whose noun overlaps the query phrase.
+
+        Matches by token overlap (so 'racing pigeons' resolves a stored
+        'pigeons' record, and 'cats' resolves a stored 'cats' record). When a
+        kind is given it is preferred; otherwise the strongest overlap wins.
+        Returns None when nothing plausibly matches — never fabricates.
+        """
+        subj = subject.lower().strip()
+        q_tokens = self._noun_tokens(noun_phrase)
+        if not q_tokens:
+            return None
+        best, best_score = None, 0.0
+        for (s, k, nc, c), r in self.records.items():
+            if s != subj or r.superseded:
+                continue
+            if kind is not None and k != kind.lower().strip():
+                continue
+            r_tokens = self._noun_tokens(r.noun_canonical) | self._noun_tokens(r.noun_phrase)
+            if not r_tokens:
+                continue
+            overlap = len(q_tokens & r_tokens)
+            if overlap == 0:
+                continue
+            # precision: fraction of the record's tokens that the query hits
+            precision = overlap / len(r_tokens)
+            score = overlap * (1.0 + precision) * (0.5 + r.confidence)
+            if score > best_score:
+                best, best_score = r, score
+        return best
+
+    def aggregate(self, category: str = "possession",
+                  subject: str = "i") -> int:
+        """Sum the counts of all active records of a category (for 'in total').
+
+        A 'pets/animals in total' question sums the possession category across
+        every species the user disclosed. Returns 0 when there are none (the
+        caller decides how to phrase an honest empty answer).
+        """
+        subj = subject.lower().strip()
+        total = 0
+        for (s, k, nc, c), r in self.records.items():
+            if s == subj and not r.superseded and r.category == category:
+                total += r.count
+        return total
+
+    def aggregate_tokens(self, subject: str = "i") -> Dict[str, int]:
+        """Per-category totals, for summary rendering."""
+        subj = subject.lower().strip()
+        out: Dict[str, int] = {}
+        for (s, k, nc, c), r in self.records.items():
+            if s == subj and not r.superseded:
+                out[r.category] = out.get(r.category, 0) + r.count
         return out
 
     def get_state(self) -> Dict:

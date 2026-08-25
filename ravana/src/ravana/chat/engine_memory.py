@@ -832,48 +832,86 @@ class MemoryMixin:
             if _sp is not None:
                 _specific_entity = _sp
                 break
-            if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
-                # only treat as a cued recall when the query also
-                # asks about a biographical attribute
-                if any(w in q for w in _LOC_WORDS) or "name" in q:
-                    _generic_self = True
-        # SPECIFIC-ENTITY-BEFORE-GENERIC GUARD (round 2026-08-15T0830Z audit fix).
-        # When the query names a CONCRETE possessive/referred entity (e.g. "my
-        # cat", "partner's name", "our dog") the recall is about THAT entity, not
-        # the user's own profile. If that entity is NOT in the store, the user
-        # never disclosed it, so fail CLOSED (honest miss) — do NOT alias the
-        # named entity onto the user's "i" profile. The old alias let "remember
-        # my cat's name" (cat unstored) resolve the user's own "i" biographical
-        # profile and dump an unrelated fact ("your favorite book is dune") —
-        # the documented source-monitoring / confabulation defect. Only a
-        # genuinely GENERIC self-attribute recall ("what is my name", "where do
-        # i live") may use the "i" profile; a generic self-recall with no entity
-        # at all is handled separately by the caller's profile-summary path.
-        _named = self._specific_recall_entity(q)
-        if _named is not None:
-            _named_sp = _pet_slots.species_of(_named)
-            _named_key = _named_sp if _named_sp is not None else _named
-            if _named_key not in _entity_idx:
-                # Specific entity the user never disclosed -> nothing to
-                # retrieve. Return None so the caller fails closed (never
-                # confabulate a profile that wasn't the query's target).
-                _ent_hit = None
-                _generic_self = False
-        # R1 (2026-08-18T1340Z round): cross-lemma entity linking. The verbatim
-        # scan above only links when a query token EQUALS a stored key, so a
-        # PARAPHRASED entity ("sourdough culture" for stored "sourdough starter")
-        # slips past it and the recall falls through to the wrong fact. When the
-        # query named a specific entity (_named is not None) but it did NOT
-        # verbatim match the store, try GloVe cosine linking across the whole
-        # entity index before the generic-self fallback. If even the linker
-        # cannot resolve it, leave _ent_hit None so we fail CLOSED (never alias
-        # a specific-but-unresolved query onto the "i" profile). We do NOT link
-        # when _named is None (the query names no specific entity at all) — doing
-        # so would be confabulation, not recall.
-        if _ent_hit is None and _named is not None:
-            _linked = self._link_recall_entity(q, set(_entity_idx.keys()))
-            if _linked is not None:
-                _ent_hit = _linked
+            # a named non-user entity already in the index (e.g. "salt" stored
+            # under subject "neighbour") — resolve it from the full store. The
+            # self-pronoun "i" is also in _entity_idx (the user's own profile),
+            # but it must NOT be treated as a specific owned entity here — doing
+            # so would reconstruct the whole "i" profile for ANY query
+            # containing "i"/"my" (e.g. "how many pigeons did i keep" -> "your
+            # name is esa; you keep loft"). A genuine bare self-bio question is
+            # handled by the tightened generic-self fallback below, not here.
+            if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
+                _specific_entity = _tok
+                break
+        if _specific_entity is not None:
+            # Resolve the entity from the FULL personal-fact store (all
+            # subjects), preferring an active (non-superseded) fact. This honors
+            # the self/other boundary: a pet re-attributed to a third party
+            # resolves to that owner's record, not the user's. Build a small
+            # facts dict for _reconstruct_entity.
+            _pf = getattr(self, "user_model", None)
+            _pfs = getattr(_pf, "personal_facts", None) if _pf else None
+            if _pfs is not None:
+                _ent_facts = {}
+                for _key, _fact in getattr(_pfs, "facts", {}).items():
+                    if getattr(_fact, "superseded", False):
+                        continue
+                    _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
+                    # Self/other boundary (round 2026-08-11T0521Z R6 fix): a
+                    # "my <pet>" query resolves to the USER's own record only. A
+                    # pet re-attributed to a third party (subject != "i") was
+                    # retired from the user's ownership, so folding it here would
+                    # surface it as "your cat is pip" — exactly the leak the
+                    # regression test forbids. Skip non-user subjects so the
+                    # boundary holds at this recall source, matching the unit
+                    # entity-index guard above (L397).
+                    if _subj not in (None, "i", "I"):
+                        continue
+                    _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
+                    # the entity matches either as a stored entity subject, or
+                    # as the attribute key under a third-party subject (a pet
+                    # disclosed as "my neighbour's dog is X" is stored as
+                    # subject="neighbour", attr="dog"), or as a pet-slot whose
+                    # canonical species is the query entity.
+                    _is_entity = (_subj == _specific_entity) or (_attr == _specific_entity) or (
+                        _pet_slots.is_pet_attribute(_attr) and
+                        _pet_slots.base_species(_attr) == _specific_entity)
+                    if _is_entity and _attr not in (None,):
+                        # fold under a render key: use the species for pets,
+                        # else the entity subject.
+                        _rk = (_pet_slots.base_species(_attr)
+                               if _pet_slots.is_pet_attribute(_attr)
+                               else _specific_entity)
+                        _ent_facts.setdefault(_rk, {})[_attr] = getattr(_fact, "value", _fact)
+                # also accept the user-facing index entry if present
+                if _specific_entity in _entity_idx:
+                    for _a, _v in _entity_idx[_specific_entity].items():
+                        _ent_facts.setdefault(_specific_entity, {})[_a] = _v
+                if _ent_facts:
+                    # prefer the species/pet render key when present
+                    _rk = next((k for k in _ent_facts
+                                if _pet_slots.species_of(k) is not None),
+                               next(iter(_ent_facts)))
+                    _bits = _reconstruct_entity(_rk, _ent_facts[_rk])
+                    if _bits:
+                        return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+        # Generic-self fallback: ONLY for a bare user-biography question that
+        # names NO specific entity (e.g. "what is my name", "where do i live").
+        # A query that named a specific owned thing ("my dog's name") already
+        # resolved via _specific_entity above and must NOT reach here. The
+        # trigger is kept tight: "name" only counts when it is the question's
+        # TARGET ("what is my name" / "who am i"), not a passing mention like
+        # "did i name them" inside a count/possession question — otherwise
+        # "how many pigeons did i name" would wrongly collapse to the user's
+        # name. LOC words still trigger generic-self (where do i live).
+        if _ent_hit is None and _specific_entity is None:
+            _has_person = bool(re.search(r"\b(i|my|me|we|our)\b", q))
+            _name_target = bool(re.search(
+                r"\b(what'?s|what\s+is)\s+my\s+name\b|\bmy\s+name\s*\?|who\s+am\s+i\b|"
+                r"\btell\s+me\s+(?:about|who)\s+(?:myself|me)\b", q))
+            _has_bio_attr = _name_target or any(w in q for w in _LOC_WORDS)
+            if _has_person and _has_bio_attr and "i" in _entity_idx:
+                _generic_self = True
         if _ent_hit is None and _generic_self:
             _ent_hit = "i"
         if _ent_hit is not None:
@@ -960,8 +998,7 @@ class MemoryMixin:
                     r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
                     _t) or re.search(
                     r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
-                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t) or \
-                    self._is_question(_t):
+                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t):
                     continue  # skip prior recall queries (no content)
                 # Count how many cue tokens' STEMS appear in this episode's
                 # stemmed token stream (morphology-invariant match).
@@ -1046,7 +1083,7 @@ class MemoryMixin:
                 text.lower()) or re.search(
                 r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
                 r"\b(told|said|mentioned|asked|tell|remember|recall)\b",
-                text.lower()) or self._is_question(text):
+                text.lower()):
                 continue
             score = 0.0
             _strong_link = False
