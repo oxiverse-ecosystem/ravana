@@ -152,6 +152,16 @@ def _gerund_of(verb: str) -> str:
         return _v
     if _v in _IRREGULAR_GERUND:
         return _IRREGULAR_GERUND[_v]
+    # A stem already ending in -ing (e.g. "restoring", "building") is ALREADY a
+    # gerund; re-appending -ing would produce a broken double-gerund
+    # ("restoringing"). This is the root cause of the "you started restoringing
+    # radios" defect (round 2026-08-15T0830Z): the date-recall realizer called
+    # _gerund_of on a bare stem that was itself already a gerund. Pass it through
+    # unchanged. (The leading-verb "building frames" case is handled separately
+    # in _verb_phrase_to_gerund, but every other caller feeds a bare stem here,
+    # so the guard belongs at the lowest level too.)
+    if _v.endswith("ing") and len(_v) >= 5:
+        return _v
     if len(_v) >= 3 and _v[-1] in "bcdfgklmnprstvz" and _v[-2] in "aeiou" \
             and _v[-3] in "bcdfgklmnprstvz" and _v[-1] != _v[-2] \
             and _v[-2] != _v[-3]:
@@ -3063,68 +3073,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _eattr == "is":
                         return f"your {_ent} is {_v}."
                     return f"your {_ent}'s {_eattr} is {_v}."
-        # ── (1c-i) Entity-keyed LOCATION recall (round 2026-08-10T0813Z) ──
-        # Limitation #1 from the round report: a named possession's whereabouts
-        # is now stored as an ENTITY-KEYED location fact (fix D, commit
-        # ac4e2c7 — subject = the entity, e.g. "slow coal", not "i"), but
-        # "where's the slow coal moored?" still fell through to the episodic
-        # echo because the recall router only resolved location for the USER
-        # ("where do i live") or a possessive "my X" (_ENT_ATTR block above) —
-        # never a determiner-led / bare named entity. Surface the structured
-        # fact here. General: ANY entity with a stored location fact answers;
-        # no per-place / per-entity table, no authored reply pools. Fail-closed:
-        # when no stored entity location matches, return None so the honest
-        # web / uncertainty path handles genuinely unknown places ("where is
-        # paris"). Reads the LIVE PersonalFactStore, which the user can correct
-        # (contradict) at runtime — so the capability is learnable, not frozen.
-        _ent_loc_a = re.search(
-            r"\bwhere(?:'s|'re|s)?\s+"
-            r"(?:is|are|was|were\s+)?"
-            r"(?:the|my|our|their|his|her|a|an|this|that|these|those)?\s*"
-            r"([a-z][a-z'\- ]{1,40}?)\s*"
-            r"(?:moored|berthed|anchored|docked|based|parked|stationed|"
-            r"kept|stored|housed|tied\s+up|wintered|located|situated)?\s*"
-            r"(?:at|in|on)?\s*\??\s*$", q)
-        _ent_loc_b = re.search(
-            r"\bwhat\s+is\s+(?:the|my|our|their|a|an|this|that)?\s*"
-            r"([a-z][a-z'\- ]{1,40}?)'s\s+location\s*\??\s*$", q)
-        _ent_loc_phrase = None
-        if _ent_loc_a:
-            _ent_loc_phrase = _ent_loc_a.group(1).strip()
-        elif _ent_loc_b:
-            _ent_loc_phrase = _ent_loc_b.group(1).strip()
-        if _ent_loc_phrase and pf is not None:
-            # Collect entity-keyed (subject != "i") location facts. Exclude the
-            # USER's own location so "where do i live" (handled above) is never
-            # double-answered here, and so a city name with no stored fact
-            # cannot be mistaken for an entity whereabouts.
-            _ent_loc_facts = [
-                (k[0], f.value) for (k, f) in pf.facts.items()
-                if isinstance(k, tuple) and len(k) == 3
-                and k[1] == "location" and k[0] != "i"
-                and not getattr(f, "superseded", False)]
-            if _ent_loc_facts:
-                _elw = _ent_loc_phrase.split()
-                _best = None
-                # Suffix-window match: the entity phrase (or any trailing part
-                # of it) contains the stored subject as a whole word. Lets a
-                # user say "where's the slow coal narrowboat moored" and still
-                # resolve to the stored subject "slow coal". Longest stored
-                # subject wins so "coal" doesn't beat "slow coal".
-                for _i in range(len(_elw)):
-                    _c = " ".join(_elw[_i:])
-                    for _subj, _place in _ent_loc_facts:
-                        if re.search(r"\b" + re.escape(_subj) + r"\b", _c):
-                            if _best is None or len(_subj) > len(_best[0]):
-                                _best = (_subj, _place)
-                            break
-                if _best is not None:
-                    _subj, _place = _best
-                    _ans = f"the {_subj} is at {_place}."
-                    # B4 confirmation wiring: a follow-up "yes / that's right"
-                    # confirms this fact (closes the learning loop).
-                    self._last_pf_recall = (_subj, "location", _place)
-                    return _ans
+        # Possession-attribute (material) recall (Bug 4, round 2026-08-15T0830Z):
+        # "what's my cabin made of" / "what material is my sword" / "what's my
+        # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
+        # mine_personal_facts. The existing possessive branch (above) only
+        # matched a fixed attribute whitelist (name/age/breed/...), so a material
+        # fact fell through to the episodic echo. Resolve the entity noun and
+        # render from the live store via possession_attrs (single source of
+        # truth); honest None fallback when nothing matches (never fabricate).
+        _MATQ = re.search(
+            r"\b(?:what'?s|what\s+is|what\s+material\s+is|what\s+is\s+the\s+material\s+of)\s+"
+            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
+            r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
+        if _MATQ and pf is not None:
+            _ent = _MATQ.group(1).lower().strip()
+            _cand = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] == _ent and not getattr(_f, "superseded", False):
+                    _attr = _k[1]
+                    # 'madeof' is the primary material fact; a feature noun
+                    # (roof/wall/.., per possession_attrs._FEATURE_NOUNS) is more
+                    # specific when the query names that part.
+                    if _attr == "madeof":
+                        _cand = _f
+                    elif _cand is None:
+                        from . import possession_attrs as _pa
+                        if _pa.is_feature_noun(_attr):
+                            _cand = _f
+            if _cand is not None:
+                _attr, _v = _cand.attribute, _cand.value
+                if _attr == "madeof":
+                    return f"your {_ent} is made of {_v}."
+                return f"your {_ent}'s {_attr} is {_v}."
         # Count / quantity recall: "how many X do i have / keep / raise" ->
         # scan 'does' facts whose value contains a leading cardinal number
         # and the cue noun; or a dedicated count attribute. Honest fallback

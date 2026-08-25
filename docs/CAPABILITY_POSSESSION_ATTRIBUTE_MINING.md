@@ -53,14 +53,11 @@ a fixed attribute whitelist (`name`/`age`/`breed`/…); the new branch reads the
 The material, feature-noun, and kind-noun sets are **seed data** — closed-core
 lists of noun types, plus a runtime-grown extension via `learn_material()` so a
 word RAVANA has never heard (`hempcrete`, `rammed earth`) becomes addressable for
-later recall with **no code change**. An unambiguous material disclosure frame
-("made of", "forged from") signals the intent clearly enough that RAVANA will
-learn an unseen token while preserving the fail-closed assignment rule (no
-recognized material and no explicit frame means no fact stored). They are never
-rendered to the user; recall rendering lives in `engine_memory._reconstruct_entity`
-via `possession_attrs.render`. This is structurally identical to the
-seed-vs-hardcode rule for `pet_slots`: a brain is born understanding *kinds of
-materials*, not *answers*.
+later recall with **no code change**. They are never rendered to the user; recall
+rendering lives in `engine_memory._reconstruct_entity` via
+`possession_attrs.render`. This is structurally identical to the seed-vs-hardcode
+rule for `pet_slots`: a brain is born understanding *kinds of materials*, not
+*answers*.
 
 - `is_material(word)` (`possession_attrs.py:171`) — seed + learned lookup.
 - `is_feature_noun(word)` (`possession_attrs.py:181`) — roof/wall/frame/….
@@ -112,13 +109,10 @@ for _m in re.finditer(
 
 A regex resolves the entity and reads its `madeof` / feature fact from the live
 `PersonalFactStore` via `possession_attrs`. The supported query shapes are
-**"what's my {entity} made of"**, **"what's my {entity} {feature} made of"**
-(where the optional feature can appear between the entity and "made of"), and
-**"what is the material of my {entity}"** (alternative completed form). The
-parser extracts both the entity and optional feature, and the extraction logic
-uses them to prefer an exact feature match when the query names a specific part.
-The honest None fallback fires when nothing matches (it then falls through to the
-generic "you told me earlier…" recall).
+**"what's my {entity} made of"**, **"what's my {entity} {feature} made of"**, and
+**"what is the material of my {entity}"** — i.e. the material keyword must follow
+the entity. The honest None fallback fires when nothing matches (it then falls
+through to the generic "you told me earlier…" recall).
 
 ```python
 # engine.py:2599-2632 (condensed)

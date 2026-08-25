@@ -8,22 +8,6 @@ from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss
-from .constants import STOP_WORDS
-
-# Filler / temporal / discourse tokens that must NEVER count as a topic overlap
-# when resolving a held stance from an utterance. constants.STOP_WORDS omits
-# temporal adverbs ("now", "still", "today") and a few discourse markers that
-# otherwise cause cross-topic misbinding: a held stance keyed "thunderstorms
-# now" would otherwise match ANY later utterance containing "now" (the
-# 2026-08-21T0843Z misattribution where a grass contradiction acked "you've
-# changed your mind about thunderstorms"). These are function words, not topic
-# content; dropping them from the overlap score leaves only real content tokens.
-_FILLER_TOKENS = frozenset({
-    "now", "still", "today", "tonight", "yesterday", "tomorrow", "already",
-    "yet", "again", "lately", "recently", "currently", "actually", "really",
-    "just", "though", "anyway", "anymore", "here", "there", "then", "soon",
-    "usually", "sometimes", "often", "always", "never", "ever",
-})
 
 # ── Dedicated user-model store ───────────────────────────────────────────────
 # The per-user model used to be pickled *inside* the engine weight snapshot,
@@ -2882,6 +2866,76 @@ class UserModel:
                 _obj = _activity_object(_av, _vidx)
                 _act_full = f"{_act} {_obj}".strip() if _obj else _act
                 _put_fact("since", f"{_act_full} {_since}", 0.6)
+
+        # Possession-attribute mining (Bug 4, round 2026-08-15T0830Z): a
+        # disclosure that names a possession and says what it is made of /
+        # what material it is ("the cabin is a hand-hewn pine lodge with a sod
+        # roof", "my sword is forged from meteorite iron", "our roof is slate")
+        # states a PROPERTY of an owned/described entity. The fact miner above
+        # only captured explicit "my X is Y" self-facts + pet names, so these
+        # material/attribute facts were never stored as a recallable, correctable
+        # fact — and "what's my cabin made of" could not be answered from the
+        # structured store (it fell through to a whole-sentence echo). Store them
+        # under the ENTITY (cabin / sword / roof), not the user's own "i"
+        # subject, exactly like pet_slots does for animals. From there the store
+        # LEARNS: a later "no, my cabin is oak-framed" contradicts via the
+        # existing contradict() path; confirm/contradict work unchanged.
+        #
+        # Seed vocabulary, not an answer table (mirrors pet_slots): a closed
+        # core of material + kind nouns plus a runtime-grown extension
+        # (_poss.learn_material) so a word RAVANA has never heard ("hempcrete")
+        # becomes addressable for later recall with NO code change. Removing an
+        # entry degrades gracefully (the material is simply not mined until
+        # re-learned). Nothing here is ever rendered to the user — recall
+        # rendering lives in engine_memory._reconstruct_entity via _poss.render.
+        for _m in re.finditer(
+                # entity = a leading noun (optionally "my/the/a" + adjectives);
+                # "is" with an optional "a/an"; then the descriptor phrase
+                # (allows hyphenated words like "hand-hewn"; a material such as
+                # "pine"/"sod" appears somewhere in the phrase). A trailing kind
+                # noun (lodge/house/...) marks a possession description; without
+                # a recognised material we only mine when one is present, so
+                # "the river is a fast mountain stream" is correctly ignored.
+                r"\b(?:my|the|a|an|our|your)\s+([a-z][a-z'-]+)\s+"   # entity
+                r"(?:is|are|was|were)\s+(?:(?:a|an|the)\s+)?\s*"      # copula (+opt article)
+                r"([a-z][a-z'-]*(?:\s+[a-z][a-z'-]+){0,6})",        # descriptor
+                q_clean, re.IGNORECASE):
+            _ent = _m.group(1).lower().strip("'")
+            _desc = _m.group(2).lower().strip()
+            if _ent in _VALUE_STOP or len(_ent) < 3:
+                continue
+            # Split the descriptor into whitespace-delimited tokens (each may be
+            # hyphenated, e.g. "hand-hewn"); scan for a known material noun.
+            _dtoks = re.findall(r"[a-z][a-z'-]+", _desc)
+            _mat = None
+            _feat = None
+            for _i, _w in enumerate(_dtoks):
+                if _poss.is_material(_w):
+                    _mat = _w
+                    # a feature noun after the material scopes the fact
+                    # ("sod roof" -> cabin.roof = sod, not cabin.madeof = sod)
+                    _nx = _dtoks[_i + 1] if _i + 1 < len(_dtoks) else None
+                    if _nx and _poss.is_feature_noun(_nx):
+                        _feat = _nx
+                    break
+            # also accept a "made of/from" / "built of/from" explicit frame
+            _explicit = re.search(
+                r"\b(?:made|built|forged|carved|woven|cast|moulded|molded|"
+                r"constructed|fashioned)\s+(?:of|from|out of)\s+([a-z][a-z'-]+)",
+                " " + _desc + " ", re.IGNORECASE)
+            if _explicit and _poss.is_material(_explicit.group(1)):
+                _mat = _explicit.group(1)
+            if _mat is not None:
+                _mat = _mat if _poss.is_material(_mat) else _poss.learn_material(_mat)
+                if _feat:
+                    _put_fact_ent(_ent, _feat, _mat, 0.6)
+                else:
+                    _put_fact_ent(_ent, "madeof", _mat, 0.6)
+            # a possession-kind clause with no recognised material yet: skip
+            # storing an empty value (a later correction / online learning can
+            # attach a material).
+            elif any(_poss.is_kind_noun(w) for w in _dtoks):
+                continue
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are

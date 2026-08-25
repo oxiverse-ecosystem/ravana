@@ -87,6 +87,17 @@ on this codebase:
   cabinets"* → *"you started building cabinets in 2021."* Previously both returned
   the same (wrong) year because only the verb head was stored. No LLM, no
   per-topic reply table. See `docs/CAPABILITY_OBJECT_DISAMBIGUATED_DATE_RECALL.md`.
+- **Mines possession-attribute disclosures into structured, correctable facts.**
+  Told *"the cabin is a hand-hewn pine lodge with a sod roof"* it stores the
+  material under the **entity** (`cabin.madeof = pine`), not a whole-sentence
+  echo of you — so a later *"what's my cabin made of"* returns the clean
+  structured answer *"your cabin is made of pine."* A feature noun after the
+  material scopes the fact (*"my desk is oak frame"* → `desk.frame = oak`,
+  recalled as *"your desk's frame is oak."*). A possession with no recognised
+  material (*"the river is a fast mountain stream"*) is correctly **not** mined
+  (fail-closed, no echo). The material/kind vocabulary is seed data that grows
+  at runtime (`learn_material`) — no code change, no retraining, no LLM. See
+  `docs/CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
