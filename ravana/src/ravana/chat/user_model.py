@@ -2771,6 +2771,171 @@ class UserModel:
                             _i += 1
                         _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
                     continue
+                # GENERAL 'species named/called Name' CATCH-ALL (round
+                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
+                # Expand multi-name spans ("collie named Biscuit and Rex") so each
+                # name gets its own species-keyed slot. Routes through the SAME
+                # pet_slots path the conjoined/appositive branches use, so miner +
+                # recall agree on the key. Seed + runtime-learned species; no
+                # per-animal table, no authored reply, no retraining.
+                if _pat is _PET_NAMED_CATCHALL_PAT:
+                    _sp = (_m.group(1) or "").strip().lower()
+                    _names = re.split(r"\s+(?:and|,|&)\s*",
+                                      (_m.group(2) or "").strip())
+                    if not _sp:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: a possession
+                    # disclosure like "i keep a sourdough starter i named doris"
+                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
+                    # function-word species candidates so no bogus species slot
+                    # is learned and leaked on unknown-entity recall. The legit
+                    # "species named Name" case still resolves through the seed
+                    # vocabulary, so this does not narrow the capture.
+                    if _sp in _pet_slots._PRONOUN_STOP:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    _species_is_seed = _species is not None
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    elif _species is None:
+                        _species = _sp
+                    if _species is not None:
+                        # PRESERVE THE SURFACE SPECIES PHRASE (round
+                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
+                        # is greedy: a disclosure like "i keep a pet parrot named
+                        # Mango" has TWO species words before "named" ("pet" then
+                        # "parrot"). The REGEX only captures the word IMMEDIATELY
+                        # before "named" — "parrot" — and species_of('parrot')
+                        # collapses it to its seed CANON 'bird', storing the bare
+                        # ('i','bird',<name>) fact. But the possession pattern
+                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
+                        # \s+(?:named|called)\s+<name>") captures the FULL surface
+                        # "pet parrot" and stores the entity-keyed
+                        # ('pet parrot','name',<name>) fact. The two miners then
+                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
+                        # pet/relationship recaller (engine.py 1d branch) only
+                        # scans subject-'i' facts — so it surfaces the bare canon
+                        # "your bird is mango." instead of the user's own words
+                        # "your pet parrot is mango." Fix: when the captured token
+                        # is a SEED canon (parrot->bird) AND the same surface
+                        # species phrase was ALSO stored by the possession pattern
+                        # (i.e. the prior-token word is 'pet' / a known species and
+                        # it forms a compound "<prior> <captured>"), keep the FULL
+                        # surface compound as the slot key instead of collapsing to
+                        # the canon. This makes the catch-all and the possession
+                        # pattern AGREE on the key by construction, so the recaller
+                        # renders the surface phrase the user actually said. The
+                        # compound is still resolved through pet_slots (every
+                        # component is a seed/learned species), so no per-animal
+                        # table, no authored reply. A lone non-compound capture
+                        # (e.g. "i got a border collie named Biscuit" -> species
+                        # 'dog' but no 'pet' prefix) still collapses to the canon
+                        # exactly as before, so legit pet capture is unchanged.
+                        _surface = _sp
+                        # Look at the ORIGINAL text before the match to find the
+                        # word immediately preceding the captured species token
+                        # (group(0) only spans "<species> named <name>", so its
+                        # own prefix is empty). A disclosure like
+                        # "i keep a pet parrot named Mango" leaves "pet" right
+                        # before "parrot"; capture it so the compound surface key
+                        # can be reconstructed.
+                        _pre = q_clean[: _m.start()].rstrip()
+                        _prior = _pre.split()[-1].lower() if _pre else ""
+                        # When the captured token collapses to a SEED canon AND
+                        # the word immediately before it ("pet"/a known species)
+                        # forms a compound surface phrase, prefer keeping the FULL
+                        # surface compound as the slot key. The possession pattern
+                        # stores the entity-keyed ('<compound>','name',<name>)
+                        # fact; aligning the catch-all to the same surface key
+                        # makes miner + recaller agree by construction instead of
+                        # emitting the bare canon ('bird') that the recaller
+                        # renders as "your bird". Single-token captures (no
+                        # qualifying prior word) keep collapsing to the canon, so
+                        # legit pet capture is unchanged.
+                        if (_species_is_seed
+                                and _prior in ("pet",)
+                                and _pet_slots.species_of(_prior) is not None):
+                            _surface = f"{_prior} {_sp}"
+                        for _nm in _names:
+                            _nm = _nm.strip().strip(".,!?")
+                            if not _nm:
+                                continue
+                            _i = 1
+                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
+                                _i += 1
+                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
+                    continue
+                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
+                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
+                # The name capture group (group 2) is a proper noun. The
+                # isupper() guard rejects common-noun objects ("my pet rock
+                # collection"), but casual chat also writes names lowercase
+                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
+                # lowercase name too, but ONLY when the species is a SEED animal
+                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
+                # collection" is still rejected (rock is not a seed species, so
+                # learn_species never fires on the lowercase path). Resolve the
+                # species through the SAME pet_slots path the "named"/"called"
+                # branch uses (species_of / learn_species / slot_for), then store
+                # the name in the species-keyed slot — so the miner and the
+                # recaller (reverse-name resolver + cued recall) agree on the
+                # key by construction. Generic across every species; no
+                # per-animal table; species grown at runtime. No authored reply;
+                # no retraining.
+                if _pat is _APPOSITIVE_PET_PAT:
+                    _raw_nm = (_m.group(2) or _m.group(4) or "")
+                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
+                    _nm = _raw_nm.strip().strip(".,!?")
+                    if not _sp or not _nm:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
+                    # function-word species candidates so no bogus slot is
+                    # learned (defense-in-depth; also handled at the chokepoint).
+                    if _sp in _pet_slots._PRONOUN_STOP:
+                        continue
+                    # GENERALIZE: a name is accepted if it is Capitalized OR
+                    # (lowercase AND the species is a seed animal). This keeps the
+                    # common-noun guard (rejects "my pet rock collection") while
+                    # allowing casual lowercase names ("my cat mochi").
+                    _name_ok = _nm[:1].isupper()
+                    if not _name_ok:
+                        try:
+                            from .pet_slots import _SPECIES_SEED as _PS_SEED
+                        except Exception:
+                            _PS_SEED = {}
+                        if _sp in _PS_SEED:
+                            # lowercase-name path (e.g. "my cat mochi"): only
+                            # valid when the captured name is sentence-final or
+                            # followed by a copula/punctuation — NOT a verb-led
+                            # clause tail. The pattern above runs IGNORECASE, so
+                            # the name group can grab the next verb ("my dog
+                            # likes the park" -> name "likes"); reject when a
+                            # non-copula word follows so we don't store a verb as
+                            # a pet. Proper-noun (isupper) names are exempt — they
+                            # may legitimately lead a clause ("my dog Rex barks").
+                            _tail = q_clean[_m.end():].lstrip()
+                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
+                            _COPULA = {"is", "was", "were", "are", "named",
+                                       "called", "means", "s"}
+                            if not _tail or not _nxt or _nxt in _COPULA:
+                                _name_ok = True
+                    if not _name_ok:
+                        continue
+                    try:
+                        from .relation_attrs import relation_of as _app_rel_of
+                    except Exception:
+                        _app_rel_of = lambda w: None
+                    if _app_rel_of(_sp) is not None:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    if _species is not None:
+                        _i = 1
+                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                            _i += 1
+                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                    continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
                     # Trim any FOLLOWING sentence so a value like "the blue
@@ -4160,6 +4325,19 @@ class UserModel:
                                             valence=_v, arousal=_a,
                                             provenance=_prov)
 
+        # Affect-verb attitude construction mining (feature round
+        # 2026-08-21T1653Z residual #1): "X creeps me out" / "X grosses me out"
+        # / "X freaks me out" / "X gets to me" were NOT mined as stances even
+        # though the affect verb already lives in the shared VAD lexicon, so a
+        # later reversal ("i changed my mind about X") had nothing to act on.
+        # This is a GRAMMATICAL pattern (<subject> <affect-verb> <me>), not a
+        # per-topic list; polarity is derived from the shared VAD affect lexicon
+        # (the same matrix the empathy gate grows online), so a verb RAVANA has
+        # not seen yet simply scores 0.0 and is skipped — fail-closed, no
+        # confabulation. Each observed verb is registered into the VAD matrix so
+        # coverage GROWS by experience (see _mine_affect_verb_stance).
+        self._mine_affect_verb_stance(text)
+
         # Stance-reversal mining: "i take back X" / "i changed my mind about X" /
         # "i retract my stance on X" recodes the user's valuation of the topic to
         # the opposite pole (vmPFC re-evaluation), LINKED to the PRIOR stance the
@@ -4578,7 +4756,19 @@ class UserModel:
             # (honest — we never guess a reversal from neutral wording).
             _new_pol = _assess_reversal_polarity(text)
             if _new_pol is not None:
-                _target = self.opinions.resolve_topic(text)
+                # Resolve against the LIVE stance store, but the free-form
+                # recode only ever acts on a stance the user ALREADY HELD in a
+                # PRIOR turn. The opinion miner in the SAME turn may have just
+                # created a fresh stance from a co-mentioned concept (e.g.
+                # "the cold gets to me now" -> a new "cold" stance), and
+                # `resolve_topic` can bind to that fresh stance via substring
+                # precedence, leaving the genuinely-held stance (bridged through
+                # provenance, e.g. "silence" co-mentioned with "winter") never
+                # reached. Restrict resolution to PRIOR-turn stances so the
+                # recode targets the held valuation, never a coincidental
+                # same-turn co-mention. (Honest: a topic with no PRIOR stance is
+                # left alone — we never walk back a brand-new attitude.)
+                _target = self.opinions._resolve_prior_stance(text)
                 if _target is not None:
                     _held = self.opinions.stances.get(_target)
                     # Guard: only RECODE a stance the user ALREADY HELD in a PRIOR
@@ -4595,6 +4785,7 @@ class UserModel:
                             # leave it — no double-write.
                             and (_new_pol * _held.polarity) < 0.0):
                         try:
+                            self.opinions._soft_reversal = True
                             self.opinions.recode_stance_toward(
                                 _target, new_polarity=_new_pol,
                                 blend=0.7, utterance=text)
