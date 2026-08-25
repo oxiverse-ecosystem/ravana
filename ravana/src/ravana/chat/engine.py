@@ -3462,7 +3462,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fabricate). Reuses the shared pet lexicon (pet_slots.species_of) and
         # the data-driven _activity_query_overlap scorer so matching is by
         # topical overlap, not a frozen verb allowlist.
-        if pf is not None:
+        # GATE on a genuine INTERROGATIVE frame (round 2026-08-22T0703Z CI
+        # fix): this resolver is a RECALL path, but nothing below previously
+        # checked whether the input was a QUESTION at all. A declarative pet
+        # disclosure ("my cat is pixel") named the species and the name, so
+        # the scorer below matched it and echoed the statement back as if it
+        # had been asked ("your cat is pixel.") instead of leaving it to
+        # fact-mining. Same structural fix as branch (b) above: require a
+        # trailing "?" or a sentence-initial interrogative/recall word.
+        _pet_is_q = bool(
+            re.search(r"\?$", q.strip())
+            or re.match(
+                r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                r"do|does|did|has|have|had|can|could|would|will|tell|"
+                r"said|say|recall|remember|know|mention)\b", q.strip()))
+        if pf is not None and _pet_is_q:
             try:
                 from .pet_slots import species_of as _ps_of
             except Exception:
