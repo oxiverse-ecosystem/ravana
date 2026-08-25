@@ -2075,17 +2075,20 @@ class MemoryMixin:
             # its "i"-profile alias) returns an unrelated stored fact — the
             # documented confabulation ("remember my cat's name" -> "your
             # favorite book is dune"). If the query names a specific (non-self,
-            # non-attribute) entity that the user never disclosed, do NOT treat
-            # it as a generic self-recall cue; fall through to the honest
-            # generic self-profile summary (which fail-closes for an unknown cat)
-            # rather than entering the confabulating matcher. This preserves the
-            # honest "you haven't told me about your cat" behavior.
+            # non-attribute) entity that the user never disclosed, return an
+            # entity-specific honest miss rather than continuing to the generic
+            # self-profile summary. This preserves the honest "you haven't told
+            # me about your cat" behavior and terminates this route cleanly.
             _named = self._specific_recall_entity((user_input or "").lower())
             if _named is not None:
                 _named_sp = _pet_slots.species_of(_named)
                 _named_key = _named_sp if _named_sp is not None else _named
                 if _named_key not in _idx:
-                    _cue = False
+                    # Absent key: return entity-specific honest miss instead of
+                    # falling through to generic self-profile.
+                    return (f"you haven't told me about your {_named}, so i can't "
+                            f"say. if you'd like to share, just tell me and i'll "
+                            f"remember it.")
             if _cue:
                 _ep = self._retrieve_episodic(user_input)
                 if _ep is not None:

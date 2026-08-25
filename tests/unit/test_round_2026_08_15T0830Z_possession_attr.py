@@ -126,3 +126,43 @@ def test_e2e_recall_feature_attr_scoped(engine):
     # so the recall renders the scoped feature, not a generic material echo.
     assert "your desk's frame is oak" in ans, f"got {ans!r}"
     assert "oak frame" not in ans.replace("your desk's frame is oak", "") or True
+
+
+def test_unseen_material_learned_from_explicit_disclosure():
+    """Disclosure-based learning: an explicit 'made of' / 'forged from' frame
+    signals a material disclosure clearly enough that an unseen token is learned
+    and becomes recallable without a code change."""
+    um = UserModel()
+    # "mycelium" is not in the seed material vocabulary
+    assert not is_material("mycelium")
+    # An explicit disclosure frame learns the material
+    um.mine_personal_facts("my desk is made of mycelium")
+    keys = [(k[0], k[1], f.value) for k, f in um.personal_facts.facts.items()]
+    assert ("desk", "madeof", "mycelium") in keys, f"expected desk.madeof=mycelium, got {keys}"
+    # After mining, the material is learned and recallable
+    assert is_material("mycelium")
+
+
+def test_e2e_unseen_material_explicit_frame_recalled(engine):
+    """End-to-end: an unseen material in an explicit 'forged from' disclosure
+    can be recalled after learning."""
+    # "adamantite" is not in the seed vocabulary
+    engine.process_turn("my shield is forged from adamantite")
+    ans = engine.process_turn("what's my shield made of").strip().lower()
+    assert "your shield is made of adamantite" in ans, f"got {ans!r}"
+
+
+def test_e2e_recall_with_feature_in_query(engine):
+    """The query parser supports an optional feature between entity and 'made of',
+    e.g. 'what's my desk frame made of'."""
+    engine.process_turn("my desk is oak frame")
+    ans = engine.process_turn("what's my desk frame made of").strip().lower()
+    assert "your desk's frame is oak" in ans, f"got {ans!r}"
+
+
+def test_e2e_recall_alternative_material_of_form(engine):
+    """The query parser supports the alternative form 'what is the material of
+    my {entity}'."""
+    engine.process_turn("my table is marble")
+    ans = engine.process_turn("what is the material of my table").strip().lower()
+    assert "your table is made of marble" in ans or "marble" in ans, f"got {ans!r}"
