@@ -345,6 +345,61 @@ _AFFECT_STATE_LEXICON = {
     "sticking", "getting", "shaking", "crying", "dying", "lying", "trying",
     "running", "falling", "breaking", "caring", "waiting", "working",
     "learning", "growing", "changing", "feeling",
+    # Round 2026-08-13T2059Z: broaden to catch transient-state name
+    # poisoning from emotional / participle words the prior set missed
+    # (gutted / devastated / elated / shattered / drained / defeated /
+    # wrecked / crushed / broken / frozen / shaken / heartbroken /
+    # desolate / miserable / forlorn / wretched / bereft / gloomy / glum /
+    # morose / melancholy / mournful / dismal / bitter / gleeful / rueful /
+    # sorrowful / fretful / homesick / vexed / wistful / suspicious / wary /
+    # jubilant / content / serene / tranquil / smug / sheepish / blithe /
+    # coy / bashful / shy / sulky / querulous / uptight / vitriolic / void /
+    # dubious / sullen / edgy / queasy / ticked / bereaved / anguished /
+    # distraught / disheartened / dismayed). SEED vocabulary (RAVANA-
+    # expandable), not an authored answer path — removing entries degrades
+    # gracefully (one fewer guard), it is not content RAVANA can never change.
+    "gutted", "devastated", "elated", "crushed", "heartbroken", "thrilled",
+    "ecstatic", "miserable", "shattered", "wrecked", "defeated", "drained",
+    "bitter", "gleeful", "rueful", "overjoyed", "despondent", "desolate",
+    "forlorn", "wretched", "anguished", "bereft", "broken", "bereaved",
+    "inconsolable", "dejected", "sorrowful", "gloomy", "glum", "morose",
+    "melancholy", "mournful", "dismal", "crestfallen", "distraught",
+    "dismayed", "disheartened", "fretful", "homesick", "horrified",
+    "humiliated", "mortified", "terrified", "unnerved", "vexed", "wistful",
+    "yearning", "aggrieved", "appalled", "bewildered", "chagrined",
+    "daunted", "deflated", "delirious", "exasperated", "flabbergasted",
+    "incensed", "indignant", "infuriated", "outraged", "peeved", "perturbed",
+    "rattled", "resentful", "spooked", "startled", "stung", "sulky",
+    "suspicious", "wary", "jubilant", "gratified", "invigorated", "content",
+    "serene", "tranquil", "smug", "sheepish", "blithe", "coy", "bashful",
+    "shy", "sullen", "querulous", "uptight", "vitriolic", "void", "dubious",
+    "edgy", "queasy", "ticked", "frozen", "shaken",
+}
+
+# Round 2026-08-13T2059Z: stance-connector / function / common-adverb words
+# that may follow a bare "i'm" copula in an opinion or emotion frame, but are
+# NEVER proper-noun names. "i'm against plastics" / "i'm over the moon" /
+# "i'm still buzzing" must not store name=against / name=over / name=still.
+# SEED vocabulary (RAVANA-expandable via the shared lexicon), not a per-name
+# table; removing entries degrades gracefully. Combined with the verb-form
+# check (gerunds in 'ing', past/past-participle in 'ed') below, this rejects
+# transient states regardless of which token they occupy.
+_NAME_REJECT_FUNCTION = {
+    "against", "for", "with", "without", "over", "under", "about", "around",
+    "despite", "regardless", "beyond", "beneath", "beside", "except",
+    "plus", "minus", "near", "far", "via", "per", "yes", "no", "maybe",
+    "always", "never", "sometimes", "often", "usually", "already", "still",
+    "just", "really", "very", "quite", "too", "also", "even", "almost",
+    "nearly", "not", "actually", "basically", "probably", "definitely",
+    "surely", "clearly", "simply", "merely", "mostly", "partly", "fully",
+    "completely", "totally", "absolutely", "exactly", "particularly",
+    "especially", "generally", "naturally", "obviously", "truly", "honestly",
+    "frankly", "seriously", "admittedly", "ideally", "hopefully",
+    "personally", "ultimately", "virtually", "wrongly", "correctly",
+    "rightly", "rather", "instead", "though", "however", "whereas",
+    "although", "because", "since", "unless", "until", "whether", "either",
+    "neither", "both", "each", "every", "any", "some", "such", "same",
+    "other", "another", "own",
 }
 
 # Consolidated, RUNTIME-EXTENSIBLE reject set for the bare-copula name guard
@@ -1693,6 +1748,33 @@ class UserModel:
             r"(?:\s+(?:called|named|spelled))\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3})",
             q_clean, re.IGNORECASE)
+        # Round 2026-08-13T2059Z: capture location from "based in X" /
+        # "located in X" and from natural-feature location phrases
+        # ("on the isle of skye", "on the island of man", "in the valley of
+        # X"). The prior m_loc only matched live/lives/am/was/were/grew up
+        # + in/near/at/from, so "i'm a lighthouse keeper based in skye" and
+        # "i keep the lighthouse on the isle of skye" stored NO location and
+        # a later "where do i live" fell back to the NAME. Structural: extra
+        # trigger shapes, no per-toponym table; the same _put_fact("location")
+        # path is reused so recall stays consistent by construction.
+        _m_loc_based = re.search(
+            r"\b(?:i(?:'m| am)|he|she|they|we|you)\s+(?:[a-z]+['\-]?\s+){0,8}?"
+            r"(?:based|located|stationed|situated)\s+(?:in|on|at|near)\s+"
+            r"([A-Za-z][A-Za-z'\\-]*(?:\s+[A-Za-z][A-Za-z'\\-]*){0,2})",
+            q_clean, re.IGNORECASE)
+        _m_loc_feat = re.search(
+            r"\b(?:in|on|at|near|off)\s+the\s+(?:isle|island|coast|shore|"
+            r"headland|peninsula|cove|bay|fjord|valley|dale|glen|beach)\s+"
+            r"of\s+([A-Za-z][A-Za-z'\\-]*)",
+            q_clean, re.IGNORECASE)
+        _loc_cand = None
+        if _m_loc_based:
+            _loc_cand = _m_loc_based.group(1).strip().strip(" .,!")
+        elif _m_loc_feat:
+            _loc_cand = _m_loc_feat.group(1).strip().strip(" .,!")
+        if _loc_cand and len(_loc_cand.split()) <= 5 and _loc_cand.lower() not in _VALUE_STOP:
+            self.user_location = _loc_cand
+            _put_fact("location", _loc_cand, 0.6)
         if _named_loc:
             m_loc = type("_Loc", (), {"group": lambda self, n: _named_loc.group(1)})()
             # store the named toponym directly (reuse m_loc handling below)
@@ -3780,7 +3862,41 @@ class UserModel:
         #    can reconstruct "you dropped <x>" / "you lost <y>" grammatically
         #    (see engine_memory._reconstruct_entity + engine_reasoning
         #    ._derive_ack_from_store which now render the 'event' attr).
+        # Round 2026-08-13T2059Z: PRINCIPLED VERB PRUNE. The activity/event
+        # verb seeds below mix genuine activity/experience verbs with
+        # ACHIEVEMENT / COMMUNICATION verbs (got, said, made, gave, told,
+        # came, went, did, saw, met, sold, paid, sent, spent, bought, caught,
+        # brought, ate, drank, knew, wore, led, read, flew, swam, rode, drove,
+        # broke, spoke, woke, froze, chose, slept, felt, held, found, lost,
+        # kept, took, set, put, cut, hit, fed, bled, built, taught, wrote,
+        # drew, sang, grew, threw). Those fire on OUTCOME / UTTERANCE
+        # disclosures whose object is a bare noun naming a result
+        # ("i got the artist residency" -> does=got artist residency;
+        # "i said open-plan offices help" -> does=said open), and they echo
+        # verbatim in the self-summary as garbage. SEED set (RAVANA-
+        # expandable): these are communication/achievement verbs, not
+        # sustained activities or physical-world experiences; removing them
+        # degrades gracefully (one fewer outcome-class captured, which is
+        # correct — outcomes are not recurring activities). The genuine
+        # activity verbs (keep/grow/start/lost/found/build/throw/play/...)
+        # and experience verbs (drop/lose/find/break/heal/...) are kept,
+        # so the prior fact-mining tests (throw pots, grow air plants,
+        # repot juniper, lost favia coral, reef tank) stay GREEN.
+        _ACHIEVE_COMM_VERBS = frozenset({
+            "got", "get", "said", "say", "made", "make", "gave", "give",
+            "told", "tell", "came", "come", "went", "go", "did", "do",
+            "saw", "see", "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy", "caught",
+            "catch", "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "know", "wore", "wear", "led", "lead", "read", "fly",
+            "flew", "swam", "swim", "rode", "ride", "drove", "drive",
+            "broke", "break", "spoke", "speak", "woke", "wake", "froze",
+            "freeze", "chose", "choose", "slept", "sleep", "felt", "feel",
+            "held", "hold", "took", "take", "set", "put", "cut", "hit",
+            "fed", "feed", "bled", "bleed",
+        })
         # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
+
         # PersonalFactStore the user can correct — NOT per-topic answers, NOT
         # authored prose). Covers everyday disclosure verbs + common irregular
         # past forms so first-person activities/experiences actually land.

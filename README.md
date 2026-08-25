@@ -84,6 +84,14 @@ on this codebase:
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
   `from what you've told me, you live in berlin; your cat is rex; …`
+- **Learns what you *do*, not just who you are.** Told *"i tide-pool at low
+  water and catalogue the anemones and limpets"* or *"i astrophotograph the milky
+  way"* it captures the activity as a personal fact (`('i','does') ->
+  "tide-pool ..."`) — including **novel and hyphenated-compound verbs** it had
+  never seen, via an open-class (deny-list) capture rather than a frozen verb
+  whitelist. The same turn is recognised as a self-disclosure and acknowledged,
+  instead of leaking into a "i don't know that" knowledge query. See
+  `docs/OPEN_CLASS_VERB_CAPTURE.md`.
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
 - **Mines activity durations into dated facts.** Told *"i've been brewing beer
