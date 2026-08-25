@@ -379,6 +379,7 @@ See [`docs/`](docs/README.md):
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
 - [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
+- [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
 
 ## Benchmark results
 

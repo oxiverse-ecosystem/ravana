@@ -1281,8 +1281,8 @@ class ReasoningMixin:
         _decl = [f for f in facts if not _is_non_declarative(getattr(f, "object", ""))]
         if _decl:
             facts = _decl
-        # A lone surviving question-shaped fact is better left un-echoed.
-        if len(facts) == 1 and _is_non_declarative(getattr(facts[0], "object", "")):
+        else:
+            # All-non-declarative pool: return None regardless of count.
             return None
         # Attribute words = content words of the question, minus the subject and
         # generic interrogative/stop tokens. These identify WHICH stored fact the

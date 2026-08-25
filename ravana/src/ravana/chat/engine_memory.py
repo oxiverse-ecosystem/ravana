@@ -231,7 +231,8 @@ class MemoryMixin:
         }
         self._episodic_transcript.append(rec)
         if len(self._episodic_transcript) > 100:
-            self._episodic_transcript = self._episodic_transcript[-100:]
+            # Mutate in place to keep user_model reference synchronized
+            del self._episodic_transcript[:-100]
         # Mirror into the temporal indexer (hippocampal time cells).
         try:
             from .brain_regions import Episode, EpisodicIndex
@@ -779,16 +780,32 @@ class MemoryMixin:
         # before reaching the real cue "cat". A cued recall is specific by
         # construction — the generic self-profile is only correct when the
         # query names no entity at all.
+        # R6 fix (round 2026-08-11T0521Z): a possessive-entity query names a
+        # SPECIFIC owned thing ("my dog's name", "how many pigeons did i
+        # keep"). The old loop only checked _entity_idx (which holds the
+        # USER's own pet facts, subject "i") and otherwise fell through to the
+        # generic-self fallback on ANY "name"/LOC word — so "what is my dog's
+        # name" / "how many pigeons" returned "you told me your name is esa"
+        # (the user's own name), a pronoun short-circuit (the bare "my"/"name"
+        # matched before the specific entity was resolved). Fix: when the
+        # query names a specific entity/species noun, resolve it from the FULL
+        # personal-fact store across ALL subjects (honoring the self/other
+        # boundary — a pet re-attributed to a third party resolves to that
+        # owner), and do NOT use generic-self. Only use generic-self when no
+        # specific entity is named and the query is a bare user-bio question
+        # ("what is my name", "where do i live").
         _generic_self = False
+        _specific_entity = None
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
-            if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
+            if _tok in _entity_idx and _tok in ("i", "you", "my", "your"):
                 _ent_hit = _tok
                 break
-            # species map (e.g. "cats" -> "cat" entity)
+            # species map (e.g. "cats" -> "cat" entity) — a specific owned
+            # thing the user named; resolve it from the full store below.
             _sp = _pet_slots.species_of(_tok)
-            if _sp is not None and _sp in _entity_idx:
-                _ent_hit = _sp
+            if _sp is not None:
+                _specific_entity = _sp
                 break
             if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
                 # only treat as a cued recall when the query also
@@ -1855,8 +1872,9 @@ class MemoryMixin:
         ) or bool(re.search(
             r"\byou (?:said|mentioned|told me) something about what you "
             r"(?:are|were)\b", t)
-        ) or bool(re.search(
+        ) or (bool(re.search(
             r"\bremind me what you (?:said|told me) (?:about|you are)\b", t))
+              and not _user_ref)
         if _agent_self_recall:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
@@ -2270,8 +2288,22 @@ class MemoryMixin:
                         _val = str(getattr(_v, "value", _v) or "").lower()
                         _attr = (_k[1] if isinstance(_k, (tuple, list)) and len(_k) >= 3 else _k) or ""
                         # Match on a value token OR the cued attribute word.
+                        # R6 fix (round 2026-08-11T0521Z): the 'name' attribute
+                        # must NOT match a passing mention of the word "name"
+                        # (e.g. "did i name them" in a count/possession question)
+                        # — that collapsed "how many pigeons did i name" into
+                        # "your name is esa". Only match the name attr when the
+                        # query is a genuine name-target question; otherwise the
+                        # bare attribute-word match skips 'name'.
                         _val_tokens = {t for t in re.findall(r"[a-z']+", _val)}
-                        if _val_tokens & _q_tokens or _attr.lower() in _q_tokens:
+                        _attr_in_q = _attr.lower() in _q_tokens
+                        if _attr.lower() == "name":
+                            _name_target = bool(re.search(
+                                r"\b(what'?s|what\s+is)\s+my\s+name\b|\bmy\s+name\s*\?|"
+                                r"who\s+am\s+i\b|\btell\s+me\s+(?:about|who)\s+(?:myself|me)\b",
+                                (user_input or "").lower()))
+                            _attr_in_q = _name_target
+                        if _val_tokens & _q_tokens or _attr_in_q:
                             _matched.append((_attr, getattr(_v, "value", _v)))
                     if _matched:
                         _bits = []

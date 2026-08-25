@@ -401,6 +401,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
+from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -3909,8 +3910,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _m and re.search(r'\b' + re.escape(_cn) + r'\b', _v):
                         _best = _m.group(1)
                         break
-            if _best is not None:
-                return f"you have {_best} {_cn}."
+                _rec = _qm.query_count(_cn, kind=_kind)
+                if _rec is not None:
+                    return f"you have {render_count(_rec.count)} {_cn}."
+            if pf is not None and _cn:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if getattr(_f, "superseded", False):
+                        continue
+                    if _k[1] == "does":
+                        _v = _f.value.lower()
+                        _m = re.match(
+                            r"^(?:keep|have|keep on|have on|raise|own|"
+                            r"breed|run|grow|got|make|bake|lose|kept|had|"
+                            r"raised|bred|ran|grew|made|lost)\s+"
+                            r"((?:one|two|three|four|five|six|seven|eight|"
+                            r"nine|ten|eleven|twelve)|\d+)\b\s+", _v)
+                        if _m and _cn in _v:
+                            return f"you have {_m.group(1)} {_cn}."
         # Activity / possession recall ("what do i keep/have/do", "where do i
         # keep X"). Hoisted out of the _TOLD block so it runs for ANY such
         # query, not only ones containing "tell me about".
@@ -5720,6 +5738,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         try:
             self._episodic_transcript = []
+            # Synchronize user_model reference after rebind
+            if hasattr(self, "user_model"):
+                self.user_model._episodic_transcript = self._episodic_transcript
         except Exception:
             pass
         try:
@@ -7530,8 +7551,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # yields a stance + affect rather than a dictionary entry.
                 if m_agent_stance:
                     # "what do you think about cats" -> target after the cue.
+                    # R3 fix (round 2026-08-11T0521Z): take the LAST substantive
+                    # content word as the topic, not the first. A comparative
+                    # like "between the loft and the banjo, which do you think
+                    # is more me?" left "between" as the target under the old
+                    # split()[0] extraction, which produced the broken "i'm
+                    # drawn to." prefix. Skip closed-class / connector words
+                    # (between/and/which/more/me/you/is/do/think...) and take
+                    # the final real topic; if none remains, leave target empty
+                    # so _agent_stance_on returns its honest no-topic fallback.
                     _tail = clean_input[m_agent_stance.end():]
-                    target = _tail.strip(" ?!.").split()[0] if _tail.strip(" ?!.").split() else ""
+                    _tail_toks = [w for w in re.findall(r"[a-z']+", _tail)
+                                  if w not in ("about", "on", "the", "a",
+                                               "an", "of", "for", "with",
+                                               "to", "is", "are", "do",
+                                               "does", "you", "i", "it",
+                                               "that", "this", "and", "or",
+                                               "between", "which", "more",
+                                               "me", "what", "just", "said",
+                                               "right", "really", "exactly",
+                                               "think", "than")]
+                    target = _tail_toks[-1] if _tail_toks else ""
                 elif m_agent_likes_yesno:
                     _ym = re.search(
                         r"\bdo\s+you\s+(?:like|love|hate|enjoy|prefer|care\s+for)\s+([a-z][a-z\s'-]{1,30}?)[\?\.]?$",
@@ -7951,7 +7991,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception:
                 _has_strong_anchoring = False
 
-        if not _has_strong_anchoring and self._is_absurd_query(user_input, subject):
+        # R1 fix (round 2026-08-11T0521Z): a self-biography question that
+        # asks RAVANA to INTEGRATE what it learned about the USER into a
+        # stance/summary ("so after everything, am i a pigeon-keeper or a
+        # baker at heart?", "who am i to you?") must NOT be treated as an
+        # absurd/OOD premise. The absurd-query detector keys on low concept
+        # cosine ("pigeon-keeper" x "baker"), which is exactly the shape of a
+        # genuine self-labeling question, so it would fire here and produce
+        # "pigeon-keeper — that's a fun image!". Exempt the self-bio intent
+        # (same structural guard as the reaction gate above) so it falls
+        # through to the real self-model / user-profile synthesis. A plain odd
+        # premise with no self-bio cue still hits absurd_query below.
+        _low_sb = (user_input or "").lower().strip()
+        _sb_phrase = bool(re.search(
+            r"\b(am i|are i|who am i|what am i|do you (?:make|think) of me|"
+            r"at heart|who do you (?:think|say) i am|more me|more of a)\b",
+            _low_sb))
+        _sb_choice = bool(re.search(
+            r"\b(or|versus|vs\.?|rather than)\b", _low_sb)) and (
+            "i'm" in _low_sb or " i " in _low_sb or "me" in _low_sb
+            or "my " in _low_sb or "am i" in _low_sb)
+        _self_bio_intent = _sb_phrase or _sb_choice
+        if (not _has_strong_anchoring and self._is_absurd_query(user_input, subject)
+                and not _self_bio_intent):
             _absurd_resp = self._handle_absurd_query(user_input, subject)
             self._last_strategy = "absurd_query"
             self._last_responses.append(_absurd_resp)

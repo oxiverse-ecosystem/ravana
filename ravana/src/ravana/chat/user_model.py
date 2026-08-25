@@ -4,7 +4,8 @@ import pickle
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
-from .personal_fact_store import PersonalFactStore, UserStanceStore
+from .personal_fact_store import (
+    PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss
 from .constants import STOP_WORDS
@@ -988,6 +989,14 @@ class UserModel:
     # topic), kept SEPARATE from biographical facts. Opinions decay faster than
     # facts (malleable attitudes), per OFC/vmPFC vs hippocampal circuit split.
     opinions: UserStanceStore = field(default_factory=UserStanceStore)
+    # Structured quantity memory (round 2026-08-11T0521Z): count-bearing
+    # disclosures ("i keep twelve racing pigeons") are captured as
+    # (subject, kind, count, noun) so RAVANA can SYNTHESIZE a clean count answer
+    # and AGGREGATE across the store ("how many pets in total"). The 'does'/
+    # 'event' text facts still hold the gist sentence; this store holds the
+    # NUMBER, decoupling it from the gist. Seed + online; durable via
+    # get/set_state so it survives engine reload.
+    quantity_memory: QuantityMemory = field(default_factory=QuantityMemory)
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -1223,6 +1232,69 @@ class UserModel:
                             "i", _slot, v, confidence=0.6,
                             source="seed_regex")
                         break
+        # R8 fix (round 2026-08-11T0521Z): REVERSE-ORDER ownership claim /
+        # correction "<name>'s my <species>" (e.g. "salt's my dog actually")
+        # was NOT captured by the forward "<species> is mine" miner
+        # (_POSSESS_RE) nor the owner re-attribution miner (_OWNER_RE, which
+        # only moves an entity OFF the user). So "salt's my dog" — a user
+        # re-claiming a pet a neighbour had disclosed — was silently dropped,
+        # and recall still returned the neighbour's record. This block handles
+        # the subject-first form: extract name + species, and (a) if a prior
+        # active record for this species exists under a NON-user subject,
+        # re-attribute it to the USER (supersede the old owner's record, assert
+        # under "i" with the clean name); (b) otherwise assert / file the name
+        # on the user's species slot (same resolver the forward miner uses, so
+        # the key agrees by construction). Only KNOWN species match
+        # (species_of without learn_species) so a stray "<name>'s my <relation>"
+        # (e.g. "john's my friend") can never learn "friend" as a pet species.
+        _NAME_MINE_RE = re.compile(
+            r"\b(?P<nm>[A-Za-z][\w'-]*)\s*'s\s+my\s+(?P<sp>[\w'-]+)\b",
+            re.IGNORECASE)
+        for _nr in _NAME_MINE_RE.finditer(q_clean):
+            _nm = _nr.group("nm").strip().strip(".,!?").lower()
+            _sp_word = _nr.group("sp").strip().lower()
+            if not _nm or _sp_word in ("the", "a", "an"):
+                continue
+            # Do NOT treat an interrogative word ("what", "who", "which", ...)
+            # or closed-class pronouns/existentials as a pet name. A recall query
+            # like "what's my dog's name" matches this pattern (nm="what", sp="dog")
+            # and would otherwise overwrite the stored name with the question word.
+            # Genuine names are never wh-words or these closed-class tokens, so this
+            # guard is safe.
+            if _nm in ("what", "who", "which", "where", "when", "why",
+                       "how", "whose", "whom", "that", "there", "here",
+                       "he", "she", "it"):
+                continue
+            _species = _pet_slots.species_of(_sp_word)
+            if _species is None:
+                # Only react to KNOWN species (no learn_species here) to avoid
+                # learning a relation noun ("friend") as a pet species.
+                continue
+            _slot = _pet_slots.slot_for(_species, 1)
+            # (a) re-attribute from a prior non-user owner to the user.
+            _moved = False
+            for (s, a, v), f in self.personal_facts.facts.items():
+                if (s != "i" and a == _slot
+                        and not getattr(f, "superseded", False)):
+                    f.superseded = True
+                    self.personal_facts.assert_fact(
+                        "i", _slot, _nm, confidence=0.6,
+                        source="seed_regex")
+                    _moved = True
+                    break
+            if _moved:
+                continue
+            # (b) file / reinforce the name on the user's own species slot.
+            _prior_user = self.personal_facts.get("i", _slot)
+            if _prior_user is not None:
+                if _prior_user.value.lower() != _nm.lower():
+                    self.personal_facts.contradict("i", _slot, _nm)
+                else:
+                    self.personal_facts.reinforce("i", _slot, _nm)
+            else:
+                self.personal_facts.assert_fact(
+                    "i", _slot, _nm, confidence=0.6,
+                    source="seed_regex")
         # OWNER-AS-POSSESSOR re-attribution: "<name> is my <owner>'s <species>"
         # e.g. "pip is my sister's cat" / "wren is my mum's owl". Re-assigns an
         # owned entity from the USER to a NAMED third-party owner. The first
@@ -1391,6 +1463,18 @@ class UserModel:
                             CorrectionType.CORRECTION_WITH_FACT
                         self.correction_severity = \
                             max(self.correction_severity, 0.7)
+                        # Mirror the corrected count into the structured
+                        # QuantityMemory store so "how many X" recall reflects
+                        # the NEW number (otherwise it would echo the stale
+                        # pre-correction count). Seed + online; the store
+                        # supersedes the prior record by subject+noun.
+                        try:
+                            _qcount = number_to_int(_num)
+                            if _qcount is not None:
+                                self.quantity_memory.correct(
+                                    subject="i", noun=_ent, count=_qcount)
+                        except Exception:
+                            pass
 
         def _put_fact(attr: str, val: str, conf: float) -> None:
             # D3 (round v3): never store a closed-class / negation token as a
@@ -3049,7 +3133,39 @@ class UserModel:
                 "muddled", "confused", "mistaken", "tangled", "muddled",
                 "flustered", "garbled", "befuddled"):
                 return False
-            return _obj and 1 <= len(_obj.split()) <= 5
+            # R5 fix (round 2026-08-11T0521Z): reject body-part / sensation /
+            # feeling-word objects. "i felt it in my chest for days" resolved
+            # to the single word "chest" (a body part) and was stored as
+            # ('i','does','felt chest') — an experiential/affective detail, NOT
+            # a possession or activity. Same class as "felt cold bite" /
+            # "broke ice": the verb is a sensation verb and the object is a
+            # body/sensation word, so it is an inner state, not a thing the
+            # user does/keeps. A SEED vocabulary (RAVANA-expandable via
+            # learn_sensation; the real possession object still passes through
+            # because it is a noun like "pigeons"/"loft"/"banjo"). Not a
+            # per-topic answer table.
+            _SENSATION_BODY = (
+                "chest", "heart", "stomach", "head", "skin", "bone", "hand",
+                "arm", "leg", "eye", "ear", "lung", "brain", "back", "shoulder",
+                "spine", "knee", "foot", "finger", "toe", "face", "throat",
+                "bite", "burn", "chill", "cold", "heat", "pain", "ache",
+                "shiver", "sweat", "tear", "tears", "breath", "pulse", "blood",
+                "sigh", "lump", "swelling", "cramp", "tingle", "numb",
+            )
+            if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
+                                            for w in _o.split()):
+                return False
+            # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
+            # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real
+            # disclosures (single-noun possessions like "jar", and 6-7-word
+            # activity/event objects like "throw pots at a community studio").
+            # Reject only on CONTENT grounds (sensation/body/particle/error-meta
+            # words handled by the guards above), never on length. A single real
+            # noun ("jar") and a long real noun phrase ("repeated the juniper
+            # this spring and found a root") must BOTH pass; the R5 intent (drop
+            # inner-state "felt chest") is preserved by the _SENSATION_BODY gate
+            # above, not a length cap.
+            return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
             if not _activity_verb_ok(_verb):
@@ -4310,6 +4426,32 @@ class UserModel:
             self.opinions.reverse_stance(target, utterance=text)
         except Exception:
             pass
+        # Mirror any count correction into the structured QuantityMemory store
+        # so "how many X" recall reflects the corrected number. Runs once per
+        # mine regardless of which correction-detection path (277 / 580) set
+        # detected_correction_fact. Seed + online; correct() supersedes the
+        # prior record by subject+noun so a stale count is retired, not echoed.
+        try:
+            _cf = self.detected_correction_fact
+            if (_cf and str(_cf[0]).lower() in ("i", "me", "my")
+                    and _cf[1] in ("does", "count", "number", "qty")):
+                _cfv = (_cf[2] or "").lower().strip()
+                _qc = None
+                _qent = None
+                _ctoks = _cfv.split()
+                for _i, _tok in enumerate(_ctoks):
+                    _n = number_to_int(_tok)
+                    if _n is not None and _i + 1 < len(_ctoks):
+                        _qc = _n
+                        _qent = " ".join(
+                            t for t in _ctoks[_i + 1:_i + 4]
+                            if re.match(r"^[a-z]+$", t))
+                        break
+                if _qc is not None and _qent:
+                    self.quantity_memory.correct(
+                        subject="i", noun=_qent, count=_qc)
+        except Exception:
+            pass
 
     def observe_user_query(self, query: str, subject: str, valence: float):
         subject_lower = subject.lower()
@@ -4933,6 +5075,7 @@ class UserModel:
             'user_background': self.user_background,
             'preferences': self.preferences,
             'personal_facts': self.personal_facts.get_state(),
+            'quantity_memory': self.quantity_memory.get_state(),
             'opinions': self.opinions.get_state(),
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
@@ -4963,6 +5106,9 @@ class UserModel:
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)
+        _qm = state.get('quantity_memory')
+        if _qm:
+            self.quantity_memory.set_state(_qm)
         _op = state.get('opinions')
         if _op:
             self.opinions.set_state(_op)
@@ -4995,7 +5141,10 @@ def load_user_model(user_suffix: str = "") -> "UserModel":
     with open(path, "rb") as f:
         um = pickle.load(f)
     if not hasattr(um, "personal_facts"):
-        from .personal_fact_store import PersonalFactStore, UserStanceStore
+        from .personal_fact_store import PersonalFactStore, UserStanceStore, QuantityMemory
         um.personal_facts = PersonalFactStore()
         um.opinions = UserStanceStore()
+    if not hasattr(um, "quantity_memory"):
+        from .personal_fact_store import QuantityMemory
+        um.quantity_memory = QuantityMemory()
     return um
