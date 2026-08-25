@@ -1541,7 +1541,22 @@ class UserModel:
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
+        _handled_spans = set()
         for _pat in (
+            # ENTITY-NAME possession (round 2026-08-09h, H1 fix): "my cat mire
+            # is a half-feral tabby", "my partner cole keeps the tide tables".
+            # The 's form ("my cat's name is X") is already handled by
+            # _split_possessive_attr below; this covers the BARE form where the
+            # entity and its name/description sit together without an apostrophe.
+            # group1 = the ENTITY (cat/partner/...), group2 = the name or the
+            # first content word, group3 = the rest of the description. We store
+            # the name under the ENTITY key (so "my cat's name" recall resolves)
+            # AND the description, both via _put_fact_ent — never under the
+            # user's "i" subject (self/other boundary). General: any entity
+            # word, no per-entity table; the entity grows from what the user
+            # actually says. The copula-exclusion (?!is|are|...) stops "my
+            # studio is a shed" from being read as entity=studio, name=is.
+            _ENTITY_NAME_PAT,
             # D2 (round v2): tolerate an optional "name" word between the
             # relation and "is" so "my daughter name is ingrid" stores
             # daughter=ingrid (the old pattern required exactly one token
@@ -1635,7 +1650,42 @@ class UserModel:
             r"\bi\s+am\s+allergic\s+to\s+([\w'-]+)",
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
+                # H1 fix (round 2026-08-09h): skip spans already consumed by
+                # the entity-name possession pattern above, so the broad
+                # multi-token-attr pattern does not re-store a junk attribute
+                # (e.g. 'cat mire') under the user's "i" subject.
+                if _m.span() in _handled_spans:
+                    continue
                 _attr, _val = None, None
+                # H1 fix (round 2026-08-09h): the ENTITY-NAME possession pattern
+                # (first in the tuple) captures "my <entity> <name> is/are
+                # <desc>". Store the name under the ENTITY key + the description,
+                # both entity-scoped (self/other boundary), then record the span
+                # so the broad multi-token-attr pattern #605 below does NOT also
+                # fire on the same text and store a junk 'cat mire' attribute
+                # under the user's "i" subject. All three groups present.
+                if _m.lastindex == 3 and _pat is _ENTITY_NAME_PAT:
+                    _ent = _m.group(1).strip().lower()
+                    _name = _m.group(2).strip().lower()
+                    _desc = _m.group(3).strip().lower()
+                    _handled_spans.add(_m.span())
+                    if _ent and _name and _name not in _VALUE_STOP:
+                        _put_fact_ent(_ent, "name", _name, 0.6)
+                    if _ent and _desc and _desc not in _VALUE_STOP:
+                        # Activity-verb form ("my partner cole keeps the
+                        # tide tables") -> store a 'does' fact so a later
+                        # recall can render it; copula form -> 'is'.
+                        _verb = re.match(
+                            r"^(keeps?|kept|runs?|raises?|raise|owns?|own|"
+                            r"loves?|loved|likes?|liked|drives?|drove|manages?|managed|"
+                            r"reads?|read|writes?|wrote|paints?|painted|throws?|threw|"
+                            r"fires?|fired|makes?|made|builds?|built|grows?|grew|"
+                            r"brews?|brewed)\b", _desc)
+                        if _verb:
+                            _put_fact_ent(_ent, "does", _desc, 0.6)
+                        else:
+                            _put_fact_ent(_ent, "is", _desc, 0.6)
+                    continue
                 # FIX (round v-aug06b): the conjoined-pet pattern captures a
                 # chain like "ferret named pim and a parrot called coco".
                 # Expand it into individual "species named name" pairs and

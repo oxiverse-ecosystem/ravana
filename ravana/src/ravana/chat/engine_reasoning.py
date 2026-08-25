@@ -2304,7 +2304,14 @@ class ReasoningMixin:
                 else:
                     ack = f"good to know — you {_verb} {_obj}. i'll keep that in mind."
             else:
-                ack = "got it — thanks for telling me."
+                # No parsed kind matched (defensive fall-through). The old code
+                # returned the hardcoded degenerate template "got it — thanks for
+                # telling me." — the exact banned string (signature symptom of
+                # template-not-cognition; see F1 fix + test_recall_confabulation
+                # which asserts the engine never emits it). Render the reply from
+                # RAVANA's OWN live affect state instead (real, growing cognition
+                # — valence/arousal from the current turn), never authored prose.
+                ack = _reflective_ack_from_vad(self)
 
 
         # Episodic transcript already captured this turn in _record_episode;

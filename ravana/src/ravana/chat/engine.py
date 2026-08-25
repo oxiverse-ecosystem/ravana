@@ -6195,7 +6195,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b"
                 r"|do\s+you\s+have\s+a\s+(view|opinion|take)\s+on\b)",
                 user_input, re.IGNORECASE)
-            if _selfceil or _selfopinion:
+            # Self-INTROSPECTION gate (round 2026-08-09h): questions about
+            # RAVANA's OWN prior statement / nature / mind ("what was your own
+            # take on X", "your own line", "what do you think of yourself",
+            # "thread about yourself", "recognize yourself") are about the
+            # AGENT, not the user. They MUST route to _route_self_query (which
+            # holds the state-driven introspection gate that reads live
+            # identity state) BEFORE the memory/recall dump, which would
+            # otherwise surface a stored USER fact or a raw user utterance as
+            # if it were RAVANA's "line about thinking" (self/other boundary
+            # violation). Structural keyword route; the reply content is
+            # built from real identity state inside the gate. Fail-open: None
+            # -> normal pipeline runs.
+            _selfintrospect = re.search(
+                r"(?:\b(your|you)\b.*\b(read|line|take|view|mind|thinking|"
+                r"thought|opinion|stance|self|who you are|what you (?:are|were)|"
+                r"how you (?:see|feel|think))\b"
+                r"|\bthread about yourself\b|\brecognize yourself\b|"
+                r"\byour own (?:mind|take|view|read|line|thoughts|stance|self)\b)",
+                user_input, re.IGNORECASE)
+            if _selfceil or _selfopinion or _selfintrospect:
                 # EXPERIENTIAL FIRST: the _selfopinion gate above matches the
                 # broad "do you (think|feel|have|...)" frame, which also covers
                 # experiential probes ("do you have any regrets?"). Those must be
