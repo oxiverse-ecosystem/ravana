@@ -3847,26 +3847,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the live store; never a user fact.
         _WHERE = re.search(
             r"\bwhere\s+do\s+i\s+(keep|have|store|keep\s+on|have\s+on|raise|"
-            r"grow|put|place)\s+(my\s+)?([a-z][a-z]+)\b", q)
+            r"grow|put|place)\s+(?:my\s+)?(?:the\s+|a\s+|an\s+)?([a-z][a-z]+)\b", q)
         if _WHERE and pf is not None:
-            _wn = _WHERE.group(3).lower().strip()
+            _wn = _WHERE.group(2).lower().strip()
             _wverb = _WHERE.group(1).lower().strip()
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _k[1] == "does" and not getattr(_f, "superseded", False):
                     _v = _f.value.lower()
-                    # Match on the cue noun OR on the leading verb (the
-                    # miner may drop the object noun, e.g. 'i keep six
-                    # hives of bees' -> stored as 'keep six hives', so the
+                    # Match on the cue noun (word-boundary) OR on the leading
+                    # verb (the miner may drop the object noun, e.g. 'i keep
+                    # six hives of bees' -> stored as 'keep six hives', so the
                     # noun 'bees' is absent; the query verb 'keep' still
                     # identifies the activity fact). Structural, not a
                     # per-topic table.
                     _fverb = _v.split()[0] if _v.split() else ""
-                    if _wn in _v or (_wverb and _wverb == _fverb):
+                    if re.search(r'\b' + re.escape(_wn) + r'\b', _v) or \
+                       (_wverb and _wverb == _fverb):
                         return f"you {_v}."
         _COUNT = re.search(
-            r"\bhow\s+many\s+([a-z][a-z]+)\s+(do\s+i|did\s+i|have|keep|raise|"
+            r"\bhow\s+many\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z]+)\s+(do\s+i|did\s+i|have|keep|raise|"
             r"own|got|breed|run|keep on|have on)\b", q)
         if _COUNT and pf is not None:
             _cn = _COUNT.group(1).lower().strip()
@@ -3876,7 +3877,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     continue
                 if getattr(_f, "superseded", False):
                     continue
-                if _k[1] in ("count", "number", "qty") and _cn in _f.value.lower():
+                if _k[1] in ("count", "number", "qty") and \
+                   re.search(r'\b' + re.escape(_cn) + r'\b', _f.value.lower()):
                     _best = _f.value
                     break
                 if _k[1] == "does":
@@ -3887,7 +3889,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                   r"breed|run|got)\s+((?:one|two|three|four|"
                                   r"five|six|seven|eight|nine|ten|eleven|twelve)"
                                   r"|\d+)\b\s+", _v)
-                    if _m and _cn in _v:
+                    if _m and re.search(r'\b' + re.escape(_cn) + r'\b', _v):
                         _best = _m.group(1)
                         break
             if _best is not None:
@@ -7060,32 +7062,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # and emit a grounded correction ack. The disclosure empathy path
             # returns after this, so it never double-handles. Content from the
             # live store; no authored prose.
-            try:
-                _cf = getattr(self.user_model, "detected_correction_fact", None)
-                if (getattr(self.user_model, "detected_correction", False)
-                        and _cf):
-                    _cf_subj, _cf_attr, _cf_val = _cf
-                    self.user_model.personal_facts.contradict(
-                        "i", _cf_attr, _cf_val)
-                    _cf_phrase = {
-                        "name": f"your {_cf_attr} is {_cf_val}",
-                        "is": f"you are {_cf_val}",
-                        "does": f"you do {_cf_val}",
-                        "likes": f"you like {_cf_val}",
-                        "location": f"you live in {_cf_val}",
-                        "favorite": f"your favorite {_cf_val}",
-                    }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                    _ack = (f"thanks for correcting me — i'll remember "
-                            f"{_cf_phrase}.")
-                    self._last_strategy = "correction_persist"
-                    self._last_responses.append(_ack)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.user_model.reset_correction_flags()
-                    self.notify_user_idle()
-                    return _ack
-            except Exception:
-                pass
+            _corr_ack = self._persist_detected_correction()
+            if _corr_ack is not None:
+                return _corr_ack
             if _disc is not None:
                 _low_d = (user_input or "").lower().strip()
                 _low_d = (_low_d.replace("i'm", "i am")
@@ -7238,36 +7217,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # (e.g. "no, my sister's name is not meena, it's priya"), the
             # correction signal was detected by mine_personal_facts during the
             # turn but the early-return here would otherwise bypass the
-            # correction handler at ~4753 and the corrected value would never be
-            # persisted. Persist it HERE, online/incrementally (no retrain): call
-            # contradict() so the stale value is superseded (not merely appended
-            # like assert_fact would), so a later "what have you learned about
-            # me" reflects the corrected fact, not the old one. The user is
-            # ground truth for their own profile.
-            try:
-                _cf = getattr(self.user_model, "detected_correction_fact", None)
-                if getattr(self.user_model, "detected_correction", False) and _cf:
-                    _cf_subj, _cf_attr, _cf_val = _cf
-                    if str(_cf_subj).lower() in ("i", "me", "my"):
-                        self.user_model.personal_facts.contradict(
-                            "i", _cf_attr, _cf_val)
-                        # Render a grounded correction ack from the REAL fact
-                        # (content from the store, no authored prose). Phrasing
-                        # mirrors the correction ack mapping in engine_persis-
-                        # tence; covers the common relation keys. This beats the
-                        # generic "got it — thanks for telling me." hollow ack.
-                        _rel_phrase = {
-                            "name": f"your {_cf_attr} is {_cf_val}",
-                            "is": f"you are {_cf_val}",
-                            "does": f"you do {_cf_val}",
-                            "likes": f"you like {_cf_val}",
-                            "location": f"you live in {_cf_val}",
-                            "favorite": f"your favorite {_cf_val}",
-                        }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                        _ack = (f"thanks for correcting me — i'll remember "
-                                f"{_rel_phrase}.")
-            except Exception:
-                pass
+            # correction handler and the corrected value would never be
+            # persisted. Persist it HERE, online/incrementally (no retrain).
+            _corr_ack = self._persist_detected_correction()
+            if _corr_ack is not None:
+                return _corr_ack
+
             self._last_responses.append(_ack)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
@@ -7353,41 +7308,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # ── General correction persistence (round 2026-08-09g, D3) ───────
         # mine_personal_facts detects user corrections (name, relation, and
         # the new count/quantity form: "it's seven hives now, i split one")
-        # but only the SELF-DISCLOSURE path (which returns at ~4101) consumes
-        # the signal via contradict(). A correction phrased as a non-
-        # disclosure turn (no "my X is Y" / feeling shape) never reached that
-        # path, so its detected_correction was silently reset here without
-        # ever superseding the stale fact (measured: T41 "it's seven hives
-        # now" -> "ok, noted: wait."; the count stayed six). Persist ANY
-        # detected correction here, online/incrementally, and emit a grounded
-        # correction ack. The disclosure path returns before this point, so
-        # this never double-handles. Content from the live store; no
-        # authored prose, no retrain.
-        try:
-            _cf = getattr(self.user_model, "detected_correction_fact", None)
-            if getattr(self.user_model, "detected_correction", False) and _cf:
-                _cf_subj, _cf_attr, _cf_val = _cf
-                self.user_model.personal_facts.contradict(
-                    "i", _cf_attr, _cf_val)
-                _cf_phrase = {
-                    "name": f"your {_cf_attr} is {_cf_val}",
-                    "is": f"you are {_cf_val}",
-                    "does": f"you do {_cf_val}",
-                    "likes": f"you like {_cf_val}",
-                    "location": f"you live in {_cf_val}",
-                    "favorite": f"your favorite {_cf_val}",
-                }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-                _ack = (f"thanks for correcting me — i'll remember "
-                        f"{_cf_phrase}.")
-                self._last_strategy = "correction_persist"
-                self._last_responses.append(_ack)
-                if len(self._last_responses) > 10:
-                    self._last_responses = self._last_responses[-10:]
-                self.user_model.reset_correction_flags()
-                self.notify_user_idle()
-                return _ack
-        except Exception:
-            pass
+        # but only the SELF-DISCLOSURE path consumes the signal via
+        # contradict(). A correction phrased as a non-disclosure turn (no "my
+        # X is Y" / feeling shape) never reached that path, so its
+        # detected_correction was silently reset here without ever superseding
+        # the stale fact (measured: T41 "it's seven hives now" -> "ok, noted:
+        # wait."; the count stayed six). Persist ANY detected correction here,
+        # online/incrementally, and emit a grounded correction ack. The
+        # disclosure path returns before this point, so this never
+        # double-handles. Content from the live store; no authored prose, no
+        # retrain.
+        _corr_ack = self._persist_detected_correction()
+        if _corr_ack is not None:
+            return _corr_ack
 
         self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)

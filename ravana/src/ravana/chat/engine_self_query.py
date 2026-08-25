@@ -806,12 +806,13 @@ class SelfQueryMixin:
         #     user's HONEY opinion as if it were RAVANA's "line about
         #     thinking" — a self/other boundary violation / source-monitoring
         #     error). Detect the introspection frame structurally (you/your +
-        #     a self-cognition noun) and route to the self-model. The reply
-        #     content comes from RAVANA's OWN identity/stance state, or
-        #     honestly states it can't recall that exact prior wording —
-        #     it never returns a stored USER fact. Fail-open: if no
-        #     introspection noun is present, this gate is a no-op and the
-        #     rest of the self-query resolver runs unchanged.
+        #     a self-cognition noun with self-referential context, not a
+        #     topic object) and route to the self-model. The reply content
+        #     comes from RAVANA's OWN identity/stance state, or honestly
+        #     states it can't recall that exact prior wording — it never
+        #     returns a stored USER fact. Fail-open: if no introspection noun
+        #     is present, or if "about X" with a topic follows, this gate is
+        #     a no-op and the rest of the self-query resolver runs unchanged.
         _self_introspect = re.search(
             r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
             r"opinion|stance|self|who you are|what you (?:are|were)|how you "
