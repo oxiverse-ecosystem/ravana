@@ -1279,9 +1279,6 @@ class ReasoningMixin:
         _decl = [f for f in facts if not _is_non_declarative(getattr(f, "object", ""))]
         if _decl:
             facts = _decl
-        else:
-            # No declarative candidates remain — return None regardless of original count.
-            return None
         # A lone surviving question-shaped fact is better left un-echoed.
         if len(facts) == 1 and _is_non_declarative(getattr(facts[0], "object", "")):
             return None
@@ -1526,9 +1523,9 @@ class ReasoningMixin:
             # words questions ("what did you tell me about X") keep >=2 overlap
             # with their target fact and still pass.
             _q_tok = {t for t in re.findall(r"[a-zA-Z']+", (user_input or "").lower())
-                      if len(t) >= 3 and t not in stop}
+                      if len(t) >= 3}
             _f_tok = {t for t in re.findall(r"[a-zA-Z']+", (lex_fact.object or "").lower())
-                      if len(t) >= 3 and t not in stop}
+                      if len(t) >= 3}
             if len(_q_tok & _f_tok) >= 2:
                 return lex_fact.object
             # Below the relevance floor: do not echo an unrelated memory.
@@ -2194,10 +2191,10 @@ class ReasoningMixin:
             else:
                 # like/love
                 ml = re.search(
-                    r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$|"
-                    r"\s+-{1,3}\s+|"
+                    r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$)"
+                    r"|\s+-{1,3}\s+"
                     r"\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-                    r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+                    r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)",
                     q, re.IGNORECASE)
                 if ml:
                     # D3 (round v2): carry the ACTUAL verb so the
@@ -2415,7 +2412,7 @@ class ReasoningMixin:
             # authored. General: no per-entity table.
             cands = [f for (s, a, v), f in store.facts.items()
                      if not f.superseded
-                     and s in _subjects
+                     and (s in _subjects or (s not in ("i",) and s))
                      and (_cur_turn is None
                            or getattr(f, "turn_number", -1) == _cur_turn)]
             if not cands:
@@ -2433,8 +2430,8 @@ class ReasoningMixin:
             # pell" — NOT "your name is pell", which would mis-attribute the
             # partner's name to the user. Mirrors
             # engine_memory._reconstruct_entity so acks and recall agree.
-            _fact_subj = (getattr(best, "subject", "") or "").lower().strip()
-            _is_self = _fact_subj in ("i", "me", "user", "")
+            _subj = (getattr(best, "subject", "") or "").lower().strip()
+            _is_self = _subj in ("i", "me", "user", "")
             # Common relation keys. Self-subject renders in second person
             # ("your name is"); other-subject is possessive ("your partner's
             # name is"). The only split is the subject — no per-entity table.
@@ -2456,7 +2453,7 @@ class ReasoningMixin:
                 if _phrase is None:
                     _phrase = f"your {attr} is {val}"
             else:
-                _ent = _fact_subj
+                _ent = _subj
                 _phrase = {
                     "name": f"your {_ent}'s name is {val}",
                     "location": f"your {_ent} is located at {val}",
