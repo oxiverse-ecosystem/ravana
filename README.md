@@ -59,6 +59,27 @@ on this codebase:
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
   stale one or stacking a contradiction. A flip on a topic you never stated an
   attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
+- **Recodes a held stance on a FREE-FORM contradiction (no retraction keyword).**
+  You don't have to say *"i flipped"* — an opposed restatement with no retraction
+  cue still recodes the stance you hold: *"not all street art is good"* after
+  *"i love street art"* moves `street art` from +0.95 to −0.275; *"actually i've
+  gone off winter"* recodes the `silence` stance it already holds (the broader
+  co-mention bridges via provenance). Detection is a seed reassessment-affect
+  lexicon + `recode_stance_toward` (decisive blend toward the new value); a
+  same-sign reassessment or a neutral utterance leaves the stance untouched, and
+  there is no guessed reversal. No LLM, no retraining. See
+  `docs/CAPABILITY_FREE_FORM_CONTRADICTION_RECODE.md`.
+- **Links a broader-concept co-mention back to a held stance (provenance
+  bridge).** Told *"i love the silence of deep winter"* it records the stance
+  keyed on the subordinate head *silence* **and** keeps the salient broader
+  concept *winter* it co-named as provenance. A later *"am i for or against
+  winter?"* then resolves through that provenance to the held stance and answers
+  *"from what you've told me, you're strongly for silence"* — instead of falling
+  to the *"i don't have a read"* hedge it used before. Provenance is grown online
+  from the real utterance and merged across encounters; there is no per-topic
+  table and no retraining. The same bridge fixes the street-art reversal class
+  (a reversal naming *street art* links to a stance keyed *murals*). See
+  `docs/CAPABILITY_STANCE_PROVENANCE.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
@@ -204,6 +225,21 @@ on this codebase:
   (already learned, or with a seeded definition) still grounds a genuine answer,
   and a subject learned later online is re-admitted. No LLM, no per-topic reply
   table. See `docs/CAPABILITY_SM_UNKNOWN_SUBJECT_GROUNDING.md`.
+- **Stops parroting your affect as its own reasoning (D3).** The in-prompt
+  causal reasoner used to intercept a combined *"statement + question"* turn like
+  *"that parking lot plan makes my blood boil. do you get why i'm furious?"*,
+  mine your **affective statement** as a causal premise, and replay your own
+  clause *"my blood boil"* verbatim as its reply — a source-monitoring failure.
+  Now `parse_causal_edges` refuses to bind a premise whose **effect is a
+  first-person affective self-report** (*"my blood boil"*, *"makes me furious"*,
+  *"my heart races"*): that is a felt state, not a world-state transition, so the
+  turn falls through to the genuine affective-response path. Detection is
+  **seed-driven** — first-person pronoun (closed-class grammar set) + an
+  affect-bearing word read from RAVANA's own learnable VAD lexicon (reused from
+  the intent router, grown online via Hebbian learning), not a keyword table or
+  authored prose. A legitimate world-state conditional (*"when you turn on the
+  lamp, it lights up"*) still binds and answers. No LLM, no per-topic reply table,
+  no retraining. See `docs/CAPABILITY_SOURCE_MONITORING_AFFECTIVE_ECHO.md`.
 
 These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**

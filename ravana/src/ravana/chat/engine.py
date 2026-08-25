@@ -60,16 +60,29 @@ def _extract_user_affect_word(text: str) -> str:
         from .user_model import is_affect_term
     except Exception:
         is_affect_term = lambda w: False
+    # Hedge words that must NOT be returned as a felt-state (round
+    # 2026-08-20T1229Z, FIX A). "kind" is accidentally in the VAD seed lexicon
+    # (+0.55), so the affect-term scan matched "kind" in "i'm kind of wary" and
+    # the copula regex below grabbed it as the felt word -> RAVANA answered
+    # "i'm glad you feel good" to a user expressing wariness. A hedge is a
+    # dampener, never a feeling; reject it so the REAL felt word (the token
+    # AFTER the hedge) is what gets named. Structural stop-set (seed, not an
+    # answer table); generalizes to any hedged disclosure.
+    _HEDGE = {"kind", "sort", "pretty", "fairly", "rather", "quite",
+               "somewhat", "slightly", "bit", "little", "really", "very",
+               "so", "a", "little", "some", "such"}
+    def _is_real_affect(w: str) -> bool:
+        return bool(w) and w not in _HEDGE and is_affect_term(w)
     _m = re.search(
         r"\b(i\s*(?:feel|feeling|felt|am|'m|get|got|was|were|been)\s+"
         r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|pretty\s+)?)"
         r"([a-z]+(?:[-][a-z]+)?)", (text or "").lower())
     if _m:
         _w = _m.group(2).strip("'-")
-        if is_affect_term(_w):
+        if _is_real_affect(_w):
             return _w
     for _tok in re.findall(r"[a-z]+(?:[-][a-z]+)?", (text or "").lower()):
-        if is_affect_term(_tok):
+        if _is_real_affect(_tok):
             return _tok
     return ""
 
@@ -2264,6 +2277,39 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"are|was|were|had|has|have|will|would|could|can)\b",
                     _stripped.lower()):
                 return
+            # D1b (round 2026-08-19T1628Z): never ingest an IMPERATIVE
+            # REQUEST/recall-directive as an episodic fact. "tell me about X",
+            # "remind me what you know about X", "describe my X", "could you
+            # explain X" are the USER directing RAVANA to act/speak — they are
+            # PFC queries, not assertions of experienced content. Storing them
+            # keyed the directive under its content tokens (e.g. "tell me again
+            # what you know about mica the crow." keyed under mica/crow/tell/know),
+            # so a LATER semantically-overlapping query surfaced the user's OWN
+            # request verbatim as RAVANA's reply — a source-monitoring violation
+            # (measured T31/T57 this round: "what's the deal with narrowboats…"
+            # -> "tell me again what you know about mica the crow."). Structural
+            # regex over directive openers; no per-topic table. A genuine
+            # first-person disclosure ("i have a cat named X") is NOT a directive
+            # (it starts with "i"/"my", not a second-person imperative) and still
+            # ingests correctly. The regex is anchored at ^ so mid-sentence
+            # occurrences (e.g. "my brother tells me to quit") are unaffected.
+            if re.match(
+                    r"^\s*(tell|show|give|remind|describe|explain|list|find|"
+                    r"summari[sz]e|let\s+me\s+know)\b", _stripped.lower()):
+                # Imperative opener = a request directed at the agent, not an
+                # assertion of experienced content. A user discloses with "my
+                # sister is a marine biologist", never "describe my sister" — so
+                # blocking every imperative opener is safe and catches object
+                # wording ("describe my sister priya for me") the narrow form
+                # missed.
+                return
+            if re.match(
+                    r"^\s*(what\s+do\s+you\s+(know|think|remember|recall|have)\s+(about|of)|"
+                    r"do\s+you\s+(know|remember|recall)\s+(about|what|how)|"
+                    r"(could|can|would|will)\s+you\s+(tell|show|remind|"
+                    r"describe|explain|give|find|list|summari[sz]e))\b",
+                    _stripped.lower()):
+                return
             # D1 (round 2026-08-08b-d): a recall-scaffold query that is NOT a
             # question (no trailing '?', no interrogative opener) — e.g.
             # "you mentioned my tarantula before, remind me what i told you
@@ -2420,7 +2466,66 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
-    # ── Shared reverse-name resolver helper (round 2026-08-17T1126Z, D-B) ──
+    def mine_user_belief(self, user_input: str) -> None:
+        """Capture a first-person CONVICTION statement into the user-belief store.
+
+        Round 2026-08-20T1229Z, FIX D (root cause): the only belief-store write
+        lived INSIDE `_handle_assertion`, but conviction statements ("i really
+        believe urban rooftop gardens are the future", "i think we should protect
+        mangrove forests") are routed to the reasoning pipeline (which returns the
+        hollow "noted." ack) and never reach that handler — so `n_beliefs` stayed
+        0 across the whole 75-turn round. The user's explicit beliefs were
+        therefore invisible to the "what do i believe about X" recall path.
+
+        Fix: detect a first-person conviction frame and write the proposition to
+        `self.belief_store` under the SAME key shape the recall path already
+        expects (`("user", "told:<turn>")`, matched on belief TEXT). Structural
+        detection: a small set of conviction cue phrases + first-person check +
+        question-rejection; generalizes to any topic the user rotates in, RAVANA
+        can revise the belief by talking (the store merges on re-assertion), no
+        per-topic table, no authored reply, no retraining. Fail-open: any
+        exception is swallowed so this never blocks the main reply.
+        """
+        try:
+            from .belief_store import BeliefStore  # ensure importable
+        except Exception:
+            BeliefStore = None
+        if not hasattr(self, "belief_store") or self.belief_store is None:
+            return
+        _t = (user_input or "").strip()
+        if not _t or _t.endswith("?"):
+            return
+        _tl = _t.lower()
+        if not re.match(r"^(i|i'm|i am|we|we're|we are)\b", _tl):
+            return
+        # Conviction cue phrases -> capture the proposition that follows.
+        _CUES = (
+            r"\bi\s+(?:really\s+)?believe\s+(?:that\s+)?(.+)$",
+            r"\bi\s+think\s+(?:that\s+)?(.+)$",
+            r"\bi\s+(?:am|'m)\s+convinced\s+(?:that\s+)?(.+)$",
+            r"\bi\s+hold\s+(?:that\s+)?(.+)$",
+            r"\bi\s+(?:firmly\s+)?feel\s+(?:that\s+)?(.+)$",
+            r"\bwe\s+should\s+(.+)$",
+            r"\bwe\s+must\s+(.+)$",
+            r"\bwe\s+need\s+to\s+(.+)$",
+        )
+        _prop = None
+        for _c in _CUES:
+            _m = re.search(_c, _tl, re.IGNORECASE | re.DOTALL)
+            if _m:
+                _prop = _m.group(1).strip().strip(".,!?;:")
+                break
+        if not _prop or len(_prop) < 3:
+            return
+        # Key by a monotonic index so two convictions in the same turn_count
+        # don't collide and overwrite each other (turn_count only advances once
+        # per process_turn, but a single turn can assert several beliefs, and a
+        # later recall matches on BELIEF TEXT not key, so the key only needs to
+        # be unique). The recall path queries by matching the stored proposition.
+        _idx = len(self.belief_store.beliefs)
+        self.belief_store.assert_belief(
+            "user", f"told:{_idx}", _prop, confidence=0.8)
+
     # TYPE-AGNOSTIC "who is X to me" resolution. A query names an entity by NAME;
     # the relationship label is reverse-derived from the fact store, whatever the
     # fact's shape (combined-attr, attr=relation+value=name, or attr='does' with
@@ -2654,15 +2759,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"who\s+(?:are|do)\s+(?:the\s+)?people\s+in\s+my\s+family"
             r")\b", q)
         if _enum:
-            # Detect category: pets-only vs relations-only vs both
-            _cat = None
-            if re.search(r"\bpets?\b", q):
-                _cat = "pets"
-            elif re.search(r"\b(family|relatives?|relations?|people|kin)\b", q):
-                _cat = "relations"
             return self._enumerate_entities(
                 is_relation_attribute, base_relation,
-                is_pet_attribute, base_species, category=_cat)
+                is_pet_attribute, base_species)
 
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
@@ -3190,7 +3289,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _at and _at[-1] == _qr_name:
                             _matched = True
                         elif _qr_name in _val.lower().split():
-                            _matched = True
+                            # A bare pet-slot fact (species-keyed attr, value ==
+                            # name) is the WEAK generic pet render ("your cat is
+                            # mochi"). When a richer 'does' fact ALSO names this
+                            # entity with an explicit noun phrase ("keep pet
+                            # parrot named mango"), defer to the type-agnostic
+                            # reverse-name resolver below (D-B, round
+                            # 2026-08-17T1126Z) which recovers that fuller
+                            # phrase ("your pet parrot.") instead of answering
+                            # here with the bare canonical species. Simple pet
+                            # facts with no competing 'does' entry (e.g. "my cat
+                            # Mochi sleeps...") are unaffected and still match.
+                            if _or_is_pet(_attr) and any(
+                                    _dk[0] == "i" and _dk[1].lower() == "does"
+                                    and not getattr(_df, "superseded", False)
+                                    and _qr_name in (getattr(_df, "value", "") or "").lower().split()
+                                    for _dk, _df in pf.facts.items()
+                                    if isinstance(_dk, tuple) and len(_dk) == 3):
+                                pass
+                            else:
+                                _matched = True
                     # (c) pet match.
                     if not _matched and _qr_pet is not None and _or_is_pet(_attr):
                         if _or_base_sp(_attr) == _qr_pet:
@@ -3835,30 +3953,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     for _act in _since_acts:
                         if _stem(_act) in _stems or _act == _val.split()[0]:
                             _verb_ctx.setdefault(_act, []).append(_val)
-            # Extract query object (if any) for object-disambiguated matching.
-            # When the query explicitly names an object ("building widgets"),
-            # require the stored activity to match that object, not just the verb.
-            _query_obj = None
-            _ACTIVITY_VERBS = {
-                "building", "build", "builds", "built",
-                "keeping", "keep", "keeps", "kept",
-                "restoring", "restore", "restores", "restored",
-                "fixing", "fix", "fixes", "fixed",
-                "studying", "study", "studies", "studied",
-                "making", "make", "makes", "made",
-                "working", "work", "works", "worked",
-                "teaching", "teach", "teaches", "taught",
-                "learning", "learn", "learns", "learned",
-                "playing", "play", "plays", "played",
-            }
-            _qtoks_list = [t for t in re.findall(r"[a-z']+", q.lower())]
-            for _i, _qt in enumerate(_qtoks_list):
-                if _qt in _ACTIVITY_VERBS and _i + 1 < len(_qtoks_list):
-                    _next = _qtoks_list[_i + 1]
-                    _STOP_QUERY_OBJ = {"the", "a", "an", "my", "this", "that"}
-                    if _next not in _STOP_QUERY_OBJ:
-                        _query_obj = _stem(_next)
-                        break
             _best_year = None
             _best_age = None
             _best_score = 0
@@ -3878,12 +3972,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _yr = int(_parts[1])
                     except ValueError:
                         continue
-                    # Object-disambiguated matching: if query has an explicit object,
-                    # require the stored activity to contain that object (stem match).
-                    if _query_obj is not None:
-                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
-                        if _query_obj not in _act_stems:
-                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -3899,12 +3987,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _age = int(_parts[1])
                     except ValueError:
                         continue
-                    # Object-disambiguated matching: if query has an explicit object,
-                    # require the stored activity to contain that object (stem match).
-                    if _query_obj is not None:
-                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
-                        if _query_obj not in _act_stems:
-                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -4040,7 +4122,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         pf = getattr(um, "personal_facts", None) if um else None
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
-        _fact_by_attr = {}
+        _all = []
         if pf is not None:
             for _k, _f in (getattr(pf, "facts", {}) or {}).items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
@@ -4053,10 +4135,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _v = (_f.value or "").strip()
                 if not _v:
                     continue
-                _cur = _fact_by_attr.get(_attr)
-                if _cur is None or len(_v) > len(_cur[0]):
-                    _fact_by_attr[_attr] = (_v, getattr(_f, "confidence", 0.5))
-        facts = [(a, v, c) for a, (v, c) in _fact_by_attr.items()]
+                _all.append((_attr, _v, getattr(_f, "confidence", 0.5)))
+        # D1 FIX (round 2026-08-19T1628Z): the miner stores several PREDICATE
+        # facts under the generic attribute 'does' (e.g. "got promoted",
+        # "found ren's birthday would've", "built tiny garden") and 'event'.
+        # The OLD dedup kept only the LONGEST value per attribute, so a query
+        # like "what does my brother do" could only match the single longest
+        # 'does' fact (ren's birthday) and returned ANOTHER PERSON's fact -- the
+        # cross-entity contamination measured this round (T40/T54/T57 returned
+        # "you found ren's birthday would've" for brother/mica/ren queries).
+        # Fix: do NOT collapse distinct predicate facts into one bucket-value.
+        # For 'does'/'event' keep EVERY non-superseded entry as its own
+        # (attr, value) so the matcher can tell "brother tomas restores
+        # motorcycles" apart from "found ren's birthday". Each is independently
+        # retrievable and correctable. Non-predicate scalars (location/name/...)
+        # still collapse to the single most complete value (original behavior).
+        _scalar_seen = set()
+        _facts_out = []
+        for _attr, _val, _conf in _all:
+            if _attr in ("does", "event"):
+                _facts_out.append((_attr, _val, _conf))
+                continue
+            _n = _val.lower().strip()
+            if _n in _scalar_seen:
+                continue
+            if any((_n != _o and (_n in _o or _o in _n))
+                   for _oa, _o, _oc in _facts_out):
+                continue
+            _scalar_seen.add(_n)
+            _facts_out.append((_attr, _val, _conf))
+        facts = _facts_out
         _kept = []
         _seen_vals = set()
         for _attr, _val, _conf in facts:
@@ -4114,17 +4222,42 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         Returns (attr, val, conf) or None — prefers the longest matching value."""
         facts, _, _ = self._collect_user_model_state()
         _p = (phrase or "").lower().strip().replace("-", " ")
-        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        # Drop the closed-class functional word "does"/"did"/"do" from the
+        # query-token set: the miner stores predicate facts under the generic
+        # attribute 'does', so a naive token overlap between the query "what
+        # does my brother do" and the fact "does: found ren's birthday" would
+        # bridge on the word "does" alone and return another entity's fact
+        # (round 2026-08-19T1628Z D1 contamination). Require the VALUE to
+        # actually overlap the topic, not merely the attribute name.
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p)
+                     if len(w) >= 3 and w not in ("does", "did", "do", "done"))
         _best = None
         for _attr, _val, _conf in facts:
-            _search = f"{(_attr or '').lower()} {(_val or '').lower()}"
-            if _search and (_search in _p or _p in _search):
+            _val_l = (_val or "").lower()
+            _attr_l = (_attr or "").lower()
+            # Containment match: only count when the VALUE or the ATTRIBUTE
+            # (e.g. entity-attribute facts like "brother tomas" / "sister
+            # priya") is contained in or contains the query. The generic
+            # attribute 'does' is excluded from this containment test so it
+            # cannot bridge unrelated entities (round 2026-08-19T1628Z D1).
+            _contain = _val_l if _val_l and _val_l != _attr_l else ""
+            if _attr_l not in ("does", "event", "name"):
+                _contain = (_contain + " " + _attr_l).strip()
+            if _contain and (_contain in _p or _p in _contain):
                 _best = (_attr, _val, _conf)
                 break
-            _vtoks = set(w for w in re.findall(r"[a-z']+", _search) if len(w) >= 3)
+            # Token-overlap match on the value AND the entity-attribute, so a
+            # query "my brother does for work" matches the fact stored under
+            # attribute "brother tomas" (topic token "brother" lives in the
+            # attribute, not the value "restores vintage motorcycles").
+            _vtoks = set(w for w in re.findall(r"[a-z']+", _val_l + " " + _attr_l)
+                      if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
-                if _best is None or len(_val) > len(_best[1]):
-                    _best = (_attr, _val, _conf)
+                _overlap = len(_vtoks & _ptoks)
+                if _best is None or _overlap > _best[2]:
+                    _best = (_attr, _val, _conf, _overlap)
+        if _best is not None and len(_best) == 4:
+            _best = (_best[0], _best[1], _best[2])
         return _best
 
     def _extract_disclosure_topic(self, text: str) -> str:
@@ -4523,9 +4656,64 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"suppose)\s+(?:i|we|you|he|she|they)\s+"
             r"(like|love|hate|dislike|prefer|enjoy|adore|care\s+for|"
             r"loathe|detest|can'?t\s+stand|cant\s+stand)\b\s+(.+)", q)
-        if not _m:
-            return None
-        _obj = _m.group(3).strip(" .!?")
+        _obj = None
+        _fm_match = False
+        if _m:
+            _obj = _m.group(3).strip(" .!?")
+        else:
+            # GENERALIZE (round 2026-08-20T0701Z): the "am i for or against X" /
+            # "do you think i'm for or against X" / "are you for or against X"
+            # frame is the SAME user-stance question in a different surface
+            # form — the user is asking RAVANA to read back THEIR OWN stance on
+            # X, not RAVANA's knowledge of X. The old matcher only caught the
+            # explicit like/dislike-verb form, so this fell through to the
+            # semantic-ignorance handler ("i don't have a clean definition for
+            # winter") — a self/other boundary error. Extract the topic after
+            # "for or against" / "for it or against it" and consult the same
+            # live UserStanceStore. Structural (regex over the user's real
+            # words), no per-topic table, no retraining.
+            # GENERALIZE (round 2026-08-20T0701Z): the "am i for or against X"
+            # / "do you think i'm for or against X" frame is the SAME
+            # user-stance question in a different surface form — the user is
+            # asking RAVANA to read back THEIR OWN stance on X, not RAVANA's
+            # knowledge of X. The old matcher only caught the explicit
+            # like/dislike-verb form, so this fell through to the
+            # semantic-ignorance handler ("i don't have a clean definition for
+            # winter") — a self/other boundary error. Extract the topic X
+            # (which sits either AFTER the polarity clause in natural speech,
+            # e.g. "am i for or against street art", or BEFORE it, e.g.
+            # "winter — am i for it or against it"), then consult the same
+            # live UserStanceStore. Structural (regex over the user's real
+            # words + a closed-class stop list), no per-topic table, no
+            # retraining.
+            _POL = (r"(?:am|are|do\s+you\s+think)\s+(?:i|i'm|i\s+am|you|we)\s+"
+                    r"(?:for|against|for\s+or\s+against|for\s+it\s+or\s+against\s+it)")
+            _mm = re.search(_POL, q)
+            _obj = None
+            if _mm:
+                _fm_match = True
+                _after = re.split(
+                    r"\?|after\s+everything|at\s+this\s+point|right\s+now",
+                    q[_mm.end():])[0].strip(" ,;-\u2014")
+                _before = q[:_mm.start()].strip(" ,;-")
+                _STOP = {"am", "are", "for", "against", "or", "it", "i", "i'm",
+                         "you", "we", "do", "think", "the", "this", "that", "my",
+                         "me", "at", "point", "now", "everything", "after",
+                         "right", "is", "was", "were", "a", "an", "of", "on",
+                         "to", "in", "and", "but"}
+                _aw = [w for w in re.findall(r"[a-z][a-z'-]+", _after)
+                       if w not in ("about", "on", "toward", "of") and w not in _STOP]
+                if _aw:
+                    # Keep up to 3 trailing content words so multi-word topics
+                    # like "street art" survive (the stance store resolves them
+                    # via content-word matching); the BEFORE case keeps a single
+                    # leading word (e.g. "winter").
+                    _obj = " ".join(_aw[:3])
+                else:
+                    _bw = [w for w in re.findall(r"[a-z][a-z'-]+", _before)
+                           if w not in _STOP]
+                    if _bw:
+                        _obj = _bw[-1]
         if not _obj:
             return None
         um = getattr(self, "user_model", None)
@@ -4551,6 +4739,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # Last resort: try resolving from the raw object directly.
             _key = opinions.resolve_topic(_obj)
         if _key is None:
+            # GENERALIZE (round 2026-08-20T0701Z): the "am i for or against X"
+            # frame matched (a USER-stance question) but no stance is held for
+            # X. Previously this returned None and the query fell through to the
+            # semantic-ignorance handler ("i don't have a clean definition for
+            # X") — a self/other boundary violation, since the user asked about
+            # THEIR OWN attitude, not RAVANA's concept of X. Answer honestly in
+            # the USER scope instead. The topic is the user's real extracted
+            # word (state-driven, not a scripted stance), and the reply is an
+            # explicit epistemic-honesty statement — no fabricated valuation,
+            # no per-topic table, no retraining. Genuine gaps (e.g. RAVANA
+            # mined "winter" disclosures under the related key "silence") are
+            # surfaced honestly rather than masked.
+            if _fm_match and _obj:
+                return (f"honestly, i don't have a clear read on how you feel "
+                        f"about {_obj} specifically yet — you've told me things "
+                        f"around it, but i'd rather hear it straight from you "
+                        f"than guess.")
             return None
         _s = opinions.stances.get(_key)
         if _s is None:
@@ -4575,7 +4780,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return f"i think you're {_w} {_key}, though i'm not totally sure yet."
 
     def _enumerate_entities(self, is_relation_attribute, base_relation,
-                            is_pet_attribute, base_species, category=None) -> str:
+                            is_pet_attribute, base_species) -> str:
         """Category-aware enumeration recall (feature t_f1dae1aa).
 
         A user asked to LIST the entities RAVANA has learned in a category
@@ -4583,9 +4788,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         you about"). There is no specific cue word, so this SCANS the live
         PersonalFactStore and collects every relationship fact and every pet
         fact, then lists them.
-
-        Args:
-            category: Optional filter — "relations", "pets", or None (both).
 
         Design — passes the no-hardcoding line by construction:
         - Membership in a category is decided by the SHARED lexicon helpers
@@ -4610,12 +4812,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
-            if category == "relations":
-                return "you haven't told me about any family yet."
-            elif category == "pets":
-                return "you haven't told me about any pets yet."
-            else:
-                return "you haven't told me about any family or pets yet."
+            return "you haven't told me about any family or pets yet."
         _facts = (getattr(pf, "facts", {}) or {})
         _rel_bits = []
         _pet_bits = []
@@ -4633,13 +4830,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _v = (getattr(_f, "value", "") or "").strip()
             if not _v:
                 continue
-            if is_relation_attribute(_a) and category != "pets":
+            if is_relation_attribute(_a):
                 _key = _a
                 if _key in _seen_rel:
                     continue
                 _seen_rel.add(_key)
                 _rel_bits.append(f"your {_a} {_v}")
-            elif is_pet_attribute(_a) and category != "relations":
+            elif is_pet_attribute(_a):
                 _sp = base_species(_a)
                 _key = (_sp or _a) + "|" + _v.lower()
                 if _key in _seen_pet:
@@ -4647,12 +4844,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _seen_pet.add(_key)
                 _pet_bits.append(f"your {_sp or _a} is {_v}")
         if not _rel_bits and not _pet_bits:
-            if category == "relations":
-                return "you haven't told me about any family yet."
-            elif category == "pets":
-                return "you haven't told me about any pets yet."
-            else:
-                return "you haven't told me about any family or pets yet."
+            return "you haven't told me about any family or pets yet."
         _bits = _rel_bits + _pet_bits
         if len(_bits) == 1:
             return f"you've told me about: {_bits[0]}."

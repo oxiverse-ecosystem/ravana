@@ -544,49 +544,6 @@ class SelfQueryMixin:
         return (f"i hadn't settled on {target} — last i said i was still forming "
                 f"a view. has your sense of it changed? i'm happy to land one.")
 
-    def _agent_stance_word(self, pol: float, conf: float) -> str:
-        """Map a derived stance polarity to a short grounded phrasing token.
-
-        These are single short LEXICON entries (a word/phrase, never a
-        sentence), so the reply the caller composes (`f"i {word} {topic}"`) is
-        a thin connective wrapping REAL cognitive state, not authored prose.
-        The deciding test: if the topic changed, the ANSWER CONTENT still comes
-        from the polarity/confidence RAVANA computed — only the token varies.
-        """
-        if pol >= 0.6:
-            return "strongly value"
-        if pol >= 0.3:
-            return "lean toward"
-        if pol > 0.05:
-            return "am drawn to"
-        if pol <= -0.6:
-            return "am against"
-        if pol <= -0.3:
-            return "am wary of"
-        if pol < -0.05:
-            return "am cool on"
-        return "feel neutral about"
-
-    def _agent_stance_key(self, target: str) -> str:
-        """Canonical key for an agent-derived stance on `target`.
-
-        Mirrors the junk-guard used for the constitutive-value keys so a
-        non-topic (``"right"``/``"it"``/``"that"``) can never become a stored
-        stance — those are exactly the confabulation class the stance resolver
-        must reject. Returns the stripped lowercase key, or ``""`` if the target
-        is not a real topic (callers treat the empty key as "no stance").
-        """
-        _t = (target or "").strip().lower()
-        _JUNK = {"all", "really", "it", "that", "things", "right",
-                 "way", "matter", "thing", "point",
-                 "idea", "question", "stuff", "something",
-                 "anything", "everything", "issue", "topic",
-                 "yes", "no", "maybe", "ok", "okay",
-                 "about", "on", "the", "a", "an"}
-        if not _t or _t in _JUNK:
-            return ""
-        return _t
-
     def _route_self_experience(self, user_input: str) -> Optional[str]:
         """Experiential self-model responder (cortical midline structures).
 
@@ -1139,15 +1096,26 @@ class SelfQueryMixin:
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
             # content token is the real target (mangroves), not the verb
-            # scaffolding (protect). Strip closed-class words. Hyphens are
-            # kept INSIDE a token ("ultra-processed") so a compound topic is
-            # echoed back exactly as the user phrased it, not split apart.
-            _CLOSED_CLASS = ("about", "on", "the", "a", "an", "of", "for",
-                              "with", "to", "we", "should", "could", "would",
-                              "is", "are", "do", "does", "you", "i", "it",
-                              "that", "this", "and", "or")
-            _raw_toks = re.findall(r"[a-z]+(?:[-'][a-z]+)*", _tail)
-            _toks = [w for w in _raw_toks if w not in _CLOSED_CLASS]
+            # scaffolding (protect). Strip closed-class words.
+            # DEFECT B (round 2026-08-19T1628Z) PRONOUN-LEAK FIX: the closed-class
+            # strip list excluded "i" but NOT the first/second-person pronouns and
+            # their contractions, so a user-referential opinion frame
+            # ("what do you make of MY lutefisk habit", "how do you feel about ME
+            # leaving the water", "do you think I'M contradictory") set the stance
+            # target to the pronoun itself -> "i'm still forming a view on my" /
+            # "on me" / "on i'm" (measured T38/T66/T70). The topic is the real
+            # noun the pronoun modifies, not the pronoun. Extend the exclusion to
+            # all person pronouns + contractions so the extractor skips them and
+            # lands on the actual subject (lutefisk / leaving / contradictory).
+            # Structural (a closed-class vocabulary), no per-topic table.
+            _toks = [w for w in re.findall(r"[a-z']+", _tail)
+                     if w not in ("about", "on", "the", "a", "an", "of", "for",
+                                  "with", "to", "we", "should", "could", "would",
+                                  "is", "are", "do", "does", "you", "your",
+                                  "i", "i'm", "i've", "i'd", "i'll", "my", "me",
+                                  "we're", "our", "us", "they", "them", "he",
+                                  "she", "his", "her", "its", "their", "it",
+                                  "that", "this", "and", "or")]
             # DEFECT A (round 2026-08-19T0625Z) TOPIC FIX: the prior code took
             # _toks[-1] (the LAST content token) as the stance target. That is
             # only correct for imperative frames like "do you think we should
@@ -1163,32 +1131,72 @@ class SelfQueryMixin:
             # resolve to the real object ("mangroves"). The target is the user's
             # actual topic (real state), so the reply names the right subject —
             # no authored per-topic sentence.
+            # GENERALIZE (round 2026-08-20T0701Z): the FIRST/LAST-content-token
+            # heuristics (DEFECT A/B) were both fragile — they pick a single
+            # token at a fixed position, which misfires on real opinion frames:
+            #   * "how do you feel about ME leaving the water" lands on
+            #     "leaving" (a verb), and "do you think I'M contradictory" lands
+            #     on "contradictory" only by luck; the pronoun itself
+            #     ("my"/"me"/"i'm") was a recurring leak -> "forming a view on my".
+            #   * "so do you think i'm for or against street art" -> first token
+            #     "for" (a closed-class polarity word), not "street art".
+            # Fix: take the MAXIMAL noun phrase immediately after the opinion cue
+            # — i.e. the first CONTENT token that is NOT a closed-class word,
+            # pronoun, polarity word, or verb-scaffold, then keep accumulating
+            # subsequent content tokens (multiword topics like "street art",
+            # "public transit") until a closed-class boundary. Structural
+            # (closed-class + pronoun + polarity vocabulary), generalizes to any
+            # topic wording, no per-topic list. The target is the user's real
+            # subject (real state) so the reply names the right topic — no
+            # authored per-topic sentence.
+            _PRON_OR_CLOSED = (
+                "about", "on", "the", "a", "an", "of", "for", "with", "to",
+                "at", "in", "by", "from", "as", "if", "than", "but", "so",
+                "now", "then", "there", "here", "up", "down", "out", "off",
+                "when", "where", "why", "how", "who", "what", "which",
+                "because", "before", "after", "while", "during", "through",
+                "over", "under", "into", "onto", "upon", "until", "against",
+                "we", "should", "could", "would", "is", "are", "do", "does",
+                "you", "your", "i", "i'm", "i've", "i'd", "i'll", "my", "me",
+                "we're", "our", "us", "they", "them", "he", "she", "his",
+                "her", "its", "their", "it", "that", "this", "and", "or")
             _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
                                "support", "defend", "fund", "build", "make",
-                               "change", "help", "avoid", "prevent")
+                               "change", "help", "avoid", "prevent",
+                               "leaving", "feel", "think", "believe",
+                               # attitude verbs (round 2026-08-20T0701Z regression
+                               # t_a9ce2550): 'do you think i LIKE X' must resolve
+                               # the topic to X, not 'like X'. Structural verb
+                               # vocabulary — generalizes to any preference verb.
+                               "like", "likes", "liked", "love", "loves",
+                               "loved", "hate", "hates", "hated", "prefer",
+                               "prefers", "preferred", "dislike",
+                               "dislikes", "disliked")
             _i = 0
-            while _i < len(_toks) and _toks[_i] in _VERB_SCAFFOLD:
+            while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
+                                       or _toks[_i] in _VERB_SCAFFOLD
+                                       or _toks[_i].isdigit()):
                 _i += 1
-            # GENERALIZE (round 2026-08-19T1026Z, DEFECT B): the target was a
-            # SINGLE token (_toks[_i]), so a compound topic ("bronze age
-            # collapse", "tidal marsh restoration", "ultra-processed food",
-            # "bioluminescent fungi") was clipped to its first word only
-            # ("bronze", "tidal", "ultra", "bioluminescent") and the stance
-            # reply named the wrong (truncated) subject. Fix: keep consuming
-            # content tokens after the head until a clause-boundary word ends
-            # the noun phrase — either a closed-class connective ("as", which
-            # introduces a comparison clause: "silence AS a response" ->
-            # topic is just "silence") or a verb that FOLLOWS the topic
-            # ("ultra-processed food MATTERS to me"). This is a small,
-            # structural boundary set (not a per-topic table) so it
-            # generalizes to any multiword subject the user names.
-            _PHRASE_END = _CLOSED_CLASS + ("as", "matters", "matter", "seems",
-                                            "feels", "sounds", "looks", "means")
-            _j = _i
-            while _j < len(_toks) and _toks[_j] not in _PHRASE_END:
-                _j += 1
-            _target = " ".join(_toks[_i:_j])
-            _stance, _reason = self._agent_stance_on(_target)
+            if _i >= len(_toks):
+                # No real topic after the cue (e.g. "how do you feel about me?"
+                # with no object). Don't answer "a view on <empty>"; fall
+                # through so the next handler (or honest uncertainty) deals with
+                # it. Fail-open.
+                _agent_opinion = None
+                _stance, _reason = None, None
+            else:
+                # Accumulate the topic noun phrase: first content token, then
+                # keep adjacent content tokens (handles "street art", "public
+                # transit") but stop at the first closed-class/polarity boundary.
+                _target_toks = [_toks[_i]]
+                _j = _i + 1
+                while _j < len(_toks) and _toks[_j] not in _PRON_OR_CLOSED \
+                        and _toks[_j] not in _VERB_SCAFFOLD \
+                        and not _toks[_j].isdigit():
+                    _target_toks.append(_toks[_j])
+                    _j += 1
+                _target = " ".join(_target_toks)
+                _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."

@@ -4994,6 +4994,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             # so the reply falls back to the valence band, not a broken
             # "feeling <noun>" frame.
             affect_term = ""
+        else:
+            affect_term = _aw
         # C-fix (round 2026-08-08b): when the user EXPLICITLY names a felt state
         # via a feeling-copula ("i feel hollow", "i'm scared"), prefer that word
         # over a co-occurring EVENT word the detector scored higher. Otherwise
@@ -5106,12 +5108,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         # word; nothing authored. Hold the open question only when the state is
         # genuinely ambiguous ("mixed"). Fail-closed: when no word was surfaced,
         # fall back to the open question.
-        if isinstance(word, str) and word and not word.startswith("loss:"):
+        # The content comes from the user's OWN felt word (validated
+        # affect_term, not the raw detector token which can be a non-affect
+        # noun) plus the state-derived valence word; nothing authored. Hold the
+        # open question only when the state is genuinely ambiguous ("mixed").
+        # Fail-closed: when no validated affect word was surfaced, fall back to
+        # the open question.
+        if affect_term:
             if val_word != "mixed":
-                return (f"i hear you — feeling {word} is a lot, and it sounds "
-                        f"{val_word}.", "emotional_empathy")
-            return (f"i hear you — feeling {word} is a lot. how are you feeling, "
-                    f"really?", "emotional_empathy")
+                return (f"i hear you — feeling {affect_term} is a lot, and it "
+                        f"sounds {val_word}.", "emotional_empathy")
+            return (f"i hear you — feeling {affect_term} is a lot. how are you "
+                    f"feeling, really?", "emotional_empathy")
         return (f"i hear you. how are you feeling, really?",
                 "emotional_empathy")
 

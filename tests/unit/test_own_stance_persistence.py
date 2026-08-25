@@ -12,11 +12,9 @@ The reply is driven by REAL recorded state (the topic target + the stored
 polarity word / confidence), never authored prose per topic.
 """
 import os, sys, io, contextlib, tempfile, shutil
-from pathlib import Path
 os.environ["RAVANA_OFFLINE"] = "1"
-# Derive repo root from this test file's location
-PROJ = Path(__file__).resolve().parent.parent.parent
-for p in (str(PROJ), str(PROJ / "ravana_ml" / "src"), str(PROJ / "ravana" / "src")):
+PROJ = r"C:\Users\Likhith\Documents\Projects\ravana"
+for p in (PROJ, f"{PROJ}\\ravana_ml\\src", f"{PROJ}\\ravana\\src"):
     sys.path.insert(0, p)
 from ravana.chat.engine import CognitiveChatEngine
 
