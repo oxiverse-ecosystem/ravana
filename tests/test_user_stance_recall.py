@@ -12,6 +12,7 @@ This test fails WITHOUT the capability (the reply is the generic hedge, not a
 stance-grounded answer) and passes WITH it.
 """
 import os
+import re
 import sys
 import tempfile
 

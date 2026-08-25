@@ -436,6 +436,8 @@ class MemoryMixin:
                                 "do", "did", "name", "named")]
         if len(_qwords) < 2:
             return None
+        # Precompute query window vectors once (avoid O(E*N^3) redundant work)
+        _query_window_vecs = self._precompute_query_windows(_qwords)
         # score each stored key phrase against the query phrase windows
         _best_key, _best_score = None, -1.0
         for _key in entity_keys:
@@ -458,7 +460,7 @@ class MemoryMixin:
                 continue
             # score against each query window of the same span length (and any
             # window) using the max mean-cosine over all query word-windows.
-            _score = self._phrase_sim_to_query(_kv, _qwords)
+            _score = self._phrase_sim_to_query_cached(_kv, _query_window_vecs)
             if _score > _best_score:
                 _best_score, _best_key = _score, _key
         if _best_key is not None and _best_score >= self._RECALL_ENTITY_LINK_COS:
@@ -471,6 +473,29 @@ class MemoryMixin:
         if not _vecs:
             return None
         return np.mean(_vecs, axis=0)
+
+    def _precompute_query_windows(self, qwords):
+        """Precompute all query window vectors to avoid redundant work in entity loop."""
+        _n = len(qwords)
+        _window_vecs = []
+        # full-query mean
+        _qv_full = self._mean_vec(qwords)
+        if _qv_full is not None:
+            _window_vecs.append(_qv_full)
+        # all span windows
+        for _span in range(1, _n + 1):
+            for _i in range(0, _n - _span + 1):
+                _wv = self._mean_vec(qwords[_i:_i + _span])
+                if _wv is not None:
+                    _window_vecs.append(_wv)
+        return _window_vecs
+
+    def _phrase_sim_to_query_cached(self, key_vec, query_window_vecs) -> float:
+        """Max mean-cosine of key_vec against precomputed query window vectors."""
+        if not query_window_vecs:
+            return -1.0
+        _scores = [float(np.dot(key_vec, _qv)) for _qv in query_window_vecs]
+        return max(_scores)
 
     def _phrase_sim_to_query(self, key_vec, qwords) -> float:
         """Max mean-cosine of key_vec against any query window (1..len words),
