@@ -176,27 +176,85 @@ _NAME_REJECT_SEED = {
 # guard learns new predicates from conversation without a code deploy.
 _NAME_REJECT_RUNTIME: set = set()
 
+# ── Structural predicate-vs-name discriminator (round 2026-08-15T0326Z) ──
+# The OLD guard (2026-08-14T1110Z) leaned on a FROZEN affect/state reject
+# lexicon + a "runtime-extensible" half (register_name_reject). The runtime
+# half was DEAD CODE — nothing ever called register_name_reject, so a ROTATED
+# persona word that wasn't in the finite seed lexicon ("tender", in this
+# round's ELIAS probe) slipped straight through and got stored as the user's
+# NAME. A frozen lexicon is whack-a-mole: every new persona invents a new
+# predicate word and the list can never be complete.
+#
+# Structural fix: a bare-copula candidate "i'm X" is a PREDICATE (never a
+# name) whenever X has a lexical adjective sense in WordNet — because real
+# English names ("elias", "nadia", "petra", "wren") are proper nouns with NO
+# adjective sense, while every self-described state/predicate ("tender",
+# "proud", "bored", "furious", "intense", "calm") DOES. This is a property of
+# the language, not a curated word list, so it generalizes across EVERY future
+# rotated persona without a code change. WordNet is OPTIONAL (declared in
+# requirements.txt and cached under .venv-real/nltk_data); if it is missing we
+# fail CLOSED to the narrow seed lexicon above and log once — we never paper
+# over the import (per the project's silent-import-guard rule).
+try:
+    from nltk.corpus import wordnet as _WN
+    _WN.synsets("tender", pos="a")  # touch to force corpus load error early
+    _WN_AVAILABLE = True
+except Exception as _wn_err:  # pragma: no cover - optional dependency
+    _WN = None
+    _WN_AVAILABLE = False
+    import logging as _logging
+    _logging.getLogger("ravana.chat.user_model").warning(
+        "WordNet corpus unavailable (%s); name-poison guard falls back to the "
+        "narrow seed affect lexicon. Run: python -m nltk.downloader wordnet",
+        type(_wn_err).__name__)
+
+
+def _is_predicate_word(word: str) -> bool:
+    """Structural test: is `word` an English predicate (adjective/participle),
+    rather than a proper-noun name? True iff WordNet has an adjective sense for
+    it. Real names have no adjective sense, so they are NOT rejected."""
+    w = (word or "").strip().lower().strip("'\"")
+    if not w or " " in w or len(w) > 24:
+        return False
+    if _WN_AVAILABLE:
+        try:
+            return bool(_WN.synsets(w, pos="a"))
+        except Exception:
+            return False
+    # Fail-closed fallback: a small structural heuristic for the no-WordNet
+    # case — common adjective morphology (-ed/-ing participle or -y/-ful/-ive
+    # suffix) is still a predicate signal even without the lexicon.
+    return w.endswith(("ed", "ing", "ful", "ive", "ous", "y", "less", "ish"))
+
 
 def register_name_reject(word: str) -> None:
     """Grow the bare-copula name reject set from observed affect words.
 
-    Called by the empathy/support classifier when an "i'm X" utterance is
-    classified as a genuine affect/state disclosure. This is how RAVANA
-    extends the guard online (no retrain, no code change) — satisfying the
-    round's seed-vs-hardcoding test.
+    Called by the empathy/support classifier (engine.py §3 affective-disclosure
+    gate) whenever an "i'm X" utterance is classified as a genuine affect/state
+    disclosure. This is how RAVANA extends the guard online (no retrain, no code
+    change) — satisfying the round's seed-vs-hardcoding test. The word is also
+    structurally re-confirmed as a predicate below, so we never add a real name
+    token to the deny set.
     """
     w = (word or "").strip().lower().strip("'\"")
-    if w and len(w) <= 24 and " " not in w:
+    if w and len(w) <= 24 and " " not in w and _is_predicate_word(w):
         _NAME_REJECT_RUNTIME.add(w)
 
 
 def _name_rejectable(word: str) -> bool:
-    """True if `word` is a known non-name predicate (reject as a name)."""
+    """True if `word` is a predicate, never a proper-noun name, so reject it as
+    a stored identity. Combines (a) the narrow seed affect lexicon (kept for
+    graceful degradation when WordNet is absent) and (b) the STRUCTURAL
+    WordNet adjective-sense test that generalizes to any rotated persona word."""
     w = (word or "").strip().lower().strip("'\"")
+    if not w:
+        return False
     return (w in _NAME_REJECT_SEED
             or w in _NAME_REJECT_RUNTIME
             or w in _AFFECT_STATE_LEXICON
-            or w in _ACTIVITY_DENY)
+            or w in _ACTIVITY_DENY
+            or _is_predicate_word(w))
 
 
 # Broad affect-term vocabulary used to NAME a felt state in the empathy
@@ -286,6 +344,74 @@ _FRAMER_OBJ = frozenset({
     "today", "tonight", "yesterday", "tomorrow", "earlier", "later",
     "currently", "right", "then", "here",
 })
+
+# Aspectual / framer verbs that LEAD an activity but are not the activity head
+# themselves ("i've BEEN building", "i STARTED keeping", "i got into"). When
+# extracting the activity verb for date mining, skip these and take the lexical
+# verb that follows. Defined once (round 2026-08-15T0326Z) so the date-miner
+# blocks (a)/(b)/(c) stay in sync instead of each hardcoding its own skip list.
+_ASPECTUAL_VERBS = frozenset({
+    "been", "have", "has", "had", "start", "starts", "started", "begin",
+    "begins", "began", "get", "gets", "got", "go", "goes", "went",
+})
+
+# Particles that turn a verb into a phrasal ("pick up", "took up", "got into").
+# Appended to the captured head verb so "i picked up the cello" stores
+# "pick up" (not just "pick"). Structural; generalizes across any phrasal verb.
+_PARTICLES = frozenset({"up", "on", "in", "out", "off", "down", "with", "into"})
+
+# Closed-class words that CLOSE the activity-object span (the object is the
+# verb's patient; prepositions / time / clause words end it). SEED vocabulary
+# (RAVANA-expandable): a word added here only changes where the object span
+# ends, never the answer. Generalizes across phrasal/time adjuncts.
+_OBJECT_STOP = frozenset({
+    "since", "in", "on", "at", "for", "from", "to", "by", "of",
+    "about", "around", "into", "during", "after", "before", "when", "while",
+    "where", "because", "but", "and", "or", "so", "that", "which", "what",
+    "who", "how", "why", "over", "near", "under", "with",
+})
+# Determiners / particles to SKIP (not close the span) before/within the
+# object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
+# "frame". Also SEED vocabulary; expanding it only changes which leading
+# function words are ignored.
+_OBJECT_SKIP = frozenset({
+    "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
+    "this", "these", "those", "some", "every", "all", "each",
+    "up", "out", "off", "down", "in", "on", "into", "back",
+})
+
+
+def _activity_object(clause_tokens, verb_idx) -> str:
+    """Extract the activity object following the verb at verb_idx in a token
+    list (the verb patient, e.g. (frames) in (building frames since 2019)).
+
+    Structural, no per-topic table: skip leading determiners/particles
+    (_OBJECT_SKIP), collect the run of content words, and stop at the first
+    span-closing word in _OBJECT_STOP (prepositions / time / clause words like
+    (since)/(for)/(when)). Bounded to 5 tokens so a runaway clause cannot
+    swallow the whole sentence. The result is concatenated onto the mined
+    since/since_age value so a later DATE-GROUNDED recall can DISAMBIGUATE two
+    activities that share a verb head but differ by object (building frames vs
+    building cabinets) - the object is exactly what the user query names.
+    Returns empty string when there is no object (bare activity), so the
+    existing value shape (build 2019) is preserved for verb-only disclosures.
+    Fail-closed: out-of-range index returns empty.
+    """
+    if verb_idx < 0 or verb_idx + 1 >= len(clause_tokens):
+        return ""
+    _obj = []
+    for _t in clause_tokens[verb_idx + 1:]:
+        _tl = _t.lower()
+        if _tl in _OBJECT_STOP:
+            break
+        if _tl in _OBJECT_SKIP:
+            continue
+        if not _tl or _tl.startswith("'") or _tl.isdigit():
+            break
+        _obj.append(_tl)
+        if len(_obj) >= 5:
+            break
+    return " ".join(_obj)
 
 
 def _activity_verb_ok(verb: str) -> bool:
@@ -1139,10 +1265,41 @@ class UserModel:
             'my cat's name is whiskers' -> entity=cat, attr=name). This is
             structural: any 'my <X>'s <Y> is Z' is stored under entity X, never
             under the user's 'i' subject. Generic — no per-entity table. The
-            entity grows from experience (the user can name any relation)."""
+            entity grows from experience (the user can name any relation).
+
+            Round 2026-08-15T0326Z GENERALIZE: also handle the HEADLESS
+            possessive 'my <entity> <relation> is Z' (no apostrophe), e.g.
+            'my daughter name is petra' -> attr 'daughter name'. The old code
+            only matched the '<entity>'s <relation>' form, so 'daughter name'
+            fell through to subject 'i' (attr 'daughter name') and a later
+            'what's my daughter's name' echoed the USER's name instead. Now any
+            attr whose LAST token is a relation word resolves to
+            (entity=<head>, relation=<word>), so the miner agrees with the
+            recaller (_structured_recall._ENT_ATTR) by construction for BOTH
+            possessive shapes. Still returns (None, attr) for genuine self-facts
+            like 'favorite color' (neither head nor tail is a relation word)."""
             _am = re.match(r"^([\w'-]+)'s\s+(.+)$", attr)
             if _am:
                 return _am.group(1).strip().lower(), _am.group(2).strip().lower()
+            # Headless possessive: 'my daughter name is petra' -> attr
+            # 'daughter name'. The trailing token is a relation word; the head
+            # is the entity. Reused _REL_WORDS (the same relation vocabulary the
+            # recaller keys on) so miner and recaller stay in sync.
+            # GUARD: a head that is a SELF-FACT QUALIFIER ('favorite', 'least',
+            # 'most', ...) is NOT an entity — 'my favorite color is ochre'
+            # stays a genuine self-fact (attr 'favorite color', subject 'i'),
+            # not an entity 'favorite' with relation 'color'. Without this guard
+            # the tail-relation test wrongly entity-scoped 'favorite color' and
+            # broke its recall (round 2026-08-15T0326Z regression check).
+            # Only a multi-word attr is split; a single-token attr ('cat',
+            # 'daughter', 'name') is left as-is so pet/self-fact mining keeps
+            # its existing subject='i' key (the single-token branch was removed:
+            # it entity-scoped 'my cat is pixel' as ('cat','is','pixel') and
+            # broke pet mining).
+            _toks = attr.split()
+            if len(_toks) >= 2 and _toks[-1] in _REL_WORDS \
+                    and _toks[0] not in _SELF_QUALIFIER:
+                return " ".join(_toks[:-1]).strip(), _toks[-1]
             return None, attr
 
         def _put_fact_ent(entity: str, attr: str, val: str, conf: float) -> None:
@@ -1209,22 +1366,21 @@ class UserModel:
             r"(?:in|near|at|from|to|onto)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
             q_clean, re.IGNORECASE)
-        # D-D (round 2026-08-13T0634Z): a location fact must be a DECLARATIVE
-        # self-disclosure, not a substring matched inside a question or a
-        # conditional lead-in. The bare regex matches "i am from what i've
-        # said" inside "if you had to describe ... from what i've said?" and
-        # stored ('i','location','what i've said') — a rhetorical question
-        # mined as the user's home town. Guard: drop the location capture when
-        # the turn is an interrogative (ends with "?") or opens with a
-        # conditional/relative lead ("if ...", "when ...", "who ...", "what
-        # ...", "how ...") — a real "i live in X" disclosure is none of those.
-        # Structural (no per-place list); a genuine disclosure still stores.
-        if m_loc is not None:
-            _loc_lead = q_clean.lstrip()
-            if ("?" in q_clean) or re.match(
-                    r"^(if|when|who|what|how|why|whether|suppose|imagine)\b",
-                    _loc_lead):
-                m_loc = None
+        # Round 2026-08-15T0326Z: also capture "i keep <thing> on <place>" /
+        # "i have my studio on <place>" — a common way users state WHERE they
+        # are (lighthouse keeper, boat restorer, ...). The main m_loc verb set
+        # only covered live/am/was/grew-up, so "i keep the lighthouse on hollis
+        # rock" was stored as a 'does' activity with NO location fact, and a
+        # later "where do i live" fell through to an over-broad self-profile
+        # dump (echoing the user's name). Generic: any "keep/have <noun> on
+        # <Place>" captures the place head. The place is the token after "on";
+        # capped at 4 words so a trailing clause ("on hollis rock, it's tiny")
+        # is trimmed.
+        m_loc_on = re.search(
+            r"\bi\s+(?:keep|have|kept|had)\s+(?:the\s+|a\s+|an\s+|my\s+)?"
+            r"[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3}\s+"
+            r"on\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3})",
+            q_clean, re.IGNORECASE)
         # FIX (round v-aug06b): when the location clause NAMES a place via
         # "called/named" (e.g. "i live in a small town called hollow creek"),
         # the real toponym is the named phrase, not the filler leading up to
@@ -2499,6 +2655,16 @@ class UserModel:
         #    PRECEDES it (same sentence) for an activity verb. This is robust to
         #    English contractions ("i've been", "i'm"), word order, and the
         #    leading framer words the verb-frame deny set handles elsewhere.
+        #    Round 2026-08-15T0326Z GENERALIZE: the old code matched a FROZEN
+        #    verb allowlist (building|keep|repair|...). A rotated persona verb
+        #    outside that list ("i've kept the light since 2019" -> "kept" is
+        #    past-tense and was absent) was silently dropped, so the date fact
+        #    never landed and "what year did i start the light" failed. Fix:
+        #    extract the FIRST verb in the clause STRUCTURALLY (any \w+ that is
+        #    not closed-class), then accept it iff it is a legitimate activity
+        #    verb (_activity_verb_ok) — reusing the SAME discriminator the D3
+        #    'does' miner uses, so the captured fact stays recallable through
+        #    the identical 'since' resolver. No per-topic verb list to exhaust.
         for _ym in re.finditer(
                 r"\b(?:since|in|back\s+in|during)\s+((?:19|20)\d{2}|\d{2})\b",
                 q_clean, re.IGNORECASE):
@@ -2507,20 +2673,44 @@ class UserModel:
                 continue
             _clause = q_clean[:_ym.start()].rsplit(".", 1)[-1].rsplit(
                 "!", 1)[-1].rsplit("?", 1)[-1].rsplit(",", 1)[-1]
-            _av = re.search(
-                r"\b(building|build|keeping|keep|repair|repairing|fix|fixing|"
-                r"play|playing|picked\s+up|took\s+up|got\s+into|move|moved|"
-                r"study|studying|learn|learning|brew|brewing|raise|raising|"
-                r"garden|gardening|start|starting|began|begin|write|writing|"
-                r"read|reading|run|running|teach|teaching|cook|cooking|"
-                r"craft|crafting)\b", _clause, re.IGNORECASE)
-            if not _av:
+            # Round 2026-08-15T0326Z GENERALIZE: take the FIRST legitimate
+            # activity verb in the clause, skipping aspectual/framer verbs
+            # ("i've BEEN building" -> build; "i STARTED keeping" -> keep). A
+            # verb precedes its object in English, so the FIRST activity-ok
+            # verb (after dropping aspectuals) is the activity head — not the
+            # auxiliary ("been"/"started") that led, and not a trailing noun
+            # ("tube amps") that happens to pass _activity_verb_ok. Structural
+            # (no frozen verb list); reuses _activity_verb_ok so rotated-persona
+            # verbs (kept/raced/...) still land. Restored the content-head
+            # behaviour the old miner had (regression vs
+            # test_round_2026_08_14T0608_temporal when the first raw word was
+            # taken).
+            _verbs = [v.lower() for v in re.findall(
+                r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)]
+            _verb = None
+            _vidx = -1
+            for _i, v in enumerate(_verbs):
+                if v in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(v):
+                    _verb = v
+                    _vidx = _i
+                    break
+            if _verb is None:
                 continue
-            _act = self._opinion_topic(_av.group(1).lower())
+            _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _act = self._verb_stem(_act)
-            _put_fact("since", f"{_act} {_yr}", 0.7)
+            # Capture the activity OBJECT so two activities that share a verb
+            # head but differ by object ('building frames' vs 'building
+            # cabinets') store DISTINCT facts and a later DATE-GROUNDED query
+            # ('when did i start building frames') can pick the right one. The
+            # object is sliced STRUCTURALLY (closed-class / time-adjunct words
+            # close the span), so verb-only disclosures ('i've been restoring
+            # since 2018') store the bare 'restore 2018' shape unchanged.
+            _obj = _activity_object(_verbs, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since", f"{_act_full} {_yr}", 0.7)
         # (b) relative duration "for <N> years" / "<N> years now" / "<N> years ago"
         for _rm in re.finditer(
                 r"\b(?:for|about|over|nearly|almost)\s+"
@@ -2540,23 +2730,38 @@ class UserModel:
             _since = _THIS_YEAR - _n
             # find the activity the duration attaches to: the nearest verb
             # phrase before the duration marker (the activity is stated in the
-            # same clause, e.g. "i've repaired tube amps for eleven years")
+            # same clause, e.g. "i've repaired tube amps for eleven years").
+            # Round 2026-08-15T0326Z GENERALIZE: extract the activity verb
+            # STRUCTURALLY (any word that passes _activity_verb_ok), skipping
+            # aspectual/framer verbs, and take the FIRST such verb — a verb
+            # precedes its object, so the first activity-ok verb is the head
+            # ("i've REPAIRED tube amps" -> repair), not a trailing noun
+            # ("amps") that merely passes _activity_verb_ok. Replaces the
+            # frozen verb allowlist so rotated-persona activities land too.
             _pre = q_clean[:_rm.start()]
             _av = re.findall(
-                r"\b(building|build|built|keeping|keep|kept|repair|repairing|"
-                r"repaired|fix|fixing|fixed|play|playing|played|picked\s+up|"
-                r"took\s+up|got\s+into|move|moved|study|studying|studied|"
-                r"learn|learning|learned|brew|brewing|brewed|raise|raising|"
-                r"raised|garden|gardening|gardened|write|writing|wrote|read|"
-                r"reading|ran|run|running|teach|teaching|taught|cook|cooking|"
-                r"cooked|craft|crafting|crafted)\b", _pre, re.IGNORECASE)
-            if not _av:
+                r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
+            _verb = None
+            _vidx = -1
+            for _i, _v in enumerate(_av):
+                _vl = _v.lower()
+                if _vl in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(_vl):
+                    _verb = _vl
+                    _vidx = _i
+                    break
+            if _verb is None:
                 continue
-            _act = self._opinion_topic(_av[-1].lower())
+            _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _act = self._verb_stem(_act)
-            _put_fact("since", f"{_act} {_since}", 0.6)
+            # Capture the activity OBJECT (mirrors block (a)) so overlapping
+            # verb heads differ by object are stored as distinct dated facts
+            # and disambiguated at recall.
+            _obj = _activity_object(_av, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since", f"{_act_full} {_since}", 0.6)
         # (c) "when i was <AGE>" / "since i was <AGE>" age-anchored start.
         #     Age may be a digit ("when i was 9") or a spelled number up to
         #     twenty ("when i was nine") — both are handled via the same
@@ -2578,21 +2783,43 @@ class UserModel:
             # ("i picked up the cello when i was nine") OR after it
             # ("since i was nine i've played cello"). Scan the whole sentence
             # the age sits in, both sides of the age token.
+            # Round 2026-08-15T0326Z GENERALIZE: structural first-verb
+            # extraction validated by _activity_verb_ok, replacing the frozen
+            # verb allowlist so any activity verb (e.g. a rotated-persona
+            # verb) anchors the age fact.
             _clause = q_clean[max(0, _am.start() - 60):_am.end() + 60]
-            _av = re.search(
-                r"\b(pick\s+up|picked\s+up|took\s+up|got\s+into|start|started|"
-                r"began|begin|learn|learned|learning|play|playing|study|"
-                r"studying|write|writing|read|reading|run|running|brew|brewing|"
-                r"raise|raising|keep|kept|build|building|repair|repairing|"
-                r"fix|fixing|cook|cooking|craft|crafting|garden|gardening|"
-                r"move|moved|teach|teaching)\b", _clause, re.IGNORECASE)
-            if not _av:
+            # Round 2026-08-15T0326Z GENERALIZE: take the FIRST legitimate
+            # activity verb, skipping aspectual/framer verbs ("i", "was",
+            # "been", ...), and append a trailing particle ("up"/"on"/...) so
+            # a phrasal verb ("picked UP the cello") stores "pick up" — not
+            # just "pick". Structural; reuses _activity_verb_ok + _ASPECTUAL_VERBS
+            # + _PARTICLES so rotated-persona verbs land too (replaces the
+            # frozen verb allowlist that missed inflected/phrasal forms).
+            _toks = re.findall(r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)
+            _verb = None
+            _vidx = -1
+            for _i, _tk in enumerate(_toks):
+                _tl = _tk.lower()
+                if _tl in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(_tl):
+                    _verb = _tl
+                    _vidx = _i
+                    break
+            if _verb is None:
                 continue
-            _act = self._opinion_topic(_av.group(1).lower())
+            # phrasal: include a following particle ("pick up", "took up")
+            if _vidx + 1 < len(_toks) and _toks[_vidx + 1].lower() in _PARTICLES:
+                _verb = f"{_verb} {_toks[_vidx + 1].lower()}"
+            _act = self._verb_stem(_verb)
             if not _act:
                 continue
-            _act = self._verb_stem(_act)
-            _put_fact("since_age", f"{_act} {_age}", 0.5)
+            # Capture the activity OBJECT (mirrors blocks (a)/(b)) so a later
+            # age-anchored recall can disambiguate by object when two verb heads
+            # overlap.
+            _obj = _activity_object(_toks, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since_age", f"{_act_full} {_age}", 0.6)
         # (d) APPROXIMATE / HUMAN-PHRASED durations. Real speech rarely says
         #     "for eleven years" — it says "for a decade" / "a few years now" /
         #     "several years" / "two decades" / "many years". Block (b) only
@@ -2630,23 +2857,31 @@ class UserModel:
                 _since = _THIS_YEAR - _n
                 # attach to the nearest activity verb before the phrase (same
                 # clause, e.g. "i've been brewing beer for a decade"); reuse
-                # block (b)'s verb vocabulary so the fact is recallable.
+                # block (b)'s structural verb extraction so the fact is
+                # recallable and rotated-persona verbs land too.
                 _pre = q_clean[:_dm.start()]
                 _av = re.findall(
-                    r"\b(building|build|built|keeping|keep|kept|repair|repairing|"
-                    r"repaired|fix|fixing|fixed|play|playing|played|picked\s+up|"
-                    r"took\s+up|got\s+into|move|moved|study|studying|studied|"
-                    r"learn|learning|learned|brew|brewing|brewed|raise|raising|"
-                    r"raised|garden|gardening|gardened|write|writing|wrote|read|"
-                    r"reading|ran|run|running|teach|teaching|taught|cook|cooking|"
-                    r"cooked|craft|crafting|crafted)\b", _pre, re.IGNORECASE)
-                if not _av:
+                    r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
+                _verb = None
+                _vidx = -1
+                for _i, _v in enumerate(_av):
+                    _vl = _v.lower()
+                    if _vl in _ASPECTUAL_VERBS:
+                        continue
+                    if _activity_verb_ok(_vl):
+                        _verb = _vl
+                        _vidx = _i
+                        break
+                if _verb is None:
                     continue
-                _act = self._opinion_topic(_av[-1].lower())
+                _act = self._verb_stem(_verb)
                 if not _act:
                     continue
-                _act = self._verb_stem(_act)
-                _put_fact("since", f"{_act} {_since}", 0.6)
+                # Capture the activity OBJECT (mirrors blocks (a)/(b)/(c)) so
+                # fuzzy-duration facts also disambiguate by object at recall.
+                _obj = _activity_object(_av, _vidx)
+                _act_full = f"{_act} {_obj}".strip() if _obj else _act
+                _put_fact("since", f"{_act_full} {_since}", 0.6)
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are

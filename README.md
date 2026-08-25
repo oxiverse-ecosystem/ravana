@@ -79,6 +79,14 @@ on this codebase:
   **studying** volcanoes", not "started **study**"), and a redundant inceptive
   ("started studying…") is collapsed to the gerund. No LLM, no per-topic reply
   table. See `docs/CAPABILITY_DATE_RECALL_PARAPHRASE.md`.
+- **Tells two activities apart when they share a verb but differ by object.**
+  Told *"i've been building frames since 2019"* and *"i started building cabinets
+  in 2021"*, it mines the object (`frames` / `cabinets`) into each dated fact and
+  recalls the right one: *"when did i start building frames"* → *"you started
+  building frames in 2019."*, and *"since what year have i been building
+  cabinets"* → *"you started building cabinets in 2021."* Previously both returned
+  the same (wrong) year because only the verb head was stored. No LLM, no
+  per-topic reply table. See `docs/CAPABILITY_OBJECT_DISAMBIGUATED_DATE_RECALL.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
