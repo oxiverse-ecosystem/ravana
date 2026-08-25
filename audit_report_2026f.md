@@ -1,6 +1,6 @@
 INDEPENDENT AUDIT — RAVANA round t_f04e8f53 (2026-08-08f)
 Auditor: card t_cd6396f6 (separate agent, did NOT edit repo source)
-Repo: C:\Users\Likhith\Documents\Projects\ravana  Branch: fix/cognition-driven-generation
+Repo: ravana  Branch: fix/cognition-driven-generation
 Commits under audit: ffa80f1, 3e74925 (on top of e34a448)
 
 =====================================================================
@@ -10,6 +10,7 @@ is misleading (no coverage of the fixes through process_turn).
 
 --- 1. CI TEST GATE (the round's own claim) ---
 Run: RAVANA_OFFLINE=1 pytest tests/unit/  (real venv .venv-real)
+      PowerShell: $env:RAVANA_OFFLINE=1; pytest tests/unit/
 Result: 1804 passed, 23 skipped, 0 failed, 1 warning  (848s)
 Also: tests/test_dehardcode_plan.py = 22 passed.
 => The round's "0 regressions / 1804 passed" claim REPRODUCES. CI is GREEN.

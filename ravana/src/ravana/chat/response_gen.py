@@ -4718,7 +4718,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             else:
                 _word = strongest[1]
             self._update_vad_baseline(V_lex)
-            self._tmp_signed = None
+            # DO NOT clear _tmp_signed here; _appraised_affective_reply needs it
+            # for mixed-affect detection.
             return (kind, _word)
 
         base = getattr(self, "_vad_baseline", {"mu": 0.0, "sigma": 0.3, "n": 0})
@@ -4740,7 +4741,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             word = _signed["neg"][1]
         else:
             word = strongest[1] if strongest else None
-        self._tmp_signed = None
+        # DO NOT clear _tmp_signed here; _appraised_affective_reply needs it
+        # for mixed-affect detection.
         return (kind, word)
 
     def _epistemic_vad(self) -> Dict[str, float]:
@@ -4830,6 +4832,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         gate = self._orientation_of(ctx)
         if gate != "self_report":
             # Out of empathy scope: honest non-affective reply, no pool.
+            self._tmp_signed = None
             if gate == "agent_addressed":
                 return (f"that's directed at me — i appreciate you saying it.",
                         "affective_self_addr")
@@ -4936,6 +4939,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # 08-08b felt-override on this branch was reverted: it produced
             # "sorry about your sad" / "sorry about your hollow".
             if lost:
+                self._tmp_signed = None
                 if has_stored_detail:
                     return (f"i'm so sorry about your {lost}. i remember you "
                             f"mentioned them before — still the same for you?",
@@ -4943,6 +4947,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return (f"i'm so sorry about your {lost}. that's a real loss, "
                         f"and it hurts. i'm here if you want to talk about them.",
                         "emotional_empathy")
+            self._tmp_signed = None
             return (f"i'm so sorry for your loss. that's really painful, and "
                     f"i'm here for you. do you want to talk about it?",
                     "emotional_empathy")
@@ -5043,6 +5048,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
         if kind == "negative":
+            self._tmp_signed = None
             if has_stored_detail:
                 return (f"that sounds {val_word}. you've shared some of this "
                         f"before — what's been the hardest part lately?",
@@ -5079,11 +5085,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # genuine mixed valence: name both poles, grounded in the user's
                 # own words, not a fixed cheerful template.
                 _neg_label = _neg_word[1]
+                self._tmp_signed = None
                 return (f"that's a real mix — feeling {_pos_word} and a bit "
                         f"{_neg_label} at once. what's the {_pos_word} part about?",
                         "emotional_empathy")
             close = (f"what's got you feeling {_pos_word}?"
                      if _pos_word not in ("good", "") else "what made today good?")
+            self._tmp_signed = None
             return (f"i'm glad something's got you feeling {_pos_word}. {close}",
                     "emotional_empathy")
 

@@ -2123,8 +2123,7 @@ class ReasoningMixin:
                 # like/love
                 ml = re.search(
                     r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$)"
-                    r"|\s+-{1,3}\s+"
-                    r"\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+                    r"|\s+-{1,3}\s+|\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
                     r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)",
                     q, re.IGNORECASE)
                 if ml:
