@@ -4111,8 +4111,7 @@ class UserModel:
         # "juniper", not "juniper and found a root"). The verb is matched
         # with optional inflection so gerunds/continuous tenses are caught.
         _act_pat = re.compile(
-            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
+            r"\bi\s+(?:" + _FRAMER_SKIP + r")?"
             r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
             r"(?:been\s+)?"
             r"(" + "|".join(_ACTIVITY_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
@@ -4288,8 +4287,7 @@ class UserModel:
         # conflated with ongoing activity). Same clause-boundary + content-head
         # rules as the activity capture above.
         _evt_pat = re.compile(
-            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
+            r"\bi\s+(?:" + _FRAMER_SKIP + r")?"
             r"(?:have\s+|has\s+|had\s+)?(?:almost\s+|nearly\s+)?"
             r"(" + "|".join(_EVENT_VERBS) + r")(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
             r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
