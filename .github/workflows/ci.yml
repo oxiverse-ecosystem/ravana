@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, 'auto/round-**']
 
 # A new push to the same ref cancels the previous, still-running run.
 concurrency:

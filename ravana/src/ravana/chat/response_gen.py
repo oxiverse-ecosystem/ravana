@@ -6602,7 +6602,22 @@ class ResponseGenMixin(ChainWalkerMixin):
         # *before* decomposition for conditional queries, because hypotheticals
         # ("what if X disappeared") should forward-chain consequences from the
         # causal graph rather than merely decomposing web sub-questions.
-        if self._is_conditional_query(ctx.raw_input):
+        # F4 (round 2026-08-10T1401Z): the fused prototype router can promote
+        # "conditional" for a plain declarative (stateful priming across a long
+        # conversation), which routes an unrelated statement into the
+        # counterfactual simulator and leaks an internal graph dump
+        # ("here's the most likely ripple if X were other than it is..."). A
+        # genuine counterfactual REQUIRES an explicit hypothetical MARKER
+        # (if / suppose / what if / were / would / imagine / in a world where).
+        # Fail-closed: without one, the simulator must not fire regardless of
+        # what the fused router said — a bare declarative is an assertion, not a
+        # scenario to forward-chain. This guards the leak without depending on
+        # the opaque router's internal state.
+        _HAS_HYPOTHETICAL = bool(re.search(
+            r"\b(if|suppose|supposing|assume|assuming|what if|imagine|"
+            r"were|would|in a world (where|without)|pretend)\b",
+            (ctx.raw_input or "").lower()))
+        if self._is_conditional_query(ctx.raw_input) and _HAS_HYPOTHETICAL:
             _sim = self._simulate_counterfactual(ctx)
             if _sim:
                 if getattr(self, '_trace_enabled', False):
@@ -6708,7 +6723,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # answer, do NOT fall through to a stale subject definition (that would
         # emit "Sun is the star..." for "if the sun disappeared" — exactly the
         # abstract, off-topic reply we must avoid). Be honest instead.
-        if self._is_conditional_query(ctx.raw_input):
+        if self._is_conditional_query(ctx.raw_input) and _HAS_HYPOTHETICAL:
             # Attempt generative counterfactual simulation (DMN + hippocampus
             # analog) BEFORE falling back to uncertainty: given an intervention
             # do(X) on the grounded subject, forward-chain along causal edges to

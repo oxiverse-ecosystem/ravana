@@ -1073,6 +1073,12 @@ class SelfQueryMixin:
             # value (honest, no fabrication).
         if _agent_opinion:
             _tail = t[_agent_opinion.end():]
+            # Drop a leading "honest"/"honest read"/"your read" scaffold that
+            # may sit between the cue and the topic ("your honest read on the
+            # trapeze versus the gym" -> tail begins "honest read on the ...").
+            _tail = re.sub(
+                r"^\s*(honest\s+)?(read|take|view|opinion|thoughts|stance)"
+                r"(\s+(on|about|now|these\s+days))?\s*", "", _tail)
             # Take the LAST meaningful content noun as the stance target. The
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
