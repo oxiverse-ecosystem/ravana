@@ -3728,7 +3728,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _at and _at[-1] == _qr_name:
                             _matched = True
                         elif _qr_name in _val.lower().split():
-                            _matched = True
+                            # A bare pet-slot fact (species-keyed attr, value ==
+                            # name) is the WEAK generic pet render ("your cat is
+                            # mochi"). When a richer 'does' fact ALSO names this
+                            # entity with an explicit noun phrase ("keep pet
+                            # parrot named mango"), defer to the type-agnostic
+                            # reverse-name resolver below (D-B, round
+                            # 2026-08-17T1126Z) which recovers that fuller
+                            # phrase ("your pet parrot.") instead of answering
+                            # here with the bare canonical species. Simple pet
+                            # facts with no competing 'does' entry (e.g. "my cat
+                            # Mochi sleeps...") are unaffected and still match.
+                            if _or_is_pet(_attr) and any(
+                                    _dk[0] == "i" and _dk[1].lower() == "does"
+                                    and not getattr(_df, "superseded", False)
+                                    and _qr_name in (getattr(_df, "value", "") or "").lower().split()
+                                    for _dk, _df in pf.facts.items()
+                                    if isinstance(_dk, tuple) and len(_dk) == 3):
+                                pass
+                            else:
+                                _matched = True
                     # (c) pet match.
                     if not _matched and _qr_pet is not None and _or_is_pet(_attr):
                         if _or_base_sp(_attr) == _qr_pet:
