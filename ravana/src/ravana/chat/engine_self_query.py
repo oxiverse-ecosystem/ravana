@@ -587,6 +587,49 @@ class SelfQueryMixin:
             return ""
         return _t
 
+    def _agent_stance_word(self, pol: float, conf: float) -> str:
+        """Map a derived stance polarity to a short grounded phrasing token.
+
+        These are single short LEXICON entries (a word/phrase, never a
+        sentence), so the reply the caller composes (`f"i {word} {topic}"`) is
+        a thin connective wrapping REAL cognitive state, not authored prose.
+        The deciding test: if the topic changed, the ANSWER CONTENT still comes
+        from the polarity/confidence RAVANA computed — only the token varies.
+        """
+        if pol >= 0.6:
+            return "strongly value"
+        if pol >= 0.3:
+            return "lean toward"
+        if pol > 0.05:
+            return "am drawn to"
+        if pol <= -0.6:
+            return "am against"
+        if pol <= -0.3:
+            return "am wary of"
+        if pol < -0.05:
+            return "am cool on"
+        return "feel neutral about"
+
+    def _agent_stance_key(self, target: str) -> str:
+        """Canonical key for an agent-derived stance on `target`.
+
+        Mirrors the junk-guard used for the constitutive-value keys so a
+        non-topic (``"right"``/``"it"``/``"that"``) can never become a stored
+        stance — those are exactly the confabulation class the stance resolver
+        must reject. Returns the stripped lowercase key, or ``""`` if the target
+        is not a real topic (callers treat the empty key as "no stance").
+        """
+        _t = (target or "").strip().lower()
+        _JUNK = {"all", "really", "it", "that", "things", "right",
+                 "way", "matter", "thing", "point",
+                 "idea", "question", "stuff", "something",
+                 "anything", "everything", "issue", "topic",
+                 "yes", "no", "maybe", "ok", "okay",
+                 "about", "on", "the", "a", "an"}
+        if not _t or _t in _JUNK:
+            return ""
+        return _t
+
     def _route_self_experience(self, user_input: str) -> Optional[str]:
         """Experiential self-model responder (cortical midline structures).
 

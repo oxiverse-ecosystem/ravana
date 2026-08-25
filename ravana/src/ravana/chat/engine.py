@@ -5850,7 +5850,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         have these empty anyway.
         """
         try:
-            self._episodic_index = {}
+            self._episodic_index.clear()
+            self.user_model._episodic_index = self._episodic_index
         except Exception:
             pass
         try:
@@ -8030,13 +8031,51 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _mem = self._try_hippocampal_retrieval(
                     type("Ctx", (), {"subject": subject})(), user_input)
                 if _mem:
-                    _resp = self._phrase_recalled_fact(user_input, subject, _mem)
-                    self._last_strategy = "hippocampal_recall"
-                    self._last_responses.append(_resp)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.notify_user_idle()
-                    return _resp
+                    # RELEVANCE FLOOR (round 2026-08-12T0613Z). The hybrid
+                    # ranking inside _try_hippocampal_retrieval has NO overlap
+                    # floor on its primary sort key, so it can return its
+                    # top-ranked trace even when that trace shares essentially
+                    # no content with the question. Echoing an unrelated prior
+                    # utterance as "you told me earlier: <unrelated turn>" is a
+                    # source-monitoring / honest-memory error (measured this
+                    # round: "come on, the ocean over the lamp any night,
+                    # right?" surfaced the relief-boat grief memory; "when i
+                    # contradict myself, do you pick a side" surfaced the beam
+                    # self-description; "if i never came back" surfaced the
+                    # boat-crash memory). The lexical recall path already
+                    # enforces the same >=2-token floor at
+                    # engine_reasoning.py:1529; this applies it at the ECHO
+                    # boundary so EVERY return path from the retriever is
+                    # covered. Structural: raw content-token overlap (len>=3),
+                    # no per-question list, no threshold tuning. A SINGLE shared
+                    # setting word (e.g. "lamp" appearing in both the question
+                    # and an unrelated boat-grief memory) must NOT trip the
+                    # floor, so we additionally require the question's RESOLVED
+                    # SUBJECT entity to appear in the memory, OR a higher (>=3)
+                    # content overlap. Below the floor we FAIL OPEN and let the
+                    # pipeline continue honestly rather than confabulate a
+                    # wrong memory. Dedicated own-words recall ("what did you
+                    # tell me about X") keeps >=2 overlap with its target fact
+                    # and still passes.
+                    _q_tok = {t for t in re.findall(r"[A-Za-z']+",
+                                  (user_input or "").lower()) if len(t) >= 3}
+                    _m_tok = {t for t in re.findall(r"[A-Za-z']+",
+                                  (_mem or "").lower()) if len(t) >= 3}
+                    _overlap = len(_q_tok & _m_tok)
+                    _subj = (subject or "").lower().strip()
+                    _subj_base = _subj.split("'")[0].split()[0] if _subj else ""
+                    _subj_present = bool(_subj_base) and _subj_base in _m_tok
+                    if (_overlap >= 2 and (_subj_present or _overlap >= 3)):
+                        _resp = self._phrase_recalled_fact(
+                            user_input, subject, _mem)
+                        self._last_strategy = "hippocampal_recall"
+                        self._last_responses.append(_resp)
+                        if len(self._last_responses) > 10:
+                            self._last_responses = self._last_responses[-10:]
+                        self.notify_user_idle()
+                        return _resp
+                    # else: fall through honestly — do NOT echo an unrelated
+                    # memory.
         except Exception:
             pass
 
