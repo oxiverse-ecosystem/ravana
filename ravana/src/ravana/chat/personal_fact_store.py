@@ -165,6 +165,37 @@ class PersonalFactStore:
             return None
         return max(cands, key=self._decay_score)
 
+    def resolve_relation(self, relation: str) -> Optional[str]:
+        """Forward relationship index: relation-word -> entity name.
+
+        A bare disclosure ("my brother dev works as a paramedic") stores the
+        relationship UNDER THE PERSON'S NAME (subject=name, attr="relationship",
+        val=<relword>) — see user_model.mine_personal_facts. The reverse index
+        (name -> relationship) is handled by the engine's _structured_recall
+        "who is X to me" branch. This is the OTHER half: given a relation word
+        the user speaks in a query ("my brother's job"), recover the entity name
+        so the caller can read that entity's 'role'/'does'/'name' facts.
+
+        Real structural index over the durable store — no per-relation table, no
+        authored answer. If several people share a relation (two sisters), the
+        most confidence x recency one wins; the caller may then render an
+        appropriate reply. Returns None when no active (non-superseded) fact
+        maps the relation word to an entity, so callers fail closed.
+        """
+        rel = (relation or "").lower().strip()
+        if not rel:
+            return None
+        best = None
+        best_score = -1.0
+        for (s, a, v), f in self.facts.items():
+            if (a == "relationship" and not f.superseded
+                    and v == rel and s != "i"):
+                sc = self._decay_score(f)
+                if sc > best_score:
+                    best_score = sc
+                    best = s
+        return best
+
     # ── decay / consolidation helpers ──────────────────────────────
     def _decay_score(self, f: PersonalFact) -> float:
         recency = 1.0 / (1.0 + (self.turn_num - f.turn_number) * 0.1)

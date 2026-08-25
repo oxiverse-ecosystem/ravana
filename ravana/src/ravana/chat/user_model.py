@@ -35,6 +35,25 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
 USER_MODELS_DIR = os.path.join(_REPO_ROOT, "user_models")
 
 
+# Relation-word seed vocabulary — shared by the relational fact miner AND the
+# engine's entity-attributed recall resolver. A bare disclosure ("my brother
+# dev works as a paramedic") stores the relationship under the PERSON'S NAME
+# (subject=name, attr="relationship", val=<relword>), so a later query that
+# names the RELATION WORD ("what is my brother's job") must resolve relword ->
+# entity name via the relationship index. Keeping the vocabulary in ONE place
+# means the miner and the recall resolver can never drift apart, and RAVANA
+# still extends it at runtime as new disclosures arrive (it is seed data, not
+# an answer table). This is the structural complement to the reverse
+# name->relationship resolver in engine._structured_recall.
+_RELATION_VOCAB = (
+    "friend", "sister", "brother", "mother", "father", "parent",
+    "daughter", "son", "cousin", "aunt", "uncle", "grandmother",
+    "grandfather", "niece", "nephew", "wife", "husband", "partner",
+    "spouse", "mentor", "student", "colleague", "boss", "neighbor",
+    "neighbour", "roommate", "teammate", "pet", "dog", "cat", "bird",
+    "rabbit", "horse", "child", "kid", "buddy", "pal",
+)
+
 # Correction detection patterns — ACC conflict detection (Error-Related Negativity)
 _CORRECTION_DIRECT_PATTERNS = [
     r"\bno[!,.]", r"that'?s wrong", r"that'?s not right", r"that'?s incorrect",
@@ -3098,8 +3117,35 @@ class UserModel:
         #    ._derive_ack_from_store which now render the 'event' attr).
         # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
         # PersonalFactStore the user can correct — NOT per-topic answers, NOT
-        # authored prose). Covers everyday disclosure verbs + common irregular
-        # past forms so first-person activities/experiences actually land.
+        # authored prose). Covers everyday disclosure verbs so first-person
+        # activities/experiences actually land.
+        #
+        # Round 2026-08-13T1656Z: PRUNED. The prior list mixed sustained-
+        # activity verbs with ACHIEVEMENT / COMMUNICATION verbs (got, said,
+        # made, gave, told, came, went, did, saw, met, sold, paid, sent,
+        # spent, bought, caught, brought, ate, drank, knew, wore, led, read,
+        # flew, swam, rode, drove, broke, spoke, woke, froze, chose, slept,
+        # felt, held, ...). Those fire on outcome/utterance disclosures
+        # ("i got the artist residency", "i said open-plan offices help")
+        # whose object is a bare NOUN PHRASE naming an outcome, not a
+        # recurring activity the user "does". The miner stored them as
+        # ('i','does','got artist residency') / ('i','does','said open') —
+        # garbage facts that then echoed in the self-summary.
+        #   - Sustained activities / hobbies / possessions ("i keep raccoons",
+        #     "i throw pottery", "i sail a dinghy", "i forge knives") are kept
+        #     in _ACTIVITY_VERBS -> attr 'does' (the user DOES these).
+        #   - Physical-world experiences that happen TO the user's world
+        #     ("i dropped the vase", "i lost a coral", "i repotted the
+        #     juniper") are kept in _EVENT_VERBS -> attr 'event'.
+        #   - Pure achievements / communication acts (got/made/gave/said/
+        #     told/saw/met/...) are EXCLUDED from both: they name an outcome
+        #     or an utterance, not an activity or a world-experience, so they
+        #     must not become 'does'/'event' facts. (They are still captured
+        #     elsewhere as beliefs/stances when the user states an opinion.)
+        # This is a principled seed-set split, not per-topic tuning: removing
+        # a verb degrades gracefully (one fewer activity class captured), and
+        # the set is RAVANA-expandable via the same store. 'keep'/'grow'/
+        # 'raise'/'collect'/'restore' (genuine ongoing care/possession) stay.
         _ACTIVITY_VERBS = (
             "run", "own", "operate", "play", "teach", "study", "manage",
             "drive", "build", "make", "sell", "restore", "grow", "watch",
@@ -3121,16 +3167,13 @@ class UserModel:
             "paid", "said", "set", "put", "read", "led",
         )
         _EVENT_VERBS = (
-            "drop", "lose", "find", "remove", "break", "discover", "notice",
-            "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
-            "ruin", "save", "nurse", "revive", "miss", "spot",
+            "drop", "lose", "lost", "find", "found", "remove", "break", "broke",
+            "discover", "notice", "repot", "prune", "harvest", "spill", "melt",
+            "crack", "kill", "ruin", "save", "nurse", "revive", "miss", "spot",
             "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
-            "recover", "heal", "uproot", "freeze", "thaw", "hatch",
-            "bloom", "wilt", "die", "survive", "escape", "return", "birth",
-            "fall", "fell", "crash", "lose", "lost", "found", "kept",
-            "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
-            "made", "took", "gave", "came", "went", "did", "ate", "drank",
-            "grew", "knew", "threw", "froze", "bled", "fed", "died",
+            "recover", "heal", "uproot", "freeze", "thaw", "hatch", "bloom",
+            "wilt", "die", "survive", "escape", "return", "birth", "fall",
+            "fell", "crash",
         )
         # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
         # The object stops at a clause boundary (., !, ?, ",", " and ",

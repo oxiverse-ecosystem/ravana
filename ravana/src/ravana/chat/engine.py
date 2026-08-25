@@ -2887,6 +2887,49 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"your name is {_v.value}."
             return None
+        # ── (0b) Reverse name→relationship recall (round 2026-08-13T1656Z) ──
+        # "who is wren to me?" / "what is meera to me?" / "who is dev to me?"
+        # The user names an entity; RAVANA must reverse-index the
+        # PersonalFactStore by the entity NAME and answer the relationship
+        # from the stored fact — type-agnostic (friend / sister / brother /
+        # pet / colleague all resolve through one path). This is the precise
+        # fix for the 6f generalization gap: the trigger ("who is <X> to me")
+        # is relation-agnostic, so the resolver must NOT hardcode pet grammar
+        # or a per-entity table. It scans every entity-scoped fact (subject !=
+        # 'i') for one whose key[0] == the named entity and renders the
+        # relationship label from the 'relationship'/'role'/'does' attributes.
+        # Structural reverse index, not a per-topic answer dictionary; the
+        # answer content comes entirely from durable store state.
+        _WHO = re.search(
+            r"\bwho\s+(?:is|are|was|were)\s+([a-z][a-z']+)\s+(?:to\s+me|in\s+"
+            r"my\s+life|to\s+me\b)\b|\bwhat\s+(?:is|are|was|were)\s+([a-z][a-z']+)\s+"
+            r"to\s+me\b", q)
+        if _WHO and pf is not None:
+            _ent_name = (_WHO.group(1) or _WHO.group(2) or "").lower().strip()
+            if _ent_name:
+                _rel = None
+                _role = None
+                _does = None
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] != _ent_name or getattr(_f, "superseded", False):
+                        continue
+                    if _k[1] == "relationship" and _rel is None:
+                        _rel = _f.value
+                    elif _k[1] == "role" and _role is None:
+                        _role = _f.value
+                    elif _k[1] == "does" and _does is None:
+                        _does = _f.value
+                if _rel:
+                    _ans = f"{_ent_name} is your {_rel}."
+                    if _role:
+                        _ans += f" {_ent_name} {_role}."
+                    elif _does:
+                        _ans += f" {_ent_name} {_does}."
+                    return _ans
+                # entity known but no relationship fact (e.g. a pet stored
+                # only by species slot) -> honest fallthrough, not a confab.
         # "where do i live / work" / "what do i do"
         # GENERALIZE (round 2026-08-16): the old branch only matched the
         # disclosure verbs "live"/"from", so "where did i grow up" — a
