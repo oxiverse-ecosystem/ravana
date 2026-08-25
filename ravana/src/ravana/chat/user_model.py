@@ -2369,6 +2369,28 @@ class UserModel:
                 if _attr is None:
                     continue
                 _ent, _rel = _split_possessive_attr(_attr)
+                # A NAME relation holds a short proper noun (the entity's name),
+                # never the trailing descriptive clause that often follows it
+                # ("my dog's name is wren and she's a scruffy terrier",
+                #  "my brother is arjun and he's learning to weld"). The old
+                # value trim (line ~1119) only split on a hard sentence break,
+                # so the whole post-copula clause ("wren and she's a scruffy
+                # terrier") was stored as the name value — which then broke
+                # reverse-lookups ("who is wren to me") and self-summaries.
+                # General fix: when the relation is a name, keep ONLY the
+                # leading proper-noun run and cut at the first coordinating
+                # clause / appositive (" and ", " but ", " who ", " she's ",
+                # " he's ", ", ", " with "). Multi-word proper names ("mary
+                # jane") survive because we stop at the clause boundary, not at
+                # the first space. Structural, not a per-entity table; the
+                # trimmed remainder is simply dropped (a name has no second
+                # fact). This also makes a later correction ("no, my dog is
+                # milo") supersede cleanly.
+                if _rel == "name":
+                    _val = re.split(
+                        r"\s+(?:and|but|who|that|which|,)\s+|\s+(?:she|he|it)'?s\s+"
+                        r"|\s+with\s+|\s*\.\s*|\s*\?\s*", _val)[0].strip()
+                    _val = _val.strip(".,!?;:'\"")
                 if _ent is not None:
                     _put_fact_ent(_ent, _rel, _val, 0.6)
                     continue
@@ -4100,6 +4122,60 @@ class UserModel:
             (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
              r"\b(.+?)\s+(?:is|are)\s+the\s+best\b"
              r"(?:\s+(?:kind|sort|type|breed|example|form|version|bit))?", 0.7, 0.55),
+            # ── Generalized opinion shapes (D-C, round 2026-08-13T0634Z) ──
+            # The classes above only catch a handful of grammatical shapes
+            # ("i think X is good", "X beats Y", "X is better than Y",
+            # "i like/hate X"). Natural opinions fell straight through:
+            #   "i think bookshops are worth more to a city than chains"
+            #   "i'm strongly against people who talk in theatres"
+            #   "teaching kids to cook is more important than coding"
+            # produced NO stance -> contradiction queries had nothing to cite.
+            # Fix: broaden with general GRAMMATICAL shapes backed by a small
+            # SENTIMENT LEXICON (seed vocabulary, expandable at runtime via
+            # the affect store — not a per-topic table). The content head is
+            # still resolved by _opinion_topic, so the stance lands on the
+            # real concept. Polarity is lexical (the lexicon is inherently
+            # valenced); RAVANA can still revise any stance by talking.
+            # (f) explicit for/against stance. Positive keywords (for/in favor/
+            #     in support/pro) -> +0.85; negative (against/opposed to/anti)
+            #     -> -0.85. Keywords are split so a single statement cannot
+            #     match both lanes.
+            (r"\bi(?:'m| am)\s+(?:really\s+|strongly\s+|firmly\s+)?"
+             r"(?:in\s+favor\s+of|in\s+support\s+of|for|pro)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.85, 0.6),
+            (r"\bi(?:'m| am)\s+(?:really\s+|strongly\s+|firmly\s+)?"
+             r"(?:opposed\s+to|against|anti)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.85, 0.6),
+            # (g) "i (really) (like|love|hate|...) X" — broaden the verb set
+            #     so attitudes like admire/despise/treasure are captured.
+            (r"\bi\s+(?:really\s+|truly\s+|deeply\s+)?"
+             r"(?:admire|respect|treasure|cherish|value|appreciate)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
+            (r"\bi\s+(?:really\s+|truly\s+|deeply\s+)?"
+             r"(?:despise|loathe|resent|detest|scorn|disdain|abhor)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
+            # (h) "i think/believe/feel X is (more) <VAL-ADJ> (than Y)" with a
+            #     broad value-adjective lexicon (the comparative slot makes it
+            #     "X over Y" without needing a literal "than"). Polarity from
+            #     the lexicon; the leading frame is stripped so X is the head.
+            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+(?:is|are)\s+"
+             r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
+             r"important|valuable|meaningful|useful|helpful|worthwhile|"
+             r"significant|relevant|fair|just|honest|beautiful|wonderful|"
+             r"vital|crucial|essential|wise|healthy|kind|free|true|real|"
+             r"alive|human|warm|clean|brave|strong|necessary|right)\b", 0.75, 0.5),
+            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+(?:is|are)\s+"
+             r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
+             r"unimportant|worthless|meaningless|useless|harmful|pointless|"
+             r"pointless|trivial|irrelevant|unfair|dishonest|ugly|awful|"
+             r"terrible|harmful|wrong|cruel|false|empty|cold|dirty|weak|"
+             r"unnecessary|foolish|stupid|dangerous|toxic)\b", -0.75, 0.5),
+            # NOTE: a bare comparative "X is more <ADJ> than Y" (no leading
+            # "i think" frame) is intentionally NOT added as a separate
+            # pattern. The (h) pattern above already covers the user-opinion
+            # form ("i believe teaching kids to cook is more important than
+            # coding") which is the round's actual target. A standalone bare
+            # comparative pattern re-matched mid-string (after "i ") and
+            # seeded a second, garbled topic ("believe teaching kids") that
+            # collided with the (h) topic — so it was removed. Third-party
+            # bare comparatives remain un-mined, which is acceptable: the
+            # durable-stance goal is about the USER's own opinions.
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _raw = _m.group(_m.lastindex).strip().lower()
@@ -5256,6 +5332,16 @@ class UserModel:
           "small talk at the village market" -> "small talk"
           "accordion when the wind dies down" -> "accordion"
           "how whales communicate" -> "whales"
+        But a RELATIVE CLAUSE ("people who talk in theatres", "books that
+        last") is a single attitude object — the noun + its relative
+        descriptor is the concept the user is actually evaluating. So the
+        relative pronouns who/whom/that/which act as a BRIDGE: we keep them
+        and continue collecting the clause content until the next hard stop
+        (preposition/conjunction), giving "people who talk" / "books that last"
+        rather than collapsing to the bare noun "people"/"books". Collapsing to
+        the bare noun is what caused opposite-signed stances ("for people who
+        X" vs "against people who Y") to MERGE onto one key and average to
+        ~0, erasing the real attitude.
         Returns the joined head phrase (one or more content nouns), or None
         if the phrase is all closed-class words (so we never seed a garbage
         stance on a function word like "the"/"how"/"small").
@@ -5292,11 +5378,15 @@ class UserModel:
             toks.pop(0)
         if not toks:
             return None
-        # Cut at the first internal closed-class word so a compound head
-        # ("small talk") is kept whole but trailing prepositional spans
-        # ("of the lighthouse", "at the market") are dropped.
+        # Collect the head. A relative pronoun (who/whom/that/which) is a
+        # bridge: keep it and DON'T break there, so the clause after it is
+        # included as part of the attitude object.
+        _REL_BRIDGE = {"who", "whom", "that", "which"}
         head = []
         for t in toks:
+            if t in _REL_BRIDGE:
+                head.append(t)          # bridge: continue into the clause
+                continue
             if t in self._OPINION_STOP:
                 break
             head.append(t)
