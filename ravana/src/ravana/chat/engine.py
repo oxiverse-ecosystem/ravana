@@ -60,29 +60,16 @@ def _extract_user_affect_word(text: str) -> str:
         from .user_model import is_affect_term
     except Exception:
         is_affect_term = lambda w: False
-    # Hedge words that must NOT be returned as a felt-state (round
-    # 2026-08-20T1229Z, FIX A). "kind" is accidentally in the VAD seed lexicon
-    # (+0.55), so the affect-term scan matched "kind" in "i'm kind of wary" and
-    # the copula regex below grabbed it as the felt word -> RAVANA answered
-    # "i'm glad you feel good" to a user expressing wariness. A hedge is a
-    # dampener, never a feeling; reject it so the REAL felt word (the token
-    # AFTER the hedge) is what gets named. Structural stop-set (seed, not an
-    # answer table); generalizes to any hedged disclosure.
-    _HEDGE = {"kind", "sort", "pretty", "fairly", "rather", "quite",
-               "somewhat", "slightly", "bit", "little", "really", "very",
-               "so", "a", "little", "some", "such"}
-    def _is_real_affect(w: str) -> bool:
-        return bool(w) and w not in _HEDGE and is_affect_term(w)
     _m = re.search(
         r"\b(i\s*(?:feel|feeling|felt|am|'m|get|got|was|were|been)\s+"
         r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|pretty\s+)?)"
         r"([a-z]+(?:[-][a-z]+)?)", (text or "").lower())
     if _m:
         _w = _m.group(2).strip("'-")
-        if _is_real_affect(_w):
+        if is_affect_term(_w):
             return _w
     for _tok in re.findall(r"[a-z]+(?:[-][a-z]+)?", (text or "").lower()):
-        if _is_real_affect(_tok):
+        if is_affect_term(_tok):
             return _tok
     return ""
 
@@ -165,16 +152,6 @@ def _gerund_of(verb: str) -> str:
         return _v
     if _v in _IRREGULAR_GERUND:
         return _IRREGULAR_GERUND[_v]
-    # A stem already ending in -ing (e.g. "restoring", "building") is ALREADY a
-    # gerund; re-appending -ing would produce a broken double-gerund
-    # ("restoringing"). This is the root cause of the "you started restoringing
-    # radios" defect (round 2026-08-15T0830Z): the date-recall realizer called
-    # _gerund_of on a bare stem that was itself already a gerund. Pass it through
-    # unchanged. (The leading-verb "building frames" case is handled separately
-    # in _verb_phrase_to_gerund, but every other caller feeds a bare stem here,
-    # so the guard belongs at the lowest level too.)
-    if _v.endswith("ing") and len(_v) >= 5:
-        return _v
     if len(_v) >= 3 and _v[-1] in "bcdfgklmnprstvz" and _v[-2] in "aeiou" \
             and _v[-3] in "bcdfgklmnprstvz" and _v[-1] != _v[-2] \
             and _v[-2] != _v[-3]:
@@ -209,17 +186,8 @@ def _verb_phrase_to_gerund(phrase: str) -> str:
     _parts = _p.split()
     _head = _parts[0].lower()
     _base = _head[:-1] if (_head.endswith("s") and len(_head) > 3) else _head
-    _rest = _parts[1:]
-    # Already-gerund head: the stored activity may come from a `does`/`event`
-    # fact whose leading verb is ALREADY a gerund ("building frames", "studying
-    # volcanoes"). Re-gerunding it would produce a broken double-gerund
-    # ("buildinging frames"). Detect a regular gerund head (its -ing form is
-    # exactly the head itself) and pass the phrase through unchanged — this is
-    # the natural realization a date-recall reply needs ("you started building
-    # frames in 2019"), no morphology needed.
-    if _head.endswith("ing") and len(_head) >= 5 and _gerund_of(_base) == _head:
-        return _p
     _ger = _gerund_of(_base)
+    _rest = _parts[1:]
     # Detect a redundant inceptive leading verb ("start/begin/began") in front
     # of a gerund — keep only the gerund as the activity head.
     _INCEPTIVE = {"start", "started", "begin", "began", "begins", "beginning"}
@@ -3530,186 +3498,137 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     break
             if _best is not None:
                 return f"you told me: {_best}"
-        # ── (2c) Reverse "who is X to me" lookup by NAME (type-agnostic) ─
-        # Limitation T40 (round 2026-08-12T0613Z): a possession disclosed as
-        # a NAME ("my dog's a retriever called wren", "my cat is ember") was
-        # only recallable via the SPECIES noun ("what is my dog's name").
-        # A query that names the pet by its NAME ("who is wren to me?",
-        # "what relation is ember to me") had no retrieval path: it fell
-        # through to the generic self-blurb. Real cognition resolves a
-        # name -> the entity it belongs to, then answers about that entity.
-        # This branch reverse-indexes the pet store by VALUE (the name) and
-        # answers the RELATIONSHIP ("your dog is wren"), so the user can ask
-        # about a companion by the name they actually use. It is the inverse
-        # of the existing species-keyed recall (1c / engine_memory entity
-        # scan) and shares pet_slots for the species resolution, so the two
-        # directions agree on the keys by construction. No per-animal answer
-        # table, no authored reply — every answer slot is read live from the
-        # PersonalFactStore, which the user can correct at runtime (a renamed
-        # pet supersedes the old slot and this lookup tracks the active one).
-        # ── (2c) Reverse "who/what is X to me" / "whose <species> is it" lookup ─
-        # Generalization (round 2026-08-12T1234Z) of the prior T40 name-only fix.
-        # The old branch (a) only scanned facts with subject=="i", so a pet name
-        # stored as ('goshawk','name','vesper') was invisible; (b) only matched
-        # the literal "who|what is" regex, so apostrophe contractions ("what's
-        # bracken, to me?") fell through; (c) could not answer "whose <species>
-        # is it now" (possessor-of-a-species). All three question forms are now
-        # ONE path: normalize the query (expand who's/what's/whose, strip commas)
-        # then classify each LIVE fact by an ownership predicate and reverse-index
-        # by VALUE / SPECIES. The rendered label is read from the matched fact's
-        # OWN attribute/subject (pet_slots.base_species for animals, the relation
-        # noun for people) — never authored prose, never a per-name answer table.
-        # Corrections propagate automatically because superseded facts are skipped
-        # (a renamed/moved pet tracks the active slot). Self/other boundary is
-        # preserved: only the user's own entities (subject "i" or a species the
-        # user owns) answer "to me"; a third party's pet answers "whose" only.
-        if pf is not None:
-            try:
-                from . import pet_slots as _psl
-                # Seed relationship-noun vocabulary: the kinds of "my <RELATION>
-                # <NAME>" the user can ask about by name ("who is cal to me").
-                # This is SEED vocabulary (a noun set, not an answer table); the
-                # rendered label is the LIVE attribute, and the set can be
-                # extended at runtime via learn_relation(). Profile attributes
-                # (born/lives/job/name/...) are intentionally excluded so a
-                # place-value fact ("i was born in paris") never answers "who is
-                # paris to me" as "your born is paris".
-                _REL_NOUNS = frozenset({
-                    "sister", "brother", "friend", "mother", "father",
-                    "mom", "dad", "wife", "husband", "partner", "son",
-                    "daughter", "cousin", "sibling", "grandma", "grandpa",
-                    "grandmother", "grandfather", "aunt", "uncle",
-                    "nephew", "niece", "boss", "colleague", "neighbor",
-                    "neighbour",
-                })
-                _POSS_NOUNS = frozenset({
-                    "car", "cars", "bike", "bicycle", "truck", "van",
-                    "phone", "mobile", "laptop", "computer", "pc",
-                    "tablet", "camera", "watch", "ring", "boat", "ship",
-                    "guitar", "piano", "plant", "tree", "house", "home",
-                    "drone", "book", "motorbike", "scooter", "telescope",
-                })
-
-                def _norm_query(s):
-                    # Expand contractions + strip punctuation so "what's"/"who's"/
-                    # "whose" and stray commas match the same logic as "what is".
-                    s = (s or "").lower().strip()
-                    s = (s.replace("who's", "who is").replace("what's", "what is")
-                          .replace("whose", "whose").replace("n't", " not"))
-                    s = s.replace(",", " ").replace("  ", " ").strip()
-                    return s
-
-                _qn = _norm_query(q)
-                # (i) NAME -> entity ("who is vesper to me?" / "what's bracken to me?")
-                _NAMEQ = re.search(
-                    r"\b(?:who|what)\s+(?:is|was|are|were)\s+"
-                    r"([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,3})\s+"
-                    r"(?:to|with|for)\s+(?:me|you|us|myself)\b", _qn)
-                # (ii) WHOSE <species> ("whose hawk is it now?" / "whose dog?")
-                _WHOSEQ = re.search(
-                    r"\bwhose\s+([a-z][a-z'\-]+)\s+(?:is|was|are|were)\s+"
-                    r"(?:it|he|she|they)(?:\s+now)?\b", _qn)
-
-                # Classify a stored fact into an ownership bucket. Returns
-                # (label, value, owner, priority) or None if out of scope.
-                # priority: pet=0, possession=1, relation/other=2 — a name that
-                # collides across entity types (e.g. "bracken" is both the user's
-                # dog and, via a faulty inference, a "neighbour") resolves to the
-                # most entity-like reading (pet/possession) rather than a
-                # relationship noun.
-                _REL_WORDS = _REL_NOUNS | _POSS_NOUNS
-                def _classify(_k, _f):
-                    if not (isinstance(_k, tuple) and len(_k) == 3):
-                        return None
-                    if getattr(_f, "superseded", False):
-                        return None
-                    _subj, _attr, _val = _k
-                    _val = (getattr(_f, "value", _val) or "").strip()
-                    if not _val:
-                        return None
-                    _val_l = _val.lower().strip(".,!?")
-                    _attr_l = str(_attr).lower().strip()
-                    # pet stored under user: ("i","dog","wren") etc.
-                    if _subj == "i" and _psl.is_pet_attribute(_attr):
-                        return (_psl.base_species(_attr), _val, "i", 0)
-                    # entity named by its NAME attribute: ("goshawk","name","vesper"),
-                    # ("dog","name","wren"). The "name" attribute is the universal
-                    # "this entity is called X" signal — type-agnostic, no species
-                    # whitelist, so a goshawk/falcon/axolotl the seed never listed
-                    # still resolves. Reject only when the subject is a relationship
-                    # noun (those are handled by the relation branch below).
-                    if _attr_l == "name" and str(_subj).lower() not in _REL_WORDS:
-                        return (str(_subj), _val, "i", 0)
-                    # (entity, name, value) shape for a RELATION noun, e.g.
-                    # ("brother","name","arjun") from "my brother's name is
-                    # arjun". The relation-noun branch below only handles the
-                    # (i, brother, <name>) / (i, "brother cal", desc) shapes, so
-                    # a name disclosed via the possessive "X's name is Y" form
-                    # was invisible to reverse-lookup ("who is arjun to me?"
-                    # -> None). Generalize: when the subject is itself a
-                    # relation noun and the attribute is "name", reverse-index
-                    # by the name value and answer the relationship from the
-                    # subject. No per-relation table — any _REL_NOUNS member
-                    # works (sister/mother/...), and the rendered label is the
-                    # live subject. This is the inverse of the (i, brother,
-                    # name) path and agrees with it on the key by construction.
-                    if _attr_l == "name" and str(_subj).lower() in _REL_WORDS:
-                        return (str(_subj).lower(), _val, "i", 2)
-                    # relation-noun attribute (combined or plain):
-                    #   ("i","brother cal","desc") or ("i","brother","cal")
-                    _attr_head = _attr_l.split()[0] if _attr_l.split() else ""
-                    if _attr_head in _REL_NOUNS:
-                        # combined "brother cal" -> name is the tail token
-                        _name = _val_l if _attr_l == _attr_head else \
-                            _attr_l.split(" ", 1)[1] if " " in _attr_l else _val_l
-                        return (_attr_head, _name or _val, "i", 2)
-                    if _attr_head in _POSS_NOUNS:
-                        # possession: value is the possession's name/identifier
-                        return (_attr_head, _val, "i", 1)
-                    # third-party's pet: ("neighbour","dog","bracken") — answers
-                    # "whose" only, never "to me".
-                    if _subj != "i" and _psl.is_pet_attribute(_attr):
-                        return (_psl.base_species(_attr), _val, _subj, 3)
-                    return None
-
-                if _NAMEQ:
-                    _qnm = _NAMEQ.group(1).strip().lower().strip(".,!?")
-                    if len(_qnm) >= 2:
-                        _best = None  # (priority, label, value)
-                        for _k, _f in pf.facts.items():
-                            _c = _classify(_k, _f)
-                            if _c is None or _c[2] != "i":
-                                continue
-                            if _c[1].lower().strip(".,!?") == _qnm:
-                                if _best is None or _c[3] < _best[0]:
-                                    _best = (_c[3], _c[0], _c[1])
-                        if _best is not None:
-                            return f"your {_best[1]} is {_best[2]}."
-                elif _WHOSEQ:
-                    _spq = _WHOSEQ.group(1).strip().lower()
-                    _spq_canon = _psl.species_of(_spq)
-                    _best = None  # (priority, owner, entity)
-                    for _k, _f in pf.facts.items():
-                        _c = _classify(_k, _f)
-                        if _c is None:
-                            continue
-                        _ent = _c[0]
-                        # match by canonical species, or by head-token overlap
-                        # ("hawk" vs stored "goshawk") — still fully online.
-                        _match = (_spq_canon is not None and
-                                  _psl.species_of(_ent) == _spq_canon)
-                        if not _match:
-                            _match = _spq in _ent or _ent in _spq or _spq.rstrip("s") == _ent.rstrip("s")
-                        if not _match:
-                            continue
-                        if _best is None or _c[3] < _best[0]:
-                            _best = (_c[3], _c[2], _ent)
-                    if _best is not None:
-                        if _best[1] == "i":
-                            return f"it's yours — your {_best[2]}."
-                        return f"it's your {_best[1]}'s {_best[2]}."
-            except Exception:
-                pass
+        # ── (1f) DATE-GROUNDED temporal recall (round 2026-08-14T0608Z) ──
+        # "when did i start building frames" / "since what year have i kept
+        # quail" / "how long have i been fixing tube amps" -> answer from the
+        # 'since' / 'since_age' facts mined by mine_personal_facts. Precise
+        # reverse-lookup on the activity content head; no per-topic table, no
+        # authored prose. Every slot read live from the PersonalFactStore.
+        # Fail-closed: returns None when no dated fact maps (honest fallback).
+        _DATEQ = re.search(
+            r"\b(?:when\s+did\s+i|since\s+what\s+year|what\s+year|how\s+long\s+"
+            r"have\s+i|how\s+long\s+since|since\s+when|when\s+did\s+i\s+start|"
+            r"when\s+did\s+i\s+begin)\b", q, re.IGNORECASE)
+        if _DATEQ and pf is not None:
+            # GENERALIZE (round 2026-08-14T1110Z): the old resolver matched the
+            # query against a FROZEN allowlist of activity verbs
+            # (building/keep/repair/cello/quail/...). A rotated probe
+            # ("what year did i start all this volcano stuff again") contained
+            # NONE of those verbs, so the resolver failed closed and the turn
+            # fell through to a verbatim episodic echo. That is phrase-tuning.
+            # Fix A (round 2026-08-14T1110Z feature): the resolver derives the
+            # queried activity from RAVANA's OWN mined `since`/`since_age` facts
+            # (the live store it grew from conversation), not a hardcoded verb
+            # list. The remaining gap: a `does`/`event` fact that DESCRIBES the
+            # same activity as a `since` fact but with a DIFFERENT leading verb
+            # was not linked in, so its activity words never joined the match
+            # context. Example from the probe: the since-fact is "study 2015"
+            # but the user also mined "start studying volcanoes back" — that
+            # `does` fact CONTAINS "volcanoes", yet the prior code linked `does`
+            # facts to the since activity ONLY by identical leading verb
+            # ("study" != "start"), so "volcanoes" never entered the context and
+            # "what year did i start all this volcano stuff" scored 0 and fell
+            # through to a verbatim echo. Fix: link a `does`/`event` fact to the
+            # since activity when they SHARE a salient token (data-driven,
+            # generalizes to any phrasing, fails closed — no shared token means
+            # no link). Now "volcanoes" reaches the match context and the
+            # paraphrase recalls the right dated fact.
+            import datetime as _dtmod
+            _q_tokens = {t for t in re.findall(r"[a-z']+", q.lower())}
+            _q_tokens.discard("")
+            # Build a per-activity context: each `since` activity key (`_act`,
+            # the bare verb, e.g. "study") gathers the value of EVERY `does`/
+            # `event` fact that shares a salient token with it. This lets an
+            # activity described under a different leading verb (e.g. "start
+            # studying volcanoes") still contribute its distinctive words
+            # ("volcanoes") to the match context for the "study" dated fact.
+            # Token sharing is tested on MORPHOLOGICAL STEMS (e.g. "studying"
+            # == "study", "volcanoes" == "volcano"), so the linkage is robust
+            # to tense/aspect variation, not a brittle exact-string match.
+            _verb_ctx = {}
+            _since_acts = set()
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                if _k[1] == "since":
+                    _p = _f.value.lower().rsplit(" ", 1)
+                    if len(_p) == 2 and _p[0]:
+                        _since_acts.add(_p[0])
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                if _k[1] in ("does", "event") and _f.value:
+                    _val = _f.value.lower()
+                    _stems = {_stem(t) for t in re.findall(r"[a-z']+", _val)}
+                    # attach this `does`/`event` value to every since activity
+                    # it shares a salient stem with (or an exact leading-verb
+                    # match on the bare verb).
+                    for _act in _since_acts:
+                        if _stem(_act) in _stems or _act == _val.split()[0]:
+                            _verb_ctx.setdefault(_act, []).append(_val)
+            _best_year = None
+            _best_age = None
+            _best_score = 0
+            _best_act = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _v = _f.value.lower()
+                if _k[1] == "since":
+                    _parts = _v.rsplit(" ", 1)
+                    if len(_parts) != 2:
+                        continue
+                    _act = _parts[0]
+                    try:
+                        _yr = int(_parts[1])
+                    except ValueError:
+                        continue
+                    _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
+                    _score = _activity_query_overlap(_ctx, q, _q_tokens)
+                    if _score > _best_score:
+                        _best_score = _score
+                        _best_year = _yr
+                        _best_act = _act
+                elif _k[1] == "since_age":
+                    _parts = _v.rsplit(" ", 1)
+                    if len(_parts) != 2:
+                        continue
+                    _act = _parts[0]
+                    try:
+                        _age = int(_parts[1])
+                    except ValueError:
+                        continue
+                    _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
+                    _score = _activity_query_overlap(_ctx, q, _q_tokens)
+                    if _score > _best_score:
+                        _best_score = _score
+                        _best_age = _age
+                        _best_act = _act
+            # Require at least one meaningful token overlap so an unrelated
+            # "when did i...?" query (no dated activity in it) fails closed
+            # rather than echoing the first stored fact.
+            if _best_score == 0:
+                return None
+            # Display phrasing: the richer `does`/`event` value when available
+            # ("studying volcanoes"), else the bare `since` activity verb. Realize
+            # it as a natural gerund ("studying ...") for grammatical replies
+            # (Fix B, round 2026-08-14T1110Z feature) — previously the bare verb
+            # produced broken English ("you started study basaltic eruptions").
+            _qact = (_verb_ctx.get(_best_act) or [_best_act])[0] or _best_act
+            _qact = _verb_phrase_to_gerund(_qact)
+            if _best_year is not None:
+                if re.search(r"\bhow\s+long\b", q):
+                    _dur = _dtmod.datetime.now().year - _best_year
+                    return f"you've been {_qact} since {_best_year} — about {_dur} years."
+                return f"you started {_qact} in {_best_year}."
+            if _best_age is not None:
+                return f"you've been {_qact} since you were about {_best_age}."
         return None
 
     def _meta_identity_reply(self) -> str:

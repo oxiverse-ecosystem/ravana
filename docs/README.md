@@ -24,12 +24,8 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Repo layout, the test suite, how to run it, the path shims, and contribution conventions. |
 | [API_REFERENCE.md](API_REFERENCE.md) | Comprehensive class/function reference for all three packages. |
 | [STANCE_REVERSAL.md](STANCE_REVERSAL.md) | How the user changing their mind recodes a held stance (first-person reversal / retraction cues), verified against the live engine. |
-| [ENTITY_LOCATION_RECALL.md](ENTITY_LOCATION_RECALL.md) | Capturing + surfacing a named thing's whereabouts (entity-keyed `location` fact, "where is X?" recall, correction, fail-closed on unknown). |
-| [POSSESSION_REATTRIBUTION.md](POSSESSION_REATTRIBUTION.md) | Reverse-order pet naming + owner re-attribution (self/other boundary enforced at all four recall sources, no LLM). |
-| [PET_NAME_RECALL.md](PET_NAME_RECALL.md) | Reverse pet lookup by name: answer "who is wren to me?" by reverse-indexing the pet store by VALUE, honoring rename + self/other boundary, no LLM. |
-| [AGENT_SELF_STANCE.md](AGENT_SELF_STANCE.md) | RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in the user's view, attenuated, persisted), and stays honestly silent with no evidence. |
-| [CONTRASTIVE_SELF_OPINION.md](CONTRASTIVE_SELF_OPINION.md) | Binary "X versus Y" / "prefer A or B" self-opinion: RAVANA engages BOTH named sides through real state (split on the connective, resolve each side, compose), no single-token collapse. |
-| [SELF_OPINION_RELATIVE_CLAUSE.md](SELF_OPINION_RELATIVE_CLAUSE.md) | Single-topic self-opinion whose topic is a relative clause: RAVANA resolves the CONTENT HEAD (e.g. "people who talk") instead of the last token ("theatres"), matching the mined stance key, no hollow-fallback collapse. |
+| [CAPABILITY_DURATION_MINING.md](CAPABILITY_DURATION_MINING.md) | How "i've been brewing beer for a decade" / "a few years" become a dated `since` fact recallable by `when did you start…` — four duration-mining blocks, verified against the live engine. |
+| [CAPABILITY_DATE_RECALL_PARAPHRASE.md](CAPABILITY_DATE_RECALL_PARAPHRASE.md) | How rotated/paraphrased date queries ("all this volcano stuff") still recall the right `since` fact (stem-linked `does`/`event` facts) and reply grammatically (morphological gerund), verified against the live engine. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation
