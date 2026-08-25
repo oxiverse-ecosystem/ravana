@@ -1056,6 +1056,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # (superseding the user's record) — never during ordinary disclosure.
         self.user_model._episodic_index = self._episodic_index
         self.user_model._episodic_transcript = self._episodic_transcript
+        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
+        # vocabulary to the user-model so stance mining can REJECT single-word
+        # topics that are not real concepts (comparative/handle artifacts like
+        # "anything"/"standing" that pollute the stance store). The vocabulary
+        # is the engine's OWN learned concept set, not a per-topic deny-list.
+        self.user_model._concept_vocab = self._concept_keywords
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -3990,6 +3996,62 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # resolve the phrase to a known stance topic (semantic-ish via the
             # store's own resolver, which folds synonyms)
             _topic = opinions.resolve_topic(_topic_phrase) or _topic_phrase.lower().strip()
+            # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
+            # t_2595f8ad) ─────────────────────────────────────────────────────
+            # A self-stance question that names TWO options ("your take on the
+            # sea versus the mountains", "do you prefer the countryside or the
+            # cities") is a CONTRASTIVE opinion, not a single-topic one. The
+            # documented residual limitation was that the extractor collapsed to
+            # the LAST token and answered "i'm for <one side>" while the other
+            # option was silently dropped. RAVANA holds a structured lean per
+            # topic (its own _agent_stances store, or a lean derived from the
+            # user's learned opinion); the missing piece is engaging BOTH sides.
+            #
+            # This is a REAL capability (no hardcoded reply): we split the
+            # phrase on the contrastive connective, resolve EACH side through the
+            # SAME real-state helper (_agent_self_stance_reply — which reads the
+            # agent's own store / derives a grounded lean / answers honestly when
+            # ungrounded), and compose a reply that names both sides. Had RAVANA
+            # no view on either, both resolve honestly and the answer stays
+            # honest rather than fabricating. No LLM, no retraining; the per-side
+            # stance is computed live, every call.
+            _contrast_sides = None
+            for _sep in (" versus ", " vs ", " vs. ", " or ", " over ",
+                         " rather than "):
+                if _sep in (" " + _topic_phrase.lower() + " "):
+                    _contrast_sides = [p.strip().strip("?.!")
+                                       for p in _topic_phrase.lower().split(_sep)
+                                       if p.strip().strip("?.!")]
+                    break
+            if _contrast_sides and len(_contrast_sides) >= 2:
+                # Keep the last content word of each side as that side's topic
+                # target (same convention the single-topic path uses: "the sea"
+                # -> "sea"). A side with no substantive token is dropped.
+                _SCRUB = {"about", "on", "the", "a", "an", "of", "for",
+                           "with", "to", "we", "should", "could", "would",
+                           "is", "are", "do", "does", "you", "i", "it",
+                           "that", "this", "and", "or", "honest", "read",
+                           "take", "view", "opinion", "thoughts", "stance",
+                           "versus", "vs", "more", "me", "now", "after",
+                           "what", "just", "said", "right", "really",
+                           "exactly", "tell", "think", "than", "rather"}
+                _side_topics = []
+                for _side in _contrast_sides:
+                    _toks = [w for w in re.findall(r"[a-z']+", _side)
+                             if w not in _SCRUB]
+                    if _toks:
+                        _side_topics.append(_toks[-1])
+                if len(_side_topics) >= 2:
+                    _replies = []
+                    for _st in _side_topics:
+                        _r = self._agent_self_stance_reply(
+                            opinions, beliefs, _st)
+                        # Fallback: if a side is fully ungrounded, still name it
+                        # honestly so the contrast is answered, not hidden.
+                        _replies.append(
+                            _r if _r else f"i'm still figuring out {_st}.")
+                    return "; ".join(_replies) + "."
+            # ── Single-topic self-stance (unchanged path) ──────────────────
             # ROUND 2026-08-09i FIX: reject DEICTIC / GENERIC topic phrases.
             # A loosely-matched self-stance query ("do you have anything like
             # that?", "what's your view on it") resolves its topic to a pronoun
@@ -5982,6 +6044,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.user_model.opinions.clear_reversal_guard()
         except Exception:
             pass
+        # C-fix (round 2026-08-12T1234Z): reset the prior turn's
+        # correction flags at the TOP of process_turn, before any detector can
+        # read them. _detect_correction() (user_model.py) can raise the
+        # detected_correction flag via a WEAK signal (sentiment-drop / reask)
+        # WITHOUT a fresh fact; the old code only cleared the flag inside the
+        # persist gates AFTER consuming it, so a flag set on turn N could leak
+        # into turn N+1's correction-persist gate and persist a STALE fact under
+        # a junk attribute (observed: ('i','is','just') — a garbage
+        # correction "you are just" stored from a prior turn's mis-read).
+        # Resetting here makes correction a strictly WITHIN-turn signal: each
+        # turn re-derives its own correction fact from its own text. No per-topic
+        # logic; mirrors the reversal-marker reset directly above.
+        try:
+            self.user_model.reset_correction_flags()
+        except Exception:
+            pass
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
         _meta_res = self._check_meta_command(user_input)
         if _meta_res is not None:
@@ -7692,17 +7770,74 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     target = _tail_toks[-1] if _tail_toks else ""
                 elif m_agent_likes_yesno:
                     _ym = re.search(
-                        r"\bdo\s+you\s+(?:like|love|hate|enjoy|prefer|care\s+for)\s+([a-z][a-z\s'-]{1,30}?)[\?\.]?$",
+                        r"\bdo\s+you\s+(?:like|love|hate|enjoy|prefer|care\s+for)\s+([a-z][a-z\s'-]{1,30}?)[\?\. ]?$",
                         clean_input, re.IGNORECASE)
                     target = _ym.group(1).strip(" ?!.'") if _ym else ""
                 else:
                     target = ""
-                stance, reason = self._agent_stance_on(target)
-                back = " what about you?"
-                _reason = reason.rstrip()
-                if _reason and not _reason.endswith((".", "!", "?")):
-                    _reason += "."
-                response = f"{stance} {_reason}{back}"
+                # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
+                # t_2595f8ad) ─────────────────────────────────────────────────
+                # "do you prefer the countryside or the cities" carries TWO options;
+                # a single target collapses to the last token (or the whole phrase,
+                # which then mis-resolves). Split on the contrastive connective and
+                # resolve EACH side through the real-state _agent_stance_on
+                # resolver (grounded lean / honest-ungrounded), composing a reply
+                # that names both. Reuses the same real cognition as the
+                # single-topic path — no hardcoded reply. (Third of three
+                # self-opinion paths; the other two carry the identical split.)
+                _contrast_sides = None
+                for _sep in (" versus ", " vs ", " vs. ", " or ", " over ",
+                             " rather than "):
+                    if _sep in (" " + target.lower() + " "):
+                        _contrast_sides = [p.strip().strip("?.!'")
+                                           for p in target.lower().split(_sep)
+                                           if p.strip().strip("?.!'")]
+                        break
+                if _contrast_sides and len(_contrast_sides) >= 2:
+                    _SCRUB = {"about", "on", "the", "a", "an", "of", "for",
+                               "with", "to", "is", "are", "do", "does", "you",
+                               "i", "it", "that", "this", "and", "or", "honest",
+                               "read", "take", "view", "opinion", "thoughts",
+                               "stance", "versus", "vs", "more", "me", "now",
+                               "after", "what", "just", "said", "right",
+                               "really", "exactly", "tell", "think", "than",
+                               "rather"}
+                    _side_topics = []
+                    for _side in _contrast_sides:
+                        _toks = [w for w in re.findall(r"[a-z']+", _side)
+                                 if w not in _SCRUB]
+                        if _toks:
+                            _side_topics.append(_toks[-1])
+                    if len(_side_topics) >= 2:
+                        # _agent_stance_on returns a FULL stance sentence that
+                        # already begins with "i" and names the topic (e.g.
+                        # "i'm for sea."). Compose one sentence per side, joined
+                        # by "; " — do NOT re-prepend "i" or the topic.
+                        _phrases = []
+                        for _st in _side_topics:
+                            _stt, _st_r = self._agent_stance_on(_st)
+                            _phrases.append(_stt)
+                        stance = "; ".join(_phrases)
+                        reason = ""
+                        back = " what about you?"
+                        _reason = reason.rstrip()
+                        if _reason and not _reason.endswith((".", "!", "?")):
+                            _reason += "."
+                        response = f"{stance}{(' ' + _reason) if _reason else ''}{back}".replace("  ", " ")
+                    else:
+                        stance, reason = self._agent_stance_on(target)
+                        back = " what about you?"
+                        _reason = reason.rstrip()
+                        if _reason and not _reason.endswith((".", "!", "?")):
+                            _reason += "."
+                        response = f"{stance} {_reason}{back}"
+                else:
+                    stance, reason = self._agent_stance_on(target)
+                    back = " what about you?"
+                    _reason = reason.rstrip()
+                    if _reason and not _reason.endswith((".", "!", "?")):
+                        _reason += "."
+                    response = f"{stance} {_reason}{back}"
 
             elif m_agent_interests:
                 response = ("i'm interested in how minds and meaning work — that's "
