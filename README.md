@@ -77,6 +77,15 @@ on this codebase:
   she's called briar"* files the corrected name on the owl slot, so recall returns
   `briar`, not the stale `wren`. No LLM, no retrain; the boundary is enforced at
   every recall source. See `docs/POSSESSION_REATTRIBUTION.md`.
+- **Answers about a pet by the name you actually use.** Told *"my dog's a
+  retriever called wren"*, it can later answer *"who is wren to me?"* with
+  *"your dog is wren."* — the inverse of species-keyed recall, reverse-indexing
+  the pet store by the **name** (the stored value) and surfacing the relationship
+  (the species). It honors a renamed pet (a superseded name is never reported as
+  yours), keeps a third party's pet out of scope for *"to me"* (self/other
+  boundary), and works for runtime-learned species (*"i have an axolotl named
+  nyx"* → *"your axolotl is nyx."*). No LLM, no retrain, no authored reply pool.
+  See `docs/PET_NAME_RECALL.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
@@ -221,6 +230,8 @@ See [`docs/`](docs/README.md):
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
 - [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
 - [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
+- [Reverse Pet Lookup by Name](docs/PET_NAME_RECALL.md) — answering "who is wren to me?" by reverse-indexing the pet store by the name value.
+- [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
 
 ## Benchmark results
 
