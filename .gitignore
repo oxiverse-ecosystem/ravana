@@ -132,3 +132,11 @@ tmp/
 experiments/_identity_baseline_6912.npz
 benchmark_results/locomo_full_progress_PRE_20260724_185358.jsonl
 node_modules/
+
+# Generated audit/dirt artifacts (do NOT commit)
+/audit_msg_*.txt
+/audit_report_*.md
+/audit_run_*.sh
+/probe_facts.py
+/docs/_generated/
+/experiment_results/

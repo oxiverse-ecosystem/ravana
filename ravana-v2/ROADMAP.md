@@ -69,3 +69,45 @@ By **Phase 5**, RAVANA should demonstrate:
 | **Fairness** | Parity Gap ($DPG$) | < 5% |
 | **Capability** | DeepMind Level | **Level 3 (Expert)** |
 | **Humility** | Brier Score | < 0.1 |
+
+---
+
+## 🔒 OPERATING DIRECTIVE (2026-08-13, override of scoreboard framing above)
+
+The metrics table above is instrumentation only. **Do NOT optimize RAVANA toward benchmark numbers.**
+ChatGPT's review (Vitalii's direction) is the actual target: stop collecting benchmark badges; build the
+**autonomous developmental loop** and use benchmarks only to expose which arrow is broken.
+
+### RAVANA Phase Q — Autonomous Developmental Loop (the real goal)
+Make GRACE's central purpose the self-directed learning cycle. This is NOT a literal bolt-on "Q" phase;
+it is the standing loop the set-and-forget agent drives every round:
+
+```
+CURRENT WORLD MODEL → FIND UNCERTAINTY → GENERATE QUESTION → GENERATE HYPOTHESES
+   → CHOOSE INFORMATION ACTION (SEARCH | EXPERIMENT) → EVIDENCE → UPDATE GRAPH
+   → CONSOLIDATE → TEST PREDICTION → repeat
+```
+
+`ravana-v2/src/ravana_grace/core/active_epistemology.py` is the home for this. The loop must:
+- notice what it does NOT understand (uncertainty / KL-plateau detection),
+- form hypotheses (mark edges KNOWN | HYPOTHESIS | PREDICTION | UNCERTAIN | REFUTED | CONFIRMED),
+- seek information strategically (prefer searches that reduce uncertainty, not blind web dumps),
+- consolidate + test whether the new structure actually improved prediction,
+- create structures the programmer did NOT define (concept induction: A,B,C share X → discover Y).
+
+### Capability batteries (not a scoreboard)
+Organize work as capability batteries; attach benchmarks UNDERNEATH as failure detectors:
+Episodic memory · Semantic memory · Temporal cognition (event/statement/knowledge/reference/current time) ·
+Entity tracking · Contradiction reconciliation · Abstraction/Concept formation · Transfer · Reasoning (correlation≠implication≠causation) ·
+Metacognition (confidence must correlate with correctness) · Curiosity · Hypothesis · Active learning · Consolidation ·
+Self-correction · Autonomous learning · Self-development.
+Ask "which arrow is broken?" — then fix the architecture. Never "need 90% on X."
+
+### Hard runtime constraint: CPU, real-time, human-speed
+RAVANA must run on CPU and respond in real time like a human thinks — no GPU dependency, no batch-deferred
+inference that pushes latency past conversational human pace. The set-and-forget loop MUST keep RAVANA
+CPU-bound and latency-bounded; if a change breaks real-time CPU response, that change is rejected.
+
+### No scope creep
+Phases above are directional. The loop picks tasks RELEVANT to the CURRENT phase only. Do not add features
+outside the active phase. Quality > quantity of merged PRs.

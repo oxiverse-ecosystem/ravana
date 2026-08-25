@@ -3005,6 +3005,26 @@ class UserModel:
                     )
                     if _obj.split()[0] in _META_HEAD:
                         continue
+                    # B-activity fix (round 2026-08-13T1136Z): a 'does' fact
+                    # must have a concrete OBJECT, not a lone verb-form. A
+                    # single-token object shaped like a verb ("works",
+                    # "replaying", "play", "build") is a process / denial /
+                    # mental loop, never a possession — storing it poisons the
+                    # self-summary ("you do build works", "you do keep
+                    # replaying"). Reject a single-word object that is a verb
+                    # form (gerund -ing, participle -ed/-en, 3rd-person -es) or
+                    # a known activity/event/meta verb. Structural POS/shape
+                    # test, not a per-phrase list: multi-word noun objects
+                    # ("homing pigeons", "play sarod") still pass. Mirrors the
+                    # guard in the general-activity miner below.
+                    _ow = _obj.split()
+                    if len(_ow) == 1:
+                        _tok = _ow[0]
+                        if (re.fullmatch(r"[a-z']*(?:ing|ed|en|es)", _tok)
+                                or _tok in _ACTIVITY_VERBS
+                                or _tok in _EVENT_VERBS
+                                or _tok in _META_VERBS):
+                            continue
                     # Store the verb WITH the object ("keep homing pigeons")
                     # so activity recall ("what do i keep?") can match the
                     # verb and return a complete, grammatical answer instead
@@ -3721,41 +3741,12 @@ class UserModel:
         # PersonalFactStore the user can correct — NOT per-topic answers, NOT
         # authored prose). Covers everyday disclosure verbs + common irregular
         # past forms so first-person activities/experiences actually land.
-        _ACTIVITY_VERBS = (
-            "run", "own", "operate", "play", "teach", "study", "manage",
-            "drive", "build", "make", "sell", "restore", "grow", "watch",
-            "raise", "tend", "brew", "bake", "write", "read", "learn",
-            "practice", "collect", "fix", "paint", "code", "design", "craft",
-            "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
-            "organize", "keep", "grind", "race", "sail", "fly", "knit",
-            "sew", "weld", "forge", "carve", "compose", "record", "perform",
-            "coach", "train", "compete", "spin", "weave", "mount", "trade",
-            "host", "guide", "throw", "shoot", "develop", "clean", "reload",
-            "recharge", "assemble", "mix", "pour", "press", "roll", "fire",
-            "glaze", "wire", "prune", "pot", "plant", "sketch", "draw",
-            "sculpt", "stitch", "mend", "whittle", "start", "begin", "try",
-            "go", "use", "take", "make", "get", "built", "taught", "wrote",
-            "drew", "sang", "flew", "swam", "rode", "drove", "broke",
-            "spoke", "woke", "froze", "chose", "ate", "drank", "grew",
-            "threw", "knew", "wore", "brought", "bought", "caught",
-            "kept", "slept", "left", "felt", "met",
-            "sent", "spent", "lost", "found", "held", "told", "sold",
-            "paid", "said", "gave", "came", "went", "did", "saw", "got",
-            "made", "took", "set", "put", "cut", "hit", "read", "led",
-            "fed", "bled", "fed",
-        )
-        _EVENT_VERBS = (
-            "drop", "lose", "find", "remove", "break", "discover", "notice",
-            "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
-            "ruin", "save", "nurse", "revive", "miss", "spot",
-            "catch", "pull", "cut", "burn", "flood", "rescue", "rebuild",
-            "recover", "heal", "uproot", "freeze", "thaw", "hatch",
-            "bloom", "wilt", "die", "survive", "escape", "return", "birth",
-            "fall", "fell", "crash", "lose", "lost", "found", "kept",
-            "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
-            "made", "took", "gave", "came", "went", "did", "ate", "drank",
-            "grew", "knew", "threw", "froze", "bled", "fed", "died",
-        )
+        # B-activity fix (round 2026-08-13T1136Z): the tuples now live at
+        # MODULE scope (_ACTIVITY_VERBS / _EVENT_VERBS, defined just after
+        # _AFFECT_STATE_LEXICON) so the narrow D3 loop, this general loop,
+        # and the continuous-tense loop all share one definition and the
+        # lone-verb-form guards below can reference them without scoping
+        # errors. They are referenced here, not redefined.
         # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
         # The object stops at a clause boundary (., !, ?, ",", " and ",
         # " but ", " because ", " so ", " which ", " that ", " when ",
@@ -3789,6 +3780,28 @@ class UserModel:
             _o = (_obj or "").strip().lower()
             if not _o:
                 return False
+            # B-activity fix (round 2026-08-13T1136Z): a 'does'/'event' fact is
+            # a POSSESSION or lived ACTIVITY with a concrete OBJECT ("homing
+            # pigeons", "tabla", "play sarod", "throw pots"). A single-token
+            # object that is itself a VERB FORM ("works", "replaying", "play",
+            # "build") is a process / denial / mental loop, never a thing the
+            # user keeps or does — storing it poisons the self-summary
+            # ("you do build works", "you do keep replaying"). Reject a
+            # single-word object whose shape is a verb (gerund -ing, past
+            # participle -ed/-en, third-person -es, or a bare infinitive that
+            # is a known activity/event verb). Structural: a POS/shape test on
+            # the resolved head, not a per-phrase list — so "homing pigeons"
+            # (2 tokens, head noun) and "play sarod" (head verb + noun) still
+            # pass, while any lone verb-form is dropped. RAVANA changes its own
+            # store via experience; this is a guard on form, not content.
+            _ow = _o.split()
+            if len(_ow) == 1:
+                _tok = _ow[0]
+                _verb_shape = re.fullmatch(
+                    r"[a-z']*(?:ing|ed|en|es)", _tok) is not None
+                if _verb_shape or _tok in _ACTIVITY_VERBS or _tok in _EVENT_VERBS \
+                        or _tok in _META_VERBS:
+                    return False
             # Scan the RAW object clause (before _opinion_topic trims it) for
             # an embedded/subordinate question ("of whether i told you",
             # "why he left") — a meta-reflection, not a possessed thing. The
@@ -3892,6 +3905,11 @@ class UserModel:
             # gate above, not a length cap.
             return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
+            # B-activity fix (round 2026-08-13T1136Z): a denial is not an
+            # activity assertion; skip the 'does'/'event' capture when the
+            # utterance carries a negative marker.
+            if any(_m2 in q_clean for _m2 in _NEG_MARKERS):
+                continue
             _verb = _am.group(1).lower()
             # D4 (round 2026-08-11T1328Z): a communication / meta verb
             # ("tell"/"told"/"say"/"said"/"mention"/"keep"/"lose"/"felt"...) is
@@ -4150,22 +4168,79 @@ class UserModel:
              r"(?:admire|respect|treasure|cherish|value|appreciate)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
             (r"\bi\s+(?:really\s+|truly\s+|deeply\s+)?"
              r"(?:despise|loathe|resent|detest|scorn|disdain|abhor)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
-            # (h) "i think/believe/feel X is (more) <VAL-ADJ> (than Y)" with a
+            # (h) "[i think/believe/feel] X is (more) <VAL-ADJ> (than Y)" with a
             #     broad value-adjective lexicon (the comparative slot makes it
             #     "X over Y" without needing a literal "than"). Polarity from
-            #     the lexicon; the leading frame is stripped so X is the head.
-            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+(?:is|are)\s+"
+            #     the lexicon; the leading "i (think|believe|...)" frame is
+            #     OPTIONAL so X is the head whether or not the user fronts the
+            #     statement with an opinion verb — this is the limitation #3
+            #     (round 2026-08-13T1136Z) capability: a bare comparative
+            #     "teaching kids to cook is more important than coding" is now
+            #     mined as a real stance on X (+0.75), not dropped. The frame
+            #     is made optional INSIDE the single pattern (not as a separate
+            #     bare pattern) so it cannot re-match mid-string and seed a
+            #     second garbled topic that collides with the framed match —
+            #     that collision was the reason bare comparatives were
+            #     originally left un-mined. This mirrors pattern (a) above,
+            #     which already mines bare comparatives ("the sea is a better
+            #     teacher than any classroom") with an optional frame and no
+            #     collision. Grammatical/structural: seed valence lexicon, no
+            #     per-topic answers, no authored prose; RAVANA revises any
+            #     stance by talking.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
              r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
              r"important|valuable|meaningful|useful|helpful|worthwhile|"
              r"significant|relevant|fair|just|honest|beautiful|wonderful|"
              r"vital|crucial|essential|wise|healthy|kind|free|true|real|"
              r"alive|human|warm|clean|brave|strong|necessary|right)\b", 0.75, 0.5),
-            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+(?:is|are)\s+"
+            # (h-neg-q) the SAME copula shape but led by "less"/"fewer" — a
+            # DOWNWARD comparative ("X is less important than Y") is the
+            # negative mirror of (h) ("X is more important than Y"). The
+            # leading frame is optional (same limitation #3 capability) and
+            # the collision guard below drops any "believe X" garble. Seed
+            # valence lexicon, no per-topic answers; RAVANA revises by talking.
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
+             r"(?:much\s+|far\s+|way\s+)?less\s+(?:important|valuable|meaningful|"
+             r"useful|helpful|worthwhile|significant|relevant|fair|just|honest|"
+             r"beautiful|wonderful|vital|crucial|essential|wise|healthy|kind|"
+             r"free|true|real|alive|human|warm|clean|brave|strong|necessary|right)\b",
+             -0.75, 0.5),
+            (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?\b(.+?)\s+(?:is|are)\s+"
              r"(?:much\s+|far\s+|way\s+|more\s+|so\s+)?(?:"
              r"unimportant|worthless|meaningless|useless|harmful|pointless|"
              r"pointless|trivial|irrelevant|unfair|dishonest|ugly|awful|"
              r"terrible|harmful|wrong|cruel|false|empty|cold|dirty|weak|"
              r"unnecessary|foolish|stupid|dangerous|toxic)\b", -0.75, 0.5),
+            # (i) value-verb comparative "i think X <value-verb> more than Y"
+            #     / "i believe X matters more than Y" / "X means more to me
+            #     than Y" — a GENERAL shape the (h) copula pattern missed
+            #     ("i think handwritten letters mean more than texts" produced
+            #     NO stance because the predicate was 'mean more than', not
+            #     'is <VAL-ADJ>'). The value-verb set is a small SEED
+            #     vocabulary (mean/matter/matters/matter more/outweigh/
+            #     outweighs/beat/trump/win/prefer/count more than) — expanded
+            #     at runtime via the affect/opinion store, NOT a per-topic
+            #     table. Polarity is +0.75 (the 'more than' comparative is
+            #     inherently X-over-Y; a negative value-verb like 'mean less
+            #     than' is covered by the negative branch below). The leading
+            #     'i think/believe/feel/find/reckon' frame is stripped so X is
+            #     the content head. A bare (no-leading-frame) form is NOT
+            #     added, per the NOTE below (it re-matched mid-string and
+            #     collided with the topic). Generalizes: 'handwritten letters
+            #     mean more than texts' -> +0.75 on 'handwritten letters'.
+            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+"
+             r"(?:means|mean|matters|matter|mattering|outweighs|outweigh|"
+             r"beats|trumps|wins\s+over|prefer|prefers|counts|count)"
+             r"(?:\s+(?:more|far|much|way))?\s+(?:than|over|to\s+me|to\s+us)"
+             r"(?:\s+.+?)?(?:[.!?]|\s+and\b|\s+but\b|$)", 0.75, 0.5),
+            # (i-neg) negative value-verb comparative "X means less than Y" /
+            #     "X matters less than Y" -> -0.75 on X. Same general shape,
+            #     opposite polarity; seed verb set, not a per-topic table.
+            (r"\bi\s+(?:think|believe|feel|find|reckon)\s+(.+?)\s+"
+             r"(?:means|mean|matters|matter|mattering|outweighs|outweigh|"
+             r"beats|trumps|wins\s+over|prefer|prefers|counts|count)"
+             r"\s+(?:less|fewer|little)\s+(?:than|over)\s+.+?"
+             r"(?:[.!?]|\s+and\b|\s+but\b|$|,)", -0.75, 0.5),
             # NOTE: a bare comparative "X is more <ADJ> than Y" (no leading
             # "i think" frame) is intentionally NOT added as a separate
             # pattern. The (h) pattern above already covers the user-opinion
@@ -4187,6 +4262,15 @@ class UserModel:
                 # garbage stance).
                 _topic = self._opinion_topic(_raw)
                 if not _topic:
+                    continue
+                # Limitation #3 fix (round 2026-08-13T1136Z): the frame is now
+                # OPTIONAL, which lets a single framed sentence ("i believe
+                # silence is more important than noise") match twice — once
+                # framed (topic "silence") and once mid-string from the bare
+                # "i" (topic "believe silence"). Drop any resolved topic whose
+                # FIRST token is a frame verb so only the correct topic
+                # survives; no real attitude object begins with one.
+                if _topic.split()[0] in self._FRAME_VERBS:
                     continue
                 # C-fix (round 2026-08-12T0613Z): reject a SINGLE-WORD topic
                 # that is not a real attitude object. Comparative / superlative
@@ -5322,6 +5406,22 @@ class UserModel:
         if _obj and len(_obj.split()) <= 5:
             return f"{_verb} {_obj}"
         return None
+
+    # Limitation #3 fix (round 2026-08-13T1136Z): the opinion shapes below make
+    # the leading "i think/believe/feel/find/reckon" frame OPTIONAL so a bare
+    # comparative ("teaching kids to cook is more important than coding") is
+    # mined as a real stance. But making the frame optional would let ONE
+    # framed sentence ("i believe silence is more important than noise") match
+    # TWICE: once with the frame consumed (topic "silence") and once mid-string
+    # from the bare "i" (topic "believe silence") — the exact collision that
+    # originally forced bare comparatives to be left un-mined. This universal
+    # guard drops any resolved topic whose FIRST token is a frame verb, so the
+    # garbled "believe silence" collision key is rejected while the correct
+    # "silence" topic (from the framed match) survives. No real attitude object
+    # begins with a frame verb, so this is a safe, general grammatical guard —
+    # not a per-topic deny-list; removing the words degrades gracefully.
+    _FRAME_VERBS = {"think", "believes", "believe", "felt", "feel",
+                    "find", "finds", "reckon", "reckons"}
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.
