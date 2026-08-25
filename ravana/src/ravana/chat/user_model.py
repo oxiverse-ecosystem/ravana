@@ -106,6 +106,16 @@ _ACTIVITY_VERB_LEXICON = {
     "show", "showed", "told", "say", "said", "call", "called", "visit",
     "visited", "help", "helped", "love", "loved", "like", "hate", "hated",
     "feed", "fed", "walk", "walked", "care", "cared", "protect", "protected",
+    # PET ACTIVITY VERBS (round 2026-08-22T0703Z, DEFECT D1): core verbs a pet
+    # does that a disclosure may report as an ACTIVITY (so the companion-fact
+    # miner captures them, parallel to kin activity mining). Seed lexicon,
+    # RAVANA-expandable via the same store; not a per-animal table.
+    "hide", "hides", "steal", "steals", "sleep", "sleeps", "bark", "barks",
+    "chase", "chases", "catch", "catches", "climb", "climbs", "dig", "digs",
+    "fetch", "fetches", "guard", "guards", "pounce", "pounces", "nudge",
+    "nudges", "bring", "brings", "carry", "carries", "drop", "drops",
+    "sit", "sits", "roll", "rolls", "spin", "spins", "meow", "meows",
+    "purr", "purrs", "chew", "chews", "lick", "licks", "paw", "paws",
 }
 
 
@@ -2404,840 +2414,6 @@ class UserModel:
                         if _act:
                             _put_fact(f"{_pet_slots.slot_for(_species, _i)}_activity", _act, 0.55)
                     continue
-                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
-                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
-                # The name capture group (group 2) is a proper noun. The
-                # isupper() guard rejects common-noun objects ("my pet rock
-                # collection"), but casual chat also writes names lowercase
-                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
-                # lowercase name too, but ONLY when the species is a SEED animal
-                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
-                # collection" is still rejected (rock is not a seed species, so
-                # learn_species never fires on the lowercase path). Resolve the
-                # species through the SAME pet_slots path the "named"/"called"
-                # branch uses (species_of / learn_species / slot_for), then store
-                # the name in the species-keyed slot — so the miner and the
-                # recaller (reverse-name resolver + cued recall) agree on the
-                # key by construction. Generic across every species; no
-                # per-animal table; species grown at runtime. No authored reply;
-                # no retraining.
-                if _pat is _APPOSITIVE_PET_PAT:
-                    _raw_nm = (_m.group(2) or _m.group(4) or "")
-                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
-                    _nm = _raw_nm.strip().strip(".,!?")
-                    if not _sp or not _nm:
-                        continue
-                    # GENERALIZE: a name is accepted if it is Capitalized OR
-                    # (lowercase AND the species is a seed animal). This keeps the
-                    # common-noun guard (rejects "my pet rock collection") while
-                    # allowing casual lowercase names ("my cat mochi").
-                    _name_ok = _nm[:1].isupper()
-                    if not _name_ok:
-                        try:
-                            from .pet_slots import _SPECIES_SEED as _PS_SEED
-                        except Exception:
-                            _PS_SEED = {}
-                        if _sp in _PS_SEED:
-                            # lowercase-name path (e.g. "my cat mochi"): only
-                            # valid when the captured name is sentence-final or
-                            # followed by a copula/punctuation — NOT a verb-led
-                            # clause tail. The pattern above runs IGNORECASE, so
-                            # the name group can grab the next verb ("my dog
-                            # likes the park" -> name "likes"); reject when a
-                            # non-copula word follows so we don't store a verb as
-                            # a pet. Proper-noun (isupper) names are exempt — they
-                            # may legitimately lead a clause ("my dog Rex barks").
-                            _tail = q_clean[_m.end():].lstrip()
-                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
-                            _COPULA = {"is", "was", "were", "are", "named",
-                                       "called", "means", "s"}
-                            if not _tail or not _nxt or _nxt in _COPULA:
-                                _name_ok = True
-                    if not _name_ok:
-                        continue
-                    try:
-                        from .relation_attrs import relation_of as _app_rel_of
-                    except Exception:
-                        _app_rel_of = lambda w: None
-                    if _app_rel_of(_sp) is not None:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    if _species is not None:
-                        _i = 1
-                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
-                            _i += 1
-                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
-                # GENERAL 'species named/called Name' CATCH-ALL (round
-                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
-                # Expand multi-name spans ("collie named Biscuit and Rex") so each
-                # name gets its own species-keyed slot. Routes through the SAME
-                # pet_slots path the conjoined/appositive branches use, so miner +
-                # recall agree on the key. Seed + runtime-learned species; no
-                # per-animal table, no authored reply, no retraining.
-                if _pat is _PET_NAMED_CATCHALL_PAT:
-                    _sp = (_m.group(1) or "").strip().lower()
-                    _names = re.split(r"\s+(?:and|,|&)\s*",
-                                      (_m.group(2) or "").strip())
-                    if not _sp:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: a possession
-                    # disclosure like "i keep a sourdough starter i named doris"
-                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
-                    # function-word species candidates so no bogus species slot
-                    # is learned and leaked on unknown-entity recall. The legit
-                    # "species named Name" case still resolves through the seed
-                    # vocabulary, so this does not narrow the capture.
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    elif _species is None:
-                        _species = _sp
-                    if _species is not None:
-                        for _nm in _names:
-                            _nm = _nm.strip().strip(".,!?")
-                            if not _nm:
-                                continue
-                            _i = 1
-                            while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
-                                _i += 1
-                            _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
-                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
-                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
-                # The name capture group (group 2) is a proper noun. The
-                # isupper() guard rejects common-noun objects ("my pet rock
-                # collection"), but casual chat also writes names lowercase
-                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
-                # lowercase name too, but ONLY when the species is a SEED animal
-                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
-                # collection" is still rejected (rock is not a seed species, so
-                # learn_species never fires on the lowercase path). Resolve the
-                # species through the SAME pet_slots path the "named"/"called"
-                # branch uses (species_of / learn_species / slot_for), then store
-                # the name in the species-keyed slot — so the miner and the
-                # recaller (reverse-name resolver + cued recall) agree on the
-                # key by construction. Generic across every species; no
-                # per-animal table; species grown at runtime. No authored reply;
-                # no retraining.
-                if _pat is _APPOSITIVE_PET_PAT:
-                    _raw_nm = (_m.group(2) or _m.group(4) or "")
-                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
-                    _nm = _raw_nm.strip().strip(".,!?")
-                    if not _sp or not _nm:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
-                    # function-word species candidates so no bogus slot is
-                    # learned (defense-in-depth; also handled at the chokepoint).
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    # GENERALIZE: a name is accepted if it is Capitalized OR
-                    # (lowercase AND the species is a seed animal). This keeps the
-                    # common-noun guard (rejects "my pet rock collection") while
-                    # allowing casual lowercase names ("my cat mochi").
-                    _name_ok = _nm[:1].isupper()
-                    if not _name_ok:
-                        try:
-                            from .pet_slots import _SPECIES_SEED as _PS_SEED
-                        except Exception:
-                            _PS_SEED = {}
-                        if _sp in _PS_SEED:
-                            # lowercase-name path (e.g. "my cat mochi"): only
-                            # valid when the captured name is sentence-final or
-                            # followed by a copula/punctuation — NOT a verb-led
-                            # clause tail. The pattern above runs IGNORECASE, so
-                            # the name group can grab the next verb ("my dog
-                            # likes the park" -> name "likes"); reject when a
-                            # non-copula word follows so we don't store a verb as
-                            # a pet. Proper-noun (isupper) names are exempt — they
-                            # may legitimately lead a clause ("my dog Rex barks").
-                            _tail = q_clean[_m.end():].lstrip()
-                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
-                            _COPULA = {"is", "was", "were", "are", "named",
-                                       "called", "means", "s"}
-                            if not _tail or not _nxt or _nxt in _COPULA:
-                                _name_ok = True
-                    if not _name_ok:
-                        continue
-                    try:
-                        from .relation_attrs import relation_of as _app_rel_of
-                    except Exception:
-                        _app_rel_of = lambda w: None
-                    if _app_rel_of(_sp) is not None:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    if _species is not None:
-                        _i = 1
-                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
-                            _i += 1
-                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
-                # GENERAL 'species named/called Name' CATCH-ALL (round
-                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
-                # Expand multi-name spans ("collie named Biscuit and Rex") so each
-                # name gets its own species-keyed slot. Routes through the SAME
-                # pet_slots path the conjoined/appositive branches use, so miner +
-                # recall agree on the key. Seed + runtime-learned species; no
-                # per-animal table, no authored reply, no retraining.
-                if _pat is _PET_NAMED_CATCHALL_PAT:
-                    _sp = (_m.group(1) or "").strip().lower()
-                    _names = re.split(r"\s+(?:and|,|&)\s*",
-                                      (_m.group(2) or "").strip())
-                    if not _sp:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: a possession
-                    # disclosure like "i keep a sourdough starter i named doris"
-                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
-                    # function-word species candidates so no bogus species slot
-                    # is learned and leaked on unknown-entity recall. The legit
-                    # "species named Name" case still resolves through the seed
-                    # vocabulary, so this does not narrow the capture.
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    _species_is_seed = _species is not None
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    elif _species is None:
-                        _species = _sp
-                    if _species is not None:
-                        # PRESERVE THE SURFACE SPECIES PHRASE (round
-                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
-                        # is greedy: a disclosure like "i keep a pet parrot named
-                        # Mango" has TWO species words before "named" ("pet" then
-                        # "parrot"). The REGEX only captures the word IMMEDIATELY
-                        # before "named" — "parrot" — and species_of('parrot')
-                        # collapses it to its seed CANON 'bird', storing the bare
-                        # ('i','bird',<name>) fact. But the possession pattern
-                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
-                        # \s+(?:named|called)\s+<name>") captures the FULL surface
-                        # "pet parrot" and stores the entity-keyed
-                        # ('pet parrot','name',<name>) fact. The two miners then
-                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
-                        # pet/relationship recaller (engine.py 1d branch) only
-                        # scans subject-'i' facts — so it surfaces the bare canon
-                        # "your bird is mango." instead of the user's own words
-                        # "your pet parrot is mango." Fix: when the captured token
-                        # is a SEED canon (parrot->bird) AND the same surface
-                        # species phrase was ALSO stored by the possession pattern
-                        # (i.e. the prior-token word is 'pet' / a known species and
-                        # it forms a compound "<prior> <captured>"), keep the FULL
-                        # surface compound as the slot key instead of collapsing to
-                        # the canon. This makes the catch-all and the possession
-                        # pattern AGREE on the key by construction, so the recaller
-                        # renders the surface phrase the user actually said. The
-                        # compound is still resolved through pet_slots (every
-                        # component is a seed/learned species), so no per-animal
-                        # table, no authored reply. A lone non-compound capture
-                        # (e.g. "i got a border collie named Biscuit" -> species
-                        # 'dog' but no 'pet' prefix) still collapses to the canon
-                        # exactly as before, so legit pet capture is unchanged.
-                        _surface = _sp
-                        # Look at the ORIGINAL text before the match to find the
-                        # word immediately preceding the captured species token
-                        # (group(0) only spans "<species> named <name>", so its
-                        # own prefix is empty). A disclosure like
-                        # "i keep a pet parrot named Mango" leaves "pet" right
-                        # before "parrot"; capture it so the compound surface key
-                        # can be reconstructed.
-                        _pre = q_clean[: _m.start()].rstrip()
-                        _prior = _pre.split()[-1].lower() if _pre else ""
-                        # When the captured token collapses to a SEED canon AND
-                        # the word immediately before it ("pet"/a known species)
-                        # forms a compound surface phrase, prefer keeping the FULL
-                        # surface compound as the slot key. The possession pattern
-                        # stores the entity-keyed ('<compound>','name',<name>)
-                        # fact; aligning the catch-all to the same surface key
-                        # makes miner + recaller agree by construction instead of
-                        # emitting the bare canon ('bird') that the recaller
-                        # renders as "your bird". Single-token captures (no
-                        # qualifying prior word) keep collapsing to the canon, so
-                        # legit pet capture is unchanged.
-                        if (_species_is_seed
-                                and _prior in ("pet",)
-                                and _pet_slots.species_of(_prior) is not None):
-                            _surface = f"{_prior} {_sp}"
-                        for _nm in _names:
-                            _nm = _nm.strip().strip(".,!?")
-                            if not _nm:
-                                continue
-                            _i = 1
-                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
-                                _i += 1
-                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
-                    continue
-                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
-                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
-                # The name capture group (group 2) is a proper noun. The
-                # isupper() guard rejects common-noun objects ("my pet rock
-                # collection"), but casual chat also writes names lowercase
-                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
-                # lowercase name too, but ONLY when the species is a SEED animal
-                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
-                # collection" is still rejected (rock is not a seed species, so
-                # learn_species never fires on the lowercase path). Resolve the
-                # species through the SAME pet_slots path the "named"/"called"
-                # branch uses (species_of / learn_species / slot_for), then store
-                # the name in the species-keyed slot — so the miner and the
-                # recaller (reverse-name resolver + cued recall) agree on the
-                # key by construction. Generic across every species; no
-                # per-animal table; species grown at runtime. No authored reply;
-                # no retraining.
-                if _pat is _APPOSITIVE_PET_PAT:
-                    _raw_nm = (_m.group(2) or _m.group(4) or "")
-                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
-                    _nm = _raw_nm.strip().strip(".,!?")
-                    if not _sp or not _nm:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
-                    # function-word species candidates so no bogus slot is
-                    # learned (defense-in-depth; also handled at the chokepoint).
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    # GENERALIZE: a name is accepted if it is Capitalized OR
-                    # (lowercase AND the species is a seed animal). This keeps the
-                    # common-noun guard (rejects "my pet rock collection") while
-                    # allowing casual lowercase names ("my cat mochi").
-                    _name_ok = _nm[:1].isupper()
-                    if not _name_ok:
-                        try:
-                            from .pet_slots import _SPECIES_SEED as _PS_SEED
-                        except Exception:
-                            _PS_SEED = {}
-                        if _sp in _PS_SEED:
-                            # lowercase-name path (e.g. "my cat mochi"): only
-                            # valid when the captured name is sentence-final or
-                            # followed by a copula/punctuation — NOT a verb-led
-                            # clause tail. The pattern above runs IGNORECASE, so
-                            # the name group can grab the next verb ("my dog
-                            # likes the park" -> name "likes"); reject when a
-                            # non-copula word follows so we don't store a verb as
-                            # a pet. Proper-noun (isupper) names are exempt — they
-                            # may legitimately lead a clause ("my dog Rex barks").
-                            _tail = q_clean[_m.end():].lstrip()
-                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
-                            _COPULA = {"is", "was", "were", "are", "named",
-                                       "called", "means", "s"}
-                            if not _tail or not _nxt or _nxt in _COPULA:
-                                _name_ok = True
-                    if not _name_ok:
-                        continue
-                    try:
-                        from .relation_attrs import relation_of as _app_rel_of
-                    except Exception:
-                        _app_rel_of = lambda w: None
-                    if _app_rel_of(_sp) is not None:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    if _species is not None:
-                        _i = 1
-                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
-                            _i += 1
-                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
-                # GENERAL 'species named/called Name' CATCH-ALL (round
-                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
-                # Expand multi-name spans ("collie named Biscuit and Rex") so each
-                # name gets its own species-keyed slot. Routes through the SAME
-                # pet_slots path the conjoined/appositive branches use, so miner +
-                # recall agree on the key. Seed + runtime-learned species; no
-                # per-animal table, no authored reply, no retraining.
-                if _pat is _PET_NAMED_CATCHALL_PAT:
-                    _sp = (_m.group(1) or "").strip().lower()
-                    _names = re.split(r"\s+(?:and|,|&)\s*",
-                                      (_m.group(2) or "").strip())
-                    if not _sp:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: a possession
-                    # disclosure like "i keep a sourdough starter i named doris"
-                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
-                    # function-word species candidates so no bogus species slot
-                    # is learned and leaked on unknown-entity recall. The legit
-                    # "species named Name" case still resolves through the seed
-                    # vocabulary, so this does not narrow the capture.
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    _species_is_seed = _species is not None
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    elif _species is None:
-                        _species = _sp
-                    if _species is not None:
-                        # PRESERVE THE SURFACE SPECIES PHRASE (round
-                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
-                        # is greedy: a disclosure like "i keep a pet parrot named
-                        # Mango" has TWO species words before "named" ("pet" then
-                        # "parrot"). The REGEX only captures the word IMMEDIATELY
-                        # before "named" — "parrot" — and species_of('parrot')
-                        # collapses it to its seed CANON 'bird', storing the bare
-                        # ('i','bird',<name>) fact. But the possession pattern
-                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
-                        # \s+(?:named|called)\s+<name>") captures the FULL surface
-                        # "pet parrot" and stores the entity-keyed
-                        # ('pet parrot','name',<name>) fact. The two miners then
-                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
-                        # pet/relationship recaller (engine.py 1d branch) only
-                        # scans subject-'i' facts — so it surfaces the bare canon
-                        # "your bird is mango." instead of the user's own words
-                        # "your pet parrot is mango." Fix: when the captured token
-                        # is a SEED canon (parrot->bird) AND the same surface
-                        # species phrase was ALSO stored by the possession pattern
-                        # (i.e. the prior-token word is 'pet' / a known species and
-                        # it forms a compound "<prior> <captured>"), keep the FULL
-                        # surface compound as the slot key instead of collapsing to
-                        # the canon. This makes the catch-all and the possession
-                        # pattern AGREE on the key by construction, so the recaller
-                        # renders the surface phrase the user actually said. The
-                        # compound is still resolved through pet_slots (every
-                        # component is a seed/learned species), so no per-animal
-                        # table, no authored reply. A lone non-compound capture
-                        # (e.g. "i got a border collie named Biscuit" -> species
-                        # 'dog' but no 'pet' prefix) still collapses to the canon
-                        # exactly as before, so legit pet capture is unchanged.
-                        _surface = _sp
-                        # Look at the ORIGINAL text before the match to find the
-                        # word immediately preceding the captured species token
-                        # (group(0) only spans "<species> named <name>", so its
-                        # own prefix is empty). A disclosure like
-                        # "i keep a pet parrot named Mango" leaves "pet" right
-                        # before "parrot"; capture it so the compound surface key
-                        # can be reconstructed.
-                        _pre = q_clean[: _m.start()].rstrip()
-                        _prior = _pre.split()[-1].lower() if _pre else ""
-                        # When the captured token collapses to a SEED canon AND
-                        # the word immediately before it ("pet"/a known species)
-                        # forms a compound surface phrase, prefer keeping the FULL
-                        # surface compound as the slot key. The possession pattern
-                        # stores the entity-keyed ('<compound>','name',<name>)
-                        # fact; aligning the catch-all to the same surface key
-                        # makes miner + recaller agree by construction instead of
-                        # emitting the bare canon ('bird') that the recaller
-                        # renders as "your bird". Single-token captures (no
-                        # qualifying prior word) keep collapsing to the canon, so
-                        # legit pet capture is unchanged.
-                        if (_species_is_seed
-                                and _prior in ("pet",)
-                                and _pet_slots.species_of(_prior) is not None):
-                            _surface = f"{_prior} {_sp}"
-                        for _nm in _names:
-                            _nm = _nm.strip().strip(".,!?")
-                            if not _nm:
-                                continue
-                            _i = 1
-                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
-                                _i += 1
-                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
-                    continue
-                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
-                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
-                # The name capture group (group 2) is a proper noun. The
-                # isupper() guard rejects common-noun objects ("my pet rock
-                # collection"), but casual chat also writes names lowercase
-                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
-                # lowercase name too, but ONLY when the species is a SEED animal
-                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
-                # collection" is still rejected (rock is not a seed species, so
-                # learn_species never fires on the lowercase path). Resolve the
-                # species through the SAME pet_slots path the "named"/"called"
-                # branch uses (species_of / learn_species / slot_for), then store
-                # the name in the species-keyed slot — so the miner and the
-                # recaller (reverse-name resolver + cued recall) agree on the
-                # key by construction. Generic across every species; no
-                # per-animal table; species grown at runtime. No authored reply;
-                # no retraining.
-                if _pat is _APPOSITIVE_PET_PAT:
-                    _raw_nm = (_m.group(2) or _m.group(4) or "")
-                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
-                    _nm = _raw_nm.strip().strip(".,!?")
-                    if not _sp or not _nm:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
-                    # function-word species candidates so no bogus slot is
-                    # learned (defense-in-depth; also handled at the chokepoint).
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    # GENERALIZE: a name is accepted if it is Capitalized OR
-                    # (lowercase AND the species is a seed animal). This keeps the
-                    # common-noun guard (rejects "my pet rock collection") while
-                    # allowing casual lowercase names ("my cat mochi").
-                    _name_ok = _nm[:1].isupper()
-                    if not _name_ok:
-                        try:
-                            from .pet_slots import _SPECIES_SEED as _PS_SEED
-                        except Exception:
-                            _PS_SEED = {}
-                        if _sp in _PS_SEED:
-                            # lowercase-name path (e.g. "my cat mochi"): only
-                            # valid when the captured name is sentence-final or
-                            # followed by a copula/punctuation — NOT a verb-led
-                            # clause tail. The pattern above runs IGNORECASE, so
-                            # the name group can grab the next verb ("my dog
-                            # likes the park" -> name "likes"); reject when a
-                            # non-copula word follows so we don't store a verb as
-                            # a pet. Proper-noun (isupper) names are exempt — they
-                            # may legitimately lead a clause ("my dog Rex barks").
-                            _tail = q_clean[_m.end():].lstrip()
-                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
-                            _COPULA = {"is", "was", "were", "are", "named",
-                                       "called", "means", "s"}
-                            if not _tail or not _nxt or _nxt in _COPULA:
-                                _name_ok = True
-                    if not _name_ok:
-                        continue
-                    try:
-                        from .relation_attrs import relation_of as _app_rel_of
-                    except Exception:
-                        _app_rel_of = lambda w: None
-                    if _app_rel_of(_sp) is not None:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    if _species is not None:
-                        _i = 1
-                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
-                            _i += 1
-                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
-                # GENERAL 'species named/called Name' CATCH-ALL (round
-                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
-                # Expand multi-name spans ("collie named Biscuit and Rex") so each
-                # name gets its own species-keyed slot. Routes through the SAME
-                # pet_slots path the conjoined/appositive branches use, so miner +
-                # recall agree on the key. Seed + runtime-learned species; no
-                # per-animal table, no authored reply, no retraining.
-                if _pat is _PET_NAMED_CATCHALL_PAT:
-                    _sp = (_m.group(1) or "").strip().lower()
-                    _names = re.split(r"\s+(?:and|,|&)\s*",
-                                      (_m.group(2) or "").strip())
-                    if not _sp:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: a possession
-                    # disclosure like "i keep a sourdough starter i named doris"
-                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
-                    # function-word species candidates so no bogus species slot
-                    # is learned and leaked on unknown-entity recall. The legit
-                    # "species named Name" case still resolves through the seed
-                    # vocabulary, so this does not narrow the capture.
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    _species_is_seed = _species is not None
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    elif _species is None:
-                        _species = _sp
-                    if _species is not None:
-                        # PRESERVE THE SURFACE SPECIES PHRASE (round
-                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
-                        # is greedy: a disclosure like "i keep a pet parrot named
-                        # Mango" has TWO species words before "named" ("pet" then
-                        # "parrot"). The REGEX only captures the word IMMEDIATELY
-                        # before "named" — "parrot" — and species_of('parrot')
-                        # collapses it to its seed CANON 'bird', storing the bare
-                        # ('i','bird',<name>) fact. But the possession pattern
-                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
-                        # \s+(?:named|called)\s+<name>") captures the FULL surface
-                        # "pet parrot" and stores the entity-keyed
-                        # ('pet parrot','name',<name>) fact. The two miners then
-                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
-                        # pet/relationship recaller (engine.py 1d branch) only
-                        # scans subject-'i' facts — so it surfaces the bare canon
-                        # "your bird is mango." instead of the user's own words
-                        # "your pet parrot is mango." Fix: when the captured token
-                        # is a SEED canon (parrot->bird) AND the same surface
-                        # species phrase was ALSO stored by the possession pattern
-                        # (i.e. the prior-token word is 'pet' / a known species and
-                        # it forms a compound "<prior> <captured>"), keep the FULL
-                        # surface compound as the slot key instead of collapsing to
-                        # the canon. This makes the catch-all and the possession
-                        # pattern AGREE on the key by construction, so the recaller
-                        # renders the surface phrase the user actually said. The
-                        # compound is still resolved through pet_slots (every
-                        # component is a seed/learned species), so no per-animal
-                        # table, no authored reply. A lone non-compound capture
-                        # (e.g. "i got a border collie named Biscuit" -> species
-                        # 'dog' but no 'pet' prefix) still collapses to the canon
-                        # exactly as before, so legit pet capture is unchanged.
-                        _surface = _sp
-                        # Look at the ORIGINAL text before the match to find the
-                        # word immediately preceding the captured species token
-                        # (group(0) only spans "<species> named <name>", so its
-                        # own prefix is empty). A disclosure like
-                        # "i keep a pet parrot named Mango" leaves "pet" right
-                        # before "parrot"; capture it so the compound surface key
-                        # can be reconstructed.
-                        _pre = q_clean[: _m.start()].rstrip()
-                        _prior = _pre.split()[-1].lower() if _pre else ""
-                        # When the captured token collapses to a SEED canon AND
-                        # the word immediately before it ("pet"/a known species)
-                        # forms a compound surface phrase, prefer keeping the FULL
-                        # surface compound as the slot key. The possession pattern
-                        # stores the entity-keyed ('<compound>','name',<name>)
-                        # fact; aligning the catch-all to the same surface key
-                        # makes miner + recaller agree by construction instead of
-                        # emitting the bare canon ('bird') that the recaller
-                        # renders as "your bird". Single-token captures (no
-                        # qualifying prior word) keep collapsing to the canon, so
-                        # legit pet capture is unchanged.
-                        if (_species_is_seed
-                                and _prior in ("pet",)
-                                and _pet_slots.species_of(_prior) is not None):
-                            _surface = f"{_prior} {_sp}"
-                        for _nm in _names:
-                            _nm = _nm.strip().strip(".,!?")
-                            if not _nm:
-                                continue
-                            _i = 1
-                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
-                                _i += 1
-                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
-                    continue
-                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
-                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
-                # The name capture group (group 2) is a proper noun. The
-                # isupper() guard rejects common-noun objects ("my pet rock
-                # collection"), but casual chat also writes names lowercase
-                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
-                # lowercase name too, but ONLY when the species is a SEED animal
-                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
-                # collection" is still rejected (rock is not a seed species, so
-                # learn_species never fires on the lowercase path). Resolve the
-                # species through the SAME pet_slots path the "named"/"called"
-                # branch uses (species_of / learn_species / slot_for), then store
-                # the name in the species-keyed slot — so the miner and the
-                # recaller (reverse-name resolver + cued recall) agree on the
-                # key by construction. Generic across every species; no
-                # per-animal table; species grown at runtime. No authored reply;
-                # no retraining.
-                if _pat is _APPOSITIVE_PET_PAT:
-                    _raw_nm = (_m.group(2) or _m.group(4) or "")
-                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
-                    _nm = _raw_nm.strip().strip(".,!?")
-                    if not _sp or not _nm:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
-                    # function-word species candidates so no bogus slot is
-                    # learned (defense-in-depth; also handled at the chokepoint).
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    # GENERALIZE: a name is accepted if it is Capitalized OR
-                    # (lowercase AND the species is a seed animal). This keeps the
-                    # common-noun guard (rejects "my pet rock collection") while
-                    # allowing casual lowercase names ("my cat mochi").
-                    _name_ok = _nm[:1].isupper()
-                    if not _name_ok:
-                        try:
-                            from .pet_slots import _SPECIES_SEED as _PS_SEED
-                        except Exception:
-                            _PS_SEED = {}
-                        if _sp in _PS_SEED:
-                            # lowercase-name path (e.g. "my cat mochi"): only
-                            # valid when the captured name is sentence-final or
-                            # followed by a copula/punctuation — NOT a verb-led
-                            # clause tail. The pattern above runs IGNORECASE, so
-                            # the name group can grab the next verb ("my dog
-                            # likes the park" -> name "likes"); reject when a
-                            # non-copula word follows so we don't store a verb as
-                            # a pet. Proper-noun (isupper) names are exempt — they
-                            # may legitimately lead a clause ("my dog Rex barks").
-                            _tail = q_clean[_m.end():].lstrip()
-                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
-                            _COPULA = {"is", "was", "were", "are", "named",
-                                       "called", "means", "s"}
-                            if not _tail or not _nxt or _nxt in _COPULA:
-                                _name_ok = True
-                    if not _name_ok:
-                        continue
-                    try:
-                        from .relation_attrs import relation_of as _app_rel_of
-                    except Exception:
-                        _app_rel_of = lambda w: None
-                    if _app_rel_of(_sp) is not None:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    if _species is not None:
-                        _i = 1
-                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
-                            _i += 1
-                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
-                # GENERAL 'species named/called Name' CATCH-ALL (round
-                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
-                # Expand multi-name spans ("collie named Biscuit and Rex") so each
-                # name gets its own species-keyed slot. Routes through the SAME
-                # pet_slots path the conjoined/appositive branches use, so miner +
-                # recall agree on the key. Seed + runtime-learned species; no
-                # per-animal table, no authored reply, no retraining.
-                if _pat is _PET_NAMED_CATCHALL_PAT:
-                    _sp = (_m.group(1) or "").strip().lower()
-                    _names = re.split(r"\s+(?:and|,|&)\s*",
-                                      (_m.group(2) or "").strip())
-                    if not _sp:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: a possession
-                    # disclosure like "i keep a sourdough starter i named doris"
-                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
-                    # function-word species candidates so no bogus species slot
-                    # is learned and leaked on unknown-entity recall. The legit
-                    # "species named Name" case still resolves through the seed
-                    # vocabulary, so this does not narrow the capture.
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    _species_is_seed = _species is not None
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    elif _species is None:
-                        _species = _sp
-                    if _species is not None:
-                        # PRESERVE THE SURFACE SPECIES PHRASE (round
-                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
-                        # is greedy: a disclosure like "i keep a pet parrot named
-                        # Mango" has TWO species words before "named" ("pet" then
-                        # "parrot"). The REGEX only captures the word IMMEDIATELY
-                        # before "named" — "parrot" — and species_of('parrot')
-                        # collapses it to its seed CANON 'bird', storing the bare
-                        # ('i','bird',<name>) fact. But the possession pattern
-                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
-                        # \s+(?:named|called)\s+<name>") captures the FULL surface
-                        # "pet parrot" and stores the entity-keyed
-                        # ('pet parrot','name',<name>) fact. The two miners then
-                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
-                        # pet/relationship recaller (engine.py 1d branch) only
-                        # scans subject-'i' facts — so it surfaces the bare canon
-                        # "your bird is mango." instead of the user's own words
-                        # "your pet parrot is mango." Fix: when the captured token
-                        # is a SEED canon (parrot->bird) AND the same surface
-                        # species phrase was ALSO stored by the possession pattern
-                        # (i.e. the prior-token word is 'pet' / a known species and
-                        # it forms a compound "<prior> <captured>"), keep the FULL
-                        # surface compound as the slot key instead of collapsing to
-                        # the canon. This makes the catch-all and the possession
-                        # pattern AGREE on the key by construction, so the recaller
-                        # renders the surface phrase the user actually said. The
-                        # compound is still resolved through pet_slots (every
-                        # component is a seed/learned species), so no per-animal
-                        # table, no authored reply. A lone non-compound capture
-                        # (e.g. "i got a border collie named Biscuit" -> species
-                        # 'dog' but no 'pet' prefix) still collapses to the canon
-                        # exactly as before, so legit pet capture is unchanged.
-                        _surface = _sp
-                        # Look at the ORIGINAL text before the match to find the
-                        # word immediately preceding the captured species token
-                        # (group(0) only spans "<species> named <name>", so its
-                        # own prefix is empty). A disclosure like
-                        # "i keep a pet parrot named Mango" leaves "pet" right
-                        # before "parrot"; capture it so the compound surface key
-                        # can be reconstructed.
-                        _pre = q_clean[: _m.start()].rstrip()
-                        _prior = _pre.split()[-1].lower() if _pre else ""
-                        # When the captured token collapses to a SEED canon AND
-                        # the word immediately before it ("pet"/a known species)
-                        # forms a compound surface phrase, prefer keeping the FULL
-                        # surface compound as the slot key. The possession pattern
-                        # stores the entity-keyed ('<compound>','name',<name>)
-                        # fact; aligning the catch-all to the same surface key
-                        # makes miner + recaller agree by construction instead of
-                        # emitting the bare canon ('bird') that the recaller
-                        # renders as "your bird". Single-token captures (no
-                        # qualifying prior word) keep collapsing to the canon, so
-                        # legit pet capture is unchanged.
-                        if (_species_is_seed
-                                and _prior in ("pet",)
-                                and _pet_slots.species_of(_prior) is not None):
-                            _surface = f"{_prior} {_sp}"
-                        for _nm in _names:
-                            _nm = _nm.strip().strip(".,!?")
-                            if not _nm:
-                                continue
-                            _i = 1
-                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
-                                _i += 1
-                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
-                    continue
-                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
-                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
-                # The name capture group (group 2) is a proper noun. The
-                # isupper() guard rejects common-noun objects ("my pet rock
-                # collection"), but casual chat also writes names lowercase
-                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
-                # lowercase name too, but ONLY when the species is a SEED animal
-                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
-                # collection" is still rejected (rock is not a seed species, so
-                # learn_species never fires on the lowercase path). Resolve the
-                # species through the SAME pet_slots path the "named"/"called"
-                # branch uses (species_of / learn_species / slot_for), then store
-                # the name in the species-keyed slot — so the miner and the
-                # recaller (reverse-name resolver + cued recall) agree on the
-                # key by construction. Generic across every species; no
-                # per-animal table; species grown at runtime. No authored reply;
-                # no retraining.
-                if _pat is _APPOSITIVE_PET_PAT:
-                    _raw_nm = (_m.group(2) or _m.group(4) or "")
-                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
-                    _nm = _raw_nm.strip().strip(".,!?")
-                    if not _sp or not _nm:
-                        continue
-                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
-                    # function-word species candidates so no bogus slot is
-                    # learned (defense-in-depth; also handled at the chokepoint).
-                    if _sp in _pet_slots._PRONOUN_STOP:
-                        continue
-                    # GENERALIZE: a name is accepted if it is Capitalized OR
-                    # (lowercase AND the species is a seed animal). This keeps the
-                    # common-noun guard (rejects "my pet rock collection") while
-                    # allowing casual lowercase names ("my cat mochi").
-                    _name_ok = _nm[:1].isupper()
-                    if not _name_ok:
-                        try:
-                            from .pet_slots import _SPECIES_SEED as _PS_SEED
-                        except Exception:
-                            _PS_SEED = {}
-                        if _sp in _PS_SEED:
-                            # lowercase-name path (e.g. "my cat mochi"): only
-                            # valid when the captured name is sentence-final or
-                            # followed by a copula/punctuation — NOT a verb-led
-                            # clause tail. The pattern above runs IGNORECASE, so
-                            # the name group can grab the next verb ("my dog
-                            # likes the park" -> name "likes"); reject when a
-                            # non-copula word follows so we don't store a verb as
-                            # a pet. Proper-noun (isupper) names are exempt — they
-                            # may legitimately lead a clause ("my dog Rex barks").
-                            _tail = q_clean[_m.end():].lstrip()
-                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
-                            _COPULA = {"is", "was", "were", "are", "named",
-                                       "called", "means", "s"}
-                            if not _tail or not _nxt or _nxt in _COPULA:
-                                _name_ok = True
-                    if not _name_ok:
-                        continue
-                    try:
-                        from .relation_attrs import relation_of as _app_rel_of
-                    except Exception:
-                        _app_rel_of = lambda w: None
-                    if _app_rel_of(_sp) is not None:
-                        continue
-                    _species = _pet_slots.species_of(_sp)
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    if _species is not None:
-                        _i = 1
-                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
-                            _i += 1
-                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
-                    continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
                     # Trim any FOLLOWING sentence so a value like "the blue
@@ -3300,6 +2476,15 @@ class UserModel:
                 # recall reconstructor (_retrieve_episodic / _structured_recall)
                 # already keys possessive facts by owner, so this makes the
                 # MINER agree with the recaller by construction.
+                # GUARD (round 2026-08-22T0703Z CI fix): a pattern match can
+                # reach this point with _attr still None when the match's
+                # captured groups did not populate an attribute (e.g. a
+                # 0-group or non-attr pattern matched). _split_possessive_attr
+                # requires a str; passing None raises TypeError and aborts the
+                # whole mine. Skip such matches honestly — there is no
+                # possessive attribute to split, so nothing to store here.
+                if _attr is None:
+                    continue
                 _ent, _rel = _split_possessive_attr(_attr)
                 # A NAME relation holds a short proper noun (the entity's name),
                 # never the trailing descriptive clause that often follows it
@@ -3551,6 +2736,27 @@ class UserModel:
                 except Exception:
                     pass
             if _role:
+                # HEADLESS-POSSESSIVE GUARD (round 2026-08-22T0703Z, DEFECT D2):
+                # a disclosure like "my daughter name is ingrid" has the shape
+                # "<kin> <relation-word> <copula> <value>" — a HEADLESS
+                # possessive, NOT a "<kin> <Name> <verb>...>" activity disclosure.
+                # mine_personal_facts already handles it correctly via the generic
+                # `my X is Y` pattern + _split_possessive_attr into an
+                # entity-scoped fact (('daughter','name','ingrid')). If this kin
+                # block ALSO mines it, its comma/embedded-relative name-extractor
+                # mis-reads the leading relation word ("name") as the relationship
+                # head and the copula ("is") as the name, producing a MALFORMED
+                # fact (('i','daughter name is','...')). Root cause: the kin block
+                # fired on a shape the generic possessive path owns. Fix: when the
+                # FIRST token after the relationship word is itself a relation
+                # word (name/age/job/...), this is a headless possessive — return
+                # so only the correct entity-scoped fact survives. Structural:
+                # reuses the shared _REL_WORDS vocabulary the possessive splitter
+                # already consults, so miner + recaller agree by construction; no
+                # per-role branch, no authored reply, no retraining.
+                _rest0_toks = _rest0.split()
+                if _rest0_toks and _rest0_toks[0].strip(".,!?").lower() in _REL_WORDS:
+                    return
                 _rest = _rest0
                 _toks = _rest.split()
                 _vidx = None
@@ -5840,6 +5046,43 @@ class UserModel:
         }
         out = [t for t in out if t not in _PARTICLES]
         return out
+
+    def _mine_pet_activity(self, tail: str, name: str, species: str) -> Optional[str]:
+        """Extract a pet's verb-phrase ACTIVITY from the tail after the name.
+
+        Round 2026-08-22T0703Z, DEFECT D1: pet disclosures like "my ferret
+        Pip hides my car keys under the couch" were mined as NAME ONLY, dropping
+        the activity, so later cued/pet recall ("which of my pets hides things
+        in the couch") had nothing to surface. Kin disclosures already capture
+        verb+object activity; pets now do too so recall is symmetric.
+
+        Returns the verb+object head (e.g. "hides car keys"), or None when the
+        tail has no recognized verb. Verbs come from the SHARED verb lexicons
+        (is_activity_verb / is_relation_verb / is_aux_verb — RAVANA-extensible,
+        no per-animal table, no authored reply, no retraining). The object is a
+        real concept resolved through _opinion_topic; bounded to <=5 tokens so a
+        runaway clause cannot swallow the sentence. Content is the user's own
+        words.
+        """
+        if not tail:
+            return None
+        _toks = re.findall(r"[a-z'][a-z']*", tail.lower())
+        _vidx = None
+        for _i, _t in enumerate(_toks):
+            if is_activity_verb(_t) or is_relation_verb(_t) or is_aux_verb(_t):
+                _vidx = _i
+                break
+        if _vidx is None:
+            return None
+        _verb = _toks[_vidx]
+        _obj_rest = " ".join(_toks[_vidx + 1:])
+        # Reuse the same object-head extraction the kin/opinion paths use so the
+        # activity value is a real concept, not a filler/preposition tail.
+        _obj = self._opinion_topic(_obj_rest) or ""
+        _obj = _strip_obj_framers(_obj).strip()
+        if _obj and len(_obj.split()) <= 5:
+            return f"{_verb} {_obj}"
+        return None
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.
