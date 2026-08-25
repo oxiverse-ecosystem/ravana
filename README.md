@@ -184,6 +184,17 @@ on this codebase:
   genuine question about *RAVANA's* own view, falls through to the normal path and
   is **not** answered with a fabricated stance. No LLM, no per-topic reply table,
   no retraining. See `docs/CAPABILITY_USER_STANCE_RECALL.md`.
+- **Keeps a stance recallable when you name two activities in one breath.**
+  A disclosure like *"i adore cold water swimming jumping"* used to mine a
+  **run-on** stance key `cold water swimming jumping` that a later co-mention
+  (*"am i still into cold water swimming?"*) could never bridge — so the stance
+  was unrecallable. Now a morphological cut in `user_model._opinion_topic`
+  (`user_model.py:3658`) truncates the object head at the first second-activity
+  gerund, landing the key on the single salient activity (`cold water swimming`)
+  while leaving single-activity objects (`mountain climbing`, `fossil hunting`)
+  whole and still feeding the `does`/`event` fact miners through the same
+  chokepoint. No per-topic rule, no retraining. See
+  `docs/CAPABILITY_MULTI_ACTIVITY_STANCE_KEY.md`.
 - **Recalls what it knows about a named relationship or person from open
   phrasing.** Asked *"tell me about my grandmother"*, *"who is my grandmother?"*,
   *"what does my grandmother do?"*, *"what do you know about my brother"*, or
@@ -241,6 +252,7 @@ on this codebase:
   authored prose. A legitimate world-state conditional (*"when you turn on the
   lamp, it lights up"*) still binds and answers. No LLM, no per-topic reply table,
   no retraining. See `docs/CAPABILITY_SOURCE_MONITORING_AFFECTIVE_ECHO.md`.
+- **Recalls relationship disclosures made with an auxiliary verb (does/did + activity).** Told *"my cousin Jin does competitive speedcubing"* — where *"does"* is neither an activity verb nor a relation verb — it no longer drops the disclosure and later answers *"what does my cousin jin do"* with *"your cousin jin does competitive speedcubing."* (copula-free, not *"is does"*, and not the prior *"cousin is a bit outside what i know right now"*). The auxiliary is now a **third** verb class in the relationship miner (after activity verbs and relation verbs, both already generalized), opening the same capture path (name = tokens before it, value = aux + activity noun-phrase). The recall grammar rule that drops the copula for verb-phrase values (`is_verb_phrase`) now covers all three classes. The aux vocabulary is seed data that grows at runtime — no code change, no retraining, no LLM, no per-relationship reply table. See `docs/CAPABILITY_AUX_VERB_RELATIONSHIP_RECALL.md`.
 
 These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**

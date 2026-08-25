@@ -8,6 +8,22 @@ from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss
+from .constants import STOP_WORDS
+
+# Filler / temporal / discourse tokens that must NEVER count as a topic overlap
+# when resolving a held stance from an utterance. constants.STOP_WORDS omits
+# temporal adverbs ("now", "still", "today") and a few discourse markers that
+# otherwise cause cross-topic misbinding: a held stance keyed "thunderstorms
+# now" would otherwise match ANY later utterance containing "now" (the
+# 2026-08-21T0843Z misattribution where a grass contradiction acked "you've
+# changed your mind about thunderstorms"). These are function words, not topic
+# content; dropping them from the overlap score leaves only real content tokens.
+_FILLER_TOKENS = frozenset({
+    "now", "still", "today", "tonight", "yesterday", "tomorrow", "already",
+    "yet", "again", "lately", "recently", "currently", "actually", "really",
+    "just", "though", "anyway", "anymore", "here", "there", "then", "soon",
+    "usually", "sometimes", "often", "always", "never", "ever",
+})
 
 # ── Dedicated user-model store ───────────────────────────────────────────────
 # The per-user model used to be pickled *inside* the engine weight snapshot,
@@ -173,15 +189,50 @@ def is_relation_verb(word: str) -> bool:
     return False
 
 
+# Auxiliary-verb seed lexicon (round 2026-08-21T0843Z feature card
+# t_16b15684). A relationship disclosure often states an activity through an
+# AUXILIARY verb instead of a bare activity/relation verb: "my cousin Jin DOES
+# competitive speedcubing", "my sister DID competitive debate", "my brother DOES
+# parkour". The earlier two verb classes (activity verbs, relation verbs) both
+# MISSED this shape — "does" is neither an activity verb nor a relation verb —
+# so the whole disclosure fell through to the name-only path and was dropped by
+# the degenerate-fact guard (the residual "cousin Jin's activity not recalled"
+# logged at the end of round 2026-08-21T0843Z). The auxiliary opens the SAME
+# capture path as the other two verb classes (name = tokens before it, value =
+# aux + activity noun-phrase resolved through _opinion_topic), so the disclosure
+# mines + recalls like any other. This is SEED vocabulary (a data set, not an
+# answer table) — RAVANA-expandable by the same PersonalFactStore the user can
+# correct; removing entries degrades gracefully (one fewer aux shape recognized).
+# NOT a per-relationship table and NOT authored prose.
+_AUX_VERB_LEXICON = {"do", "does", "did", "doing", "done"}
+
+
+def is_aux_verb(word: str) -> bool:
+    """True when `word` is an auxiliary verb that introduces an activity
+    noun-phrase in a relationship disclosure ("does"/"did"/"doing" + activity).
+    Recognized as a verb-phrase head for both mining and copula-free recall
+    rendering. Pure vocabulary lookup — no content."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _AUX_VERB_LEXICON:
+        return True
+    # inflected forms not pre-listed
+    for suf in ("ing", "ed", "s", "es"):
+        if w.endswith(suf) and w[: -len(suf)] in _AUX_VERB_LEXICON:
+            return True
+    return False
+
+
 def is_verb_phrase(word: str) -> bool:
     """True when `word` heads a VERB-PHRASE personal fact (activity OR relation
-    verb). The single source of truth for the recall/ack grammar rule that drops
-    the copula for verb-phrase values (so "your grandmother yaya speaks three
-    languages" is grammatical, not "is speaks"). Superset of is_activity_verb;
-    callers that previously used is_activity_verb for the copula decision should
-    use this so relation-verb facts render correctly too. Pure vocabulary
-    lookup — no content."""
-    return is_activity_verb(word) or is_relation_verb(word)
+    OR auxiliary verb). The single source of truth for the recall/ack grammar
+    rule that drops the copula for verb-phrase values (so "your cousin jin does
+    competitive speedcubing" is grammatical, not "is does"). Superset of
+    is_activity_verb + is_relation_verb + is_aux_verb; callers that previously
+    used is_activity_verb for the copula decision should use this so every verb
+    class renders correctly. Pure vocabulary lookup — no content."""
+    return is_activity_verb(word) or is_relation_verb(word) or is_aux_verb(word)
 
 
 # real affect categories in brain_regions._CAUSE_SEEDS and
@@ -2555,6 +2606,171 @@ class UserModel:
                             _i += 1
                         _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
                     continue
+                # GENERAL 'species named/called Name' CATCH-ALL (round
+                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
+                # Expand multi-name spans ("collie named Biscuit and Rex") so each
+                # name gets its own species-keyed slot. Routes through the SAME
+                # pet_slots path the conjoined/appositive branches use, so miner +
+                # recall agree on the key. Seed + runtime-learned species; no
+                # per-animal table, no authored reply, no retraining.
+                if _pat is _PET_NAMED_CATCHALL_PAT:
+                    _sp = (_m.group(1) or "").strip().lower()
+                    _names = re.split(r"\s+(?:and|,|&)\s*",
+                                      (_m.group(2) or "").strip())
+                    if not _sp:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: a possession
+                    # disclosure like "i keep a sourdough starter i named doris"
+                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
+                    # function-word species candidates so no bogus species slot
+                    # is learned and leaked on unknown-entity recall. The legit
+                    # "species named Name" case still resolves through the seed
+                    # vocabulary, so this does not narrow the capture.
+                    if _sp in _pet_slots._PRONOUN_STOP:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    _species_is_seed = _species is not None
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    elif _species is None:
+                        _species = _sp
+                    if _species is not None:
+                        # PRESERVE THE SURFACE SPECIES PHRASE (round
+                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
+                        # is greedy: a disclosure like "i keep a pet parrot named
+                        # Mango" has TWO species words before "named" ("pet" then
+                        # "parrot"). The REGEX only captures the word IMMEDIATELY
+                        # before "named" — "parrot" — and species_of('parrot')
+                        # collapses it to its seed CANON 'bird', storing the bare
+                        # ('i','bird',<name>) fact. But the possession pattern
+                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
+                        # \s+(?:named|called)\s+<name>") captures the FULL surface
+                        # "pet parrot" and stores the entity-keyed
+                        # ('pet parrot','name',<name>) fact. The two miners then
+                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
+                        # pet/relationship recaller (engine.py 1d branch) only
+                        # scans subject-'i' facts — so it surfaces the bare canon
+                        # "your bird is mango." instead of the user's own words
+                        # "your pet parrot is mango." Fix: when the captured token
+                        # is a SEED canon (parrot->bird) AND the same surface
+                        # species phrase was ALSO stored by the possession pattern
+                        # (i.e. the prior-token word is 'pet' / a known species and
+                        # it forms a compound "<prior> <captured>"), keep the FULL
+                        # surface compound as the slot key instead of collapsing to
+                        # the canon. This makes the catch-all and the possession
+                        # pattern AGREE on the key by construction, so the recaller
+                        # renders the surface phrase the user actually said. The
+                        # compound is still resolved through pet_slots (every
+                        # component is a seed/learned species), so no per-animal
+                        # table, no authored reply. A lone non-compound capture
+                        # (e.g. "i got a border collie named Biscuit" -> species
+                        # 'dog' but no 'pet' prefix) still collapses to the canon
+                        # exactly as before, so legit pet capture is unchanged.
+                        _surface = _sp
+                        # Look at the ORIGINAL text before the match to find the
+                        # word immediately preceding the captured species token
+                        # (group(0) only spans "<species> named <name>", so its
+                        # own prefix is empty). A disclosure like
+                        # "i keep a pet parrot named Mango" leaves "pet" right
+                        # before "parrot"; capture it so the compound surface key
+                        # can be reconstructed.
+                        _pre = q_clean[: _m.start()].rstrip()
+                        _prior = _pre.split()[-1].lower() if _pre else ""
+                        # When the captured token collapses to a SEED canon AND
+                        # the word immediately before it ("pet"/a known species)
+                        # forms a compound surface phrase, prefer keeping the FULL
+                        # surface compound as the slot key. The possession pattern
+                        # stores the entity-keyed ('<compound>','name',<name>)
+                        # fact; aligning the catch-all to the same surface key
+                        # makes miner + recaller agree by construction instead of
+                        # emitting the bare canon ('bird') that the recaller
+                        # renders as "your bird". Single-token captures (no
+                        # qualifying prior word) keep collapsing to the canon, so
+                        # legit pet capture is unchanged.
+                        if (_species_is_seed
+                                and _prior in ("pet",)
+                                and _pet_slots.species_of(_prior) is not None):
+                            _surface = f"{_prior} {_sp}"
+                        for _nm in _names:
+                            _nm = _nm.strip().strip(".,!?")
+                            if not _nm:
+                                continue
+                            _i = 1
+                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
+                                _i += 1
+                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
+                    continue
+                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
+                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
+                # The name capture group (group 2) is a proper noun. The
+                # isupper() guard rejects common-noun objects ("my pet rock
+                # collection"), but casual chat also writes names lowercase
+                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
+                # lowercase name too, but ONLY when the species is a SEED animal
+                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
+                # collection" is still rejected (rock is not a seed species, so
+                # learn_species never fires on the lowercase path). Resolve the
+                # species through the SAME pet_slots path the "named"/"called"
+                # branch uses (species_of / learn_species / slot_for), then store
+                # the name in the species-keyed slot — so the miner and the
+                # recaller (reverse-name resolver + cued recall) agree on the
+                # key by construction. Generic across every species; no
+                # per-animal table; species grown at runtime. No authored reply;
+                # no retraining.
+                if _pat is _APPOSITIVE_PET_PAT:
+                    _raw_nm = (_m.group(2) or _m.group(4) or "")
+                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
+                    _nm = _raw_nm.strip().strip(".,!?")
+                    if not _sp or not _nm:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
+                    # function-word species candidates so no bogus slot is
+                    # learned (defense-in-depth; also handled at the chokepoint).
+                    if _sp in _pet_slots._PRONOUN_STOP:
+                        continue
+                    # GENERALIZE: a name is accepted if it is Capitalized OR
+                    # (lowercase AND the species is a seed animal). This keeps the
+                    # common-noun guard (rejects "my pet rock collection") while
+                    # allowing casual lowercase names ("my cat mochi").
+                    _name_ok = _nm[:1].isupper()
+                    if not _name_ok:
+                        try:
+                            from .pet_slots import _SPECIES_SEED as _PS_SEED
+                        except Exception:
+                            _PS_SEED = {}
+                        if _sp in _PS_SEED:
+                            # lowercase-name path (e.g. "my cat mochi"): only
+                            # valid when the captured name is sentence-final or
+                            # followed by a copula/punctuation — NOT a verb-led
+                            # clause tail. The pattern above runs IGNORECASE, so
+                            # the name group can grab the next verb ("my dog
+                            # likes the park" -> name "likes"); reject when a
+                            # non-copula word follows so we don't store a verb as
+                            # a pet. Proper-noun (isupper) names are exempt — they
+                            # may legitimately lead a clause ("my dog Rex barks").
+                            _tail = q_clean[_m.end():].lstrip()
+                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
+                            _COPULA = {"is", "was", "were", "are", "named",
+                                       "called", "means", "s"}
+                            if not _tail or not _nxt or _nxt in _COPULA:
+                                _name_ok = True
+                    if not _name_ok:
+                        continue
+                    try:
+                        from .relation_attrs import relation_of as _app_rel_of
+                    except Exception:
+                        _app_rel_of = lambda w: None
+                    if _app_rel_of(_sp) is not None:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    if _species is not None:
+                        _i = 1
+                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                            _i += 1
+                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                    continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
                     # Trim any FOLLOWING sentence so a value like "the blue
@@ -2848,6 +3064,29 @@ class UserModel:
                         _vidx = _i
                         _v_is_rel = True
                         break
+                    # GENERALIZE (feature t_16b15684, round 2026-08-21T0843Z
+                    # residual): also recognize an AUXILIARY verb (does/did/doing
+                    # + activity noun-phrase) as a verb-phrase head. The canonical
+                    # missed case was "my cousin Jin DOES competitive speedcubing"
+                    # — "does" is neither an activity verb nor a relation verb, so
+                    # the verb-scan found nothing, fell to the name-only path, and
+                    # the degenerate-fact guard dropped the whole disclosure. Now
+                    # the auxiliary opens the SAME capture path as the other two
+                    # verb classes; the value is mined as "aux + activity
+                    # noun-phrase" via the activity value-extraction branch below
+                    # (the object is resolved through _opinion_topic so it stays a
+                    # real concept, not a filler). Seed lexicon (is_aux_verb),
+                    # RAVANA-expandable; not a per-relationship table. The aux is
+                    # allowed to fire on its own token as long as a following
+                    # content token exists (the activity noun-phrase) — we do NOT
+                    # require a following activity VERB, because the disclosure is
+                    # "does competitive speedcubing", not "does climb".
+                    if is_aux_verb(_tw):
+                        _rest_toks = [t for t in _toks[_i + 1:]
+                                      if t.strip(".,!?")]
+                        if _rest_toks:
+                            _vidx = _i
+                            break
                 # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
                 # establishes the RELATIONSHIP + NAME regardless of whether an
                 # activity verb is recognised. When NO activity/relation verb is
@@ -4135,7 +4374,8 @@ class UserModel:
         """
         if not text:
             return None
-        _words = [t for t in re.findall(r"[a-z']+", text.lower()) if len(t) >= 3]
+        _words = [t for t in re.findall(r"[a-z']+", text.lower())
+                  if len(t) >= 3 and t not in STOP_WORDS and t not in _FILLER_TOKENS]
         if not _words:
             return None
 
@@ -4157,7 +4397,13 @@ class UserModel:
         for _k in self.opinions.stances:
             if not _k:
                 continue
-            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if len(t) >= 3]
+            # Score only CONTENT tokens of the key — drop filler words so a key
+            # like "thunderstorms now" cannot bind an utterance that merely
+            # shares the temporal filler "now" (the 2026-08-21T0843Z
+            # misattribution defect). Stem matching below still binds verb-stem
+            # variants ("hike"/"hiking"); only stopwords + fillers are excluded.
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower())
+                      if len(t) >= 3 and t not in STOP_WORDS and t not in _FILLER_TOKENS]
             if not _ktoks:
                 continue
             _score = 0
@@ -4991,8 +5237,46 @@ class UserModel:
             head.append(t)
         if not head:
             return None
-        # Drop trailing closed-class/modifier words as a final safety
-        # (but never drop a trailing relative bridge like "who"/"that").
+        # MULTI-ACTIVITY CUT (feature t_46c07b5d, D5 residual from round
+        # 2026-08-19T1628Z): a disclosure can name TWO activities as one object
+        # span — "i adore cold water swimming jumping", "nothing beats cold
+        # water swimming jumping", "i care for cold water swimming jumping" —
+        # where the second verb/gerund ("jumping") is appended to the first
+        # ("swimming") into a single run-on stance key ("cold water swimming
+        # jumping"). The resolver + reversal miner can NEVER bridge a later
+        # co-mention ("am i still into cold water swimming?") to that key, so
+        # the stance is unrecallable (a real defect, not a seed). Morphological
+        # gate: cut the head at the FIRST gerund token that is NOT the leading
+        # content word (a second activity), so the key lands on the single
+        # salient activity ("cold water swimming"). Agerund is a content word
+        # ending in "ing" of length >= 5 that is NOT an aspectual/framer residue
+        # already excluded by _OBJ_NONCONTENT ("coming"/"keeping"/"going"/
+        # "starting"/"burning"/"ringing"/"taking"/"making"). The leading token
+        # is always kept — so a single-activity object ("swimming", "mountain
+        # climbing", "fossil hunting", "river kayaking") survives WHOLE (it is
+        # the first and only gerund) and continues to feed the `does`/`event`
+        # fact stores that reuse this method (rule 6g: one shared chokepoint,
+        # no per-verb branch, no retraining). The cut is purely morphological
+        # and generalizes to ANY two-activity disclosure the user rotates in.
+        _saw_gerund = False
+        _cut_at = None
+        for _i, _t in enumerate(head):
+            if _i == 0:
+                # never cut the leading token — it is the content head.
+                if _t.endswith("ing") and len(_t) >= 5 and _t not in _OBJ_NONCONTENT:
+                    _saw_gerund = True
+                continue
+            if _t.endswith("ing") and len(_t) >= 5 and _t not in _OBJ_NONCONTENT:
+                if _saw_gerund:
+                    # second activity in the span — stop here.
+                    _cut_at = _i
+                    break
+                _saw_gerund = True
+        if _cut_at is not None:
+            head = head[:_cut_at]
+        if not head:
+            return None
+        # Drop trailing closed-class/modifier words as a final safety.
         while len(head) > 1 and head[-1] in self._OPINION_STOP:
             head.pop()
         if not head:
