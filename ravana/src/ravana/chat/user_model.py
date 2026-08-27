@@ -1093,6 +1093,68 @@ class UserModel:
         # same leading-question-word vocabulary the recall resolvers use.
         if _is_query(q_clean):
             return
+
+        # STRUCTURED QUANTITY MINING (round 2026-08-11T0521Z, feature
+        # t_c05047a3). A first-person count disclosure ("i keep twelve
+        # racing pigeons", "i have three cats", "i bake two sourdough
+        # loaves", "i lost five hens") is captured into the structured
+        # QuantityMemory store (subject, kind, count, noun_phrase,
+        # noun_canonical, category) so "how many X do i keep" can synthesize
+        # a clean answer for a MULTI-WORD noun phrase and "...in total" can
+        # AGGREGATE across species — neither of which the free-text 'does'
+        # fact alone supports. VERB_KIND is SEED vocabulary (verb family ->
+        # (kind, category)); number words are SEED vocabulary RAVANA grows
+        # via learn_number(); the noun canonicalization reuses the SAME
+        # pet_slots resolver the possession miner and recall paths use, so
+        # the key agrees by construction. No per-topic answer table. The
+        # interrogative guard above already skips count QUESTIONS ("how many
+        # racing pigeons do i keep") because they have no verb+number+noun
+        # adjacency for this pattern to match, and assert_quantity's own
+        # conflict-supersede logic retires a stale count when a fresh
+        # disclosure reports a different number for the same noun.
+        _qty_verb_alt = "|".join(
+            re.escape(_v) for _v in
+            sorted(QuantityMemory.VERB_KIND.keys(), key=len, reverse=True))
+        _qty_num_alt = (
+            r"a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+            r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+            r"eighteen|nineteen|twenty|dozen|\d+")
+        # Words that may not extend the captured noun phrase past its first
+        # word: closed-class span-closers (_OBJECT_STOP, shared with the
+        # activity/event miner) plus discourse/temporal framers that can
+        # trail a count disclosure ("...actually", "...now").
+        _qty_stop_words = _OBJECT_STOP | {
+            "every", "each", "per", "actually", "really", "then", "now",
+            "already", "still", "just", "recently", "lately", "soon",
+            "today", "tonight", "yesterday", "tomorrow", "earlier", "later",
+            "currently", "right", "here",
+        }
+        _qty_stop_alt = "|".join(sorted(_qty_stop_words))
+        _qty_pat = re.compile(
+            r"\bi\s+(?:" + _FRAMER_SKIP + r")?"
+            r"(?P<verb>" + _qty_verb_alt + r")\s+"
+            r"(?P<num>" + _qty_num_alt + r")\s+"
+            r"(?P<noun>[a-z]+(?:\s+(?!(?:" + _qty_stop_alt + r")\b)"
+            r"[a-z]+)?)",
+            re.IGNORECASE)
+        for _qmm in _qty_pat.finditer(q_clean):
+            _qkind_cat = QuantityMemory.VERB_KIND.get(_qmm.group("verb").lower())
+            if _qkind_cat is None:
+                continue
+            _qkind, _qcat = _qkind_cat
+            _qcount = number_to_int(_qmm.group("num"))
+            if _qcount is None:
+                continue
+            _qnoun = _qmm.group("noun").strip().strip(".,!?").lower()
+            if not _qnoun:
+                continue
+            _qhead = _qnoun.split()[-1]
+            _qcanon = (_pet_slots.species_of(_qhead)
+                      or _pet_slots.learn_species(_qhead) or _qhead)
+            self.quantity_memory.assert_quantity(
+                "i", _qkind, _qcount, _qnoun, _qcanon, category=_qcat,
+                confidence=0.6, source="seed_regex")
+
         # Correction cue (B4 wiring, investigation Gap 1): when the user is
         # correcting us ("no, my cat is milo", "actually i live in paris"),
         # a mined fact whose attribute already holds a DIFFERENT active value
