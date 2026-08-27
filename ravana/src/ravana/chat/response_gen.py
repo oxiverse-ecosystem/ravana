@@ -15,7 +15,7 @@ from collections import deque, Counter
 from .constants import STOP_WORDS, WEB_GARBAGE, TEEN_CONCEPT_LABELS
 from .constants import junk_score as _junk_score  # Round 4 (C1) read-time gate
 from .chain_walker import ChainWalkerMixin
-from .realizer_lexicon import RealizerLexicon, default_lexicon
+from .realizer_lexicon import RealizerLexicon, default_lexicon, has_clean_topic
 from ravana.language.surface_realizer import DiscourseState
 
 # Self-referential / meta tokens that should not be treated as ordinary
@@ -2543,30 +2543,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         # was grounded; otherwise fall back to a light social acknowledgment.
         topic = (subject or "").strip().lower()
         is_about_user = bool(re.match(r"^(i|i'm|im|i am|we|we're|my|me)\b", t))
-        # FIX (round v-aug06b): a comparative/contrastive statement
-        # ("ceramics is more meditative than painting") resolves its CONTENT
-        # HEAD to a bare noun ("ceramics meditative painting") that no longer
-        # contains the markers "more/than", so the clean-topic test below
-        # misses it and the topic gets planted into "you're {topic}" as garble.
-        # Detect the comparative from the ORIGINAL utterance instead (the
-        # markers survive there) and force the topic-less acknowledgment.
-        _is_comparative = bool(re.search(
-            r"\b(more|most|less|better|worse|rather|instead|than|versus|vs\.?|"
-            r"compared to|compared with|prefer .* (to|over)|as .* as)\b", t, re.IGNORECASE))
-        # D2 (round 2026-08-08b-d): the "you're {topic}" lead templates are for
-        # SELF-DESCRIPTIONS ("i'm a teacher" -> "so you're a teacher"). An
-        # OPINION statement ("i think i was wrong about cassettes", "i prefer
-        # tape") is not an identity claim, so planting the opinion topic into
-        # "so you're {topic}" produces garble ("so you're cassettes"). Force the
-        # topic-less acknowledgment whenever the turn leads with an
-        # opinion/belief verb (think/feel/believe/prefer/love/like/hate/wrong
-        # about...) — the reflect-the-topic template only fits a copula
-        # self-description. Structural: an opinion-lead regex, not a per-topic
-        # guard; generalizes across every opinion the user can state.
-        _is_opinion = bool(re.search(
-            r"\b(i\s+(?:think|feel|believe|prefer|love|like|hate|dislike|enjoy|"
-            r"reckon|suppose|was\s+wrong\s+about|was\s+right\s+about))\b",
-            t, re.IGNORECASE))
+        # Clean-topic gating (comparative / opinion / clause detection) now lives
+        # in realizer_lexicon.has_clean_topic(topic, t) — called below when
+        # composing the lead. Detecting these from the ORIGINAL utterance `t`
+        # (not the reduced content head) is what stops "you're {topic}" garble
+        # for clauses like "believe nuclear energy" or opinions like
+        # "i think i was wrong about cassettes".
 
 
         # Affective self-disclosure ("i am sad", "i'm tired") must reach the
@@ -2608,21 +2590,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         # subject carries no single reflectable noun, so we fall back to the
         # topic-less lead ("got it." / "nice.") which needs no slot and can
         # never garble. Only the clean-noun case uses the reflect-the-topic
-        # template. Generic: the clean-noun test is a small verb/copula set
-        # (closed-class, universal), not a per-topic table.
-        _has_clean_topic = bool(topic) and not re.search(
-            r"\b(believe|think|feel|am|is|are|was|were|been|being|love|like|"
-            r"hate|prefer|enjoy|dislike|mean|means|want|need|have|has|had|"
-            r"made|makes|say|says|got|get|know|knew|seem|seems|become|"
-            r"seriously|really|overrated|underrated|more|most|less|than|"
-            r"versus|vs\b|compared|rather|instead|better|worse)\b", topic)
-        if _is_comparative:
-            _has_clean_topic = False
-        if _is_opinion:
-            # An opinion ("i think i was wrong about cassettes") is not a
-            # self-description, so the "you're {topic}" template does not apply
-            # (it would yield "so you're cassettes"). Use the topic-less lead.
-            _has_clean_topic = False
+        # template. The gate itself lives in realizer_lexicon.has_clean_topic
+        # (single source of truth, shared with the unit test) so the runtime and
+        # the regression test cannot drift apart.
+        _has_clean_topic = has_clean_topic(topic, t)
         if is_about_user:
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:
@@ -4549,6 +4520,54 @@ class ResponseGenMixin(ChainWalkerMixin):
                     self._tmp_signed["neg"] = (av, w)
 
         if not vals:
+            # Copula-affect fallback (round 2026-08-15T0830Z): the VAD lexicon
+            # is a closed seed and does NOT contain every feeling word a human
+            # rotates in ("electrified", "giddy", "hollow", "terrified"...). A
+            # first-person feeling disclosure whose explicit affect word is absent
+            # from the VAD lexicon was returning None here and falling through to
+            # the degenerate "noted." ack — losing the empathic response entirely.
+            # Fix: if the utterance is a first-person FEELING-COPULA
+            # ("i felt/am/feel/get <word>"), treat the user's OWN felt word as the
+            # disclosure so the empathy responder can meet it. We accept ANY
+            # non-stopword head after the copula (not just a curated lexicon),
+            # because "i felt <x>" is structurally a self-report of a feeling
+            # regardless of whether <x> is in a seed list — expanding the lexicon
+            # per rotated probe would be whack-a-mole. The empathy responder
+            # already falls back to the cause-label signal to NAME the feeling
+            # when the word is unrecognized, so no authored reply is needed.
+            # Fails closed: ONLY fires on a genuine feeling-copula ("feel/felt/
+            # am/'m/get/got" as an affective state), so factual/action disclosures
+            # ("i keep bees", "i moved to X") still reach storage untouched.
+            try:
+                from ravana.chat.engine import _extract_user_affect_word
+                _aff = _extract_user_affect_word(text)
+            except Exception:
+                _aff = ""
+            if not _aff:
+                # Genuine feeling-copula only. The alternation puts the longer
+                # forms first so "i felt"/"i feel" win over bare "i".
+                _cop = re.search(
+                    r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\s+"
+                    r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|"
+                    r"pretty\s+)?([a-z]+(?:[-][a-z]+)?)", text)
+                if _cop:
+                    _w = _cop.group(2).strip("'-")
+                    # The felt word is the token AFTER the copula. Reject the
+                    # copula word itself (e.g. "felt") and closed-class/action
+                    # verbs so only a real feeling attribution is captured.
+                    _STOP = {"it", "the", "a", "an", "this", "that", "to", "of",
+                             "in", "on", "for", "my", "your", "his", "her",
+                             "their", "you", "me", "we", "they", "he", "she",
+                             "and", "or", "but", "i", "am", "was", "were",
+                             "been", "like", "love", "hate", "think", "feel",
+                             "felt", "good", "bad", "keep", "kept", "move",
+                             "moved", "want", "need", "have", "had", "do", "did"}
+                    if _w not in _STOP and len(_w) > 2:
+                        _aff = _w
+            if _aff and re.search(
+                    r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\b", text):
+                self._tmp_signed = None
+                return ("neutral", _aff)
             return None
         V_lex = float(np.average(vals, weights=weights))
 
@@ -4885,6 +4904,24 @@ class ResponseGenMixin(ChainWalkerMixin):
                     "emotional_empathy")
 
         # neutral / unspecified affect
+        # Name the user's OWN felt word when the detector surfaced one (the
+        # copula-affect fallback at round 2026-08-15T0830Z routes "i felt
+        # electrified" here with kind=neutral, word='electrified'). Replying with
+        # just "how are you feeling, really?" discards the word the user gave us
+        # and reads as hollow. Combine the user's word with RAVANA's measured
+        # valence band (val_word, computed above from self.emotion.state.valence)
+        # WHEN valence signals clear affect (val_word != "mixed") — so the ack is
+        # state-reflective rather than a hollow echo. The content still comes
+        # from the disclosure (the user's word) plus the state-derived valence
+        # word; nothing authored. Hold the open question only when the state is
+        # genuinely ambiguous ("mixed"). Fail-closed: when no word was surfaced,
+        # fall back to the open question.
+        if isinstance(word, str) and word and not word.startswith("loss:"):
+            if val_word != "mixed":
+                return (f"i hear you — feeling {word} is a lot, and it sounds "
+                        f"{val_word}.", "emotional_empathy")
+            return (f"i hear you — feeling {word} is a lot. how are you feeling, "
+                    f"really?", "emotional_empathy")
         return (f"i hear you. how are you feeling, really?",
                 "emotional_empathy")
 

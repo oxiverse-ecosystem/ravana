@@ -73,6 +73,8 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
 from .web_learning import WebLearningMixin
 from ravana._import_guard import report_missing  # non-silent import-guard logging
 from . import pet_slots as _pet_slots
+from . import possession_attrs as _poss_attrs
+
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
 # the old heuristic floor remains the backstop, never weakened).
@@ -312,6 +314,33 @@ class MemoryMixin:
             idx[attr] = val
         return facts
 
+    def _specific_recall_entity(self, q: str):
+        """Return the SPECIFIC possessive/referred entity a cued recall names
+        (e.g. 'my cat', 'our dog', "partner's", 'my brother'), or None for a
+        generic self-attribute recall ('what is my name', 'where do i live') or
+        a bare self-recall ('what have you learned about me').
+
+        Implements the specific-entity-before-generic rule: a cued recall that
+        names a CONCRETE entity the user may have disclosed must resolve from
+        THAT entity's store, never be aliased onto the user's own 'i' profile
+        (which would dump unrelated facts — the documented confabulation
+        defect: 'remember my cat's name' -> 'your favorite book is dune').
+        """
+        _ATTR = ("live", "lives", "from", "city", "town", "country", "born",
+                 "grew", "located", "location", "origin", "name")
+        _STOP = ("i", "you", "me", "my", "your", "we", "our", "what", "who",
+                 "where", "when", "why", "how", "it", "that", "this", "he",
+                 "she", "they", "one", "some", "any", "its")
+        _m = re.search(r"\b(?:my|our|your)\s+([a-z']+?)(?:'s)?\b", q) or \
+             re.search(r"\b([a-z']+?)'s\b", q)
+        if not _m:
+            return None
+        _cand = _m.group(1)
+        _cand = _cand[:-2] if _cand.endswith("'s") else _cand
+        if _cand in _ATTR or _cand in _STOP:
+            return None
+        return _cand
+
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
         """Brain-faithful episodic recall (Tulving encoding specificity).
@@ -404,6 +433,20 @@ class MemoryMixin:
                             _m_idx = re.search(r"_(\d+)$", str(_attr))
                             _idxnum = _m_idx.group(1) if _m_idx else "1"
                             _entity_idx.setdefault(_sp, {})[_idxnum] = _val
+                        # Possession-attribute facts (round 2026-08-15T0830Z,
+                        # Bug 4) are stored under the ENTITY key (cabin / sword)
+                        # with attributes 'madeof' / a feature noun (roof/wall/..),
+                        # mirroring the pet folding above. Without this fold a
+                        # "what's my cabin made of" recall cannot resolve the
+                        # structured fact and falls through to a whole-sentence
+                        # echo. The render site (_reconstruct_entity) already
+                        # knows how to phrase 'madeof' / feature attrs via
+                        # possession_attrs.render, so folding here is sufficient
+                        # for a clean recall answer.
+                        elif _attr and _attr not in ("name", "location", "does",
+                                                     "event", "is", "favorite",
+                                                     "likes", "background"):
+                            _entity_idx.setdefault(_key[0], {})[_attr] = _val
         except Exception:
             pass
 
@@ -449,6 +492,16 @@ class MemoryMixin:
                     bits.append(f"you live in {val}")
                 elif attr == "background":
                     bits.append(f"{val}")
+                # Possession-attribute facts (round 2026-08-15T0830Z, Bug 4):
+                # render 'madeof' as a natural clause and feature nouns
+                # (roof/wall/...) via the shared possession_attrs renderer, so a
+                # cued recall of a material fact reads cleanly ("your cabin is
+                # made of pine" / "your cabin's roof is sod") instead of the
+                # bare-slot form "your cabin's madeof is pine".
+                elif attr == "madeof":
+                    bits.append(f"your {ent} is made of {val}")
+                elif _poss_attrs.is_feature_noun(attr):
+                    bits.append(_poss_attrs.render(ent, attr, val))
                 # Pets are stored under a species-keyed slot (entity "cat",
                 # attr "1"/"2"). Render as a natural clause rather than
                 # "your cat's 1 is pixel".
@@ -502,86 +555,33 @@ class MemoryMixin:
             if _sp is not None:
                 _specific_entity = _sp
                 break
-            # a named non-user entity already in the index (e.g. "salt" stored
-            # under subject "neighbour") — resolve it from the full store. The
-            # self-pronoun "i" is also in _entity_idx (the user's own profile),
-            # but it must NOT be treated as a specific owned entity here — doing
-            # so would reconstruct the whole "i" profile for ANY query
-            # containing "i"/"my" (e.g. "how many pigeons did i keep" -> "your
-            # name is esa; you keep loft"). A genuine bare self-bio question is
-            # handled by the tightened generic-self fallback below, not here.
-            if _tok in _entity_idx and _tok not in ("i", "you", "my", "your"):
-                _specific_entity = _tok
-                break
-        if _specific_entity is not None:
-            # Resolve the entity from the FULL personal-fact store (all
-            # subjects), preferring an active (non-superseded) fact. This honors
-            # the self/other boundary: a pet re-attributed to a third party
-            # resolves to that owner's record, not the user's. Build a small
-            # facts dict for _reconstruct_entity.
-            _pf = getattr(self, "user_model", None)
-            _pfs = getattr(_pf, "personal_facts", None) if _pf else None
-            if _pfs is not None:
-                _ent_facts = {}
-                for _key, _fact in getattr(_pfs, "facts", {}).items():
-                    if getattr(_fact, "superseded", False):
-                        continue
-                    _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
-                    # Self/other boundary (round 2026-08-11T0521Z R6 fix): a
-                    # "my <pet>" query resolves to the USER's own record only. A
-                    # pet re-attributed to a third party (subject != "i") was
-                    # retired from the user's ownership, so folding it here would
-                    # surface it as "your cat is pip" — exactly the leak the
-                    # regression test forbids. Skip non-user subjects so the
-                    # boundary holds at this recall source, matching the unit
-                    # entity-index guard above (L397).
-                    if _subj not in (None, "i", "I"):
-                        continue
-                    _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
-                    # the entity matches either as a stored entity subject, or
-                    # as the attribute key under a third-party subject (a pet
-                    # disclosed as "my neighbour's dog is X" is stored as
-                    # subject="neighbour", attr="dog"), or as a pet-slot whose
-                    # canonical species is the query entity.
-                    _is_entity = (_subj == _specific_entity) or (_attr == _specific_entity) or (
-                        _pet_slots.is_pet_attribute(_attr) and
-                        _pet_slots.base_species(_attr) == _specific_entity)
-                    if _is_entity and _attr not in (None,):
-                        # fold under a render key: use the species for pets,
-                        # else the entity subject.
-                        _rk = (_pet_slots.base_species(_attr)
-                               if _pet_slots.is_pet_attribute(_attr)
-                               else _specific_entity)
-                        _ent_facts.setdefault(_rk, {})[_attr] = getattr(_fact, "value", _fact)
-                # also accept the user-facing index entry if present
-                if _specific_entity in _entity_idx:
-                    for _a, _v in _entity_idx[_specific_entity].items():
-                        _ent_facts.setdefault(_specific_entity, {})[_a] = _v
-                if _ent_facts:
-                    # prefer the species/pet render key when present
-                    _rk = next((k for k in _ent_facts
-                                if _pet_slots.species_of(k) is not None),
-                               next(iter(_ent_facts)))
-                    _bits = _reconstruct_entity(_rk, _ent_facts[_rk])
-                    if _bits:
-                        return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
-        # Generic-self fallback: ONLY for a bare user-biography question that
-        # names NO specific entity (e.g. "what is my name", "where do i live").
-        # A query that named a specific owned thing ("my dog's name") already
-        # resolved via _specific_entity above and must NOT reach here. The
-        # trigger is kept tight: "name" only counts when it is the question's
-        # TARGET ("what is my name" / "who am i"), not a passing mention like
-        # "did i name them" inside a count/possession question — otherwise
-        # "how many pigeons did i name" would wrongly collapse to the user's
-        # name. LOC words still trigger generic-self (where do i live).
-        if _ent_hit is None and _specific_entity is None:
-            _has_person = bool(re.search(r"\b(i|my|me|we|our)\b", q))
-            _name_target = bool(re.search(
-                r"\b(what'?s|what\s+is)\s+my\s+name\b|\bmy\s+name\s*\?|who\s+am\s+i\b|"
-                r"\btell\s+me\s+(?:about|who)\s+(?:myself|me)\b", q))
-            _has_bio_attr = _name_target or any(w in q for w in _LOC_WORDS)
-            if _has_person and _has_bio_attr and "i" in _entity_idx:
-                _generic_self = True
+            if _tok in ("i", "you", "my", "your") and "i" in _entity_idx:
+                # only treat as a cued recall when the query also
+                # asks about a biographical attribute
+                if any(w in q for w in _LOC_WORDS) or "name" in q:
+                    _generic_self = True
+        # SPECIFIC-ENTITY-BEFORE-GENERIC GUARD (round 2026-08-15T0830Z audit fix).
+        # When the query names a CONCRETE possessive/referred entity (e.g. "my
+        # cat", "partner's name", "our dog") the recall is about THAT entity, not
+        # the user's own profile. If that entity is NOT in the store, the user
+        # never disclosed it, so fail CLOSED (honest miss) — do NOT alias the
+        # named entity onto the user's "i" profile. The old alias let "remember
+        # my cat's name" (cat unstored) resolve the user's own "i" biographical
+        # profile and dump an unrelated fact ("your favorite book is dune") —
+        # the documented source-monitoring / confabulation defect. Only a
+        # genuinely GENERIC self-attribute recall ("what is my name", "where do
+        # i live") may use the "i" profile; a generic self-recall with no entity
+        # at all is handled separately by the caller's profile-summary path.
+        _named = self._specific_recall_entity(q)
+        if _named is not None:
+            _named_sp = _pet_slots.species_of(_named)
+            _named_key = _named_sp if _named_sp is not None else _named
+            if _named_key not in _entity_idx:
+                # Specific entity the user never disclosed -> nothing to
+                # retrieve. Return None so the caller fails closed (never
+                # confabulate a profile that wasn't the query's target).
+                _ent_hit = None
+                _generic_self = False
         if _ent_hit is None and _generic_self:
             _ent_hit = "i"
         if _ent_hit is not None:
@@ -1690,6 +1690,24 @@ class MemoryMixin:
                 if _t in _LOC_WORDS or _t == "name":
                     _cue = True
                     break
+            # SPECIFIC-ENTITY-BEFORE-GENERIC GUARD (round 2026-08-15T0830Z audit
+            # fix). The cue loop above matches the bare word "name" even when a
+            # CONCRETE entity the user named (here "cat") is unstored. Routing
+            # such a query into _retrieve_episodic's loose semantic matcher (or
+            # its "i"-profile alias) returns an unrelated stored fact — the
+            # documented confabulation ("remember my cat's name" -> "your
+            # favorite book is dune"). If the query names a specific (non-self,
+            # non-attribute) entity that the user never disclosed, do NOT treat
+            # it as a generic self-recall cue; fall through to the honest
+            # generic self-profile summary (which fail-closes for an unknown cat)
+            # rather than entering the confabulating matcher. This preserves the
+            # honest "you haven't told me about your cat" behavior.
+            _named = self._specific_recall_entity((user_input or "").lower())
+            if _named is not None:
+                _named_sp = _pet_slots.species_of(_named)
+                _named_key = _named_sp if _named_sp is not None else _named
+                if _named_key not in _idx:
+                    _cue = False
             if _cue:
                 _ep = self._retrieve_episodic(user_input)
                 if _ep is not None:
