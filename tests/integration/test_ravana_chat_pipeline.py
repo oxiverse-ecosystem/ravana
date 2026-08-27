@@ -128,6 +128,8 @@ class TestMultiTurn:
         assert _is_valid_response(r1)
         r2 = engine.process_turn("Tell me more")
         assert _is_valid_response(r2), f"Follow-up bad: '{r2}'"
+        r3 = engine.process_turn("What did we just discuss?")
+        assert _is_valid_response(r3), f"Third turn bad: '{r3}'"
         assert engine.turn_count >= 3
 
     def test_emotion_and_free_energy(self, engine):
