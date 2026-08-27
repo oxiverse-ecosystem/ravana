@@ -3473,7 +3473,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _act = None          # optional activity value to append
                         # (1) combined-attr "<kin> <name>"
                         if len(_attr_toks) >= 2 and _attr_toks[-1] in _qcn:
-                            _rel = " ".join(_attr_toks[:-1])
+                            # D5 (round 2026-08-21T2156Z): the relationship label
+                            # must INCLUDE the person's name, not strip it. The
+                            # prior code set _rel = " ".join(_attr_toks[:-1]),
+                            # dropping the final token (the name) and then
+                            # rendering only "your {_rel}." — so "who is Mr. Sato
+                            # to me?" with fact ('i','neighbor mr. sato','keeps
+                            # bees') answered "your neighbor mr.." (name lost AND
+                            # a doubled period). Render the FULL _attr (which
+                            # carries relationship + name) so the reply names the
+                            # person: "your neighbor mr. sato." / "your neighbor
+                            # mr. sato keeps bees." Content is the stored attr;
+                            # no authored prose, no per-name table.
+                            _rel = _attr
                             _act = _val
                         # (2) attr is a relationship word, name is the value
                         elif _relation_of(_attr) is not None and _val in _qcn:

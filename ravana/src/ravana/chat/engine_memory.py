@@ -1437,6 +1437,95 @@ class MemoryMixin:
                 return "you told me " + "; ".join(bits) + "."
         return f"you mentioned: \"{rec.get('text', '')}\""
 
+    # ── D7/D9 (round 2026-08-21T2156Z): distinct-topic gist signal ──────────
+    # A self-recall like "what did i tell you about sourdough?" is cued by a
+    # DISTINCT TOPIC (not a possessive entity, not a biographical attribute).
+    # It must resolve to that one episode via the PRECISE scoped semantic
+    # retriever (which reconstructs the asked gist), never to the GENERIC
+    # whole-profile dump that otherwise surfaces sibling turns
+    # ("you bake sourdough; ...; you took glassblowing; you watch rings").
+    # That dump is correct ONLY for a true whole-profile recall ("what do you
+    # know about me?") — there, every disclosed fact belongs in the answer.
+    # A single-topic query that hits the dump is the D7/D9 wrong/episode-echo
+    # defect: an unrelated turn is returned alongside the asked one.
+    #
+    # Signal (structural, not a per-topic list): the query is a recollection
+    # speech act (already decided by _self_recall_struct/_intent above) AND it
+    # contains a topic noun that is NOT a generic self-pronoun and NOT a
+    # biographical-attribute word (live/name/city/... — those are the entity/
+    # attribute cues already handled by the _retrieve_episodic cued path) AND
+    # it is NOT one of the canonical whole-profile frames (which deliberately
+    # want the aggregate). We detect the "about X" / "regarding X" / bare
+    # topic-noun shape generically; the actual episode is found by the
+    # retriever, so no topic is hard-coded.
+    _WHOLE_PROFILE_FRAMES = (
+        "what do you know about me", "what have you learned about me",
+        "what do you remember about me", "what do you remember me telling you",
+        "tell me about myself", "everything you know about me",
+        "describe me", "what have i told you", "what stands out about me",
+        "what do you remember me telling you", "summarize me", "remind me who i am",
+    )
+
+    def _is_distinct_topic_recall(self, q: str) -> bool:
+        ql = (q or "").lower().strip()
+        if not ql:
+            return False
+        if any(fr in ql for fr in self._WHOLE_PROFILE_FRAMES):
+            return False
+        # Must be a recollection act (the caller only invokes this inside the
+        # self_recall branch, so this is redundant but fail-closed).
+        if not (re.search(r"\b(remember|recall|remind|told|said|tell|"
+                          r"learned?|know|found out|figured out|mentioned)\b", ql)):
+            return False
+        # Strip recollection scaffolding + self pronouns + question words.
+        _STOP = {
+            "remember", "recall", "remind", "remind me", "told", "said", "tell",
+            "telling", "mention", "mentioned", "ask", "asked", "what", "about",
+            "regarding", "on", "of", "the", "a", "an", "that", "this", "me",
+            "my", "i", "you", "your", "we", "our", "did", "do", "was", "were",
+            "is", "are", "have", "has", "had", "something", "anything", "thing",
+            "things", "everything", "tell", "you", "again", "exactly",
+            "remind me what", "ever", "all", "when", "where", "who", "how",
+            "why", "which",
+        }
+        _ATTR = {
+            "live", "lives", "from", "city", "town", "country", "born", "grew",
+            "located", "location", "origin", "name", "age", "height", "weight",
+            "work", "study", "studied", "school", "instrument", "hobby",
+        }
+        _topic = [w.strip(".,!?") for w in re.findall(r"[a-z']+", ql)
+                  if len(w) >= 3 and w not in _STOP and w not in _ATTR]
+        # A genuine topic noun remains (e.g. "sourdough", "marathon", "glassblowing").
+        # Single-char or pure-attribute queries have none -> whole-profile / attribute.
+        return bool(_topic)
+
+    def _scoped_topic_transcript(self, q: str) -> Optional[List[Dict[str, Any]]]:
+        """Reconstruct the transcript of the USER's own disclosures so a
+        single-topic gist recall resolves to the one relevant turn.
+
+        The episodic transcript (_episodic_transcript) stores the user turns
+        verbatim, so a cued recall over it returns the episode that actually
+        contained the topic — never a sibling. When that store is empty
+        (post-load, the transcript is not persisted), rebuild from the durable
+        hippocampal indexer the SAME way _retrieve_episodic already does, so
+        recall stays correct after a reload. Returns None only when there is
+        truly no disclosure history (then the caller fails closed).
+        """
+        _turns = getattr(self, "_episodic_transcript", None) or []
+        if _turns:
+            return [dict(t) for t in _turns]
+        try:
+            _idxr = getattr(self, "_episodic_indexer", None)
+            if _idxr is not None:
+                _rebuilt = [{"text": getattr(ep, "text", ""),
+                             "facts": getattr(ep, "facts", {}) or {}}
+                            for ep in _idxr.all()]
+                if _rebuilt:
+                    return _rebuilt
+        except Exception:
+            pass
+        return None
+
     def _episodic_remember(self, user_input: str) -> Optional[str]:
         """Handle a broad 'remember what I told you' recall query (Human-Likeness
         Plan C). Tries fact/slot retrieval and semantic gist retrieval over the
@@ -1848,6 +1937,26 @@ class MemoryMixin:
             # from the hippocampal entity index. Fail-closed: if the index is
             # empty, the summary path returns the honest "you haven't told me
             # much" line. This keeps "what have you learned about me" honest.
+            #
+            # D7/D9 (round 2026-08-21T2156Z): a DISTINCT-TOPIC gist recall
+            # ("what did i tell you about sourdough?") is neither a
+            # possessive-entity cue nor a biographical attribute, yet it is a
+            # specific recall of ONE episode — NOT a whole-profile dump. It must
+            # cede to the precise scoped semantic retriever (over the user's own
+            # disclosure transcript) so only the asked gist is reconstructed,
+            # never a sibling turn. The generic aggregate summary below is
+            # reserved for true whole-profile frames, where every disclosed fact
+            # legitimately belongs. Routing a single-topic query into that dump
+            # is the D7/D9 wrong/episode-echo defect. Fail-closed: if the scoped
+            # retriever finds nothing, fall through to the generic summary so a
+            # genuine whole-profile query still answers.
+            if self._is_distinct_topic_recall(user_input):
+                _scope = self._scoped_topic_transcript(user_input)
+                if _scope is not None:
+                    _topic_ep = self._retrieve_episodic(user_input,
+                                                       transcript=_scope)
+                    if _topic_ep is not None:
+                        return _topic_ep
             _idx = getattr(self, "_episodic_index", None) or {}
             _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
                           "born", "grew", "located", "location", "origin")
