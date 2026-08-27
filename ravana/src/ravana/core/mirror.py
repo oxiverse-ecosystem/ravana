@@ -124,6 +124,20 @@ _VAD_SEED: Dict[str, Tuple[float, float, float]] = {
     "angry":       (-0.80, 0.85, 0.20),
     "mad":         (-0.75, 0.80, 0.25),
     "furious":     (-0.85, 0.90, 0.15),
+    # ── interoceptive / somatic affect idioms (high-arousal bodily states) ──
+    # Bootstrapping lexicon for felt-state phrases like "my blood boil",
+    # "my heart races", "my stomach sinks". These are subjective feeling
+    # reports, not world-state transitions — the causal reasoner's D3
+    # source-monitoring guard keys off this VAD load to refuse binding them
+    # as simulate-able cause→effect edges. Grows online via Hebbian learning.
+    "boil":       (-0.70, 0.85, 0.10),
+    "seethe":     (-0.75, 0.85, 0.15),
+    "race":       (-0.30, 0.80, 0.10),
+    "racing":     (-0.30, 0.80, 0.10),
+    "sink":       (-0.55, 0.45, -0.40),
+    "sinking":    (-0.55, 0.45, -0.40),
+    "pound":      (-0.35, 0.75, 0.05),
+    "pounding":   (-0.35, 0.75, 0.05),
     # ── positive social / relational states ──
     "friend":      (0.55, 0.35, 0.30),
     "friendship":  (0.60, 0.35, 0.35),

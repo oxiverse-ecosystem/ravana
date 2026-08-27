@@ -211,6 +211,21 @@ on this codebase:
   (already learned, or with a seeded definition) still grounds a genuine answer,
   and a subject learned later online is re-admitted. No LLM, no per-topic reply
   table. See `docs/CAPABILITY_SM_UNKNOWN_SUBJECT_GROUNDING.md`.
+- **Stops parroting your affect as its own reasoning (D3).** The in-prompt
+  causal reasoner used to intercept a combined *"statement + question"* turn like
+  *"that parking lot plan makes my blood boil. do you get why i'm furious?"*,
+  mine your **affective statement** as a causal premise, and replay your own
+  clause *"my blood boil"* verbatim as its reply — a source-monitoring failure.
+  Now `parse_causal_edges` refuses to bind a premise whose **effect is a
+  first-person affective self-report** (*"my blood boil"*, *"makes me furious"*,
+  *"my heart races"*): that is a felt state, not a world-state transition, so the
+  turn falls through to the genuine affective-response path. Detection is
+  **seed-driven** — first-person pronoun (closed-class grammar set) + an
+  affect-bearing word read from RAVANA's own learnable VAD lexicon (reused from
+  the intent router, grown online via Hebbian learning), not a keyword table or
+  authored prose. A legitimate world-state conditional (*"when you turn on the
+  lamp, it lights up"*) still binds and answers. No LLM, no per-topic reply table,
+  no retraining. See `docs/CAPABILITY_SOURCE_MONITORING_AFFECTIVE_ECHO.md`.
 
 These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
