@@ -883,29 +883,56 @@ class SelfQueryMixin:
             r"opinion|stance|self|who you are|what you (?:are|were)|how you "
             r"(?:see|feel|think))\b", t)
         if _self_introspect:
-            # This is a question about RAVANA itself. Answer from the
-            # self-model's identity state (real, growing state — strength,
-            # momentum, stability) so the reply is grounded, not authored.
-            try:
-                _id = self.identity.get_status()
-                _strength = _id.get("strength", 0.0)
-                # No keyword→prose table: every introspection question is
-                # answered from the SAME live identity state (strength band +
-                # measured value), so the content comes from cognition.
-                if _strength >= 0.5:
-                    _coh = "i have a fairly settled sense of myself"
-                elif _strength >= 0.35:
-                    _coh = "my sense of myself is still taking shape"
-                else:
-                    _coh = "i'm still quite unsettled about who i am"
-                return (f"that's about me, not you — {_coh}, and it's been "
-                        f"growing as we talk. i don't always keep the exact "
-                        f"words of what i said earlier, but the shape of it "
-                        f"holds.")
-            except Exception:
-                return ("that's a question about me rather than you — i'm "
-                        "still forming a sense of myself, and i'd rather be "
-                        "honest about that than guess.")
+            # This gate answers genuine SELF-INTROSPECTION ("what's your line
+            # on whether you're really thinking", "what was your take on who
+            # you are") — questions whose object IS RAVANA's own mind, with NO
+            # further topic. For OPINION questions that name a topic
+            # ("your honest read on the trapeze vs the gym", "your view on
+            # seaweed"), the right answer is the agent's VALUE stance on that
+            # topic, not a generic identity filler. So: if a content word
+            # follows the introspection noun (past a small set of
+            # scaffolding words), this is a topical stance question — DO NOT
+            # short-circuit here; let it fall through to the _agent_stance_on
+            # resolver below (which answers from the agent's real value store).
+            # This fixes the verbatim-degeneracy + blocked-stance-citation
+            # defect: a fixed filler was returned for every "your read/take/
+            # view on X" question, and the topic was discarded.
+            _after = t[_self_introspect.end():]
+            _tail_toks = [w for w in re.findall(r"[a-z']+", _after)
+                          if w not in ("about", "on", "of", "for", "the",
+                                       "a", "an", "to", "vs", "versus", "and",
+                                       "or", "now", "after", "what", "i",
+                                       "just", "said", "that", "this")]
+            if _tail_toks:
+                # Topic-bearing: fall through (do NOT return) so the
+                # agent-opinion branch / _agent_stance_on answers from state.
+                pass
+            else:
+                # No topic — a pure self-introspection question. Answer from
+                # the self-model's identity state (real, growing state —
+                # strength, momentum, stability) so the reply is grounded,
+                # not authored.
+                try:
+                    _id = self.identity.get_status()
+                    _strength = _id.get("strength", 0.0)
+                    # No keyword→prose table: every introspection question is
+                    # answered from the SAME live identity state (strength
+                    # band + measured value), so the content comes from
+                    # cognition.
+                    if _strength >= 0.5:
+                        _coh = "i have a fairly settled sense of myself"
+                    elif _strength >= 0.35:
+                        _coh = "my sense of myself is still taking shape"
+                    else:
+                        _coh = "i'm still quite unsettled about who i am"
+                    return (f"that's about me, not you — {_coh}, and it's been "
+                            f"growing as we talk. i don't always keep the exact "
+                            f"words of what i said earlier, but the shape of it "
+                            f"holds.")
+                except Exception:
+                    return ("that's a question about me rather than you — i'm "
+                            "still forming a sense of myself, and i'd rather be "
+                            "honest about that than guess.")
         sm = self._ensure_self_model()
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",
@@ -972,10 +999,12 @@ class SelfQueryMixin:
             r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
             r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
             r"|how\s+do\s+you\s+(feel|think)\s+about\b"
-            r"|what's\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
-            r"|your\s+(opinion|thoughts|take|read|view|stance)\s+(on|of)\b"
-            r"|what\s+is\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
-            r"|what\s+do\s+you\s+make\s+of\b)",
+            r"|what\s+do\s+you\s+make\s+of\b"          # R2 fix: "what do you make of X" is a standard opinion-request form (round 2026-08-11T0521Z). Previously unmatched, so it fell through to hippocampal echo of the user's own prior turn (self/other boundary breach). "make of" asks for RAVANA's stance, same as "think of"; route to _agent_stance_on below.
+            r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
+            r"|what's\s+your\s+(opinion|take|view|stance|read)\s+(on|about)\b"
+            r"|what\s+is\s+your\s+(opinion|take|view|stance|read)\s+(on|about)\b"
+            r"|give\s+me\s+your\s+(honest\s+)?(read|take|view|opinion)\s+(on|about)\b"
+            r"|your\s+(honest\s+)?(read|take|view)\s+(now|these\s+days)?\s*(on|about)\b)",
             t)
         # Self-opinion RECALL: a follow-up that asks whether the agent STILL
         # holds a stance it previously computed ("are you still cautious about
@@ -1031,107 +1060,22 @@ class SelfQueryMixin:
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
             # content token is the real target (mangroves), not the verb
-            # scaffolding (protect). Strip closed-class words.
-            # DEFECT B (round 2026-08-19T1628Z) PRONOUN-LEAK FIX: the closed-class
-            # strip list excluded "i" but NOT the first/second-person pronouns and
-            # their contractions, so a user-referential opinion frame
-            # ("what do you make of MY lutefisk habit", "how do you feel about ME
-            # leaving the water", "do you think I'M contradictory") set the stance
-            # target to the pronoun itself -> "i'm still forming a view on my" /
-            # "on me" / "on i'm" (measured T38/T66/T70). The topic is the real
-            # noun the pronoun modifies, not the pronoun. Extend the exclusion to
-            # all person pronouns + contractions so the extractor skips them and
-            # lands on the actual subject (lutefisk / leaving / contradictory).
-            # Structural (a closed-class vocabulary), no per-topic table.
+            # scaffolding (protect). Strip closed-class words + discourse
+            # scaffolding ("honest", "read", "versus"/"vs" comparatives,
+            # "more me"). For a "between A and B" comparative, keep the LAST
+            # topic (closest to the verb "is more me") so the agent answers on
+            # the salient subject, not the connective.
             _toks = [w for w in re.findall(r"[a-z']+", _tail)
                      if w not in ("about", "on", "the", "a", "an", "of", "for",
                                   "with", "to", "we", "should", "could", "would",
-                                  "is", "are", "do", "does", "you", "your",
-                                  "i", "i'm", "i've", "i'd", "i'll", "my", "me",
-                                  "we're", "our", "us", "they", "them", "he",
-                                  "she", "his", "her", "its", "their", "it",
-                                  "that", "this", "and", "or")]
-            # DEFECT A (round 2026-08-19T0625Z) TOPIC FIX: the prior code took
-            # _toks[-1] (the LAST content token) as the stance target. That is
-            # only correct for imperative frames like "do you think we should
-            # protect mangroves" (topic follows the verb scaffolding). For the
-            # dominant "what do you think about X" / "your take on X" / "how do
-            # you feel about X" frames the topic is the FIRST content noun after
-            # the cue ("people tracking each other online without asking" ->
-            # "people"), so the last-word heuristic produced garbled targets
-            # ("asking", "now", "hobbyists", "yards") and the agent answered
-            # about the wrong subject. Fix: take the FIRST content noun after
-            # the cue as the topic; strip a small closed-class verb-scaffold at
-            # the head so imperative frames ("should protect mangroves") still
-            # resolve to the real object ("mangroves"). The target is the user's
-            # actual topic (real state), so the reply names the right subject —
-            # no authored per-topic sentence.
-            # GENERALIZE (round 2026-08-20T0701Z): the FIRST/LAST-content-token
-            # heuristics (DEFECT A/B) were both fragile — they pick a single
-            # token at a fixed position, which misfires on real opinion frames:
-            #   * "how do you feel about ME leaving the water" lands on
-            #     "leaving" (a verb), and "do you think I'M contradictory" lands
-            #     on "contradictory" only by luck; the pronoun itself
-            #     ("my"/"me"/"i'm") was a recurring leak -> "forming a view on my".
-            #   * "so do you think i'm for or against street art" -> first token
-            #     "for" (a closed-class polarity word), not "street art".
-            # Fix: take the MAXIMAL noun phrase immediately after the opinion cue
-            # — i.e. the first CONTENT token that is NOT a closed-class word,
-            # pronoun, polarity word, or verb-scaffold, then keep accumulating
-            # subsequent content tokens (multiword topics like "street art",
-            # "public transit") until a closed-class boundary. Structural
-            # (closed-class + pronoun + polarity vocabulary), generalizes to any
-            # topic wording, no per-topic list. The target is the user's real
-            # subject (real state) so the reply names the right topic — no
-            # authored per-topic sentence.
-            _PRON_OR_CLOSED = (
-                "about", "on", "the", "a", "an", "of", "for", "with", "to",
-                "at", "in", "by", "from", "as", "if", "than", "but", "so",
-                "now", "then", "there", "here", "up", "down", "out", "off",
-                "when", "where", "why", "how", "who", "what", "which",
-                "because", "before", "after", "while", "during", "through",
-                "over", "under", "into", "onto", "upon", "until", "against",
-                "we", "should", "could", "would", "is", "are", "do", "does",
-                "you", "your", "i", "i'm", "i've", "i'd", "i'll", "my", "me",
-                "we're", "our", "us", "they", "them", "he", "she", "his",
-                "her", "its", "their", "it", "that", "this", "and", "or")
-            _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
-                               "support", "defend", "fund", "build", "make",
-                               "change", "help", "avoid", "prevent",
-                               "leaving", "feel", "think", "believe",
-                               # attitude verbs (round 2026-08-20T0701Z regression
-                               # t_a9ce2550): 'do you think i LIKE X' must resolve
-                               # the topic to X, not 'like X'. Structural verb
-                               # vocabulary — generalizes to any preference verb.
-                               "like", "likes", "liked", "love", "loves",
-                               "loved", "hate", "hates", "hated", "prefer",
-                               "prefers", "preferred", "dislike",
-                               "dislikes", "disliked")
-            _i = 0
-            while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
-                                       or _toks[_i] in _VERB_SCAFFOLD
-                                       or _toks[_i].isdigit()):
-                _i += 1
-            if _i >= len(_toks):
-                # No real topic after the cue (e.g. "how do you feel about me?"
-                # with no object). Don't answer "a view on <empty>"; fall
-                # through so the next handler (or honest uncertainty) deals with
-                # it. Fail-open.
-                _agent_opinion = None
-                _stance, _reason = None, None
-            else:
-                # Accumulate the topic noun phrase: first content token, then
-                # keep adjacent content tokens (handles "street art", "public
-                # transit") but stop at the first closed-class/polarity boundary.
-                _target_toks = [_toks[_i]]
-                _j = _i + 1
-                while _j < len(_toks) and _toks[_j] not in _PRON_OR_CLOSED \
-                        and _toks[_j] not in _VERB_SCAFFOLD \
-                        and not _toks[_j].isdigit():
-                    _target_toks.append(_toks[_j])
-                    _j += 1
-                _target = " ".join(_target_toks)
-                _stance, _reason = self._agent_stance_on(_target)
+                                  "is", "are", "do", "does", "you", "i", "it",
+                                  "that", "this", "and", "or", "honest", "read",
+                                  "take", "view", "opinion", "thoughts", "stance",
+                                  "versus", "vs", "more", "me", "now", "after",
+                                  "what", "just", "said", "right", "really",
+                                  "exactly", "tell", "think")]
+            _target = _toks[-1] if _toks else ""
+            _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."

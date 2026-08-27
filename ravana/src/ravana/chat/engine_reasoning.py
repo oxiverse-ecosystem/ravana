@@ -1280,10 +1280,7 @@ class ReasoningMixin:
         if _decl:
             facts = _decl
         else:
-            # No declarative candidates remain — return None regardless of original count.
-            return None
-        # A lone surviving question-shaped fact is better left un-echoed.
-        if len(facts) == 1 and _is_non_declarative(getattr(facts[0], "object", "")):
+            # All-non-declarative pool: return None regardless of count.
             return None
         # Attribute words = content words of the question, minus the subject and
         # generic interrogative/stop tokens. These identify WHICH stored fact the
@@ -2195,8 +2192,7 @@ class ReasoningMixin:
                 # like/love
                 ml = re.search(
                     r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$)"
-                    r"|\s+-{1,3}\s+"
-                    r"\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+                    r"|\s+-{1,3}\s+|\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
                     r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)",
                     q, re.IGNORECASE)
                 if ml:

@@ -25,6 +25,7 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [API_REFERENCE.md](API_REFERENCE.md) | Comprehensive class/function reference for all three packages. |
 | [STANCE_REVERSAL.md](STANCE_REVERSAL.md) | How the user changing their mind recodes a held stance (first-person reversal / retraction cues), verified against the live engine. |
 | [ENTITY_LOCATION_RECALL.md](ENTITY_LOCATION_RECALL.md) | Capturing + surfacing a named thing's whereabouts (entity-keyed `location` fact, "where is X?" recall, correction, fail-closed on unknown). |
+| [POSSESSION_REATTRIBUTION.md](POSSESSION_REATTRIBUTION.md) | Reverse-order pet naming + owner re-attribution (self/other boundary enforced at all four recall sources, no LLM). |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation
