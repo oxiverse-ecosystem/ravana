@@ -2000,6 +2000,15 @@ class MemoryMixin:
         # grammatical-aspect signal, not a topic keyword list, so it stays
         # brain-faithful (Tulving autonoetic recollection is past-displaced;
         # source-monitoring tags a retrieved memory vs a present feeling).
+        # Round 2026-08-14T0103Z (Defect C): "remember when i told you about X" /
+        # "remember when i said you about X" is a cued recall of a specific prior
+        # episode (the adjacent-turn replay contract). It lacks a "me/my" pronoun
+        # but is unambiguously autobiographical recall, so recognize it as a
+        # distinct-topic recall. Narrow: requires "remember when" + a tell/say
+        # verb + "about".
+        _remember_when_about = bool(re.search(
+            r"\bremember when\b.{0,60}?\b(?:told|said|mentioned|shared)\b"
+            r".{0,20}?\babout\b", t))
         _self_recall_struct = bool(re.search(
             r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell|learned?|found out|discovered|figured out)\b"
             r".*\b(?:about me|me|my|myself)\b", t)) or \
@@ -2008,7 +2017,8 @@ class MemoryMixin:
                 r"\b(?:i|we|you)\b\s+(?:remember|recall|felt|felt like|was feeling|"
                 r"experienced|went through|lived through|thought about)\b"
                 r"(?:.*\b(?:last year|last week|yesterday|ago|back then|when i|"
-                r"when we|that time)\b)?", t))
+                r"when we|that time)\b)?", t)) or \
+            _remember_when_about
         _self_recall_intent = False
         _clf = getattr(self, "_social_intent", None)
         if _clf is not None:
