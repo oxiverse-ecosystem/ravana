@@ -46,6 +46,30 @@ jobs:
       - uses: actions/checkout@v5
         with:
           lfs: false
+          # Shallow clone: CI never needs full git history (the warm/build
+          # scripts don't call git), so this cuts per-run checkout egress and
+          # wall-clock. Also a defense-in-depth guard: a deep clone can never
+          # pull an LFS object that a later commit accidentally re-tracks.
+          fetch-depth: 1
+      # Hard guard: fail the run if any tracked file is a Git-LFS pointer. The
+      # repo's 10GB LFS bandwidth quota was historically exhausted by re-serving
+      # a tracked asset on every CI job; if a future commit re-adds an LFS
+      # filter, this catches it on the very next push instead of silently
+      # re-draining the quota.
+      - name: Guard — no Git-LFS tracked files
+        shell: bash
+        run: |
+          if command -v git-lfs >/dev/null 2>&1; then
+            tracked=$(git lfs ls-files 2>/dev/null | wc -l)
+          else
+            tracked=0
+          fi
+          if [ "${tracked:-0}" != "0" ]; then
+            echo "FAIL: $tracked Git-LFS-tracked file(s) detected — this re-serves LFS bandwidth on every CI run."
+            echo "Untrack the asset (git rm --cached + drop the .gitattributes filter) or move it to actions/cache."
+            exit 1
+          fi
+          echo "OK: no Git-LFS tracked files."
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -69,6 +93,8 @@ jobs:
       # Upload as a cross-OS artifact: actions/cache is OS-scoped, so the
       # windows-latest av-soak job cannot restore an ubuntu-built cache. The npz
       # is a plain numpy file (OS-independent), so an artifact bridges the gap.
+      # Uploaded every run so the artifact is always fresh for av-soak (artifact
+      # storage is NOT Git-LFS bandwidth, so this does not touch the quota).
       - name: Upload GloVe cache artifact
         uses: actions/upload-artifact@v4
         with:
@@ -89,6 +115,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           lfs: false
+          # Shallow clone: CI never needs full git history (the warm/build
+          # scripts don't call git), so this cuts per-run checkout egress and
+          # wall-clock. Also a defense-in-depth guard: a deep clone can never
+          # pull an LFS object that a later commit accidentally re-tracks.
+          fetch-depth: 1
       - name: Restore GloVe cache
         uses: actions/cache@v4
         with:
@@ -125,6 +156,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           lfs: false
+          # Shallow clone: CI never needs full git history (the warm/build
+          # scripts don't call git), so this cuts per-run checkout egress and
+          # wall-clock. Also a defense-in-depth guard: a deep clone can never
+          # pull an LFS object that a later commit accidentally re-tracks.
+          fetch-depth: 1
       - name: Restore GloVe cache
         uses: actions/cache@v4
         with:
@@ -158,6 +194,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           lfs: false
+          # Shallow clone: CI never needs full git history (the warm/build
+          # scripts don't call git), so this cuts per-run checkout egress and
+          # wall-clock. Also a defense-in-depth guard: a deep clone can never
+          # pull an LFS object that a later commit accidentally re-tracks.
+          fetch-depth: 1
       - name: Restore GloVe cache
         uses: actions/cache@v4
         with:
@@ -189,6 +230,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           lfs: false
+          # Shallow clone: CI never needs full git history (the warm/build
+          # scripts don't call git), so this cuts per-run checkout egress and
+          # wall-clock. Also a defense-in-depth guard: a deep clone can never
+          # pull an LFS object that a later commit accidentally re-tracks.
+          fetch-depth: 1
       - name: Restore GloVe cache
         uses: actions/cache@v4
         with:
@@ -225,6 +271,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           lfs: false
+          # Shallow clone: CI never needs full git history (the warm/build
+          # scripts don't call git), so this cuts per-run checkout egress and
+          # wall-clock. Also a defense-in-depth guard: a deep clone can never
+          # pull an LFS object that a later commit accidentally re-tracks.
+          fetch-depth: 1
       - name: Restore GloVe cache (cross-OS artifact from warm-glove-cache)
         uses: actions/download-artifact@v4
         with:
