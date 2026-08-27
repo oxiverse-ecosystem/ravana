@@ -69,30 +69,13 @@ on this codebase:
   `docs/DATE_GROUNDED_RECALL_YEAR_ANCHOR.md`.
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
-- **Surfaces a named thing's whereabouts from a stored location fact.** Told
-  *"the slow coal is moored at bingley"* it stores `('slow coal','location','bingley')`,
-  and later answers *"where's the slow coal moored?"* with
-  *"the slow coal is at bingley."* — even after a correction (*"actually the slow
-  coal is moored at saltaire now"* → *"the slow coal is at saltaire."*). Unknown
-  places (e.g. *"where is paris?"*) return honest uncertainty, never a fabricated
-  location. See `docs/ENTITY_LOCATION_RECALL.md`.
-- **Re-attaches pets you re-disclose the reverse way round, and re-attributes
-  them to a new owner.** If you first say *"my cat is called pip"* then correct
-  *"actually pip is my sister's cat"*, RAVANA moves pip off your record onto the
-  sister (self/other boundary) so a later *"what is my cat's name?"* never claims
-  pip is yours — it attributes pip to the sister. Likewise *"the owl is mine and
-  she's called briar"* files the corrected name on the owl slot, so recall returns
-  `briar`, not the stale `wren`. No LLM, no retrain; the boundary is enforced at
-  every recall source. See `docs/POSSESSION_REATTRIBUTION.md`.
-- **Answers about a pet by the name you actually use.** Told *"my dog's a
-  retriever called wren"*, it can later answer *"who is wren to me?"* with
-  *"your dog is wren."* — the inverse of species-keyed recall, reverse-indexing
-  the pet store by the **name** (the stored value) and surfacing the relationship
-  (the species). It honors a renamed pet (a superseded name is never reported as
-  yours), keeps a third party's pet out of scope for *"to me"* (self/other
-  boundary), and works for runtime-learned species (*"i have an axolotl named
-  nyx"* → *"your axolotl is nyx."*). No LLM, no retrain, no authored reply pool.
-  See `docs/PET_NAME_RECALL.md`.
+- **Mines activity durations into dated facts.** Told *"i've been brewing beer
+  for a decade"* (or *"a few years"*, *"two decades"*, *"several years"*, *"many
+  years"*) it resolves the fuzzy span to a start year (`now − n`) and stores a
+  `since` fact — then answers date queries through the **same** resolver as
+  explicit years: `when did i start brewing beer` → `you started brew in 2016.`
+  No per-phrase code; the resolver already knows how to read a `since` fact.
+  See `docs/CAPABILITY_DURATION_MINING.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
