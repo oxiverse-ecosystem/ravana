@@ -1110,6 +1110,29 @@ class UserModel:
     _last_response_strategy_for_correction: str = ""
     _previous_user_query: str = ""
 
+    # ── Stance-ghost topic set (seed structural guard, not a deny-list) ──
+    # Single-word stance topics that can NEVER own a real attitude: indefinite
+    # pronouns/quantifiers ("anything", "nobody", ...) and grammatical gerunds
+    # ("standing", "being", ...) that the pattern-matcher emits as a head but
+    # which are not attitude objects. Tiny UNIVERSAL seed set — generalizes to
+    # any user-named topic and RAVANA cannot learn attitude objects from these
+    # ghosts. Restored verbatim from 097a42e (round 2026-08-13T0634Z #17) which
+    # the orphaned-merge reconcile at 87d6cb5 clobbered.
+    _STANCE_GHOST_TOPICS = {
+        # indefinite pronouns / quantifiers
+        "anything", "something", "everything", "nothing", "whatever",
+        "whoever", "whichever", "anyone", "everyone", "someone", "noone",
+        "nobody", "everybody", "somebody", "anybody",
+        # grammatical gerunds that pattern-matchers emit as a head but can
+        # never be an attitude object
+        "standing", "being", "doing", "having", "going", "coming", "feeling",
+        "thinking", "knowing", "wanting", "making", "taking", "getting",
+        "being", "saying", "talking", "looking", "feeling", "seeming",
+        "open", "single", "moment", "sense", "breath", "note", "held",
+        "restless", "quietest", "quiet", "outside", "inside", "away",
+        "around", "through", "across", "behind", "before", "after",
+    }
+
     def observe_chain(self, hops: List[Tuple[str, str]], is_user_query: bool = False):
         for from_label, to_label in hops:
             key = (from_label.lower(), to_label.lower())
