@@ -852,6 +852,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # (superseding the user's record) — never during ordinary disclosure.
         self.user_model._episodic_index = self._episodic_index
         self.user_model._episodic_transcript = self._episodic_transcript
+        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
+        # vocabulary to the user-model so stance mining can REJECT single-word
+        # topics that are not real concepts (comparative/handle artifacts like
+        # "anything"/"standing" that pollute the stance store). The vocabulary
+        # is the engine's OWN learned concept set, not a per-topic deny-list.
+        self.user_model._concept_vocab = self._concept_keywords
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -2550,9 +2556,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"(in\s+total|all\s+told|altogether|total|a\s+total|in\s+all)?\b",
             q)
         if _COUNT is not None:
-            # Restrict to first-person possession questions
-            _first_person_cue = bool(re.search(r"\b(do\s+i|did\s+i|my)\b", q))
-            _qm = getattr(um, "quantity_memory", None) if _first_person_cue else None
+            _qm = getattr(um, "quantity_memory", None)
             _agg_noun = (_COUNT.group(1) or "").strip()
             # Aggregate detection is INDEPENDENT of verb position: "in total"
             # may follow the subject verb ("do i have in total") or sit right
@@ -2837,6 +2841,55 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     break
             if _best is not None:
                 return f"you told me: {_best}"
+        # ── (2c) Reverse pet lookup by NAME ─────────────────────────────
+        # Limitation T40 (round 2026-08-12T0613Z): a possession disclosed as
+        # a NAME ("my dog's a retriever called wren", "my cat is ember") was
+        # only recallable via the SPECIES noun ("what is my dog's name").
+        # A query that names the pet by its NAME ("who is wren to me?",
+        # "what relation is ember to me") had no retrieval path: it fell
+        # through to the generic self-blurb. Real cognition resolves a
+        # name -> the entity it belongs to, then answers about that entity.
+        # This branch reverse-indexes the pet store by VALUE (the name) and
+        # answers the RELATIONSHIP ("your dog is wren"), so the user can ask
+        # about a companion by the name they actually use. It is the inverse
+        # of the existing species-keyed recall (1c / engine_memory entity
+        # scan) and shares pet_slots for the species resolution, so the two
+        # directions agree on the keys by construction. No per-animal answer
+        # table, no authored reply — every answer slot is read live from the
+        # PersonalFactStore, which the user can correct at runtime (a renamed
+        # pet supersedes the old slot and this lookup tracks the active one).
+        _NAMEQ = re.search(
+            r"\b(?:who|what)\s+(?:is|was|are|were)\s+([a-z][a-z'\-]{1,20})\s*"
+            r"(?:to|with|for)\s+(?:me|you|us|myself)\b", q)
+        if _NAMEQ and pf is not None:
+            _qnm = _NAMEQ.group(1).strip().lower().strip(".,!?")
+            if len(_qnm) >= 2:
+                try:
+                    from . import pet_slots as _psl
+                    _matched = None
+                    for _k, _f in pf.facts.items():
+                        if not (isinstance(_k, tuple) and len(_k) == 3):
+                            continue
+                        if getattr(_f, "superseded", False):
+                            continue
+                        # pets are stored under subject "i" (the user's own
+                        # companion) keyed by a pet_slots attribute; the VALUE
+                        # is the pet's name. A third-party pet (subject != "i")
+                        # is out of scope for "to me" — resolved at the source
+                        # so the self/other boundary holds (a sister's cat is
+                        # not "to me").
+                        if _k[0] != "i":
+                            continue
+                        if not _psl.is_pet_attribute(_k[1]):
+                            continue
+                        if getattr(_f, "value", "").strip().lower().strip(".,!?") == _qnm:
+                            _matched = (_k[1], getattr(_f, "value", _f))
+                            break
+                    if _matched is not None:
+                        _sp = _psl.base_species(_matched[0])
+                        return f"your {_sp} is {_matched[1]}."
+                except Exception:
+                    pass
         return None
 
     def _recall_user_fact(self, attr_hint, q):
@@ -3243,14 +3296,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         have these empty anyway.
         """
         try:
-            self._episodic_index = {}
+            self._episodic_index.clear()
+            self.user_model._episodic_index = self._episodic_index
         except Exception:
             pass
         try:
-            self._episodic_transcript = []
-            # Synchronize user_model reference after rebind
-            if hasattr(self, "user_model"):
-                self.user_model._episodic_transcript = self._episodic_transcript
+            self._episodic_transcript.clear()
+            self.user_model._episodic_transcript = self._episodic_transcript
         except Exception:
             pass
         try:
@@ -4415,9 +4467,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # and emit a grounded correction ack. The disclosure empathy path
             # returns after this, so it never double-handles. Content from the
             # live store; no authored prose.
-            _correction_ack = self._handle_correction_persist()
-            if _correction_ack:
-                return _correction_ack
+            try:
+                _cf = getattr(self.user_model, "detected_correction_fact", None)
+                if (getattr(self.user_model, "detected_correction", False)
+                        and _cf):
+                    _cf_subj, _cf_attr, _cf_val = _cf
+                    self.user_model.personal_facts.contradict(
+                        "i", _cf_attr, _cf_val)
+                    _cf_phrase = {
+                        "name": f"your {_cf_attr} is {_cf_val}",
+                        "is": f"you are {_cf_val}",
+                        "does": f"you do {_cf_val}",
+                        "likes": f"you like {_cf_val}",
+                        "location": f"you live in {_cf_val}",
+                        "favorite": f"your favorite {_cf_val}",
+                    }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+                    _ack = (f"thanks for correcting me — i'll remember "
+                            f"{_cf_phrase}.")
+                    self._last_strategy = "correction_persist"
+                    self._last_responses.append(_ack)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.user_model.reset_correction_flags()
+                    self.notify_user_idle()
+                    return _ack
+            except Exception:
+                pass
             if _disc is not None:
                 _low_d = (user_input or "").lower().strip()
                 _low_d = (_low_d.replace("i'm", "i am")
@@ -4766,9 +4841,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction ack. The disclosure path returns before this point, so
         # this never double-handles. Content from the live store; no
         # authored prose, no retrain.
-        _correction_ack = self._handle_correction_persist()
-        if _correction_ack:
-            return _correction_ack
+        try:
+            _cf = getattr(self.user_model, "detected_correction_fact", None)
+            if getattr(self.user_model, "detected_correction", False) and _cf:
+                _cf_subj, _cf_attr, _cf_val = _cf
+                self.user_model.personal_facts.contradict(
+                    "i", _cf_attr, _cf_val)
+                _cf_phrase = {
+                    "name": f"your {_cf_attr} is {_cf_val}",
+                    "is": f"you are {_cf_val}",
+                    "does": f"you do {_cf_val}",
+                    "likes": f"you like {_cf_val}",
+                    "location": f"you live in {_cf_val}",
+                    "favorite": f"your favorite {_cf_val}",
+                }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
+                _ack = (f"thanks for correcting me — i'll remember "
+                        f"{_cf_phrase}.")
+                self._last_strategy = "correction_persist"
+                self._last_responses.append(_ack)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.user_model.reset_correction_flags()
+                self.notify_user_idle()
+                return _ack
+        except Exception:
+            pass
 
         self.user_model.reset_correction_flags()  # Reset LPFC pause flag each turn
         # Decay recency boost: clear after 10 turns (synaptic tag window)
@@ -5263,13 +5360,51 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _mem = self._try_hippocampal_retrieval(
                     type("Ctx", (), {"subject": subject})(), user_input)
                 if _mem:
-                    _resp = self._phrase_recalled_fact(user_input, subject, _mem)
-                    self._last_strategy = "hippocampal_recall"
-                    self._last_responses.append(_resp)
-                    if len(self._last_responses) > 10:
-                        self._last_responses = self._last_responses[-10:]
-                    self.notify_user_idle()
-                    return _resp
+                    # RELEVANCE FLOOR (round 2026-08-12T0613Z). The hybrid
+                    # ranking inside _try_hippocampal_retrieval has NO overlap
+                    # floor on its primary sort key, so it can return its
+                    # top-ranked trace even when that trace shares essentially
+                    # no content with the question. Echoing an unrelated prior
+                    # utterance as "you told me earlier: <unrelated turn>" is a
+                    # source-monitoring / honest-memory error (measured this
+                    # round: "come on, the ocean over the lamp any night,
+                    # right?" surfaced the relief-boat grief memory; "when i
+                    # contradict myself, do you pick a side" surfaced the beam
+                    # self-description; "if i never came back" surfaced the
+                    # boat-crash memory). The lexical recall path already
+                    # enforces the same >=2-token floor at
+                    # engine_reasoning.py:1529; this applies it at the ECHO
+                    # boundary so EVERY return path from the retriever is
+                    # covered. Structural: raw content-token overlap (len>=3),
+                    # no per-question list, no threshold tuning. A SINGLE shared
+                    # setting word (e.g. "lamp" appearing in both the question
+                    # and an unrelated boat-grief memory) must NOT trip the
+                    # floor, so we additionally require the question's RESOLVED
+                    # SUBJECT entity to appear in the memory, OR a higher (>=3)
+                    # content overlap. Below the floor we FAIL OPEN and let the
+                    # pipeline continue honestly rather than confabulate a
+                    # wrong memory. Dedicated own-words recall ("what did you
+                    # tell me about X") keeps >=2 overlap with its target fact
+                    # and still passes.
+                    _q_tok = {t for t in re.findall(r"[A-Za-z']+",
+                                  (user_input or "").lower()) if len(t) >= 3}
+                    _m_tok = {t for t in re.findall(r"[A-Za-z']+",
+                                  (_mem or "").lower()) if len(t) >= 3}
+                    _overlap = len(_q_tok & _m_tok)
+                    _subj = (subject or "").lower().strip()
+                    _subj_base = _subj.split("'")[0].split()[0] if _subj else ""
+                    _subj_present = bool(_subj_base) and _subj_base in _m_tok
+                    if (_overlap >= 2 and (_subj_present or _overlap >= 3)):
+                        _resp = self._phrase_recalled_fact(
+                            user_input, subject, _mem)
+                        self._last_strategy = "hippocampal_recall"
+                        self._last_responses.append(_resp)
+                        if len(self._last_responses) > 10:
+                            self._last_responses = self._last_responses[-10:]
+                        self.notify_user_idle()
+                        return _resp
+                    # else: fall through honestly — do NOT echo an unrelated
+                    # memory.
         except Exception:
             pass
 
@@ -6416,6 +6551,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     # without depending on a particular engine instance layout, and they import
     # the Stance type lazily to avoid a top-of-module import cycle.
 
+    @staticmethod
     def _serialize_agent_stances(engine: "CognitiveChatEngine") -> Dict[str, Any]:
         """Persist the agent's derived stance store to a plain serializable map.
 
@@ -6437,6 +6573,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 continue
         return _out
 
+    @staticmethod
     def _agent_stance_from_tuple(key: str, val: Any):
         """Rehydrate one persisted agent stance into a Stance, or None if junk.
 
@@ -6679,7 +6816,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # stance it derived from the conversation, instead of recomputing
                 # a hollow transient answer each boot. topic -> (topic, polarity,
                 # confidence, valence, arousal, turn_number, rehearsal_count).
-                'agent_stances': self._serialize_agent_stances(),
+                'agent_stances': self._serialize_agent_stances(self),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -6986,7 +7123,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if not (isinstance(_k, str) and _k.strip()
                                 and _k.strip().lower() not in _JUNK):
                             continue
-                        _st = _agent_stance_from_tuple(_k, _v)
+                        _st = self._agent_stance_from_tuple(_k, _v)
                         if _st is not None:
                             _restored[_k.strip().lower()] = _st
                 self._agent_stances = _restored

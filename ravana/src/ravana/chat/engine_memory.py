@@ -228,7 +228,7 @@ class MemoryMixin:
         }
         self._episodic_transcript.append(rec)
         if len(self._episodic_transcript) > 100:
-            # Mutate in place to keep user_model reference synchronized
+            # Keep last 100 entries in place to preserve shared object identity
             del self._episodic_transcript[:-100]
         # Mirror into the temporal indexer (hippocampal time cells).
         try:
@@ -496,9 +496,6 @@ class MemoryMixin:
         _specific_entity = None
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
-            if _tok in _entity_idx and _tok in ("i", "you", "my", "your"):
-                _ent_hit = _tok
-                break
             # species map (e.g. "cats" -> "cat" entity) — a specific owned
             # thing the user named; resolve it from the full store below.
             _sp = _pet_slots.species_of(_tok)
@@ -673,7 +670,42 @@ class MemoryMixin:
                     _best_cue_score = _hit
                     _best_cue = rec
             if _best_cue is not None:
-                return self._reconstruct_gist(_best_cue)
+                # ROUND 2026-08-12T0613Z RELEVANCE FLOOR (source-monitoring
+                # fix). The stem-match above can score an episode purely on
+                # generic deictic/temporal filler that any prior turn shares
+                # ("came"/"back" in "if i never came back" matched "the relief
+                # boat went down ... i still hear ... in my sleep" via "back"),
+                # surfacing an UNRELATED memory as "you mentioned: <wrong turn>"
+                # (measured this round: T69 "if i never came back, what would
+                # you do with what i told you" echoed the boat-crash episode).
+                # Require the matched episode to contain at least one query
+                # cue token that is NOT a universal generic deictic/temporal
+                # filler (came/back/went/gone/thing/nothing/never/away...). This
+                # is a tiny universal seed set, NOT a per-topic deny-list — a
+                # genuine cued recall ("what did i tell you about the radio")
+                # carries a real content cue (radio) that still matches.
+                _GENERIC_CUE = {
+                    "came", "come", "back", "went", "gone", "go", "going",
+                    "thing", "things", "nothing", "never", "away", "still",
+                    "something", "everything", "anything", "everyone", "someone",
+                    "told", "tell", "said", "say", "mention", "mentioned",
+                    "ask", "asked", "what", "did", "do", "you", "your", "i",
+                    "my", "we", "our", "me", "about", "before", "earlier",
+                }
+                _match_text = (_best_cue.get("text", "") or "").lower()
+                _real_cue = [
+                    c for c in _cue_tokens
+                    if c not in _GENERIC_CUE
+                    and re.search(r"(?<![a-z])" + re.escape(c) + r"(?![a-z])",
+                                  _match_text)
+                ]
+                if not _real_cue:
+                    # only generic-filler overlapped -> do NOT echo an
+                    # unrelated episode; fall through to the semantic pass /
+                    # fail-closed below.
+                    _best_cue = None
+                else:
+                    return self._reconstruct_gist(_best_cue)
         # (a) fact-slot cue match — highest precision.
         for rec in store:
             facts = rec.get("facts", {})
@@ -751,7 +783,33 @@ class MemoryMixin:
         # memory that wasn't there.
         if best is not None and self._adaptive_gate("recall_gist", best_score):
             _best_text = (best.get("text", "") or "").lower()
-            _verbatim = any(c in _best_text for c in qwords)
+            # ROUND 2026-08-12T0613Z: require a WORD-BOUNDARY match, not a
+            # naive substring. A substring check ("own" in "down", "art" in
+            # "start") produced false-positive verbatim hits that let an
+            # unrelated episode pass the recall gate (measured this round: the
+            # query "my own callsign-ish — what did i tell you about the radio"
+            # matched the boat-crash memory because "own" is a substring of
+            # "down" in "...went down off the point..."). Word-boundary match
+            # is structural (regex), not a per-topic list. AND exclude the same
+            # universal generic deictic/temporal filler set (_GENERIC_CUE) used
+            # by the stem-match path above: a generic word like "back"/"came"
+            # that appears in BOTH the query and an unrelated episode must not
+            # anchor a recall (measured this round: "if i never came back..."
+            # matched the boat memory via "back"). A genuine cued recall
+            # ("about the radio") carries a real content cue that still
+            # matches.
+            _GENERIC_CUE = {
+                "came", "come", "back", "went", "gone", "go", "going",
+                "thing", "things", "nothing", "never", "away", "still",
+                "something", "everything", "anything", "everyone", "someone",
+                "told", "tell", "said", "say", "mention", "mentioned",
+                "ask", "asked", "what", "did", "do", "you", "your", "i",
+                "my", "we", "our", "me", "about", "before", "earlier",
+            }
+            _verbatim = any(
+                re.search(r"(?<![a-z])" + re.escape(c) + r"(?![a-z])", _best_text)
+                and c not in _GENERIC_CUE
+                for c in qwords)
             if _verbatim:
                 return self._reconstruct_gist(best)
         return None
@@ -1518,9 +1576,8 @@ class MemoryMixin:
         ) or bool(re.search(
             r"\byou (?:said|mentioned|told me) something about what you "
             r"(?:are|were)\b", t)
-        ) or (bool(re.search(
+        ) or bool(re.search(
             r"\bremind me what you (?:said|told me) (?:about|you are)\b", t))
-              and not _user_ref)
         if _agent_self_recall:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:

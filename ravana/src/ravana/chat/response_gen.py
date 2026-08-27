@@ -4867,7 +4867,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # (mixed affect), acknowledge BOTH honestly instead of collapsing to
             # one positive gloss.
             _pos_word = affect_term or val_word
-            _signed = getattr(self, "_preserved_signed", None) or {}
+            _signed = getattr(self, "_tmp_signed", None) or {}
             _neg_word = _signed.get("neg")
             if _neg_word and _neg_word[1] not in (None, _pos_word):
                 # genuine mixed valence: name both poles, grounded in the user's
