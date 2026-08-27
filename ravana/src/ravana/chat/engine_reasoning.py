@@ -2131,7 +2131,7 @@ class ReasoningMixin:
         # activity report. Open-class, not a per-verb whitelist — RAVANA learns
         # the verb from experience, it never hardcodes the verb set.
         _gen_act = re.compile(
-            r"\bi\s+([a-z']+(?:-[a-z']+)*)(?:\s+[a-z'\-]+)+", re.IGNORECASE)
+            r"\bi\s+([a-z']+(?:-[a-z']+)*)(?:\s+[a-z'\\-]+)+", re.IGNORECASE)
         _m = _gen_act.search(q)
         _is_activity = bool(_m) and _m.group(1).lower() not in _STATIVE_VERBS
         if not (_self_pat.search(q) or _is_activity):

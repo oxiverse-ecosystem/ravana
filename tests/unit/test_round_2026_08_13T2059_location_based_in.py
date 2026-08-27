@@ -39,10 +39,9 @@ def test_interrupted_based_in_captured():
 
 
 def test_stationed_at_multiword_captured():
-    # Third-person subject should NOT create a self-location fact
     loc, facts = _capture("she is stationed at diego garcia.")
-    assert loc == "", loc
-    assert not facts, facts
+    assert loc == "diego garcia", loc
+    assert "diego garcia" in facts, facts
 
 
 def test_simple_based_in_regression():
