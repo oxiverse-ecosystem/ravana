@@ -3319,6 +3319,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # regression where it shadowed a correct name recall.
                 try:
                     from .pet_slots import species_of as _ps_of2
+                    _q_toks2 = set(re.findall(r"[a-z']+", q.lower()))
+                    # Round 2026-08-22T0703Z regression fix: only fire the pet
+                    # ACTIVITY answer for a genuine pet-recall question that
+                    # NAMES a pet and asks about its activity. Never intercept
+                    # distress/empathy queries ("my dog died") or non-pet
+                    # queries — those must route to their own handlers, not
+                    # echo a pet fact. A broadened activity-cue lexicon (incl.
+                    # hide/hides, dig/digs, bury/buries, carry/carries, guard)
+                    # so "which pet hides ..." is recognised as an activity ask.
+                    _pet_mentioned = any(_ps_of2(t) for t in _q_toks2)
+                    _distress = bool(_q_toks2 & {
+                        "died", "dead", "dies", "dying", "lost", "loss",
+                        "sick", "ill", "hurt", "passed", "gone", "miss",
+                        "missing", "grief", "bereave", "sad", "scared",
+                        "afraid", "hurt", "crying", "cry",
+                    })
                     _ACT_CUES = {
                         "do", "does", "did", "doing", "what", "how", "act",
                         "activity", "activities", "behavior", "behaviour",
@@ -3326,10 +3342,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         "like", "love", "loves", "enjoys", "enjoy", "plays",
                         "play", "eats", "eat", "chase", "chases", "steal",
                         "steals", "sleep", "sleeps", "bark", "barks",
+                        "hide", "hides", "hidden", "dig", "digs", "bury",
+                        "buries", "carry", "carries", "guard", "guards",
+                        "climb", "climbs", "swim", "swims", "run", "runs",
+                        "fetch", "catches", "catch", "pounce", "pounces",
                     }
-                    _q_toks2 = set(re.findall(r"[a-z']+", q.lower()))
                     _ask_activity = bool(_q_toks2 & _ACT_CUES)
-                    if _ask_activity:
+                    _is_q2 = bool(re.search(r"\?$", q.strip()) or re.match(
+                        r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                        r"do|does|did|has|have|had|can|could|would|will|tell|"
+                        r"said|say|recall|remember|know|mention)\b", q.strip()))
+                    _pet_in_q = (_pet_mentioned or any(t.startswith("pet") for t in _q_toks2))
+                    if _is_q2 and _ask_activity and _pet_in_q and not _distress:
                         _pet_acts = {}
                         for _pk, _pf in pf.facts.items():
                             if not (isinstance(_pk, tuple) and len(_pk) == 3):
@@ -3389,21 +3413,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fabricate). Reuses the shared pet lexicon (pet_slots.species_of) and
         # the data-driven _activity_query_overlap scorer so matching is by
         # topical overlap, not a frozen verb allowlist.
-        # GATE on a genuine INTERROGATIVE frame (round 2026-08-22T0703Z CI
-        # fix): this resolver is a RECALL path, but nothing below previously
-        # checked whether the input was a QUESTION at all. A declarative pet
-        # disclosure ("my cat is pixel") named the species and the name, so
-        # the scorer below matched it and echoed the statement back as if it
-        # had been asked ("your cat is pixel.") instead of leaving it to
-        # fact-mining. Same structural fix as branch (b) above: require a
-        # trailing "?" or a sentence-initial interrogative/recall word.
-        _pet_is_q = bool(
-            re.search(r"\?$", q.strip())
-            or re.match(
-                r"^(what|who|which|where|when|why|how|is|are|was|were|"
-                r"do|does|did|has|have|had|can|could|would|will|tell|"
-                r"said|say|recall|remember|know|mention)\b", q.strip()))
-        if pf is not None and _pet_is_q:
+        if pf is not None:
             try:
                 from .pet_slots import species_of as _ps_of
             except Exception:
@@ -3468,15 +3478,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _best = (_sp, _nm, _act)
             if _best is not None and _best_score > 0.0:
                 _sp, _nm, _act = _best
-                # GUARD (round 2026-08-22T0703Z CI fix): a NAME/identity query
-                # ("who is Pip to me?" / "what's my raccoon's name") must return the
-                # NAME ("your raccoon is pip."), NOT the stored activity. An
-                # activity query ("what does Pip do?" / "what does my raccoon do")
-                # returns name + activity. The pet-activity companion exists to make
-                # pet recall symmetric with kin recall for ACTIVITY questions; it
-                # must not shadow a correct name recall. Activity intent is detected
-                # via the shared activity-cue lexicon; absent it, the name is the
-                # correct answer.
+                # Genuine pet-recall guard (round 2026-08-22T0703Z, hardened):
+                # only answer when the query is actually ASKING about THIS pet.
+                #   - distress/empathy ("my dog died", "i am sad") must fall
+                #     through to the empathy handler, never echo a pet fact;
+                #   - declarative disclosures ("my dog is a sheepdog named cairn",
+                #     "my cat is pixel") are STORAGE events, not recall queries,
+                #     and must not be hijacked into a pet echo;
+                #   - a pet "name" match must be on a real name/species token,
+                #     not a stopword collision: a disclosure like "a sheepdog
+                #     named cairn" stored the article "a" as the name's first
+                #     word, which previously matched the article in unrelated
+                #     queries ("my child is a curious kid named Sam") and echoed
+                #     a stale pet fact.
+                _q_toks_g = re.findall(r"[a-z']+", q.lower())
+                _q_set_g = set(_q_toks_g)
+                _distress_g = bool(_q_set_g & {
+                    "died", "dead", "dies", "dying", "lost", "loss",
+                    "sick", "ill", "hurt", "passed", "gone", "miss",
+                    "missing", "grief", "bereave", "sad", "scared",
+                    "afraid", "crying", "cry",
+                })
                 _ACT_CUES = {
                     "do", "does", "did", "doing", "what", "how", "act",
                     "activity", "activities", "behavior", "behaviour",
@@ -3484,23 +3506,45 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "like", "love", "loves", "enjoys", "enjoy", "plays",
                     "play", "eats", "eat", "chase", "chases", "steal",
                     "steals", "sleep", "sleeps", "bark", "barks",
+                    "hide", "hides", "hidden", "dig", "digs", "bury",
+                    "buries", "carry", "carries", "guard", "guards",
+                    "climb", "climbs", "swim", "swims", "run", "runs",
+                    "fetch", "catches", "catch", "pounce", "pounces",
                 }
-                # (round 2026-08-22T0703Z CI fix) a query can also ask about
-                # the activity by naming its CONTENT directly ("which of my
-                # pets hides things in the couch?") without any generic cue
-                # word from the fixed list above. Reuse the SAME topical
-                # overlap already computed for scoring: if the winning pet's
-                # stored activity shares a content word with the query, the
-                # query is asking about that activity. Data-driven, not a
-                # bigger allowlist.
-                _act_words = (set(re.findall(r"[a-z']+", _act.lower())) - _STOP
-                              if _act else set())
-                _ask_activity = bool(_q_set & _ACT_CUES) or bool(_act_words & _q_set)
-                if _ask_activity and _act:
-                    return f"your {_sp} {_nm} {_act}."
-                # NAME answer (the pet's identity) — correct for identity queries
-                # and the honest fallback when no activity is asked for.
-                return f"your {_sp} is {_nm}."
+                _ask_activity = bool(_q_set_g & _ACT_CUES)
+                _is_question_g = bool(re.search(r"\?$", q.strip()) or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention)\b", q.strip()))
+                if _distress_g:
+                    pass  # bereavement / other-suffering -> empathy handler
+                elif not (_ask_activity or _is_question_g):
+                    pass  # declarative disclosure -> storage, not a recall query
+                else:
+                    # Activity answer: when the query asks about the pet's ACTIVITY
+                    # and a stored activity exists for the best-scoring pet, answer
+                    # with it. The scorer already confirmed topical overlap (the
+                    # activity object appears in the query), so pronoun/deictic
+                    # references ("he", "my keys") resolve here WITHOUT requiring
+                    # the pet's name/species token literally. This is what makes
+                    # "what does he do with my keys?" -> "your ferret pip hides car
+                    # keys." while still excluding disclosures/distress.
+                    if _ask_activity and _act:
+                        return f"your {_sp} {_nm} {_act}."
+                    # NAME answer (the pet's identity) — only when the query
+                    # genuinely references THIS pet by species / real name token /
+                    # generic "pet" (stopwords stripped, so a leading article
+                    # accidentally stored as the name can't collide).
+                    _nm_tokens = set(re.findall(r"[a-z']+", _nm.lower())) - _STOP
+                    _references_pet = (
+                        (_sp in _q_set_g)
+                        or bool(_nm_tokens & _q_set_g)
+                        or any(t.startswith("pet") for t in _q_set_g)
+                    )
+                    if _references_pet:
+                        return f"your {_sp} is {_nm}."
+                # otherwise fall through (no pet answer) — let empathy /
+                # disclosure / generic recall handle the query.
         # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
         # feature t_1a4a3938, round 2026-08-17T1126Z) ───────────────────────
         # Queries that name a relationship (kin) or a specific person/entity and

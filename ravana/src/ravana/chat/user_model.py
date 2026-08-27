@@ -8936,6 +8936,393 @@ class UserModel:
             elif any(_poss.is_kind_noun(w) for w in _dtoks):
                 continue
 
+        # Round 2026-08-14T0608Z: TEMPORAL / DATE-GROUNDED fact mining.
+        # A first-person disclosure that anchors an activity to a POINT IN TIME
+        # ("i've been building frames since 2019", "i started keeping quail in
+        # 2021", "i picked up the cello when i was nine") must land in the
+        # personal-fact store so a later DATE-GROUNDED recall ("when did i start
+        # building frames", "since what year have i kept quail") can answer from
+        # the structured store instead of dumping an unrelated episodic turn.
+        # Prior rounds confirmed this was a genuine gap: the hippocampal buffer
+        # captured 0 dated facts, so date recall returned empty.
+        #
+        # DESIGN (per round hardcoding + seed-vs-hardcoding rules):
+        #  - The value is the resolved CONTENT HEAD of the activity phrase (via
+        #    _opinion_topic, which drops closed-class words), so the stored
+        #    value is a real concept ("building frames", "keeping quail"),
+        #    never a function word. Same mechanism as the 'does' miner.
+        #  - The year is a NORMALIZED integer captured from the disclosure, not
+        #    an authored answer. The current-year anchor (datetime.now().year)
+        #    is computed at mine time and is NOT a frozen literal — it is
+        #    derivable and self-updates each run. No retraining.
+        #  - The relative-duration forms ("for eleven years", "twenty years
+        #    now") are resolved to a START YEAR by subtraction from the anchor,
+        #    so "i've repaired tube amps for eleven years" -> since <year>.
+        #  - Stored under a NEW attribute "since" keyed by the activity content
+        #    head, so date recall is a precise reverse-lookup (query noun ->
+        #    stored activity), not a per-topic table. RAVANA can correct any
+        #    such fact; nothing is frozen.
+        #  - Seed structures only (a month-name map + a small relative-tense
+        #    map + a year-format regex). All RAVANA-expandable; removing an
+        #    entry degrades gracefully (one fewer date form captured).
+        import datetime as _dt
+        _THIS_YEAR = _dt.datetime.now().year
+        _MONTHS = {
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5,
+            "june": 6, "july": 7, "august": 8, "september": 9, "october": 10,
+            "november": 11, "december": 12,
+        }
+        _NUMWORDS_YEAR = {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+            "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+            "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+            "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+            "twenty": 20,
+        }
+
+        def _year_from_text(_yt: str):
+            """Extract a 4-digit year, a 2-digit 'YY, or a spelled year."""
+            _ym = re.search(r"\b(19|20)\d{2}\b", _yt)
+            if _ym:
+                return int(_ym.group(0))
+            _yn = re.search(r"\b(\d{2})\b", _yt)
+            if _yn:
+                _yy = int(_yn.group(1))
+                return 2000 + _yy if _yy < 70 else 1900 + _yy
+            for _w, _n in _NUMWORDS_YEAR.items():
+                if re.search(r"\b" + _w + r"\b", _yt):
+                    return None  # spelled cardinal alone is not a year
+            return None
+
+        # (a) explicit "since <YEAR>" / "in <YEAR>" / "back in <YEAR>" anchors.
+        #    Strategy: locate the YEAR token first, then scan the clause that
+        #    PRECEDES it (same sentence) for an activity verb. This is robust to
+        #    English contractions ("i've been", "i'm"), word order, and the
+        #    leading framer words the verb-frame deny set handles elsewhere.
+        #    Round 2026-08-15T0326Z GENERALIZE: the old code matched a FROZEN
+        #    verb allowlist (building|keep|repair|...). A rotated persona verb
+        #    outside that list ("i've kept the light since 2019" -> "kept" is
+        #    past-tense and was absent) was silently dropped, so the date fact
+        #    never landed and "what year did i start the light" failed. Fix:
+        #    extract the FIRST verb in the clause STRUCTURALLY (any \w+ that is
+        #    not closed-class), then accept it iff it is a legitimate activity
+        #    verb (_activity_verb_ok) — reusing the SAME discriminator the D3
+        #    'does' miner uses, so the captured fact stays recallable through
+        #    the identical 'since' resolver. No per-topic verb list to exhaust.
+        for _ym in re.finditer(
+                r"\b(?:since|in|back\s+in|during)\s+((?:19|20)\d{2}|\d{2})\b",
+                q_clean, re.IGNORECASE):
+            _yr = _year_from_text(_ym.group(1))
+            if _yr is None or _yr < 1900 or _yr > _THIS_YEAR:
+                continue
+            _clause = q_clean[:_ym.start()].rsplit(".", 1)[-1].rsplit(
+                "!", 1)[-1].rsplit("?", 1)[-1].rsplit(",", 1)[-1]
+            # Round 2026-08-15T0326Z GENERALIZE: take the FIRST legitimate
+            # activity verb in the clause, skipping aspectual/framer verbs
+            # ("i've BEEN building" -> build; "i STARTED keeping" -> keep). A
+            # verb precedes its object in English, so the FIRST activity-ok
+            # verb (after dropping aspectuals) is the activity head — not the
+            # auxiliary ("been"/"started") that led, and not a trailing noun
+            # ("tube amps") that happens to pass _activity_verb_ok. Structural
+            # (no frozen verb list); reuses _activity_verb_ok so rotated-persona
+            # verbs (kept/raced/...) still land. Restored the content-head
+            # behaviour the old miner had (regression vs
+            # test_round_2026_08_14T0608_temporal when the first raw word was
+            # taken).
+            _verbs = [v.lower() for v in re.findall(
+                r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)]
+            _verb = None
+            _vidx = -1
+            for _i, v in enumerate(_verbs):
+                if v in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(v):
+                    _verb = v
+                    _vidx = _i
+                    break
+            if _verb is None:
+                continue
+            _act = self._verb_stem(_verb)
+            if not _act:
+                continue
+            # Capture the activity OBJECT so two activities that share a verb
+            # head but differ by object ('building frames' vs 'building
+            # cabinets') store DISTINCT facts and a later DATE-GROUNDED query
+            # ('when did i start building frames') can pick the right one. The
+            # object is sliced STRUCTURALLY (closed-class / time-adjunct words
+            # close the span), so verb-only disclosures ('i've been restoring
+            # since 2018') store the bare 'restore 2018' shape unchanged.
+            _obj = _activity_object(_verbs, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since", f"{_act_full} {_yr}", 0.7)
+        # (b) relative duration "for <N> years" / "<N> years now" / "<N> years ago"
+        for _rm in re.finditer(
+                r"\b(?:for|about|over|nearly|almost)\s+"
+                r"((?:one|two|three|four|five|six|seven|eight|nine|ten|"
+                r"eleven|twelve|\d+)\s+years?)\b"
+                r"[^.!?]{0,20}?\b(?:now|ago|since|already|straight)?\b",
+                q_clean, re.IGNORECASE):
+            _span = _rm.group(1).lower()
+            _nm = re.search(r"\b(\d+)\b", _span)
+            if _nm:
+                _n = int(_nm.group(1))
+            else:
+                _nw = re.match(r"([a-z]+)", _span)
+                _n = _NUMWORDS_YEAR.get(_nw.group(1), 0) if _nw else 0
+            if _n <= 0 or _n > 200:
+                continue
+            _since = _THIS_YEAR - _n
+            # find the activity the duration attaches to: the nearest verb
+            # phrase before the duration marker (the activity is stated in the
+            # same clause, e.g. "i've repaired tube amps for eleven years").
+            # Round 2026-08-15T0326Z GENERALIZE: extract the activity verb
+            # STRUCTURALLY (any word that passes _activity_verb_ok), skipping
+            # aspectual/framer verbs, and take the FIRST such verb — a verb
+            # precedes its object, so the first activity-ok verb is the head
+            # ("i've REPAIRED tube amps" -> repair), not a trailing noun
+            # ("amps") that merely passes _activity_verb_ok. Replaces the
+            # frozen verb allowlist so rotated-persona activities land too.
+            _pre = q_clean[:_rm.start()]
+            _av = re.findall(
+                r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
+            _verb = None
+            _vidx = -1
+            for _i, _v in enumerate(_av):
+                _vl = _v.lower()
+                if _vl in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(_vl):
+                    _verb = _vl
+                    _vidx = _i
+                    break
+            if _verb is None:
+                continue
+            _act = self._verb_stem(_verb)
+            if not _act:
+                continue
+            # Capture the activity OBJECT (mirrors block (a)) so overlapping
+            # verb heads differ by object are stored as distinct dated facts
+            # and disambiguated at recall.
+            _obj = _activity_object(_av, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since", f"{_act_full} {_since}", 0.6)
+        # (c) "when i was <AGE>" / "since i was <AGE>" age-anchored start.
+        #     Age may be a digit ("when i was 9") or a spelled number up to
+        #     twenty ("when i was nine") — both are handled via the same
+        #     number-word map the year resolver uses. Stored as since_age so a
+        #     later "how long since you picked up the cello" can render
+        #     "since you were about <age>".
+        _AGE_WORDS = _NUMWORDS_YEAR  # 1..20 spelled map (reused, general)
+        for _am in re.finditer(
+                r"\b(?:when|since)\s+i(?:'ve|'m|'s|'d)?\s+was\s+(?:about\s+|"
+                r"around\s+)?(?:(\d{1,2})|([a-z]+))\b", q_clean, re.IGNORECASE):
+            _age = None
+            if _am.group(1):
+                _age = int(_am.group(1))
+            elif _am.group(2):
+                _age = _AGE_WORDS.get(_am.group(2).lower())
+            if _age is None or _age < 1 or _age > 120:
+                continue
+            # GENERALIZE (round 2026-08-20T0701Z): the age-anchored-start miner
+            # must only capture the USER'S OWN activity-start ("i picked up the
+            # cello when i was nine"), NOT a "when i was N" clause that merely
+            # dates an event done TO the user by someone else ("my grandmother
+            # taught me to fold paper cranes when i was four"). The old code
+            # scanned the whole clause for any activity verb and stored
+            # since_age="taught fold paper cranes 4" — a junk fact that later
+            # leaks into recall ("since_age is my grandmother yuki taught me 4").
+            # Fix: skip when the sentence describes a RELATIONSHIP/third-party
+            # activity — i.e. it contains a "my <kin/role>" possessive (the
+            # activity's actor is the relative, not the user). The relationship
+            # vocabulary is the shared relation_attrs.relation_of lexicon
+            # (RAVANA-expandable, single source of truth) — no per-name table,
+            # no retraining. A genuine first-person age-start ("i was nine when
+            # i started dancing") has no such possessive and is still mined.
+            try:
+                from .relation_attrs import relation_of as _ra_of_d3
+            except Exception:
+                _ra_of_d3 = lambda w: None
+            _has_relative_actor = False
+            for _wt in re.findall(r"\bmy\s+([a-z][a-z]+)\b", q_clean, re.IGNORECASE):
+                if _ra_of_d3(_wt.lower()) is not None:
+                    _has_relative_actor = True
+                    break
+            if _has_relative_actor:
+                continue
+            # The activity may appear EITHER before the age clause
+            # ("i picked up the cello when i was nine") OR after it
+            # ("since i was nine i've played cello"). Scan the whole sentence
+            # the age sits in, both sides of the age token.
+            # Round 2026-08-15T0326Z GENERALIZE: structural first-verb
+            # extraction validated by _activity_verb_ok, replacing the frozen
+            # verb allowlist so any activity verb (e.g. a rotated-persona
+            # verb) anchors the age fact.
+            _clause = q_clean[max(0, _am.start() - 60):_am.end() + 60]
+            # Round 2026-08-15T0326Z GENERALIZE: take the FIRST legitimate
+            # activity verb, skipping aspectual/framer verbs ("i", "was",
+            # "been", ...), and append a trailing particle ("up"/"on"/...) so
+            # a phrasal verb ("picked UP the cello") stores "pick up" — not
+            # just "pick". Structural; reuses _activity_verb_ok + _ASPECTUAL_VERBS
+            # + _PARTICLES so rotated-persona verbs land too (replaces the
+            # frozen verb allowlist that missed inflected/phrasal forms).
+            _toks = re.findall(r"\b([a-z][a-z']+)\b", _clause, re.IGNORECASE)
+            _verb = None
+            _vidx = -1
+            for _i, _tk in enumerate(_toks):
+                _tl = _tk.lower()
+                if _tl in _ASPECTUAL_VERBS:
+                    continue
+                if _activity_verb_ok(_tl):
+                    _verb = _tl
+                    _vidx = _i
+                    break
+            if _verb is None:
+                continue
+            # phrasal: include a following particle ("pick up", "took up")
+            if _vidx + 1 < len(_toks) and _toks[_vidx + 1].lower() in _PARTICLES:
+                _verb = f"{_verb} {_toks[_vidx + 1].lower()}"
+            _act = self._verb_stem(_verb)
+            if not _act:
+                continue
+            # Capture the activity OBJECT (mirrors blocks (a)/(b)) so a later
+            # age-anchored recall can disambiguate by object when two verb heads
+            # overlap.
+            _obj = _activity_object(_toks, _vidx)
+            _act_full = f"{_act} {_obj}".strip() if _obj else _act
+            _put_fact("since_age", f"{_act_full} {_age}", 0.6)
+        # (d) APPROXIMATE / HUMAN-PHRASED durations. Real speech rarely says
+        #     "for eleven years" — it says "for a decade" / "a few years now" /
+        #     "several years" / "two decades" / "many years". Block (b) only
+        #     captured DIGIT or spelled 1-12 durations, so these landed in NO
+        #     dated fact and date recall returned empty for them (a genuine
+        #     residual from the 2026-08-14T0608Z round). This block reuses the
+        #     EXACT same 'since' attribute + activity-attachment logic as (b);
+        #     the existing recall resolver (engine.py 1f) answers date queries
+        #     for them FOR FREE — no recall change — which proves this is a
+        #     generalizable capability, not a per-phrase hack. The fuzzy map is
+        #     SEED vocabulary (RAVANA-expandable: adding "a fortnight" -> 14
+        #     degrades gracefully if absent); the resolved year is derivable
+        #     (_THIS_YEAR - n) and self-updates. No retraining. The activity
+        #     verb vocabulary mirrors block (b) exactly so mined facts stay
+        #     recallable through the same resolver.
+        _FUZZY_DUR = {
+            "a decade": 10, "two decades": 20, "three decades": 30,
+            "a couple of years": 2, "a couple years": 2,
+            "a few years": 3, "few years": 3,
+            "several years": 4, "a handful of years": 5,
+            "many years": 15,
+        }
+        _used_spans = set()
+        for _phrase, _n in _FUZZY_DUR.items():
+            if _n <= 0 or _n > 200:
+                continue
+            for _dm in re.finditer(
+                    r"\b(?:for\s+|about\s+|over\s+|nearly\s+|almost\s+)?"
+                    + re.escape(_phrase) + r"\b", q_clean, re.IGNORECASE):
+                # skip spans overlapping an already-processed fuzzy match
+                # (e.g. "a few years" must not also fire the "few years" entry)
+                if _used_spans & set(range(_dm.start(), _dm.end())):
+                    continue
+                _used_spans |= set(range(_dm.start(), _dm.end()))
+                _since = _THIS_YEAR - _n
+                # attach to the nearest activity verb before the phrase (same
+                # clause, e.g. "i've been brewing beer for a decade"); reuse
+                # block (b)'s structural verb extraction so the fact is
+                # recallable and rotated-persona verbs land too.
+                _pre = q_clean[:_dm.start()]
+                _av = re.findall(
+                    r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
+                _verb = None
+                _vidx = -1
+                for _i, _v in enumerate(_av):
+                    _vl = _v.lower()
+                    if _vl in _ASPECTUAL_VERBS:
+                        continue
+                    if _activity_verb_ok(_vl):
+                        _verb = _vl
+                        _vidx = _i
+                        break
+                if _verb is None:
+                    continue
+                _act = self._verb_stem(_verb)
+                if not _act:
+                    continue
+                # Capture the activity OBJECT (mirrors blocks (a)/(b)/(c)) so
+                # fuzzy-duration facts also disambiguate by object at recall.
+                _obj = _activity_object(_av, _vidx)
+                _act_full = f"{_act} {_obj}".strip() if _obj else _act
+                _put_fact("since", f"{_act_full} {_since}", 0.6)
+
+        # Possession-attribute mining (Bug 4, round 2026-08-15T0830Z): a
+        # disclosure that names a possession and says what it is made of /
+        # what material it is ("the cabin is a hand-hewn pine lodge with a sod
+        # roof", "my sword is forged from meteorite iron", "our roof is slate")
+        # states a PROPERTY of an owned/described entity. The fact miner above
+        # only captured explicit "my X is Y" self-facts + pet names, so these
+        # material/attribute facts were never stored as a recallable, correctable
+        # fact — and "what's my cabin made of" could not be answered from the
+        # structured store (it fell through to a whole-sentence echo). Store them
+        # under the ENTITY (cabin / sword / roof), not the user's own "i"
+        # subject, exactly like pet_slots does for animals. From there the store
+        # LEARNS: a later "no, my cabin is oak-framed" contradicts via the
+        # existing contradict() path; confirm/contradict work unchanged.
+        #
+        # Seed vocabulary, not an answer table (mirrors pet_slots): a closed
+        # core of material + kind nouns plus a runtime-grown extension
+        # (_poss.learn_material) so a word RAVANA has never heard ("hempcrete")
+        # becomes addressable for later recall with NO code change. Removing an
+        # entry degrades gracefully (the material is simply not mined until
+        # re-learned). Nothing here is ever rendered to the user — recall
+        # rendering lives in engine_memory._reconstruct_entity via _poss.render.
+        for _m in re.finditer(
+                # entity = a leading noun (optionally "my/the/a" + adjectives);
+                # "is" with an optional "a/an"; then the descriptor phrase
+                # (allows hyphenated words like "hand-hewn"; a material such as
+                # "pine"/"sod" appears somewhere in the phrase). A trailing kind
+                # noun (lodge/house/...) marks a possession description; without
+                # a recognised material we only mine when one is present, so
+                # "the river is a fast mountain stream" is correctly ignored.
+                r"\b(?:my|the|a|an|our|your)\s+([a-z][a-z'-]+)\s+"   # entity
+                r"(?:is|are|was|were)\s+(?:(?:a|an|the)\s+)?\s*"      # copula (+opt article)
+                r"([a-z][a-z'-]*(?:\s+[a-z][a-z'-]+){0,6})",        # descriptor
+                q_clean, re.IGNORECASE):
+            _ent = _m.group(1).lower().strip("'")
+            _desc = _m.group(2).lower().strip()
+            if _ent in _VALUE_STOP or len(_ent) < 3:
+                continue
+            # Split the descriptor into whitespace-delimited tokens (each may be
+            # hyphenated, e.g. "hand-hewn"); scan for a known material noun.
+            _dtoks = re.findall(r"[a-z][a-z'-]+", _desc)
+            _mat = None
+            _feat = None
+            for _i, _w in enumerate(_dtoks):
+                if _poss.is_material(_w):
+                    _mat = _w
+                    # a feature noun after the material scopes the fact
+                    # ("sod roof" -> cabin.roof = sod, not cabin.madeof = sod)
+                    _nx = _dtoks[_i + 1] if _i + 1 < len(_dtoks) else None
+                    if _nx and _poss.is_feature_noun(_nx):
+                        _feat = _nx
+                    break
+            # also accept a "made of/from" / "built of/from" explicit frame
+            _explicit = re.search(
+                r"\b(?:made|built|forged|carved|woven|cast|moulded|molded|"
+                r"constructed|fashioned)\s+(?:of|from|out of)\s+([a-z][a-z'-]+)",
+                " " + _desc + " ", re.IGNORECASE)
+            if _explicit and _poss.is_material(_explicit.group(1)):
+                _mat = _explicit.group(1)
+            if _mat is not None:
+                _mat = _mat if _poss.is_material(_mat) else _poss.learn_material(_mat)
+                if _feat:
+                    _put_fact_ent(_ent, _feat, _mat, 0.6)
+                else:
+                    _put_fact_ent(_ent, "madeof", _mat, 0.6)
+            # a possession-kind clause with no recognised material yet: skip
+            # storing an empty value (a later correction / online learning can
+            # attach a material).
+            elif any(_poss.is_kind_noun(w) for w in _dtoks):
+                continue
+
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are
         # captured even when process_turn early-returns before Step 5b (e.g. a
