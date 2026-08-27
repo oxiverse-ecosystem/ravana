@@ -205,20 +205,72 @@ except Exception as _wn_err:  # pragma: no cover - optional dependency
 
 def _is_predicate_word(word: str) -> bool:
     """Structural test: is `word` an English predicate (adjective/participle),
-    rather than a proper-noun name? True iff WordNet has an adjective sense for
-    it. Real names have no adjective sense, so they are NOT rejected."""
+    rather than a proper-noun name?
+
+    A real name has NO adjectival or verbal WordNet sense and NO predicate
+    morphology, so it is never rejected. A transient self-state ("i'm unmoored",
+    "i'm gut-punched", "i'm lit-up") is a verb participle / hyphenated emotion
+    compound and IS rejected.
+
+    ROUND 2026-08-15T1537Z FIX (D6): the previous test only checked WordNet
+    `pos="a"` (adjective). Verb participles ("unmoored" = unmoor+ed) and
+    hyphenated emotion compounds ("gut-punched", "lit-up") have NO adjective
+    sense, so a ROTATED probe word like "unmoored" slipped through and got
+    stored as the user's NAME ("your name is unmoored"). Fix: also accept a
+    verb-participle WordNet sense (`pos="v"`) AND the morphological fallback
+    (which already covers -ed/-ing participle and hyphenated compounds). This is
+    STRUCTURAL — it keys on predicate morphology, not a frozen list of feeling
+    words, so any future rotated self-state word is caught without a code change.
+    Real names (corvin/maren/nadia) have neither sense and are left accepted.
+
+    Finding 7 fix: restrict hyphenated-token and morphological suffix rejection
+    to cases with an affective or copula signal (WordNet pos match). Don't use
+    bare -y or -ed endings as rejection criteria alone; Emily, Fred, Ahmed,
+    Anne-Marie, Jean-Luc are valid names.
+    """
     w = (word or "").strip().lower().strip("'\"")
     if not w or " " in w or len(w) > 24:
         return False
+
+    # Check WordNet first for strong predicate signal
+    _has_wordnet_sense = False
     if _WN_AVAILABLE:
         try:
-            return bool(_WN.synsets(w, pos="a"))
+            _syns = _WN.synsets(w, pos="a") or _WN.synsets(w, pos="v")
+            if _syns:
+                _has_wordnet_sense = True
+            # WordNet only indexes base lemmas (not every inflection), so a
+            # participle like "unmoored" (unmoor+ed) has no direct sense. Fall
+            # through to the morphological heuristic below rather than returning
+            # False here — otherwise ROTATED predicate words with no WordNet
+            # entry ("unmoored", "gut-punched") slip through and become names.
         except Exception:
-            return False
-    # Fail-closed fallback: a small structural heuristic for the no-WordNet
-    # case — common adjective morphology (-ed/-ing participle or -y/-ful/-ive
-    # suffix) is still a predicate signal even without the lexicon.
-    return w.endswith(("ed", "ing", "ful", "ive", "ous", "y", "less", "ish"))
+            pass
+
+    # Reject hyphenated compounds only when they have a WordNet sense or
+    # appear in affect/deny sets (strong predicate signals). Don't reject all
+    # hyphenated words (Anne-Marie, Jean-Luc are valid names).
+    if "-" in w and len(w) <= 24:
+        if _has_wordnet_sense or w in _AFFECT_TERM_LEXICON or w in _ACTIVITY_DENY:
+            return True
+
+    if _has_wordnet_sense:
+        return True
+
+    # Structural heuristic: common adjective/participle morphology is a
+    # predicate signal. Don't use bare -y or -ed endings as rejection criteria
+    # (Emily, Fred, Ahmed are valid names). Strong morphological signals
+    # (-ing, -ful, -ive, -ous, -less, -ish) remain standalone rejections.
+    if w.endswith(("ing", "ful", "ive", "ous", "less", "ish")):
+        return True
+
+    # Weak morphological signals (-ed, -y) require affect/deny confirmation
+    # to avoid rejecting valid names
+    if w.endswith(("ed", "y")):
+        if w in _AFFECT_TERM_LEXICON or w in _ACTIVITY_DENY:
+            return True
+
+    return False
 
 
 def register_name_reject(word: str) -> None:
@@ -372,6 +424,31 @@ _OBJECT_SKIP = frozenset({
     "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
     "this", "these", "those", "some", "every", "all", "each",
     "up", "out", "off", "down", "in", "on", "into", "back",
+})
+
+# Closed-class vocabulary for verb candidate selection (Finding 8): words that
+# should be skipped before calling _activity_verb_ok in temporal mining blocks.
+# Combines determiners, prepositions, conjunctions, and common non-activity
+# words to prevent them from being selected as activity verbs. SEED vocabulary.
+_VERB_CLOSED_CLASS = frozenset({
+    # Determiners
+    "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
+    "this", "these", "those", "that", "some", "every", "all", "each",
+    # Prepositions
+    "in", "on", "at", "for", "from", "to", "by", "of", "with", "about",
+    "since", "around", "into", "during", "after", "before", "over", "near",
+    "under", "through", "without", "despite", "except", "besides", "unlike",
+    # Conjunctions and clause markers
+    "and", "or", "but", "so", "because", "when", "while", "where", "if",
+    "that", "which", "what", "who", "how", "why",
+    # Copula and auxiliaries (already in _ASPECTUAL_VERBS, included for completeness)
+    "is", "are", "was", "were", "am", "be", "being",
+    # Common adverbs and framers
+    "now", "then", "here", "there", "already", "still", "just", "recently",
+    "lately", "soon", "today", "tonight", "yesterday", "tomorrow", "earlier",
+    "later", "currently", "really", "very", "quite", "pretty", "kind",
+    # Pronouns (not verbs)
+    "i", "me", "we", "us", "you", "he", "him", "she", "it", "they", "them",
 })
 
 
@@ -2672,6 +2749,11 @@ class UserModel:
             for _i, v in enumerate(_verbs):
                 if v in _ASPECTUAL_VERBS:
                     continue
+                # Skip tokens in the closed-class vocabulary before calling
+                # _activity_verb_ok (Finding 8: only eligible activity verbs
+                # can be selected).
+                if v in _VERB_CLOSED_CLASS:
+                    continue
                 if _activity_verb_ok(v):
                     _verb = v
                     _vidx = _i
@@ -2727,6 +2809,9 @@ class UserModel:
                 _vl = _v.lower()
                 if _vl in _ASPECTUAL_VERBS:
                     continue
+                # Skip closed-class tokens (Finding 8)
+                if _vl in _VERB_CLOSED_CLASS:
+                    continue
                 if _activity_verb_ok(_vl):
                     _verb = _vl
                     _vidx = _i
@@ -2781,6 +2866,9 @@ class UserModel:
             for _i, _tk in enumerate(_toks):
                 _tl = _tk.lower()
                 if _tl in _ASPECTUAL_VERBS:
+                    continue
+                # Skip closed-class tokens (Finding 8)
+                if _tl in _VERB_CLOSED_CLASS:
                     continue
                 if _activity_verb_ok(_tl):
                     _verb = _tl
@@ -2847,6 +2935,9 @@ class UserModel:
                 for _i, _v in enumerate(_av):
                     _vl = _v.lower()
                     if _vl in _ASPECTUAL_VERBS:
+                        continue
+                    # Skip closed-class tokens (Finding 8)
+                    if _vl in _VERB_CLOSED_CLASS:
                         continue
                     if _activity_verb_ok(_vl):
                         _verb = _vl
@@ -2919,9 +3010,12 @@ class UserModel:
                 r"\b(?:made|built|forged|carved|woven|cast|moulded|molded|"
                 r"constructed|fashioned)\s+(?:of|from|out of)\s+([a-z][a-z'-]+)",
                 " " + _desc + " ", re.IGNORECASE)
-            if _explicit and _poss.is_material(_explicit.group(1)):
+            if _explicit:
                 _mat = _explicit.group(1)
             if _mat is not None:
+                # Disclosure-based learning: the explicit frame signals a material
+                # disclosure, so learn any unseen token while preserving fail-closed
+                # _mat assignment (no material means no fact stored).
                 _mat = _mat if _poss.is_material(_mat) else _poss.learn_material(_mat)
                 if _feat:
                     _put_fact_ent(_ent, _feat, _mat, 0.6)

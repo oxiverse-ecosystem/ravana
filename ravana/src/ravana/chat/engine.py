@@ -2520,6 +2520,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # ── (0) META-IDENTITY query: answer from RAVANA's LIVE model of the
+        # USER (Bug 5, round 2026-08-15T1537Z). Queries like "do i seem like
+        # a real person to you" / "what am i to you" / "tell me something
+        # true about who i am" / "what have you learned about me" ask RAVANA
+        # to reflect on its accumulated model of the user — NOT for a
+        # biographical fact (name/location) and NOT an episodic echo. The
+        # prior behavior fell through to an authored "real is fuzzy for me..."
+        # frame (probe-tuned) or a verbatim remembered turn. Fix: detect the
+        # meta-identity intent and answer from identity state + the real
+        # stance/fact stores. Every slot is read from runtime state RAVANA
+        # grew autonomously; no hardcoded reply string, no per-topic table,
+        # no retraining. Fail-closed: returns None when no meta signal is
+        # present, so factual/biographical queries stay on their own paths.
+        _meta = re.search(
+            r"\b(do\s+i\s+seem\s+(?:like|to\s+be)\s+(?:a|an)?\s*real|"
+            r"am\s+i\s+(?:a|an)?\s*real|"
+            r"what\s+am\s+i\s+to\s+you|who\s+am\s+i\s+to\s+you|"
+            r"tell\s+me\s+(?:something\s+true|about|more)\s+(?:about\s+)?who\s+i\s+am|"
+            r"what\s+(?:have|do)\s+you\s+(?:learned|know)\s+about\s+me|"
+            r"how\s+(?:real|human)\s+(?:do\s+)?i\s+(?:seem|appear)|"
+            r"am\s+i\s+(?:even\s+)?real\s+to\s+you)\b", q)
+        if _meta:
+            return self._meta_identity_reply()
+
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
         # my rooftop" / "what's my favorite ..." — answered from the structured
@@ -2743,27 +2767,45 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fact fell through to the episodic echo. Resolve the entity noun and
         # render from the live store via possession_attrs (single source of
         # truth); honest None fallback when nothing matches (never fabricate).
-        _MATQ = re.search(
-            r"\b(?:what'?s|what\s+is|what\s+material\s+is|what\s+is\s+the\s+material\s+of)\s+"
-            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
-            r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
-        if _MATQ and pf is not None:
+        # Try the alternative "what is the material of my X" form first
+        _MATQ_ALT = re.search(
+            r"\bwhat\s+is\s+the\s+material\s+of\s+"
+            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)\b", q)
+        if _MATQ_ALT:
+            _MATQ = _MATQ_ALT
             _ent = _MATQ.group(1).lower().strip()
+            _feat_query = None
+        else:
+            _MATQ = re.search(
+                r"\b(?:what'?s|what\s+is|what\s+material\s+is)\s+"
+                r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
+                r"(?:([a-z][a-z]+)\s+)?"  # optional feature between entity and "made of"
+                r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
+            if _MATQ:
+                _ent = _MATQ.group(1).lower().strip()
+                _feat_query = _MATQ.group(2).lower().strip() if _MATQ.group(2) else None
+            else:
+                _ent = None
+                _feat_query = None
+        if _MATQ and pf is not None:
             _cand = None
+            from . import possession_attrs as _pa
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _k[0] == _ent and not getattr(_f, "superseded", False):
                     _attr = _k[1]
-                    # 'madeof' is the primary material fact; a feature noun
-                    # (roof/wall/.., per possession_attrs._FEATURE_NOUNS) is more
-                    # specific when the query names that part.
-                    if _attr == "madeof":
-                        _cand = _f
-                    elif _cand is None:
-                        from . import possession_attrs as _pa
-                        if _pa.is_feature_noun(_attr):
+                    # If the query named a specific feature ("what's my desk frame
+                    # made of"), prefer an exact feature match; otherwise fall back
+                    # to madeof or any feature noun.
+                    if _feat_query and _pa.is_feature_noun(_feat_query):
+                        if _attr == _feat_query:
                             _cand = _f
+                            break
+                    elif _attr == "madeof":
+                        _cand = _f
+                    elif _cand is None and _pa.is_feature_noun(_attr):
+                        _cand = _f
             if _cand is not None:
                 _attr, _v = _cand.attribute, _cand.value
                 if _attr == "madeof":
@@ -3247,6 +3289,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _score > _best_score:
                         _best_score = _score
                         _best_year = _yr
+                        _best_age = None  # clear the other candidate
                         _best_act = _act
                 elif _k[1] == "since_age":
                     _parts = _v.rsplit(" ", 1)
@@ -3261,6 +3304,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
                         _best_score = _score
+                        _best_year = None  # clear the other candidate
                         _best_age = _age
                         _best_act = _act
             # Require at least one meaningful token overlap so an unrelated
@@ -3283,6 +3327,67 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _best_age is not None:
                 return f"you've been {_qact} since you were about {_best_age}."
         return None
+
+    def _meta_identity_reply(self) -> str:
+        """State-driven answer to a meta-identity query about the user
+        (Bug 5, round 2026-08-15T1537Z).
+
+        Renders RAVANA's accumulated model of the user from LIVE durable
+        state — the user's real name, stance count + topics, fact count, and
+        RAVANA's own identity strength/trend. No authored prose, no per-topic
+        answer table, no retraining. All content is read from runtime stores
+        RAVANA grows autonomously (the user can correct any fact/stance; the
+        stores merge on correction).
+        """
+        um = getattr(self, "user_model", None)
+        name = (getattr(um, "user_name", "") or "").strip()
+        _pf = getattr(um, "personal_facts", None) if um else None
+        # Compute n_facts from active, non-superseded entries only
+        n_facts = 0
+        if _pf is not None:
+            for _f in (getattr(_pf, "facts", {}) or {}).values():
+                if not getattr(_f, "superseded", False):
+                    n_facts += 1
+        opinions = getattr(um, "opinions", None) if um else None
+        stances = getattr(opinions, "stances", {}) or {}
+        n_stances = len(stances)
+        strength = self.identity.state.strength
+        trend = self.identity.get_trend()
+
+        if trend > 0.01:
+            _trend_word = "steadily getting clearer"
+        elif trend < -0.01:
+            _trend_word = "still shifting"
+        else:
+            _trend_word = "holding steady"
+
+        _parts = []
+        if name:
+            _parts.append(f"i know you as {name}")
+        else:
+            _parts.append("i'm still learning who you are")
+
+        _learned = []
+        if n_stances:
+            _learned.append(f"{n_stances} stances you've shared")
+        if n_facts:
+            _learned.append(f"{n_facts} facts about your life")
+        if _learned:
+            _parts.append(
+                "and from what you've told me i've picked up "
+                + " and ".join(_learned))
+
+        _topics = list(stances.keys())[:3]
+        if _topics:
+            _parts.append(
+                "you've let me see where you stand on things like "
+                + ", ".join(_topics))
+
+        _parts.append(
+            f"my own sense of self is still forming — my self-coherence "
+            f"sits around {strength:.2f} and is {_trend_word}")
+
+        return ". ".join(_parts) + "."
 
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute."""

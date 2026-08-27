@@ -4552,6 +4552,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                     r"pretty\s+)?([a-z]+(?:[-][a-z]+)?)", text)
                 if _cop:
                     _w = _cop.group(2).strip("'-")
+                    _copula_verb = _cop.group(1).strip().lower()
                     # The felt word is the token AFTER the copula. Reject the
                     # copula word itself (e.g. "felt") and closed-class/action
                     # verbs so only a real feeling attribution is captured.
@@ -4563,7 +4564,17 @@ class ResponseGenMixin(ChainWalkerMixin):
                              "felt", "good", "bad", "keep", "kept", "move",
                              "moved", "want", "need", "have", "had", "do", "did"}
                     if _w not in _STOP and len(_w) > 2:
-                        _aff = _w
+                        # Restrict "I am" / "I'm" forms to approved affect terms
+                        # to prevent arbitrary identity statements ("I am Noor")
+                        # from being treated as affective disclosures. "I feel" /
+                        # "I felt" are always allowed as they explicitly signal
+                        # affect disclosure.
+                        from ravana.chat.user_model import is_affect_term
+                        if _copula_verb in ("i am", "i'm"):
+                            if is_affect_term(_w):
+                                _aff = _w
+                        else:
+                            _aff = _w
             if _aff and re.search(
                     r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\b", text):
                 self._tmp_signed = None
@@ -4758,20 +4769,59 @@ class ResponseGenMixin(ChainWalkerMixin):
         # 0.0<=v<0.4 band and produced "what's got you feeling so MIXED?" — a
         # wrong affect tag on a happy moment. The disclosure kind is the ground
         # truth; RAVANA's own valence only fills in when kind is unspecified.
+        #
+        # ROUND 2026-08-15T1537Z FIX (D1): the neutral/copula-affect branch
+        # (kind == "neutral", e.g. "i felt buoyant" / "i'm unmoored") used to
+        # read val_word from RAVANA's OWN interoception (`valence`, here from
+        # em.state). That is RAVANA's mood, unrelated to the user's word — so a
+        # user saying "i feel buoyant" (positive) could render "it sounds
+        # rough" whenever RAVANA's valence happened to be low. The content was
+        # RAVANA's state, not the user's. Fix: when a user affect WORD is
+        # present, derive val_word from that WORD's own VAD (the SAME lexicon
+        # the detector uses — single source of truth, never RAVANA's
+        # interoception), so the acknowledgment valence tracks the user's
+        # disclosed feeling. RAVANA's own valence is only a fallback when no
+        # word was surfaced (genuinely ambiguous disclosure).
         if kind == "positive":
             val_word = "good"
         elif kind == "negative":
             val_word = "rough"
         else:
-            # neutral / unspecified: fall back to RAVANA's continuous valence
-            if valence <= -0.4:
-                val_word = "really hard"
-            elif valence < 0.0:
-                val_word = "rough"
-            elif valence < 0.4:
-                val_word = "mixed"
+            # Neutral: prefer the user's own felt-word VAD over RAVANA's
+            # interoception. `word` is the user's felt term when the
+            # copula-affect fallback surfaced one; otherwise fall back to
+            # RAVANA's continuous valence (honest when nothing specific is said).
+            _user_v = None
+            if isinstance(word, str) and word and not word.startswith("loss:"):
+                try:
+                    from ravana.core.mirror import UserEmotionDetector
+                    _det = getattr(self, "_affect_detector", None) \
+                        or UserEmotionDetector()
+                    _vw = _det._lookup_word(word)
+                    if _vw is not None:
+                        _user_v = float(_vw[0])
+                except Exception:
+                    _user_v = None
+            if _user_v is not None:
+                # The user named a felt state; honor ITS valence.
+                if _user_v <= -0.4:
+                    val_word = "really hard"
+                elif _user_v < 0.0:
+                    val_word = "rough"
+                elif _user_v < 0.4:
+                    val_word = "mixed"
+                else:
+                    val_word = "good"
             else:
-                val_word = "good"
+                # No surfaced word: fall back to RAVANA's continuous valence.
+                if valence <= -0.4:
+                    val_word = "really hard"
+                elif valence < 0.0:
+                    val_word = "rough"
+                elif valence < 0.4:
+                    val_word = "mixed"
+                else:
+                    val_word = "good"
 
         if isinstance(word, str) and word.startswith("loss:"):
             lost = word[len("loss:"):].strip()
@@ -6267,7 +6317,6 @@ class ResponseGenMixin(ChainWalkerMixin):
                     hedge_frame("ignorance", "related_strong" if _strong else "related_weak",
                                 subj=subj, rel=_rel0) + f" and {_rel1}",
                     f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
-                    f"{subj_cap} {be} fuzzy for me — i mostly connect {pron_obj} to {_rel0} and {_rel1}.",
                 ]
         closers = [
             " what does it mean to you?",
