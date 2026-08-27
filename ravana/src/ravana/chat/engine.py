@@ -1063,6 +1063,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._episodic_indexer = None
         self._epistemic_new_tags: Dict[str, int] = {}  # B8: concept -> turn learned (decays)
         self._agent_preferences: Dict[str, str] = {}  # grounded self-preference store (A1)
+        # RAVANA's own RECORDED stances (round 2026-08-19T0625Z limitation #2 fix):
+        # a durable store of the opinions RAVANA has actually EXPRESSED about
+        # topics it was asked about. Keyed by canonical topic (lowercased); value
+        # is (polarity_word, confidence, reason, turn_recorded). Distinct from
+        # _agent_values (the innate constitution) — this is the *experiential*
+        # record of what RAVANA has said before, so a later "do you still feel
+        # that way about X?" can be answered from a REAL recorded stance rather
+        # than recomputing fresh or echoing. Runtime-expandable (every stance
+        # _agent_stance_on computes is written here) and persisted below.
+        self._agent_own_stances: Dict[str, Tuple[str, float, str, int]] = {}
         # RAVANA's own constitutive values (seed knowledge, NOT hardcoding):
         # these are the self-defining commitments a privacy-first, open-source
         # cognitive architecture is *born* with — analogous to a brain's innate
@@ -2469,6 +2479,50 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # (0a) R1 (2026-08-18T1340Z round): ENTITY-SCOPED NAME recall with
+        # cross-lemma linking. A possession named by the user is stored under
+        # the ENTITY key (e.g. ('sourdough starter','name','doris'),
+        # ('best friend','name','tomas')), NOT under the "i" profile. When the
+        # query asks for a NAME and names a specific entity (a possessive
+        # "my X" or a paraphrase "that sourdough culture"), resolve the query's
+        # entity PHRASE to the stored entity key by GloVe cosine (the same seed
+        # embeddings the rest of the engine reasons over — no synonym table, no
+        # LLM, no retraining) and read the entity-scoped name fact. This is the
+        # genuine R1 capability: it links "sourdough culture" -> "sourdough
+        # starter" and reports "your sourdough starter's name is doris". The
+        # linker is store-driven and generalizes to any entity RAVANA has
+        # learned; it fails CLOSED (returns None) when no stored entity clears
+        # the bar, so an unknown possession gets honest uncertainty instead of a
+        # confabulated fact. It runs BEFORE branch (1d) below, which only scans
+        # subject=="i" facts and would otherwise wrongly answer a
+        # possession-name query with an unrelated "i"-scoped name fact.
+        _name_q = bool(re.search(
+            r"\b(name|named|called)\b", q)) and bool(
+            re.search(r"\?$|\b(what|who|which|tell|do|does|did|how)\b", q))
+        if _name_q and pf is not None:
+            try:
+                # candidate stored ENTITY-scoped name facts (subject != 'i').
+                # pf.facts is { (subject, attr, val): PersonalFact }; iterate
+                # keys, not (k, v) pairs.
+                _ent_name_keys = [
+                    _k for _k in pf.facts.keys()
+                    if isinstance(_k, tuple) and len(_k) == 3
+                    and _k[0] not in ("i", "me", "my", "you")
+                    and _k[1] == "name"
+                    and not getattr(pf.facts[_k], "superseded", False)
+                ]
+                if _ent_name_keys:
+                    _stored_entities = {_k[0] for _k in _ent_name_keys}
+                    _linked_ent = self._link_recall_entity(q, _stored_entities)
+                    if _linked_ent is not None:
+                        # pick the (possibly multi-instance) name fact for it
+                        for _k in _ent_name_keys:
+                            if _k[0] == _linked_ent:
+                                _v = getattr(pf.facts[_k], "value", _k[2])
+                                return f"your {_linked_ent}'s name is {_v}."
+            except Exception:
+                pass
+
         # ── (0) META-IDENTITY query: answer from RAVANA's LIVE model of the
         # USER (Bug 5, round 2026-08-15T1537Z). Queries like "do i seem like
         # a real person to you" / "what am i to you" / "tell me something
@@ -2492,6 +2546,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"am\s+i\s+(?:even\s+)?real\s+to\s+you)\b", q)
         if _meta:
             return self._meta_identity_reply()
+
+        # ── (0a) AUTO-BIOGRAPHICAL RECALL of the USER (new capability,
+        # feature t_a41f7e29, round 2026-08-18T0937Z).
+        # Answers RAVANA's own USER-autobiography queries — "what will you
+        # remember most about me", "did i tell you i liked X", "have i told
+        # you about my brother", "does that still fit / have i changed" —
+        # from the REAL user-model stores (personal_facts / opinions.stances /
+        # belief_store) BEFORE the agent-own-speech recall gate
+        # (_route_agent_own_recall) can misroute them into RAVANA's own-reply
+        # echo store (round 2026-08-18T0937Z residual R34/R43/R57/U17). Fully
+        # store-driven, no authored reply, no per-topic table, no retraining.
+        # Fail-closed: returns None when no user-autobiography intent matches,
+        # so genuine agent-self questions still reach the self-model path.
+        _ab = self._autobiographical_recall(user_input)
+        if _ab is not None:
+            return _ab
 
         # ── (0b) USER-MODEL AGGREGATION (new capability, feature t_3d147353)
         # Queries that ask RAVANA to REPORT the accumulated CONTENT of its model
@@ -2572,9 +2642,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"who\s+(?:are|do)\s+(?:the\s+)?people\s+in\s+my\s+family"
             r")\b", q)
         if _enum:
+            # Detect category: pets-only vs relations-only vs both
+            _cat = None
+            if re.search(r"\bpets?\b", q):
+                _cat = "pets"
+            elif re.search(r"\b(family|relatives?|relations?|people|kin)\b", q):
+                _cat = "relations"
             return self._enumerate_entities(
                 is_relation_attribute, base_relation,
-                is_pet_attribute, base_species)
+                is_pet_attribute, base_species, category=_cat)
 
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
@@ -3025,7 +3101,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if _qr_pet is None and _or_base_sp(_t) is not None:
                     _qr_pet = _or_base_sp(_t)
             if (_qr_rel is not None or _qr_name is not None or _qr_pet is not None) \
-                    and _or_is_q:
+                        and _or_is_q:
                 _bits = []
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
@@ -3722,6 +3798,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     for _act in _since_acts:
                         if _stem(_act) in _stems or _act == _val.split()[0]:
                             _verb_ctx.setdefault(_act, []).append(_val)
+            # Extract query object (if any) for object-disambiguated matching.
+            # When the query explicitly names an object ("building widgets"),
+            # require the stored activity to match that object, not just the verb.
+            _query_obj = None
+            _ACTIVITY_VERBS = {
+                "building", "build", "builds", "built",
+                "keeping", "keep", "keeps", "kept",
+                "restoring", "restore", "restores", "restored",
+                "fixing", "fix", "fixes", "fixed",
+                "studying", "study", "studies", "studied",
+                "making", "make", "makes", "made",
+                "working", "work", "works", "worked",
+                "teaching", "teach", "teaches", "taught",
+                "learning", "learn", "learns", "learned",
+                "playing", "play", "plays", "played",
+            }
+            _qtoks_list = [t for t in re.findall(r"[a-z']+", q.lower())]
+            for _i, _qt in enumerate(_qtoks_list):
+                if _qt in _ACTIVITY_VERBS and _i + 1 < len(_qtoks_list):
+                    _next = _qtoks_list[_i + 1]
+                    _STOP_QUERY_OBJ = {"the", "a", "an", "my", "this", "that"}
+                    if _next not in _STOP_QUERY_OBJ:
+                        _query_obj = _stem(_next)
+                        break
             _best_year = None
             _best_age = None
             _best_score = 0
@@ -3741,6 +3841,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _yr = int(_parts[1])
                     except ValueError:
                         continue
+                    # Object-disambiguated matching: if query has an explicit object,
+                    # require the stored activity to contain that object (stem match).
+                    if _query_obj is not None:
+                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
+                        if _query_obj not in _act_stems:
+                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -3757,6 +3863,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _age = int(_parts[1])
                     except ValueError:
                         continue
+                    # Object-disambiguated matching: if query has an explicit object,
+                    # require the stored activity to contain that object (stem match).
+                    if _query_obj is not None:
+                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
+                        if _query_obj not in _act_stems:
+                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -3845,6 +3957,332 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             f"sits around {strength:.2f} and is {_trend_word}")
 
         return ". ".join(_parts) + "."
+
+    # ── AUTOBIOGRAPHICAL RECALL helpers (feature t_a41f7e29, round 2026-08-18T0937Z)
+    # Used by _autobiographical_recall to compose answers about the USER from
+    # the real, runtime-grown user-model stores. Shared renderers keep these in
+    # lockstep with _aggregate_user_model (the canonical renderer) so answers
+    # agree by construction.
+
+    def _polarity_word(self, pol: float) -> str:
+        """ONE vocabulary token for a stance polarity band (a lexicon entry,
+        not a scripted sentence). Mirrors _aggregate_user_model's band map."""
+        if pol >= 0.6:
+            return "strongly for"
+        if pol > 0.1:
+            return "for"
+        if pol <= -0.6:
+            return "strongly against"
+        if pol < -0.1:
+            return "against"
+        return "uncertain about"
+
+    def _render_fact_line(self, attr: str, val: str) -> str:
+        """Render ONE user fact into a clean statement. EXACT copy of the
+        fact-rendering branch in _aggregate_user_model (L3701-3740) so the two
+        paths render identically — no divergent special-casing."""
+        _attr_d = (attr or "").replace("_", " ").strip()
+        if _attr_d in ("location", "live in", "grew"):
+            return f"you're from {val}"
+        if _attr_d.startswith("favorite"):
+            return f"your {_attr_d.replace('favorite ', '')} is {val}"
+        if _attr_d == "name":
+            return f"your name is {val}"
+        if _attr_d == "does":
+            return f"you {val}"
+        if _attr_d == "event":
+            return f"you mentioned {val}"
+        try:
+            from .user_model import is_activity_verb as _is_act
+        except Exception:
+            _is_act = lambda w: False
+        _kv = (val or "").strip()
+        if _kv and _kv.split() and _is_act(_kv.split()[0]):
+            return f"your {_attr_d} {val}"
+        return f"your {_attr_d} is {val}"
+
+    def _collect_user_model_state(self):
+        """Return (facts, stances, beliefs) of the USER's real learned profile,
+        deduped exactly like _aggregate_user_model. facts = list of
+        (attr, val, conf); stances = list of (topic, polarity, conf);
+        beliefs = list of (pred, val, conf)."""
+        um = getattr(self, "user_model", None)
+        pf = getattr(um, "personal_facts", None) if um else None
+        opinions = getattr(um, "opinions", None) if um else None
+        beliefs = getattr(self, "belief_store", None)
+        _fact_by_attr = {}
+        if pf is not None:
+            for _k, _f in (getattr(pf, "facts", {}) or {}).items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _subj, _attr, _val = _k
+                if _subj.lower() != "i":
+                    continue
+                _v = (_f.value or "").strip()
+                if not _v:
+                    continue
+                _cur = _fact_by_attr.get(_attr)
+                if _cur is None or len(_v) > len(_cur[0]):
+                    _fact_by_attr[_attr] = (_v, getattr(_f, "confidence", 0.5))
+        facts = [(a, v, c) for a, (v, c) in _fact_by_attr.items()]
+        _kept = []
+        _seen_vals = set()
+        for _attr, _val, _conf in facts:
+            _n = _val.lower().strip()
+            if _n in _seen_vals:
+                continue
+            if any((_n != _o and (_n in _o or _o in _n)) for _oa, _o, _oc in _kept):
+                continue
+            _seen_vals.add(_n)
+            _kept.append((_attr, _val, _conf))
+        facts = _kept
+        stances = []
+        if opinions is not None:
+            for _topic, _s in (getattr(opinions, "stances", {}) or {}).items():
+                stances.append((_topic, getattr(_s, "polarity", 0.0),
+                                getattr(_s, "confidence", 0.5)))
+        belief_items = []
+        if beliefs is not None:
+            for (_sid, _pred), _triple in (getattr(beliefs, "beliefs", {}) or {}).items():
+                if _sid.lower() != "i":
+                    continue
+                _val, _conf, _turn = _triple if isinstance(_triple, tuple) else (_triple, 0.5, 0)
+                belief_items.append((_pred, _val, _conf))
+        return facts, stances, belief_items
+
+    def _match_stance(self, phrase: str):
+        """Find the user's real stance whose topic relates to `phrase`. Returns
+        (topic, polarity, conf) or None. Containment + content-token-overlap,
+        both directions — no per-topic table, generalizes across any topic the
+        user has actually disclosed."""
+        opinions = getattr(getattr(self, "user_model", None), "opinions", None)
+        if opinions is None:
+            return None
+        stances = getattr(opinions, "stances", {}) or {}
+        if not stances:
+            return None
+        _p = (phrase or "").lower().strip().replace("-", " ")
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        _best = None
+        for _topic, _s in stances.items():
+            _t = (_topic or "").lower().strip().replace("-", " ")
+            if _t and (_t in _p or _p in _t):
+                _best = (_topic, getattr(_s, "polarity", 0.0),
+                         getattr(_s, "confidence", 0.5))
+                break
+            _ttoks = set(w for w in re.findall(r"[a-z']+", _t) if len(w) >= 3)
+            if _ttoks & _ptoks:
+                _best = (_topic, getattr(_s, "polarity", 0.0),
+                         getattr(_s, "confidence", 0.5))
+                break
+        return _best
+
+    def _match_fact(self, phrase: str):
+        """Find the user's real fact whose attr OR value relates to `phrase`.
+        Returns (attr, val, conf) or None — prefers the longest matching value."""
+        facts, _, _ = self._collect_user_model_state()
+        _p = (phrase or "").lower().strip().replace("-", " ")
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        _best = None
+        for _attr, _val, _conf in facts:
+            _search = f"{(_attr or '').lower()} {(_val or '').lower()}"
+            if _search and (_search in _p or _p in _search):
+                _best = (_attr, _val, _conf)
+                break
+            _vtoks = set(w for w in re.findall(r"[a-z']+", _search) if len(w) >= 3)
+            if _vtoks & _ptoks:
+                if _best is None or len(_val) > len(_best[1]):
+                    _best = (_attr, _val, _conf)
+        return _best
+
+    def _extract_disclosure_topic(self, text: str) -> str:
+        """Strip a leading first/second-person + disclosure verb from a phrase
+        to recover the TOPIC (e.g. \"i liked cold-weather hiking\" -> \"cold
+        weather hiking\"; \"about my brother\" -> \"about my brother\"). General
+        verb list, no per-topic special-casing."""
+        _t = re.sub(
+            r"^(?:i|you)\s+(?:really\s+)?(?:like|likes|liked|love|loves|loved|"
+            r"hate|hates|hated|dislike|dislikes|enjoy|enjoys|enjoyed|care\s+"
+            r"(?:about|for)|prefer|prefers|preferred|am\s+into|was\s+into|"
+            r"into|told you|told|said|said\s+about|mentioned|mention)\s*",
+            "", (text or "").strip()).strip()
+        return _t
+
+    def _autobiographical_recall(self, user_input: str) -> Optional[str]:
+        """AUTO-BIOGRAPHICAL RECALL of the USER (feature t_a41f7e29,
+        round 2026-08-18T0937Z).
+
+        ROUND RESIDUAL this closes (R34/R43/R57 + U17 from
+        tmp/reports/ravana-2026-08-18T0937Z.md): queries about what the USER
+        has told RAVANA —
+
+          * \"what will you remember most about me?\"            (R57 — GAP)
+          * \"did i tell you i liked cold-weather hiking?\"       (R34 — MISROUTE)
+          * \"have i told you about my brother?\"                 (R43 family)
+          * \"wait, earlier i told you i loved X — does that
+             still fit, or have i changed?\"                      (U17 — stale reply)
+
+        — were either unhandled (fell to degenerate uncertainty) or MISROUTED
+        into the loosely-keyed AgentReplyStore (_route_agent_own_recall), which
+        surfaced RAVANA's OWN echo (\"i said: good to know you love...\") instead
+        of an answer about the USER's disclosed fact/stance. That is a self/other
+        boundary inversion, and it is brittle (it depends on a junk reply key
+        like \"hiking\" existing in _own_replies).
+
+        FIX: detect the user-autobiography intent and compose the answer from
+        the REAL user-model stores (personal_facts, opinions.stances,
+        belief_store) — the same stores _aggregate_user_model /
+        _user_stance_reply already read. Every answer slot is read from runtime
+        state RAVANA grows autonomously; the user can correct any fact/stance
+        and the stores merge on correction. No authored prose, no per-topic
+        answer table, no retraining. The deciding test (\"can RAVANA change this
+        by itself, through experience?\") passes: the content comes entirely
+        from the learned stores, not from code.
+
+        Three sub-intents, all fail-closed (return None) when no user-
+        autobiography intent matches or the relevant store is empty, so genuine
+        agent-self questions still reach _route_self_query / _route_agent_own_
+        recall unchanged (self/other boundary preserved):
+
+          (A) SALIENCE — \"remember MOST about me\" / \"what do you remember
+              about me\" -> compose from the real profile, leading with the
+              single most-confident learned item + a short tail of the rest.
+          (B) CONFIRMATION — \"did i tell you i liked X\" / \"have i told you
+              about my brother\" -> a YES/NO confirmation reading the user's
+              REAL stance or fact (states the actual learned content), not the
+              agent's own echo. Honest \"not that i recall\" when nothing maps.
+          (C) CONTRADICTION-RECONCILE — \"does that still fit / have i changed\"
+              -> reads the user's REAL (already-reconciled) stance on the named
+              topic and reports its CURRENT value, so the reply reflects the
+              latest state rather than a stale echo (closes U17: the stance
+              STORE is correct; only the reply routing missed it).
+        """
+        q = (user_input or "").lower().strip()
+        if not q:
+            return None
+        # User-autobiography intents are first-person disclosure framing. Agent-
+        # self questions (\"what did YOU say about X\") lack this and fall through.
+        if not re.search(r"\b(i|me|my|mine|we|our)\b", q):
+            return None
+
+        # ── (A) SALIENCE: what RAVANA will remember MOST / about the user ──
+        _A = re.search(
+            r"\b(what will you remember most about me"
+            r"|what do you remember about me"
+            r"|what's the (?:biggest|main|one) thing you (?:know|remember|"
+            r"picked up) about me"
+            r"|the (?:one )?thing you (?:remember|keep|take) (?:most )?about me"
+            r"|what stands out most (?:about|to you)? ?me"
+            r"|what will you take (?:away|from) (?:this|about me))\b", q)
+        if _A:
+            _facts, _stances, _beliefs = self._collect_user_model_state()
+            if not _facts and not _stances and not _beliefs:
+                return None
+            _items = [("fact", a, v, c) for a, v, c in _facts] + \
+                     [("stance", t, None, c) for t, p, c in _stances]
+            if not _items:
+                return None
+            _items.sort(key=lambda x: x[3], reverse=True)
+            _top = _items[0]
+            if _top[0] == "fact":
+                _lead = "the thing that stands out most is " + \
+                        self._render_fact_line(_top[1], _top[2])
+            else:
+                _lead = (f"what stays with me most is that you're "
+                         f"{self._polarity_word(_top[2])} {_top[1]}")
+            _rest = []
+            for _it in _items[1:4]:
+                if _it[0] == "fact":
+                    _rest.append(self._render_fact_line(_it[1], _it[2]))
+                else:
+                    pass  # stances already captured via salience word
+            # Add remaining stances (if any) to the tail for completeness.
+            for _t, _p, _c in _stances:
+                if _t != _top[1]:
+                    _rest.append(f"you're {self._polarity_word(_p)} {_t}")
+            if _rest:
+                return _lead + ". " + "and i've also picked up: " + \
+                       "; ".join(_rest[:3]) + "."
+            return _lead + "."
+
+        # ── (B) CONFIRMATION: "did i tell you i liked X" / "have i told you
+        #    about my brother" — answer from the REAL user store, not the
+        #    agent's own echo. ──
+        _B = re.search(
+            r"\b(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
+            r"mentioned|share|shared|let you know)\b", q)
+        if _B:
+            # Recover the disclosure content after the tell-clause.
+            _rem = re.sub(
+                r"^.*?(?:did|have|had)\s+(?:i|you)\s+(?:tell|told|say|said|"
+                r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
+                "", q).strip()
+            _topic = self._extract_disclosure_topic(_rem)
+            if not _topic:
+                _topic = _rem
+            # No real disclosure topic (e.g. "who have i told you ABOUT" — an
+            # enumeration request) -> fall through to the (0c) enumeration
+            # recall path instead of claiming it as a confirmation. Also bail on
+            # a bare "about" so genuine enumerations aren't answered with "not
+            # that i recall".
+            if not _topic or _topic.strip() in ("about", "about you", "about me"):
+                return None
+            _stance = self._match_stance(_topic)
+            if _stance is not None:
+                _topic_d, _pol, _conf = _stance
+                return (f"yes — you told me you're "
+                        f"{self._polarity_word(_pol)} {_topic_d}. i've kept that.")
+            _fact = self._match_fact(_topic)
+            if _fact is not None:
+                return ("yes — i remember: " +
+                        self._render_fact_line(_fact[0], _fact[1]) + ".")
+            return ("not that i recall — you haven't told me about that yet. "
+                    "what did you want me to know?")
+
+        # ── (C) CONTRADICTION-RECONCILE: "does that still fit / have i changed"
+        #    — report the user's CURRENT real stance, not a stale echo. ──
+        _C = re.search(
+            r"\b(does that still fit|have i changed|did i change|am i still|"
+            r"do i still|still fit|or have i changed|where do i stand now|"
+            r"has that changed)\b", q)
+        if _C:
+            # Topic = the disclosure in the SAME utterance. The disclosure may
+            # precede the reconcile question ("earlier i told you i loved X.
+            # does that still fit") or follow it ("does that still fit — i
+            # loved X"). Robust extraction: (1) drop a leading "earlier i told
+            # you / i said" disclosure-lead marker, (2) cut at the FIRST
+            # reconcile-question keyword so trailing "does that still fit..."
+            # is removed, (3) strip the residue disclosure lead. No per-topic
+            # special-casing — works for any X the user actually disclosed.
+            _body = re.sub(
+                r"^(?:wait|so|okay|ok|well|earlier|hmm|uh|right)[,\s]*", "", q)
+            _body = re.sub(
+                r"^(?:earlier\s+i told you|i told you|you told me|i said|"
+                r"i mentioned|i think i told you)\s*", "", _body).strip()
+            _body = re.split(
+                r"\b(does that still fit|have i changed|did i change|am i still|"
+                r"do i still|still fit|or have i changed|where do i stand now|"
+                r"has that changed)\b", _body)[0].strip().rstrip(".!?")
+            _topic = self._extract_disclosure_topic(_body)
+            _stance = self._match_stance(_topic) if _topic else None
+            if _stance is not None:
+                _topic_d, _pol, _conf = _stance
+                _w = self._polarity_word(_pol)
+                if _pol > 0.1 or _pol < -0.1:
+                    return (f"you told me you were leaning that way, and it "
+                            f"still holds — you're {_w} {_topic_d}.")
+                return (f"you've softened on that — you're {_w} {_topic_d} now, "
+                        f"so it doesn't sit the same as when you first said it.")
+            _fact = self._match_fact(_topic) if _topic else None
+            if _fact is not None:
+                return ("you told me: " + self._render_fact_line(_fact[0], _fact[1]) +
+                        ". that hasn't changed that i know of.")
+            return ("i don't have a clear read from you on that yet — tell me "
+                    "where you stand and i'll keep it in mind.")
+
+        return None
 
     def _aggregate_user_model(self) -> Optional[str]:
         """AGGREGATION capability (feature t_3d147353, round 2026-08-16T1241Z).
@@ -3956,6 +4394,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 parts.append(f"your {_attr_d.replace('favorite ', '')} is {_val}")
             elif _attr_d == "name":
                 parts.append(f"your name is {_val}")
+            elif _attr_d == "does":
+                # Self-disclosed ACTIVITY stored as a verb-phrase clause
+                # (e.g. "spent whole childhood", "got promoted last month").
+                # The miner keeps the user's own words verbatim, so render as a
+                # first-person predicate ("you spent whole childhood"). The
+                # prior fall-through produced the garbled "your does spent whole
+                # childhood" (round 2026-08-18T0937Z). Mirrors the engine_memory.py
+                # self-profile render fix.
+                _sv = (_val or "").strip()
+                parts.append(f"you {_sv}")
+            elif _attr_d == "event":
+                # Self-disclosed EVENT (mined as event=<verb phrase>, e.g.
+                # "lose appetite"). Render as an honest "you mentioned <clause>"
+                # — the prior fall-through produced "your event is lose
+                # appetite" (round 2026-08-18T0937Z).
+                parts.append(f"you mentioned {_val}")
             else:
                 # D7 (round 2026-08-16T1745Z): a combined-attr relationship fact
                 # ("grandmother indira" -> "weaves baskets") must render as
@@ -4091,7 +4545,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return f"i think you're {_w} {_key}, though i'm not totally sure yet."
 
     def _enumerate_entities(self, is_relation_attribute, base_relation,
-                            is_pet_attribute, base_species) -> str:
+                            is_pet_attribute, base_species, category=None) -> str:
         """Category-aware enumeration recall (feature t_f1dae1aa).
 
         A user asked to LIST the entities RAVANA has learned in a category
@@ -4099,6 +4553,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         you about"). There is no specific cue word, so this SCANS the live
         PersonalFactStore and collects every relationship fact and every pet
         fact, then lists them.
+
+        Args:
+            category: Optional filter — "relations", "pets", or None (both).
 
         Design — passes the no-hardcoding line by construction:
         - Membership in a category is decided by the SHARED lexicon helpers
@@ -4123,7 +4580,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
-            return "you haven't told me about any family or pets yet."
+            if category == "relations":
+                return "you haven't told me about any family yet."
+            elif category == "pets":
+                return "you haven't told me about any pets yet."
+            else:
+                return "you haven't told me about any family or pets yet."
         _facts = (getattr(pf, "facts", {}) or {})
         _rel_bits = []
         _pet_bits = []
@@ -4141,13 +4603,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _v = (getattr(_f, "value", "") or "").strip()
             if not _v:
                 continue
-            if is_relation_attribute(_a):
+            if is_relation_attribute(_a) and category != "pets":
                 _key = _a
                 if _key in _seen_rel:
                     continue
                 _seen_rel.add(_key)
                 _rel_bits.append(f"your {_a} {_v}")
-            elif is_pet_attribute(_a):
+            elif is_pet_attribute(_a) and category != "relations":
                 _sp = base_species(_a)
                 _key = (_sp or _a) + "|" + _v.lower()
                 if _key in _seen_pet:
@@ -4155,7 +4617,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _seen_pet.add(_key)
                 _pet_bits.append(f"your {_sp or _a} is {_v}")
         if not _rel_bits and not _pet_bits:
-            return "you haven't told me about any family or pets yet."
+            if category == "relations":
+                return "you haven't told me about any family yet."
+            elif category == "pets":
+                return "you haven't told me about any pets yet."
+            else:
+                return "you haven't told me about any family or pets yet."
         _bits = _rel_bits + _pet_bits
         if len(_bits) == 1:
             return f"you've told me about: {_bits[0]}."
@@ -4200,6 +4667,69 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"you told me about|what were you|recall what you)\b", _q_low))
             if _is_recall_q:
                 return  # skip; the recall gate reads the store instead
+            # Salient content tokens of the ELICITING utterance. These are the
+            # words that describe what the user was actually talking about — used
+            # both to pick a topic key AND (DEFECT C/D FIX) to require a later
+            # recall query to reference the SAME subject before its stored reply
+            # is echoed. Storing the full token set (not a single last word)
+            # lets retrieval demand genuine topical overlap, killing the
+            # incidental-word collision that produced wrong-topic echoes.
+            # GENERALIZE (round 2026-08-16): the old floor required words
+            # >=4 chars, so a 3-letter (or shorter) salient topic — "sea",
+            # "dog", "art", "sky", "war", "ice" — was never stored as a
+            # reply key. A later "what did you say about the sea" then had
+            # NO exact topic and fell to the GloVe neighbor fallback, which
+            # returned an UNRELATED stored reply (measured this round: the
+            # sea reply was dropped, and "earlier you said something about
+            # the sea" returned the cold reply). Real topics are often short
+            # (everything a person talks about). Lower the floor to >=2 and
+            # keep a small seed ALLOWLIST of genuine short content words so a
+            # 2-3 letter token that is real concept (sea/sky/dog/cat/...) is
+            # stored, while function words (do/be/it/up/so) stay excluded.
+            # The allowlist is seed vocabulary (RAVANA-expandable in
+            # principle, degrades gracefully), not per-topic authored prose.
+            _SHORT_OK = {
+                "sea", "sky", "dog", "cat", "art", "war", "ice", "fog",
+                "sun", "moon", "star", "rain", "snow", "wind", "fire",
+                "love", "hate", "calm", "pain", "joy", "hope", "fear",
+                "code", "data", "mind", "self", "free", "true", "song",
+                "book", "film", "food", "wine", "tea", "city", "town",
+                "bird", "fish", "tree", "wall", "road", "time", "life",
+            }
+            # ADDITION (round 2026-08-17): exclude tail-scaffold words from
+            # being a retrieval key. Keying a reply by the question's LAST
+            # content word produced junk keys ("most", "behind", "would",
+            # "view", "start", "change", "first", "live", "does", "will",
+            # "been", "conversation") that later collided with unrelated recall
+            # queries sharing that tail word (e.g. "what will you remember
+            # most about me" -> a reply keyed under "most" about social
+            # media). These are structural question-tail tokens, not concepts,
+            # so they must never be a key or match. Seed vocabulary (function
+            # words), RAVANA-expandable, NOT authored content.
+            _TAIL_SCAFFOLD = {
+                "most", "behind", "would", "view", "start", "change",
+                "first", "live", "does", "will", "been", "conversation",
+                "good", "really", "something", "anything", "thing",
+                "things", "everything", "nothing", "me", "myself",
+                "yourself", "itself", "them", "they", "us", "one", "way",
+                "else", "rather", "instead", "that", "this", "these",
+                "those", "ever", "even", "also", "too", "back",
+            }
+            _words = [w for w in re.findall(r"[a-z']+", _q_low)
+                      if (len(w) >= 4 or w in _SHORT_OK)
+                      and w not in _TAIL_SCAFFOLD
+                      and w not in (
+                          "about", "think", "feel", "what", "tell",
+                          "like", "love", "hate", "do", "you", "your",
+                          "again", "really", "something", "music",
+                          "earlier", "before", "said", "say", "told",
+                          "tellme", "anything", "mention", "mentioned",
+                          "form", "formed", "opinion", "remember",
+                          "recall", "answer", "answered", "reply",
+                          "replied", "state", "stated", "still",
+                          "wonder", "wondering", "asked", "ask")]
+            if not _words:
+                return
             # Key by the grounded concept for this turn; fall back to the LAST
             # content word of the user query when the subject is a non-content
             # word (hello/how/bye/ravana). Prefer the last content word because in
@@ -4211,62 +4741,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                          "are you alive", "do you have a sense", "hello",
                          "hi ", "how are you", "what do you care")
                 if any(_s in _q_low for _s in _skip):
-                    return
-                # GENERALIZE (round 2026-08-16): the old floor required words
-                # >=4 chars, so a 3-letter (or shorter) salient topic — "sea",
-                # "dog", "art", "sky", "war", "ice" — was never stored as a
-                # reply key. A later "what did you say about the sea" then had
-                # NO exact topic and fell to the GloVe neighbor fallback, which
-                # returned an UNRELATED stored reply (measured this round: the
-                # sea reply was dropped, and "earlier you said something about
-                # the sea" returned the cold reply). Real topics are often short
-                # (everything a person talks about). Lower the floor to >=2 and
-                # keep a small seed ALLOWLIST of genuine short content words so a
-                # 2-3 letter token that is real concept (sea/sky/dog/cat/...) is
-                # stored, while function words (do/be/it/up/so) stay excluded.
-                # The allowlist is seed vocabulary (RAVANA-expandable in
-                # principle, degrades gracefully), not per-topic authored prose.
-                _SHORT_OK = {
-                    "sea", "sky", "dog", "cat", "art", "war", "ice", "fog",
-                    "sun", "moon", "star", "rain", "snow", "wind", "fire",
-                    "love", "hate", "calm", "pain", "joy", "hope", "fear",
-                    "code", "data", "mind", "self", "free", "true", "song",
-                    "book", "film", "food", "wine", "tea", "city", "town",
-                    "bird", "fish", "tree", "wall", "road", "time", "life",
-                }
-                # ADDITION (round 2026-08-17): exclude tail-scaffold words from
-                # being a retrieval key. Keying a reply by the question's LAST
-                # content word produced junk keys ("most", "behind", "would",
-                # "view", "start", "change", "first", "live", "does", "will",
-                # "been", "conversation") that later collided with unrelated recall
-                # queries sharing that tail word (e.g. "what will you remember
-                # most about me" -> a reply keyed under "most" about social
-                # media). These are structural question-tail tokens, not concepts,
-                # so they must never be a key or match. Seed vocabulary (function
-                # words), RAVANA-expandable, NOT authored content.
-                _TAIL_SCAFFOLD = {
-                    "most", "behind", "would", "view", "start", "change",
-                    "first", "live", "does", "will", "been", "conversation",
-                    "good", "really", "something", "anything", "thing",
-                    "things", "everything", "nothing", "me", "myself",
-                    "yourself", "itself", "them", "they", "us", "one", "way",
-                    "else", "rather", "instead", "that", "this", "these",
-                    "those", "ever", "even", "also", "too", "back",
-                }
-                _words = [w for w in re.findall(r"[a-z']+", _q_low)
-                          if (len(w) >= 4 or w in _SHORT_OK)
-                          and w not in _TAIL_SCAFFOLD
-                          and w not in (
-                              "about", "think", "feel", "what", "tell",
-                              "like", "love", "hate", "do", "you", "your",
-                              "again", "really", "something", "music",
-                              "earlier", "before", "said", "say", "told",
-                              "tellme", "anything", "mention", "mentioned",
-                              "form", "formed", "opinion", "remember",
-                              "recall", "answer", "answered", "reply",
-                              "replied", "state", "stated", "still",
-                              "wonder", "wondering", "asked", "ask")]
-                if not _words:
                     return
                 _topic = _words[-1]
             if not _topic or _topic in ("hello", "how", "bye"):
@@ -4289,6 +4763,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "text": _store_text,
                 "turn": int(getattr(self, "turn_count", 0) or 0),
                 "t": time.time(),
+                # DEFECT C/D FIX: the full salient token set of the ELICITING
+                # utterance. Retrieval (see _route_agent_own_recall) requires a
+                # later recall query to share >=2 of these content tokens before
+                # echoing this reply, so incidental shared words (e.g. "people"
+                # appearing in both "are you the same ravana that talks to other
+                # people" and "earlier you said about tracking people") do NOT
+                # trigger a wrong-topic echo. Genuine same-subject recalls
+                # ("you talked about neuromorphic computing" vs src {neuromorphic,
+                # computing}) overlap on 2 and recall correctly.
+                "src_tokens": list(_words),
             }]
             self._own_reply_topic_idx[_topic] = 1
         except Exception:
@@ -4360,9 +4844,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"\b(my|mine|me|i|we|our|myself)\b", _q)
                 and re.search(
                     r"\b(name|named|called|age|live|lives|from|work|study|"
-                    r"studied|grew up|sister|brother|mom|mother|dad|father|"
-                    r"friend|wife|husband|partner|kid|child|son|daughter|pet|"
-                    r"job|house|home|phone|computer|laptop|car|cat|dog)\b", _q)):
+                    r"studied|grew up|sister|brother|mother|father|mom|dad|"
+                    r"family|relative|kin|grandmother|grandfather|grandma|"
+                    r"grandpa|aunt|uncle|cousin|niece|nephew|grandchild|"
+                    r"wife|husband|partner|kid|child|son|daughter|pet|"
+                    r"friend|job|house|home|phone|computer|laptop|car|"
+                    r"cat|dog|crow|bird|fish|petname|pet name)\b", _q)):
             return None
         # Extract the topic: drop recall scaffolding + question words, keep
         # content nouns. Reuse the same stopword philosophy as the existing
@@ -4393,44 +4880,43 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                   if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
         if not _cands:
             return None
-        # Exact topic hit first, then GloVe-neighbor fallback over stored topics.
+        # DEFECT C/D FIX (round 2026-08-19T0625Z): retrieve by TOPICAL OVERLAP
+        # with the stored reply's source utterance, not by substring match of the
+        # query against the stored KEY. The prior code matched query tokens
+        # against key strings (e.g. "people" in key "ravana talks people"), so an
+        # unrelated recall ("earlier you said about tracking people") echoed a
+        # reply that had nothing to do with the topic. Now we score every stored
+        # entry by how many content tokens the query shares with that entry's
+        # src_tokens (the salient words of the utterance that produced the reply),
+        # and only echo when the best overlap is >=2 — i.e. the user is asking
+        # about the SAME subject they raised before. A single incidental shared
+        # word (people/talk/about...) no longer triggers a wrong-topic echo; the
+        # query falls through to honest uncertainty instead. Genuine same-topic
+        # recalls ("you talked about neuromorphic computing" vs src
+        # {neuromorphic, computing}) overlap on 2 and recall correctly. Fully
+        # store-driven; no authored prose; no retraining.
         _store = getattr(self, "_own_replies", {}) or {}
         if not _store:
             return None
-        _topic_hit = None
-        for _c in _cands:
-            if _c in _store:
-                _topic_hit = _c
-                break
-        if _topic_hit is None:
-            # Cheap substring containment (e.g. "data" matches "dataownership").
-            for _c in _cands:
-                for _k in _store:
-                    if _c in _k or _k in _c:
-                        _topic_hit = _k
-                        break
-                if _topic_hit:
-                    break
-        if _topic_hit is None:
-            # REMOVED: unbounded GloVe-neighbor fallback (round 2026-08-17).
-            # It returned the NEAREST-EMBEDDING stored reply whenever no exact/
-            # substring topic matched — a source-monitoring confabulation (e.g.
-            # "what did you say about music?" -> the Brindlehollow reply at
-            # sim 0.699; "you mentioned being unsure whether you understand"
-            # -> the social-media reply at sim 0.751). The recalled reply had NO
-            # real connection to the asked-about topic, so it was a confident
-            # wrong-topic answer. Per the no-fake-depth rule and the
-            # source-monitoring doctrine, an honest "i don't have that stored"
-            # beats a confident wrong-topic reply. Retrieval is now anchored ONLY
-            # to a word the user actually typed (exact or substring containment),
-            # both of which are content-anchored. If the asked-about topic was
-            # never stored, we fall through to honest uncertainty below.
+        _q_set = set(_cands)
+        _best = None
+        _best_overlap = 0
+        for _k, _entries in _store.items():
+            if not _entries:
+                continue
+            _e = _entries[-1]
+            if not isinstance(_e, dict):
+                continue
+            _src = set(_e.get("src_tokens", []) or [])
+            if not _src:
+                continue
+            _ov = len(_q_set & _src)
+            if _ov > _best_overlap:
+                _best_overlap = _ov
+                _best = _e
+        if _best is None or _best_overlap < 2:
             return None
-        _entries = _store.get(_topic_hit) or []
-        if not _entries:
-            return None
-        _latest = _entries[-1]
-        _text = (_latest.get("text") if isinstance(_latest, dict) else None) or ""
+        _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()
         if not _text:
             return None
@@ -6581,6 +7067,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction side-effects and runs later with the real subject).
         self.user_model.mine_personal_facts(user_input)
 
+        # Round 2026-08-19T0625Z limitation #2: a revisit query ("do you still
+        # feel that way about X?" / "have you changed your mind about X?") must be
+        # answered from RAVANA's RECORDED own stance, not recomputed fresh nor
+        # echoed. Check this BEFORE the opinion/identity gates so a recorded
+        # stance takes precedence over a re-derived provisional one.
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
+
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""
             if is_identity_query:
@@ -8540,15 +9039,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # values RAVANA forms/revises at runtime SURVIVE reload — the
                 # "can change this by itself through experience" guarantee.
                 'agent_values': dict(getattr(self, '_agent_values', {}) or {}),
-                # Agent Self-Stance Formation & Recall (round 2026-08-11T1328Z):
-                # RAVANA's OWN derived stances on topics it has discussed with
-                # the user. Persisted so the agent REMEMBERS its own formed
-                # opinions across sessions (genuine personality continuity) — a
-                # self-opinion question ("what's your read on X") recalls a real
-                # stance it derived from the conversation, instead of recomputing
-                # a hollow transient answer each boot. topic -> (topic, polarity,
-                # confidence, valence, arousal, turn_number, rehearsal_count).
-                'agent_stances': self._serialize_agent_stances(self),
+                # RAVANA's own RECORDED stances (round 2026-08-19T0625Z): the
+                # opinions it has expressed about topics it was asked, so a
+                # later "do you still feel that way about X?" is answered from a
+                # real recorded stance across sessions. Persisted because a
+                # reload that wiped this would make the agent "forget" its own
+                # prior opinions (limitation #2).
+                'agent_own_stances': dict(getattr(self, '_agent_own_stances', {}) or {}),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -8868,33 +9365,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._agent_values = _seed
             except Exception:
                 pass
-            # Agent Self-Stance Formation & Recall (round 2026-08-11T1328Z):
-            # restore RAVANA's OWN derived stances so it remembers opinions it
-            # formed from conversation across sessions. Guarded like the other
-            # self-model stores: a bad shape must not wipe the store or break
-            # boot. Each entry is rehydrated into a Stance (the same type as the
-            # user's opinion store) so the resolver can read polarity/confidence
-            # directly. Junk keys (the _JUNK class) are rejected so a corrupted
-            # save can never replay a hollow stance.
+            # Restore RAVANA's own RECORDED stances (round 2026-08-19T0625Z).
+            # Guarded so a bad shape never wipes the store or breaks boot.
             try:
-                _as = state.get('agent_stances', {})
-                _JUNK = {"all", "really", "it", "that", "things", "right",
-                         "way", "matter", "thing", "point",
-                         "idea", "question", "stuff", "something",
-                         "anything", "everything", "issue", "topic",
-                         "yes", "no", "maybe", "ok", "okay"}
-                _restored: Dict[str, Any] = {}
-                if isinstance(_as, dict):
-                    for _k, _v in _as.items():
-                        if not (isinstance(_k, str) and _k.strip()
-                                and _k.strip().lower() not in _JUNK):
+                _aos = state.get('agent_own_stances', {})
+                if isinstance(_aos, dict):
+                    _restored = {}
+                    for _k, _v in _aos.items():
+                        if not isinstance(_k, str):
                             continue
-                        _st = self._agent_stance_from_tuple(_k, _v)
-                        if _st is not None:
-                            _restored[_k.strip().lower()] = _st
-                self._agent_stances = _restored
+                        # Accept (word, conf, reason, turn) only; drop bad rows.
+                        if (isinstance(_v, (list, tuple)) and len(_v) == 4
+                                and isinstance(_v[0], str)
+                                and isinstance(_v[1], (int, float))):
+                            _restored[_k.lower().strip()] = (str(_v[0]), float(_v[1]),
+                                                             str(_v[2]), int(_v[3]))
+                    self._agent_own_stances = _restored
             except Exception:
-                self._agent_stances = {}
+                pass
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
             # LingGen P6: restore the learned promotion flag (not a runtime config

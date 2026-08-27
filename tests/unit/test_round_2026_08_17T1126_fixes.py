@@ -82,15 +82,31 @@ def test_reverse_name_resolver_pet_does_path():
     assert "pet parrot" in r, r
 
 
-def test_miner_stores_named_relationship_lowercase_name():
-    # D7 miner regression (feature t_1a4a3938): the old regex required the
-    # disclosed Name to be CAPITALIZED, so a lowercase chat name ("indira") never
-    # matched -> the fact was never stored -> open-ended recall had nothing to
-    # recall. The token-based fix finds the activity verb by membership, so the
-    # named-relationship fact is stored regardless of name casing.
-    caps = _capture("my grandmother indira bakes sourdough bread every sunday")
-    assert ("i", "grandmother indira") in caps, caps
-    assert "bakes sourdough bread" in caps[("i", "grandmother indira")], caps
+def test_miner_stores_nonkin_role_with_irregular_verb():
+    # Round 2026-08-17T1730Z: the named-relationship miner previously only
+    # accepted blood-kin heads and activity verbs from a narrow inflection set,
+    # so "my mentor Dr. Okonkwo taught me..." (mentor is not kin; "taught" is
+    # an irregular verb) was DROPPED and a later "who is my mentor?" had nothing
+    # to recall. The miner now accepts any relationship head (kin / non-kin
+    # ROLE lexicon / runtime-learned via learn_relation) and recognizes
+    # irregular activity verbs, so the fact is stored and recallable.
+    caps = _capture("my mentor Dr. Okonkwo taught me astronomy when i was a teenager")
+    assert ("i", "mentor dr. okonkwo") in caps, caps
+    assert "taught astronomy" in caps[("i", "mentor dr. okonkwo")], caps
+
+
+def test_open_ended_recall_nonkin_role():
+    # The shared relationship vocabulary grows from the live disclosure
+    # (learn_relation), so the open-ended recaller (engine.py 1c/1d) resolves
+    # a NON-kin role ("my mentor") without a per-role branch. Content read
+    # from the live store; no authored reply.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_1730z_role_recall")
+    eng.process_turn("my mentor Dr. Okonkwo taught me astronomy when i was a teenager")
+    assert "your mentor dr. okonkwo taught astronomy" in \
+        eng._structured_recall("who is my mentor?"), "non-kin role recall failed"
+    assert "your mentor dr. okonkwo taught astronomy" in \
+        eng._structured_recall("tell me about my mentor"), "open 'tell me about' role failed"
 
 
 def test_open_ended_relationship_recall():
@@ -141,4 +157,147 @@ def test_open_ended_recall_includes_pet_path():
     # declarative disclosure is left to fact-mining, not echoed
     assert eng._structured_recall("my cat is pixel") is None, \
         "declarative pet disclosure must not be hijacked"
+
+
+def test_garbage_does_facts_rejected():
+    # Round 2026-08-17T1730Z: vague first-person disclosures were mined as
+    # junk `does`/`event` facts (phrasal/aspectual verb residue, bare
+    # timeframes, generic nouns) and later echoed in "what have you learned
+    # about me" dumps. The shared _opinion_topic content-adequacy gate rejects
+    # objects that resolve to ONLY non-content words, while real activities
+    # (which always contain a content noun) survive.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    for s in [
+        "i read that sumo has this whole ritual side i never appreciated.",
+        "i keep coming back to tidal energy, i really believe in it.",
+        "i started keeping a vinyl record collection, mostly jazz.",
+        "i got burned by an open source project last year.",
+        "i went last night and my ears are ringing.",
+        "i found out a project i cared about got cancelled.",
+    ]:
+        um.mine_personal_facts(s, run_correction=True)
+    junk = {
+        f.value for (a, b, c), f in um.personal_facts.facts.items()
+        if b in ("does", "event") and not getattr(f, "superseded", False)
+    }
+    # the aspectual/particle/timeframe/generic residues must be gone
+    for bad in ("keep coming back", "started keeping", "got burned",
+                "went last night", "found project", "read sumo has"):
+        assert bad not in {j.lower() for j in junk}, f"junk fact stored: {junk}"
+
+
+def test_real_activity_still_captured_after_gate():
+    # The content-adequacy gate must NOT swallow genuine activities that
+    # contain a real content noun.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    um.mine_personal_facts("i build bicycle frames by hand.", run_correction=True)
+    caps = {
+        f.value for (a, b, c), f in um.personal_facts.facts.items()
+        if b == "does" and not getattr(f, "superseded", False)
+    }
+    assert any("build" in c and "frame" in c for c in caps), f"real activity lost: {caps}"
+    um2 = UserModel()
+    um2.personal_facts.facts.clear()
+    um2.mine_personal_facts("i keep homing pigeons.", run_correction=True)
+    caps2 = {
+        f.value for (a, b, c), f in um2.personal_facts.facts.items()
+        if b == "does" and not getattr(f, "superseded", False)
+    }
+    assert any("pigeon" in c for c in caps2), f"real activity lost: {caps2}"
+
+
+def test_appositive_pet_mined_and_recalled():
+    # Round 2026-08-17T1730Z (6f generalization): the pet miner only stored
+    # names via an EXPLICIT "named"/"called" keyword, so the appositive form
+    # ("my pet raccoon Pip steals...", "my cat Mochi sleeps", "i have a dog Rex
+    # barks") was DROPPED, and a later "who is Pip to me?" had nothing to recall
+    # (measured T49 in the 58-turn chat -> identity blurb). Now the appositive
+    # form is mined through the SAME shared pet_slots path (slot_for /
+    # learn_species) the "named"/"called" branch and the recaller use, so the
+    # miner and the reverse-name resolver agree on the key by construction.
+    # Generic across every species; species grown at runtime (raccoon/axolotl
+    # not in the seed table); name is a Capitalized proper noun.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_appos_pet")
+    eng.process_turn("my pet raccoon Pip steals every shiny thing he can find, it's chaos.")
+    assert ("i", "raccoon") in {
+        (k[0], k[1]) for k, f in eng.user_model.personal_facts.facts.items()
+        if isinstance(k, tuple) and len(k) == 3
+        and not getattr(f, "superseded", False)
+    }, "appositive pet not mined"
+    assert "your raccoon is pip." in eng._structured_recall("who is Pip to me?"), \
+        "reverse-name recall of appositive pet failed"
+
+
+def test_appositive_pet_no_false_positive_on_common_nouns():
+    # A Capitalized name is required; common-noun objects ("my pet rock
+    # collection", "i have a question") must NOT be stored as pets, and a
+    # lowercased trailing word ("my dog likes the park", "my cat is mochi")
+    # is not a proper-noun name so it is not captured by this branch.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    for s in ["my pet rock collection is huge.",
+              "i have a question about the router.",
+              "my dog likes the park."]:
+        um.mine_personal_facts(s, run_correction=True)
+    pet_attrs = {k[1] for k, f in um.personal_facts.facts.items()
+                 if isinstance(k, tuple) and len(k) == 3 and k[0] == "i"
+                 and k[1] in ("rock", "question", "park", "pet", "dog")}
+    assert pet_attrs == set(), f"false-positive pet storage: {pet_attrs}"
+
+
+def test_role_word_not_misstored_as_pet_species():
+    # Round 2026-08-17T1730Z feature (handoff limitation #2): a non-kin ROLE
+    # disclosure "my mentor Dr. Okonkwo taught me astronomy" was matched by the
+    # appositive-pet miner (which runs BEFORE the role miner) as
+    # <species=mentor> <ProperNoun=Dr.>, producing a BOGUS fact
+    # ('i','mentor','dr') that truncated recall to "your mentor is dr." and
+    # doubled the open-ended output. Root cause: "mentor" (a non-kin role) was
+    # only known to the role miner's LOCAL word list, not to relation_of(), so
+    # the pet miner's relation_of() guard could not reject it. The role words
+    # now live in the SHARED relation_attrs seed (single source of truth), so
+    # the pet miner rejects the role word and NO bogus pet/species fact is
+    # created — the ONLY stored mentor fact is the correct combined-attr one.
+    um = UserModel()
+    um.personal_facts.facts.clear()
+    um.mine_personal_facts(
+        "my mentor Dr. Okonkwo taught me astronomy when i was a teenager",
+        run_correction=True)
+    stored = {
+        (k[0], k[1], f.value)
+        for k, f in um.personal_facts.facts.items()
+        if isinstance(k, tuple) and len(k) == 3 and not getattr(f, "superseded", False)
+    }
+    # the bogus pet/species fact must NOT exist
+    assert ("i", "mentor", "dr") not in stored, f"bogus mentor pet fact stored: {stored}"
+    # exactly the correct combined-attr fact must be present
+    assert ("i", "mentor dr. okonkwo", "taught astronomy") in stored, \
+        f"correct mentor fact missing: {stored}"
+
+
+def test_combined_attr_role_recall_full_name_and_activity():
+    # The same handoff limitation: an OPEN combined-attr query ("who is my
+    # mentor and what did they teach?") must render the FULL relationship label
+    # (name + activity) and must NOT truncate to "your mentor is dr." (the
+    # symptom of the bogus pet fact) nor emit a doubled answer. Content comes
+    # entirely from the single correct stored fact.
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="test_role_combattr_recall")
+    eng.process_turn("my mentor Dr. Okonkwo taught me astronomy when i was a teenager")
+    for q in ("who is my mentor?",
+              "tell me about my mentor",
+              "what does my mentor do?",
+              "who is my mentor and what did they teach?",
+              "who is my mentor and what did they teach me?"):
+        r = eng._structured_recall(q)
+        assert r is not None, f"recall returned None for {q!r}"
+        assert "dr. okonkwo" in r, f"name dropped in {q!r} -> {r!r}"
+        assert "taught astronomy" in r, f"activity dropped in {q!r} -> {r!r}"
+        assert "your mentor is dr" not in r.replace(".", " "), \
+            f"truncated 'your mentor is dr' in {q!r} -> {r!r}"
+        # no doubled output (two 'your mentor' clauses in one reply)
+        assert r.count("your mentor") == 1, f"doubled output in {q!r} -> {r!r}"
+
 

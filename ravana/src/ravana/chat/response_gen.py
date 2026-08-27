@@ -4019,23 +4019,44 @@ class ResponseGenMixin(ChainWalkerMixin):
             elif subject in getattr(self, "_concept_sources", {}):
                 has_verified_fact = True
             else:
-                subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
-                if subj_vec is None:
-                    # No embedding to judge by: weak grounding from graph presence.
-                    has_verified_fact = (
-                        subject in getattr(self, "_concept_keywords", {})
-                        or subject in getattr(self, "_concept_labels", {})
-                    )
+                # D4 (round 2026-08-19T1026Z): an UNKNOWN subject — not in the
+                # concept graph, no definition, no web-learned source — must NOT
+                # be grounded by free-association similarity alone. The SM path's
+                # associated_concepts are often the QUERY'S OWN near-neighbours
+                # (e.g. "tired" -> 'ever','lot','really'), all of which pass the
+                # >=0.30 GloVe check, so the old code accepted pure free-decode
+                # word salad for a subject RAVANA knows nothing durable about.
+                # Mirror the brain's source-monitoring (Johnson 1993) and the
+                # decomposition path's own D2 guard (_decomp_grounded): loose
+                # association may only LEAN on spreading activation for concepts
+                # that are ALREADY in the concept graph (a known concept RAVANA
+                # has actually learned). An unknown subject has no source for a
+                # claim, so it is withheld → honest metacognitive uncertainty.
+                # This is seed vocabulary (the concept-graph membership test),
+                # not authored content; RAVANA grows the graph online from chat
+                # and web learning, so a concept it later learns IS re-admitted.
+                _known = (
+                    subject in getattr(self, "_concept_keywords", {})
+                    or subject in getattr(self, "_concept_labels", {})
+                )
+                if not _known:
+                    has_verified_fact = False
                 else:
-                    best = -1.0
-                    for label, _score in (ctx.associated_concepts or [])[:12]:
-                        v = self._glove_vector(label)
-                        if v is None:
-                            continue
-                        sim = float(np.dot(subj_vec, v))
-                        if sim > best:
-                            best = sim
-                    has_verified_fact = best >= 0.30
+                    subj_vec = self._glove_vector(subject) if hasattr(self, "_glove_vector") else None
+                    if subj_vec is None:
+                        # No embedding to judge by: graph presence already
+                        # confirmed above → weak grounding holds.
+                        has_verified_fact = True
+                    else:
+                        best = -1.0
+                        for label, _score in (ctx.associated_concepts or [])[:12]:
+                            v = self._glove_vector(label)
+                            if v is None:
+                                continue
+                            sim = float(np.dot(subj_vec, v))
+                            if sim > best:
+                                best = sim
+                        has_verified_fact = best >= 0.30
 
         if not has_verified_fact:
             # Nothing verified to anchor the utterance to → ungrounded.
@@ -4376,10 +4397,27 @@ class ResponseGenMixin(ChainWalkerMixin):
         # guard so "tell me about someone who died" (third-entity, not the
         # user's own loss) does not fire. The noun is capped at 2 words so
         # "my dear old dog" still resolves to the entity.
-        _self_possessive_loss = bool(re.search(
-            r"\b(my|our)\s+\w*(?:\s+\w+)?\s+"
-            r"(died|dies|death|dead|passed|lost|losing|grief|grieving|"
-            r"mourn|mourning|suicide|funeral)\b", text))
+        # GENERALIZE (round 2026-08-19T1026Z): the self-possessive loss
+        # detector only matched the NOUN-FIRST shape "my <noun> <loss-term>"
+        # (my dog died). The VERB-FIRST shape "<loss-term> my <noun>"
+        # (i lost my grandmother) did NOT match, so a genuine bereavement
+        # routed to the generic "feeling lost is hard" frame (T15 this round:
+        # "i lost my grandmother" -> "feeling lost is hard"). The loss-term
+        # "lost" was treated as a felt-state word, not a possession-loss event.
+        # Fix: cover BOTH word orders with one alternation; the entity is the
+        # self-possessive noun in either case. No per-relation word list — any
+        # "my|our <noun>" co-occurring with a loss-term is bereavement, which is
+        # the broad class the original generalization intended.
+        _LOSS_VERB = (r"(?:died|dies|death|dead|passed|lost|losing|grief|"
+                      r"grieving|mourn|mourning|suicide|funeral)")
+        # Capture the self-possessive ENTITY in BOTH word orders so the
+        # extractor below reads one clean group. noun-first: g2; verb-first: g4.
+        _poss_loss_pat = re.compile(
+            r"\b(?:"
+            r"(my|our)\s+(\w+(?:\s+\w+)?)\s+" + _LOSS_VERB + r"|"
+            r"\b" + _LOSS_VERB + r"\s+(my|our)\s+(\w+(?:\s+\w+)?)"
+            r")\b")
+        _self_possessive_loss = bool(_poss_loss_pat.search(text))
         if any(t in text for t in _LOSS_TERMS):
             if _has_narrative_frame and not _self_possessive_loss:
                 # Loss word lives in a story/request frame, not a self-disclosure.
@@ -4399,15 +4437,36 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # "hurting". The hippocampus retrieves the specific relationship;
                 # a human never uses one word for every loss. Encode as
                 # "loss:<entity>" so _emotional_response can specialize.
-                _ent_m = re.search(
-                    r"\b(?:my|our)\s+(\w+(?:\s+\w+)?)\s+"
-                    r"(?:died|dies|death|dead|passed|lost|losing|grief|"
-                    r"grieving|mourn|mourning|suicide|funeral)\b", text)
+                # Matches BOTH word orders (noun-first AND verb-first) so the
+                # entity is captured whichever shape the disclosure takes.
+                _ent_m = _poss_loss_pat.search(text)
                 _lost = ""
                 if _ent_m:
-                    _lost = _ent_m.group(1).strip()
-                    # drop a leading possessive/filler ("dear old dog" -> keep dog)
+                    # verb-first branch captured entity in group(4);
+                    # noun-first branch captured entity in group(2).
+                    _vf = _ent_m.group(4)
+                    if _vf:
+                        _lost = _vf.strip()
+                    else:
+                        _nf = _ent_m.group(2)
+                        if _nf:
+                            _lost = _nf.strip()
+                    # Drop leading/trailing filler (possessive or temporal
+                    # adjectives) so the named entity is the head noun, not a
+                    # bleeding word from the rest of the clause. "my grandmother
+                    # last" (from "last spring") -> "grandmother"; "my dear old
+                    # dog" -> "dog". The filler set is a small seed vocabulary
+                    # (not a per-entity table); removing one entry only loses
+                    # that one shape.
+                    _FILLER = {"dear", "old", "little", "late", "beloved",
+                               "last", "past", "this", "that", "next",
+                               "former", "poor", "sweet", "young", "big",
+                               "small", "our", "my"}
                     _lw = _lost.split()
+                    while len(_lw) > 1 and _lw[0].lower() in _FILLER:
+                        _lw = _lw[1:]
+                    while len(_lw) > 1 and _lw[-1].lower() in _FILLER:
+                        _lw = _lw[:-1]
                     if _lw:
                         _lost = _lw[-1]
                 return ("negative", f"loss:{_lost}" if _lost else "hurting")
@@ -4959,6 +5018,20 @@ class ResponseGenMixin(ChainWalkerMixin):
             # (mixed affect), acknowledge BOTH honestly instead of collapsing to
             # one positive gloss.
             _pos_word = affect_term or val_word
+            # R5 (round 2026-08-18T0937Z): the felt-word extractor can surface a
+            # HEDGE word as the "affect term" (e.g. "he's got like forty" ->
+            # "like", "got kind of hooked" -> "kind"), producing the dangling
+            # close "what's got you feeling like?" / "feeling kind?" (measured
+            # U3/U22). A hedge is not a felt state. If the resolved word is a
+            # hedge/non-affect term, do NOT splice it into the close — fall to
+            # the neutral open question instead. Seed stoplist (data), not
+            # authored prose; generalizes to any hedge the extractor mis-captures.
+            _HEDGE = {"like", "kind", "sort", "thing", "way", "bit", "lot",
+                      "something", "anything", "really", "quite", "very",
+                      "little", "some", "such"}
+            if not _pos_word or _pos_word in _HEDGE:
+                return ("i'm glad something came up for you. what's got you "
+                        "feeling good about it?", "emotional_empathy")
             _signed = getattr(self, "_tmp_signed", None) or {}
             _neg_word = _signed.get("neg")
             if _neg_word and _neg_word[1] not in (None, _pos_word):
@@ -6038,6 +6111,29 @@ class ResponseGenMixin(ChainWalkerMixin):
             "been", "being", "do", "does", "did", "have", "has", "had",
             "you", "your", "i", "my", "me", "we", "they", "he", "she",
         }
+        # R4 (round 2026-08-18T0937Z): subject extraction can also resolve to a
+        # MULTI-TOKEN NOUN PHRASE scraped from the whole user utterance
+        # ("microplastics time fish", "permian extinction wiped", "came back")
+        # instead of the single concept being asked about, producing garble
+        # like "i don't really have a solid grasp on microplastics time fish
+        # so far" (measured this round, U25/U49/U59). Reduce a multi-token
+        # subject to its single most salient CONTENT word — drop closed-class
+        # and query-stopword tokens; if nothing meaningful remains, fall back to
+        # "that". This is structural (token filtering), not a per-topic guard,
+        # and generalizes to any garbled multi-word subject.
+        _STOP_MULTI = _CLOSED | {
+            "time", "fish", "back", "wiped", "extinction", "wreck", "act",
+            "looks", "magic", "molten", "sand", "shape", "kinda", "feel",
+            "small", "worries", "makes", "our", "read", "saw", "spent",
+            "whole", "childhood", "thing", "things", "year", "years",
+        }
+        _mtoks = [w for w in re.findall(r"[a-z']+", subj_cap.lower())
+                  if w not in _STOP_MULTI and len(w) >= 3]
+        if _mtoks:
+            # Prefer the longest remaining content word (most specific concept).
+            subj_cap = max(_mtoks, key=len)
+        elif " " in (subject or ""):
+            subj_cap = "that"
         if subj_cap.lower().strip(" .,!?") in _CLOSED:
             subj_cap = "that"
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
@@ -6258,6 +6354,40 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         related.sort(key=lambda x: -x[1])
         top = [l for l, _ in related[:2]]
+
+        # GUARD (round 2026-08-17T1730Z): the metacognitive-ignorance openers
+        # splice the strongest related association as `{rel}` into a hedge
+        # frame ("that reminds me of {rel} — ..."). When the top association
+        # resolves to a NON-CONTENT filler word — a discourse marker, pronoun,
+        # or generic qualifier that survived the coherence gate only by virtue
+        # of being co-activated with the subject — the opener reads as
+        # confabulation ("that reminds me of really ... and lot what's your
+        # take on it?"). A human being asked about their own mind does not
+        # answer with a nonsense association; they admit the gap. Fail CLOSED
+        # to None (honest "i don't know yet") so the caller falls through to a
+        # cleaner uncertainty path rather than emitting garbled filler. This is
+        # a structural content gate (closed-class seed set), NOT authored
+        # prose and NOT a per-topic table; removing an entry only changes
+        # which low-value associations are suppressed. No retraining.
+        _NON_CONTENT_ASSOC = {
+            "really", "lot", "lots", "bit", "thing", "things", "way", "ways",
+            "kind", "kinds", "sort", "sorts", "type", "types", "stuff",
+            "something", "anything", "nothing", "everything", "somewhat",
+            "quite", "rather", "mostly", "mostly", "actually", "basically",
+            "generally", "usually", "often", "sometimes", "maybe", "perhaps",
+            "probably", "possibly", "definitely", "certainly", "truly",
+            "simply", "just", "even", "also", "too", "very", "more", "most",
+            "much", "many", "such", "like", "liking", "feel", "feels",
+            "feeling", "think", "thinks", "thought", "know", "knows",
+            "mean", "means", "sense", "idea", "ideas", "notion", "concept",
+            "concepts", "word", "words", "term", "terms", "part", "parts",
+            "piece", "pieces", "amount", "number", "level", "point", "points",
+            "good", "bad", "big", "small", "large", "little", "high", "low",
+            "new", "old", "own", "same", "other", "another", "different",
+        }
+        if top and all(
+                (t.lower().strip(".,!?") in _NON_CONTENT_ASSOC) for t in top):
+            return None
 
         # ── P3: source the hedged answer with KB / retrieved evidence ──
         # Instead of an empty "I don't have a definition but it's tied to X",

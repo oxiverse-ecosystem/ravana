@@ -134,25 +134,32 @@ def test_offtopic_web_junk_namedropping_subject_is_ungrounded():
     assert eng._sm_response_grounded(ctx, garbage) is False
 
 
-# ── 8. A coherent factual answer about the subject PASSES the gate ───────────
+# ── 8. A coherent factual answer about a KNOWN subject PASSES the gate ───────
+# 'gravity' has a seeded definition (durable knowledge), so it is a subject
+# RAVANA actually knows and may ground a free-decode reply to. (An UNKNOWN
+# subject like 'pluto' is withheld by D4's source-monitoring guard below —
+# that is the corrected, brain-faithful behavior, not a regression.)
 def test_coherent_factual_answer_passes():
     eng = _build_engine()
-    text = ("pluto is a dwarf planet in the kuiper belt, and it orbits the "
-            "sun far beyond neptune")
-    ctx = _ctx("pluto", ["planet", "moon", "dwarf"], "is pluto a planet?")
+    assert "gravity" in getattr(eng, "_definitions", {})
+    text = ("gravity is a force that pulls objects toward each other and it "
+            "shapes the motion of planets near the earth")
+    ctx = _ctx("gravity", ["force", "earth", "mass", "planets"], "what is gravity?")
     assert eng._sm_response_grounded(ctx, text) is True
 
 
-# ── 9. Junk-token laden reply that is STILL topically about the subject
+# ── 9. Junk-token laden reply that is STILL topically about a KNOWN subject
 # passes the coherence gate (UI-residue sanitization is the learner's job via
 # _sanitize_definition_text, not this monitor). We assert the gate does NOT
-# wrongly withhold a reply that is genuinely on-topic with pluto. ────────────
+# wrongly withhold a reply that is genuinely on-topic with 'gravity' (a KNOWN
+# subject with a seeded definition). ────────────────────────────────────────
 def test_junk_token_reply_still_topically_coherent_passes():
     eng = _build_engine()
-    text = ("pluto add to word list collocation powered by britannica.com is a "
-            "planet near neptune")
-    ctx = _ctx("pluto", ["planet", "neptune"], "what is pluto?")
-    # "planet near neptune" are real anchors → the reply IS about pluto; the
+    assert "gravity" in getattr(eng, "_definitions", {})
+    text = ("gravity add to word list collocation powered by britannica.com is a "
+            "force near the earth")
+    ctx = _ctx("gravity", ["force", "earth"], "what is gravity?")
+    # "force near earth" are real anchors → the reply IS about gravity; the
     # coherence gate must not over-reject it. (UI-chrome stripping is handled
     # upstream by the web learner, not this monitor.)
     assert eng._sm_response_grounded(ctx, text) is True

@@ -50,14 +50,27 @@ _CORRECTION_FACT_PATTERNS = [
 # correct; removing entries degrades gracefully (one fewer verb-form recognized
 # for grammar). NOT a per-topic reply dictionary and NOT authored prose.
 _ACTIVITY_VERB_LEXICON = {
-    "run", "own", "operate", "play", "teach", "study", "manage", "drive",
-    "build", "make", "sell", "restore", "grow", "watch", "raise", "tend",
-    "brew", "bake", "write", "read", "learn", "practice", "collect", "fix",
+    "run", "own", "operate", "play", "teach", "taught", "study", "manage", "drive",
+    "build", "built", "make", "made", "sell", "restore", "grow", "grew", "watch", "raise", "tend",
+    "brew", "bake", "write", "wrote", "read", "learn", "learned", "learnt", "practice", "collect", "fix",
     "paint", "code", "design", "craft", "volunteer", "cook", "fish", "hike",
-    "garden", "farm", "lead", "organize", "keep", "grind", "race", "sail",
+    "garden", "farm", "lead", "organize", "keep", "kept", "grind", "race", "sail",
     "knit", "sew", "weld", "forge", "carve", "compose", "record",
     "perform", "coach", "train", "compete", "spin", "weave", "mount",
-    "trade", "host", "guide", "climb", "repair", "work",
+    "trade", "host", "guide", "climb", "repair", "work", "draw", "drew",
+    # Round 2026-08-19T1026Z: broaden the seed verb vocabulary with common
+    # activity verbs the relationship/pet miner needs to split name/verb/object.
+    # Previously absent, so disclosures using them ("my sister Pora SENDS
+    # postcards", "my cat Mochi KNOCKS the vase", "my grandmother LEFT me a
+    # compass", "my aunt NAMED the gull Greywing", "the steppe PASSES through
+    # her letters") were dropped or had the whole clause merged into the name
+    # (measured T33/T58/T68 this round). Seed data, RAVANA-expandable; adding
+    # a verb only widens recognition, never reply content.
+    "send", "sent", "knock", "knocked", "give", "gave", "given", "leave",
+    "left", "name", "named", "pass", "passed", "passes", "bring", "brought",
+    "show", "showed", "told", "say", "said", "call", "called", "visit",
+    "visited", "help", "helped", "love", "loved", "like", "hate", "hated",
+    "feed", "fed", "walk", "walked", "care", "cared", "protect", "protected",
 }
 
 
@@ -443,6 +456,30 @@ _FRAMER_SKIP = (
     "certainly|definitely|rather|instead|"
 )
 
+# Non-content object heads: an activity/event object that resolves to ONLY
+# these words is not a real thing RAVANA learned (it is an aspectual/particle
+# verb residue, a bare timeframe, or a generic noun) and must not be stored as
+# a `does`/`event` fact. Seed vocabulary (RAVANA-expandable): removing an entry
+# only re-admits one low-value object shape. Used by the shared
+# _opinion_topic gate so both the activity and event miners reject junk via
+# the same chokepoint (rule 6g — extend existing logic, not per-verb branches).
+_OBJ_NONCONTENT = frozenset({
+    # aspectual / particle verb residues
+    "coming", "going", "keep", "keeping", "got", "went", "start", "started",
+    "starting", "found", "read", "said", "cared", "burned", "burning",
+    "ringing", "took", "taking", "made", "making", "did", "done",
+    # particles / framers
+    "out", "back", "up", "down", "off", "on", "in", "away", "over", "really",
+    "just", "only", "also", "even", "still", "already",
+    # bare timeframes
+    "last", "tonight", "yesterday", "today", "tomorrow", "now", "then",
+    "here", "there", "morning", "evening", "night", "day",
+    # generic nouns with no recallable content
+    "project", "projects", "thing", "things", "stuff", "lot", "lots",
+    "side", "way", "ways", "part", "bit", "it",
+})
+
+
 # Words that may LEAK into the captured OBJECT as a trailing framer
 # ("how many quail do i keep now" -> object "now"). Stripped from the resolved
 # object head so 'does'/'event' facts store a real concept, never a framer.
@@ -653,8 +690,25 @@ _SOFTENING_CUES = (
 # fail to match the spoken words.
 _CONJOINED_PET_PAT = (
     r"\bi\s+have\s+(?:\d+\s+|(?:a|an|the|some|several|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
-    r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w\'-]+\s+(?:named|called)\s+[\w\'-]+"
+    r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w'-]+\s+(?:named|called)\s+[\w'-]+"
     r"\s*(?:,?\s*(?:and|&|,)\s*(?:a|an|the)?\s*)?)+)"
+)
+# Appositive pet disclosure (round 2026-08-17T1730Z, 6f generalization): a
+# species immediately followed by a Capitalized proper-noun NAME, with NO
+# "named"/"called" keyword. Two realizations of the SAME class:
+#   "my [pet] <species> <Name>"     e.g. "my pet raccoon Pip steals..."
+#   "i have a/an/the [pet]? <species> <Name>"  e.g. "i have a dog Rex barks"
+# The name group is Capitalized, so common-noun objects ("my pet rock
+# collection", "i have a question") never match. Species resolves through the
+# SAME pet_slots path (species_of / learn_species / slot_for) the "named"/
+# "called" branch and the recaller already use, so miner + recall agree on the
+# key by construction. Generic across EVERY species (no per-animal table);
+# species grown at runtime; no authored reply; no retraining. Handled in the
+# pet-mining block (object-identity check == _APPOSITIVE_PET_PAT).
+_APPOSITIVE_PET_PAT = (
+    r"\b(?:my\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+)"
+    r"|i\s+have\s+(?:a|an|the)\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+))\b"
+    r"(?=[\s,.;!?]|$)"
 )
 @dataclass
 class UserModel:
@@ -1175,7 +1229,7 @@ class UserModel:
             # prepositions, reject it (no content to store).
             _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
                      "of", "by", "for", "about", "into", "onto", "over",
-                     "under", "near", "behind", "beside", "off")
+                     "under", "near", "behind", "beside", "off", "out")
             _vwords = _val.split()
             if _vwords and _vwords[-1] in _PREP:
                 # drop trailing prepositions and any words following the first
@@ -1259,7 +1313,7 @@ class UserModel:
                 return
             _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
                      "of", "by", "for", "about", "into", "onto", "over",
-                     "under", "near", "behind", "beside", "off")
+                     "under", "near", "behind", "beside", "off", "out")
             _vwords = _val.split()
             if _vwords and _vwords[-1] in _PREP:
                 _cut = len(_vwords)
@@ -1399,6 +1453,17 @@ class UserModel:
         elif m_loc:
             _loc = m_loc.group(1).strip().strip(" .,!")
             _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            # DEFECT B FIX (round 2026-08-19T0625Z): a location clause with a
+            # trailing relative clause ("i live in a small coastal town called
+            # greyport where the fog comes in thick most mornings") was captured
+            # whole; the prior trims only cut at comma/period/measure words, so
+            # the relative clause led by "where/that/which" survived and the
+            # stored value became "greyport where the". A toponym must not
+            # include a relative clause — strip any trailing "where/that/which
+            # <...>" so the real place head is stored. Generic: cuts at a
+            # closed-class relative pronoun, never invents a place; degrades
+            # gracefully if nothing remains.
+            _loc = re.split(r"\s+(?:where|that|which)\b", _loc)[0].strip()
             # FIX (round v-aug06c): a location clause like "a small apartment
             # near the river in porto" caps the 5-word capture at "a small
             # apartment near the" and silently drops the real toponym "porto".
@@ -1410,13 +1475,19 @@ class UserModel:
             # e.g. "a converted mill in a valley called ashcombe" where the
             # named-toponym lexicon missed the feature word — prefer the proper
             # noun after called/named over the filler leading up to it.
+            # DEFECT B FIX (round 2026-08-19T0625Z): the trailing toponym scan
+            # must run on the ALREADY relative-clause-trimmed _loc (above), NOT
+            # on the raw m_loc.group(1). Otherwise the "called <name>" grep
+            # re-grabs the relative clause that follows the toponym ("...called
+            # greyport where the fog comes in thick most mornings" -> "greyport
+            # where the fog"), re-introducing the truncation we just cut.
             _trailing = re.search(
                 r"\b(?:in|near|at|from)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,2})\s*$",
-                m_loc.group(1), re.IGNORECASE)
+                _loc, re.IGNORECASE)
             if not _trailing:
                 _trailing = re.search(
                     r"\b(?:called|named|spelled)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,3})",
-                    m_loc.group(1), re.IGNORECASE)
+                    _loc, re.IGNORECASE)
             if _trailing:
                 _loc = _trailing.group(1).strip()
             # Round 2026-08-08f: a long location clause with a trailing
@@ -1652,87 +1723,27 @@ class UserModel:
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
-
-        # Round 2026-08-13T2059Z: GENERAL RELATIONAL MINER (the 6f
-        # generalization gap — "who is wren to me" must resolve from the
-        # store, type-agnostically, for ANY relationship the user states).
-        # A bare "my <relation> <name> <rest>" disclosure (my cousin nora is
-        # a glaciologist...; my partner june runs a library; my neighbour otto
-        # fixes clocks; my auntie bea breeds ponies) is a RELATIONSHIP + an
-        # ENTITY, not a self-profile attribute. It MUST be captured as a
-        # relationship fact keyed by the NAMED ENTITY (subject=name,
-        # attr=relationship) plus the descriptive rest as role/does keyed by
-        # the same entity — reusing the SAME _put_fact_ent path the
-        # possessive miner uses, so miner + recaller agree on the key by
-        # construction. This generalizes across EVERY relationship type
-        # (friend/sister/brother/cousin/partner/neighbour/auntie/pet/...);
-        # it does NOT add a second narrow branch per entity kind.
-        # RELATION_WORDS is SEED vocabulary: a closed set of common-English
-        # relation terms, RAVANA-expandable at runtime via _learn_relation()
-        # (the user can name any relation — e.g. "my godfather luis" extends
-        # the set). It is DATA (not an if/elif answer path), and removing an
-        # entry degrades gracefully (one fewer relation class captured). A
-        # bare-capitalized-name test after it makes the miner fire on names
-        # RAVANA has not seen, so it never needs the list to be exhaustive.
-        _RELATION_WORDS = (
-            "friend", "friends", "sister", "brother", "cousin", "siblings",
-            "aunt", "auntie", "uncle", "nephew", "niece", "mother", "mom",
-            "father", "dad", "parent", "parents", "grandmother", "grandfather",
-            "grandma", "grandpa", "son", "daughter", "child", "children",
-            "kid", "kids", "wife", "husband", "spouse", "partner", "fiance",
-            "fiancee", "boyfriend", "girlfriend", "colleague", "coworker",
-            "boss", "manager", "mentor", "student", "teacher", "neighbour",
-            "neighbor", "roommate", "flatmate", "landlord", "tenant",
-            "godfather", "godmother", "godparent", "stepfather", "stepmother",
-            "stepsister", "stepbrother", "halfsister", "halfbrother",
-            "grandson", "granddaughter", "pet", "cat", "dog", "horse", "pony",
-            "companion", "bestie", "pal", "buddy", "acquaintance",
-        )
-        # mutable per-instance learned-relation set so RAVANA grows it online
-        _rel_known = set(getattr(self, "_learned_relations", set())) | set(_RELATION_WORDS)
-        # single-match form: "my <rel> <Name> <rest>" at end of clause or
-        # anywhere; iterate so conjoined "my cat mochi ... and my dog pip ..."
-        # captures BOTH entities (one match per "my <rel> <Name>" segment).
-        _REL_RE = re.compile(
-            r"\bmy\s+([a-z][a-z]+)\s+([A-Za-z][A-Za-z'-]+)"
-            r"(?:\s+([^.?!]+?))?(?=\s+(?:and|but|,|&)|[.!?]|$)",
-            re.IGNORECASE)
-        for _m_rel in _REL_RE.finditer(q_clean):
-            _rel = _m_rel.group(1).lower().strip()
-            _ent = (_m_rel.group(2) or "").strip().strip(".,!?")
-            _rest = (_m_rel.group(3) or "").strip().strip(".,!?")
-            _looks_relation = (_rel in _rel_known) or (
-                _rel.endswith("friend") or _rel.endswith("mate")
-                or _rel in ("partner", "spouse", "sibling"))
-            # Pet species (cat/dog/horse/...) are owned by the pet-slot system
-            # (pet_slots.py) which keys them as (i, species) / (i, species_N);
-            # never route them through the entity-keyed relationship store, or
-            # "my cat is pixel" would be lost from the pet slot and break the
-            # species-coexistence / cued-recall tests. Kinship + people
-            # relations still flow through the relational miner.
-            _is_pet = _pet_slots.species_of(_rel) is not None
-            _name_shape = bool(re.match(r"^[A-Za-z][A-Za-z'-]+$", _ent)) \
-                and _ent.lower() not in _VALUE_STOP
-            if _looks_relation and _name_shape and len(_ent) >= 2 and not _is_pet:
-                _put_fact_ent(_ent, "relationship", _rel, 0.65)
-                if _rest:
-                    _r = re.sub(r"^[\s,]+", "", _rest).strip()
-                    # drop a leading copula + optional article ("is a X") OR a
-                    # bare leading article ("a X") — the copula may already be
-                    # consumed by the capture, leaving "a glaciologist ...".
-                    _r = re.sub(r"^(?:is|are|was|were|'s)\s+(?: of)?\s+(?:a|an|the)\s+",
-                                "", _r, flags=re.IGNORECASE).strip()
-                    _r = re.sub(r"^(?:is|are|was|were)\s+", "", _r,
-                                flags=re.IGNORECASE).strip()
-                    _r = re.sub(r"^(?:a|an|the)\s+", "", _r,
-                                flags=re.IGNORECASE).strip()
-                    _r = re.split(r"(?<=[.!?])\s+|[.!?]\s*$", _r)[0].strip()
-                    if _r and len(_r.split()) <= 10:
-                        _put_fact_ent(_ent, "role", _r, 0.6)
-                if _rel not in _RELATION_WORDS:
-                    _rel_known.add(_rel)
-                    self._learned_relations = _rel_known
-
+        # PRE-SCAN (Finding 5 fix): learn runtime relationship roles BEFORE the
+        # appositive pet pattern processes them, so "my bhabhi NAME" doesn't get
+        # mis-stored as a pet species. Check for "my <word> <Proper>" pattern
+        # and learn the role word if it's not already a known pet species.
+        try:
+            from .relation_attrs import relation_of as _prescan_ra_of
+            from .relation_attrs import learn_relation as _prescan_ra_learn
+            from .pet_slots import species_of as _prescan_pet_of
+        except Exception:
+            _prescan_ra_of = lambda w: None
+            _prescan_ra_learn = lambda w: ""
+            _prescan_pet_of = lambda w: None
+        _prescan_mk = re.search(r"\bmy\s+([a-z][a-z]+)\b\s+([A-Z][\w'-]*)", q_clean)
+        if _prescan_mk:
+            _prescan_word = _prescan_mk.group(1).lower()
+            # Learn it as a relationship role if it's not a known pet species
+            if _prescan_pet_of(_prescan_word) is None and _prescan_ra_of(_prescan_word) is None:
+                try:
+                    _prescan_ra_learn(_prescan_word)
+                except Exception:
+                    pass
         for _pat in (
             # D2 (round v2): tolerate an optional "name" word between the
             # relation and "is" so "my daughter name is ingrid" stores
@@ -1761,7 +1772,7 @@ class UserModel:
             # er nurse") — the previous pattern required them contiguous and
             # silently dropped "i work <adv> as X".
             r"\bi\s+work\b.*?\b(?:as|for)\s+(?:a\s+|an\s+|the\s+)?([\w'-]+(?:\s+[\w'-]+){0,4})",
-            r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
+            r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:that|which|i|we)?\s*(?:named|called)\s+([\w'-]+)",
             # FIX (round v-aug06b): conjoined multi-pet disclosures
             # ("i have a ferret named pim and a parrot called coco"). The single
             # pattern above only captures the FIRST animal; the rest are lost.
@@ -1785,30 +1796,22 @@ class UserModel:
             r"([\w'-]+)\s+(?:named|called|named\s+called)\s+"
             r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)",
             r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
-            # B-fix (round 2026-08-12T0613Z): a forward possession disclosure
-            # with an INTERSTITIAL breed/adjective phrase between the species
-            # and the name was never captured: "my dog is a nova scotia duck
-            # tolling retriever called wren" / "my cat is a maine coon called
-            # ember". The existing forward pattern requires the name
-            # immediately after the species ("my dog called wren"), so the
-            # breed phrase ("is a ... retriever") broke the match and the pet
-            # fact was dropped — measured this round: T11 "my dog's a nova
-            # scotia duck tolling retriever called wren" stored NOTHING, so a
-            # later "what's my dog's name" fell through to "outside what i
-            # know". This allows an optional copula (is/are/was/were OR the
-            # spoken contraction 's, since users say "my dog's a retriever
-            # called wren") + article + up-to-6-word breed/adjective span
-            # before named/called, then routes through the SAME _pet_slots slot
-            # logic the bare pattern uses (no per-animal table; species
-            # resolved live). The species capture is LETTERS-ONLY ([\w-]+) so
-            # the trailing 's is consumed as the copula, not folded into the
-            # species token. Generic across any breed phrase length; the breed
-            # words are discarded (only the species + name matter for the
-            # slot). Fires only when the head word is a real species (resolved
-            # by pet_slots), so non-pet "my brother is a tall guy called bob"
-            # is handled by the existing guard, not learned as a pet.
-            r"\bmy\s+([\w-]+)\s*(?:'s)?\s+(?:a|an|the\s+)?"
-            r"(?:[\w'-]+\s+){0,6}?(?:named|called)\s+([\w'-]+)",
+            # APPOSITIVE PET DISCLOSURE (round 2026-08-17T1730Z, 6f generalization):
+            # "my pet raccoon Pip steals...", "my dog Rex barks", "my cat Mochi
+            # sleeps on the router". The existing pet patterns only fire on an
+            # EXPLICIT "named"/"called" keyword, so this appositive form
+            # ("my <species> <ProperNoun>") was DROPPED and a later "who is Pip
+            # to me?" had nothing to recall (measured T49 -> identity blurb).
+            # Capture the species + the Capitalized proper-noun name and store it
+            # through the SAME shared pet_slots path (slot_for / learn_species /
+            # is_pet_attribute) the "named"/"called" branch and the recaller
+            # already use, so the miner, the cued-recall renderers, and the
+            # reverse-name resolver agree on the key by construction. Generic
+            # across EVERY species (no per-animal table); species learned at
+            # runtime via learn_species; name is a proper noun (capitalized),
+            # so common-noun objects ("my pet rock collection") never match.
+            # Handled below in the pet-mining block (object-identity check).
+            _APPOSITIVE_PET_PAT,
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
             # structural capture — the noun becomes the attribute value, no
@@ -1887,6 +1890,72 @@ class UserModel:
                                 _i += 1
                             _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
                     continue
+                # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
+                # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
+                # The name capture group (group 2) is a proper noun. The
+                # isupper() guard rejects common-noun objects ("my pet rock
+                # collection"), but casual chat also writes names lowercase
+                # ("my cat mochi"). GENERALIZE (round 2026-08-19T1026Z): accept a
+                # lowercase name too, but ONLY when the species is a SEED animal
+                # (cat/dog/...), so "my cat mochi" mines while "my pet rock
+                # collection" is still rejected (rock is not a seed species, so
+                # learn_species never fires on the lowercase path). Resolve the
+                # species through the SAME pet_slots path the "named"/"called"
+                # branch uses (species_of / learn_species / slot_for), then store
+                # the name in the species-keyed slot — so the miner and the
+                # recaller (reverse-name resolver + cued recall) agree on the
+                # key by construction. Generic across every species; no
+                # per-animal table; species grown at runtime. No authored reply;
+                # no retraining.
+                if _pat is _APPOSITIVE_PET_PAT:
+                    _raw_nm = (_m.group(2) or _m.group(4) or "")
+                    _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
+                    _nm = _raw_nm.strip().strip(".,!?")
+                    if not _sp or not _nm:
+                        continue
+                    # GENERALIZE: a name is accepted if it is Capitalized OR
+                    # (lowercase AND the species is a seed animal). This keeps the
+                    # common-noun guard (rejects "my pet rock collection") while
+                    # allowing casual lowercase names ("my cat mochi").
+                    _name_ok = _nm[:1].isupper()
+                    if not _name_ok:
+                        try:
+                            from .pet_slots import _SPECIES_SEED as _PS_SEED
+                        except Exception:
+                            _PS_SEED = {}
+                        if _sp in _PS_SEED:
+                            # lowercase-name path (e.g. "my cat mochi"): only
+                            # valid when the captured name is sentence-final or
+                            # followed by a copula/punctuation — NOT a verb-led
+                            # clause tail. The pattern above runs IGNORECASE, so
+                            # the name group can grab the next verb ("my dog
+                            # likes the park" -> name "likes"); reject when a
+                            # non-copula word follows so we don't store a verb as
+                            # a pet. Proper-noun (isupper) names are exempt — they
+                            # may legitimately lead a clause ("my dog Rex barks").
+                            _tail = q_clean[_m.end():].lstrip()
+                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
+                            _COPULA = {"is", "was", "were", "are", "named",
+                                       "called", "means", "s"}
+                            if not _tail or not _nxt or _nxt in _COPULA:
+                                _name_ok = True
+                    if not _name_ok:
+                        continue
+                    try:
+                        from .relation_attrs import relation_of as _app_rel_of
+                    except Exception:
+                        _app_rel_of = lambda w: None
+                    if _app_rel_of(_sp) is not None:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    if _species is not None:
+                        _i = 1
+                        while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                            _i += 1
+                        _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                    continue
                 if _m.lastindex is not None and _m.lastindex >= 2:
                     _attr, _val = _m.group(1).strip().lower(), _m.group(2).strip()
                     # Trim any FOLLOWING sentence so a value like "the blue
@@ -1896,6 +1965,29 @@ class UserModel:
                     # prepositions/conjunctions ("of the", "before the") are
                     # kept so a genuine multi-word value stays whole.
                     _val = re.split(r"(?<=[.!?])\s+|\s*[.!?]\s*$", _val)[0].strip()
+                    # NAME-BRIDGE route (round 2026-08-18T1340Z): patterns like
+                    # "i keep a sourdough starter i named doris" capture the
+                    # possessed NOUN as _attr and the NAME as _val. Store it as an
+                    # entity-keyed name fact (entity=_attr, attr="name") so a later
+                    # "what did i name my <thing>" recalls the name cleanly, instead
+                    # of a bare "sourdough starter -> doris" slot that renders as
+                    # "your sourdough starter is doris". Only fire when the match
+                    # text actually contains a name keyword and the value is
+                    # name-shaped (single token, alpha) — never for a pet (those
+                    # are handled by the dedicated pet paths above).
+                    if re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE) \
+                            and _val.isalpha() and " " not in _val \
+                            and _pet_slots.species_of(_attr) is None:
+                        # The noun group can greedily swallow the bridge pronoun
+                        # ("sourdough starter i" from "...starter i named doris"),
+                        # so strip a trailing bridge word before storing.
+                        _attr_clean = re.sub(
+                            r"\s+(?:i|we|that|which)$", "", _attr,
+                            flags=re.IGNORECASE).strip()
+                        if _attr_clean:
+                            _attr = _attr_clean
+                        _put_fact_ent(_attr, "name", _val, 0.6)
+                        continue
                 elif _m.lastindex == 1:
                     # Single-group patterns: "i am a/an <noun>" / "i am
                     # allergic to <noun>" — the one group is the VALUE; the
@@ -1961,21 +2053,42 @@ class UserModel:
                     # can ask about one species, and a correction ("no, my cat
                     # is milo") finds the prior value under the same key the
                     # user's own word resolves to.
+                    #
+                    # GUARD (round 2026-08-18T1340Z): the value-split must only
+                    # fire for a genuine NAME relation whose parts are all
+                    # name-shaped. The old code split ANY value on "and", so
+                    # "my best friend's name is tomas and he's a chef in lisbon"
+                    # produced a bogus second fact "best friend's name_2 = he's
+                    # a chef in lisbon" (the conjunction joined a NAME and an
+                    # UNRELATED occupation clause). Now: only split when the
+                    # attribute is a name relation AND every part is a short
+                    # name token (single word or Capitalized proper noun, no
+                    # verb/closed-class word). Otherwise store the whole value
+                    # as ONE fact so no fabricated second slot is created.
+                    _is_name_rel = _attr == "name" or _attr.endswith("_name") \
+                        or _attr.endswith(" name")
                     _names = re.split(r"\s+(?:and|,|&)\s*", _val)
+                    _names = [_n.strip().strip(".,!?") for _n in _names if _n.strip()]
+                    _name_shaped = _is_name_rel and len(_names) > 1 and all(
+                        (len(_n.split()) <= 2
+                         and not re.search(r"\b(he|she|it|is|are|was|were|"
+                                           r"do|does|did|have|has|i|you|a|an|the)\b",
+                                           _n, re.IGNORECASE))
+                        for _n in _names)
                     _species = _pet_slots.species_of(_attr)
-                    if _species is None and len(_names) >= 1 and _attr.isalpha():
+                    if _species is None and _name_shaped and _attr.isalpha():
                         # An unknown animal word in a "named/called" possession
                         # frame is a species RAVANA has not met yet — learn it
                         # so later recalls address the same slot.
                         if re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE):
                             _species = _pet_slots.learn_species(_attr)
-                    if _species is not None:
+                    if _species is not None and _name_shaped:
                         for _i, _nm in enumerate(_names, 1):
                             _nm = _nm.strip().strip(".,!?")
                             if _nm:
                                 _put_fact(_pet_slots.slot_for(_species, _i),
                                           _nm, 0.6)
-                    elif len(_names) > 1:
+                    elif _name_shaped:
                         for _i, _nm in enumerate(_names, 1):
                             _nm = _nm.strip().strip(".,!?")
                             if _nm:
@@ -2065,34 +2178,109 @@ class UserModel:
         _mk = re.search(r"\bmy\s+([a-z][a-z]+)\b\s*(.*)", q_clean)
         if _mk:
             _kin = _mk.group(1).lower()
-            if _kin in _KIN:
+            # GENERALIZE (round 2026-08-17T1730Z): a relationship disclosure is
+            # not restricted to blood kin. Mentors, teachers, coaches, friends,
+            # neighbors, bosses, colleagues, roommates, landlords, and any
+            # RAVANA-learned relation word all count as a NAMED RELATIONSHIP the
+            # user disclosed about themselves, and must be mined + recallable
+            # the same way. The old gate only checked the local _KIN set, so
+            # "my mentor Dr. Okonkwo taught me astronomy" and "my grandmother
+            # taught me to slow-cook" were DROPPED (mentor is not kin; "taught"
+            # is an irregular verb absent from _REL_ACTIVITY_VERB_FORMS) and a
+            # later "who is my mentor" / "what did my grandmother pass down"
+            # had nothing to recall. Now the head word is accepted if it is (a)
+            # in the seed _KIN set, (b) a non-kin ROLE in the shared
+            # relationship vocabulary (relation_of + ROLE lexicon), or (c)
+            # already learned at runtime via learn_relation — so the miner and
+            # the recaller (engine.py 1c/1d, relation_attrs) agree on what a
+            # relationship word is. Generic, no per-role table.
+            _role = False
+            try:
+                from .relation_attrs import relation_of as _ra_of
+                from .relation_attrs import learn_relation as _ra_learn
+            except Exception:
+                _ra_of = lambda w: None
+                _ra_learn = lambda w: ""
+            if _kin in _KIN or _ra_of(_kin) is not None:
+                _role = True
+                # GROW the shared relationship vocabulary (relation_attrs)
+                # from the live disclosure, so the recaller (engine.py 1c/1d),
+                # which already consults relation_of / is_relation_attribute /
+                # base_relation, generalizes to this role WITHOUT a per-role
+                # branch. This is the runtime-growth design: RAVANA learns its
+                # own relationship words from conversation. Online, no retrain.
+                # The role word itself is now part of the SHARED seed in
+                # relation_attrs (single source of truth), which also means the
+                # appositive-pet miner (which runs BEFORE this block) rejects it
+                # via its relation_of() guard instead of mis-storing it as a pet
+                # species (the round 2026-08-17T1730Z feature bug: "my mentor
+                # Dr. Okonkwo..." produced a bogus ('i','mentor','dr') pet fact
+                # that truncated recall to "your mentor is dr.").
+                try:
+                    _ra_learn(_kin)
+                except Exception:
+                    pass
+            if _role:
                 _rest = _mk.group(2)
                 _toks = _rest.split()
                 _vidx = None
                 for _i, _t in enumerate(_toks):
-                    if _t.lower().strip(".,!?") in _REL_ACTIVITY_VERB_FORMS:
+                    if is_activity_verb(_t.lower().strip(".,!?")):
                         _vidx = _i
                         break
-                if _vidx is not None:
+                # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
+                # establishes the RELATIONSHIP + NAME regardless of whether an
+                # activity verb is recognised. When NO activity verb is found,
+                # only a LEADING CAPITALIZED token counts as a name (mirrors the
+                # appositive-pet branch's isupper() guard) so a temporal/activity
+                # phrase ("last spring") is never stored as the name. If there is
+                # neither a name nor a verb, skip — no informative fact to store.
+                # No per-role table: the head word is the user's own relation
+                # word, the name the user's own noun, the verb (when present)
+                # real content from the user's words.
+                _put_fact_done = False
+                if _vidx is None:
+                    _name_toks = []
+                    for _t in _toks:
+                        _clean = _t.strip(".,!?")
+                        if _clean[:1].isupper():
+                            _name_toks.append(_clean.lower())
+                        else:
+                            break
+                    _name = " ".join(_name_toks)
+                    if not _name:
+                        # Neither a recognized verb nor a proper-noun name:
+                        # nothing informative to store (e.g. "my grandmother
+                        # last spring") — skip to avoid a bogus fact.
+                        _put_fact_done = True
+                else:
                     _name = " ".join(_toks[:_vidx]).lower()
+                    _name = _strip_obj_framers(_name).strip(" .,!?")
+                _val = ""
+                if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
-                    # trim at a framer conjunction so trailing framing ("every
-                    # sunday") doesn't bloat the stored object — mirrors the old
-                    # regex object boundary.
                     _obj_raw = re.split(
                         r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
                     _obj = self._opinion_topic(_obj_raw.lower()) or ""
                     _obj = _strip_obj_framers(_obj)
                     if _obj and len(_obj.split()) <= 5:
-                        # COMBINED-attr storage: ("i", "<kin> <name>",
-                        # "<verb> <object>") — reachable from recall branch
-                        # (c) / the open-ended recaller by the relation head
-                        # "kin". A name-less disclosure ("my sister climbs
-                        # rocks") stores attr="sister"; still reachable from
-                        # "my sister".
-                        _attr = f"{_kin} {_name}".strip() if _name else _kin
-                        _put_fact(_attr, f"{_verb} {_obj}", 0.6)
+                        _val = f"{_verb} {_obj}"
+                # COMBINED-attr storage: (i, "<rel> <name>", "<verb> <object>").
+                # Reachable from recall branch (c) / open-ended recaller by the
+                # relation head. A name-less disclosure (e.g. "my grandmother
+                # left me her brass compass" — no name given) stores the
+                # relationship itself as the attr so the fact still exists and is
+                # recallable; the value carries the verb+object. When no activity
+                # verb is present, value is the relation word so the triple still
+                # exists. Content from the user's own words; no authored reply,
+                # no retraining.
+                if _name:
+                    _attr = f"{_kin} {_name}".strip()
+                else:
+                    _attr = _kin
+                if not _put_fact_done:
+                    _put_fact(_attr, _val if _val else _kin, 0.6)
 
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
@@ -2178,6 +2366,22 @@ class UserModel:
                     # of a bare noun. The verb is part of the mined disclosure,
                     # not an authored label.
                     _put_fact("does", f"{_verb} {_obj}", 0.55)
+                    # NAME-BRIDGE (round 2026-08-18T1340Z): when the captured
+                    # activity object contains "named/called <Name>" (e.g. "i
+                    # keep a sourdough starter i named doris"), ALSO store the
+                    # possessed thing's NAME as an entity-keyed name fact. The
+                    # `does` miner runs BEFORE the equational name patterns, so
+                    # without this it swallows the whole disclosure and the name
+                    # is never stored — a later "what did i name my <thing>"
+                    # would have nothing to recall. Generic: any "named/called
+                    # <ProperNoun>" tail, entity = the resolved object noun,
+                    # never a pet (those use the dedicated pet paths). No
+                    # authored reply; the fact is real state RAVANA can recall.
+                    _nm = re.search(
+                        r"\b(?:named|called)\s+([A-Za-z][\w'-]*)\b",
+                        _m.group(1))
+                    if _nm and _pet_slots.species_of(_obj) is None:
+                        _put_fact_ent(_obj, "name", _nm.group(1).lower(), 0.6)
         # "i've been <verb>-ing <object> for <duration>" (ongoing activity)
         _cont = re.search(
             r"\bi(?:'ve| have)\s+been\s+(\w+ing)\s+(.+?)(?:\bfor\b|\bsince\b|\.|\!|\?|\$|,)",
@@ -3458,6 +3662,66 @@ class UserModel:
                 _best = _k
         return _best
 
+    def _stance_key_in_text_stem(self, text: str):
+        """Like `_stance_key_in_text` but ALSO binds a held stance when the
+        utterance's content word is a VERB-STEM match of a key token (or vice
+        versa). Resolves "hike" in "i can't really hike the way i used to" to
+        the stored "cold weather hiking" stance, which whole-word matching
+        misses ("hiking" is not a prefix of "hike" and vice versa — they share
+        only the stem "hik"). Generic: the stem is computed by stripping common
+        verb suffixes (ing/ed/s/e), a small morphological rule, not a per-topic
+        table; we still prefer the most token-overlapping key. Used by the
+        first-person limitation branch in mine_stance_reversal (round
+        2026-08-18T0937Z).
+        """
+        if not text:
+            return None
+        _words = [t for t in re.findall(r"[a-z']+", text.lower()) if len(t) >= 3]
+        if not _words:
+            return None
+
+        def _stem(w):
+            # Lightweight verb-stem normalization: strip the most common
+            # English inflection suffixes so "hike"/"hiking"/"hiked" collapse to
+            # "hik" and "run"/"running" to "run". Bounded, no external stemmer.
+            w = w.rstrip("'s").rstrip("s")
+            for _suf in ("ing", "ed", "er", "ly"):
+                if w.endswith(_suf) and len(w) - len(_suf) >= 3:
+                    w = w[: -len(_suf)]
+                    break
+            if w.endswith("e") and len(w) >= 4:
+                w = w[:-1]
+            return w
+
+        _best = None
+        _best_score = 0
+        for _k in self.opinions.stances:
+            if not _k:
+                continue
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if len(t) >= 3]
+            if not _ktoks:
+                continue
+            _score = 0
+            for _t in _ktoks:
+                _ts = _stem(_t)
+                for _w in _words:
+                    _ws = _stem(_w)
+                    # whole-word match (most reliable) OR stem overlap of
+                    # length >=3 so "hike"/"hiking"/"hiked" all bind (they share
+                    # stem "hik") but "art" doesn't bind "start".
+                    if _t == _w:
+                        _score += 2
+                    elif _ts and _ws and len(_ts) >= 3 and (_ts == _ws
+                                                         or _ts.startswith(_ws)
+                                                         or _ws.startswith(_ts)):
+                        _score += 1
+            if _score > _best_score:
+                _best_score = _score
+                _best = _k
+        # Require at least a stem overlap so we never soften a stance the
+        # utterance doesn't actually reference (bounded false positives).
+        return _best if _best_score > 0 else None
+
     def mine_stance_reversal(self, text: str) -> None:
         """Detect a stance-reversal/retraction and recode the stored stance.
 
@@ -3533,6 +3797,54 @@ class UserModel:
                     # the new preference Y can never be the resolved target.
                     _target = self._stance_key_in_text(q[:_concession.start()])
                 if _target is not None:
+                    try:
+                        self.opinions._soft_reversal = True
+                        self.opinions.reverse_stance(_target, utterance=text)
+                    except Exception:
+                        pass
+                    return
+            # R3 (round 2026-08-18T0937Z): FIRST-PERSON LIMITATION / AVERSION
+            # disclosure. A user can walk a stance back WITHOUT a retraction or
+            # concession keyword: "my knee's been acting up ... i can't really
+            # hike the way i used to", "loud music wrecks me now", "i can't
+            # handle that volume". These are sensory/affective LIMITATION
+            # statements about a topic RAVANA already holds a positive stance
+            # on. Previously they fell through to a hollow "noted." and the
+            # stale stance persisted (residual limitation #1 of round
+            # 2026-08-17T1730Z). Detect the limitation shape structurally
+            # (first person + a can't/can-not/cannot/wrecks-me/anymore cue) and
+            # resolve the topic against the LIVE stance store — including
+            # verb-stem matching so "hike" in the disclosure binds the stored
+            # "cold weather hiking" stance (whole-word match misses it). When a
+            # held stance is found, SOFTEN it toward neutral (a limitation is a
+            # relaxation, not an inversion). Generic: the topic is resolved, not
+            # hardcoded, so any held positive stance the user limits gets
+            # softened. No retraining, no per-topic table.
+            _limitation = re.search(
+                r"\b(i\b|my|me|we|us)\b.{0,40}?\b("
+                r"can'?t|can not|cannot|couldn'?t|no longer|anymore|"
+                r"wrecks? me|wears? me (?:down|out)|i can't handle|"
+                r"can't really|can't stand|harder than it used to|"
+                r"the way i used to|too much for me)\b", q)
+            if _limitation is not None:
+                _target = self._stance_key_in_text_stem(q)
+                if _target is not None:
+                    # R3 fix (round 2026-08-18T0937Z): a limitation/aversion
+                    # disclosure SOFTENS a stance the user ALREADY HELD in a
+                    # PRIOR turn. It must NOT fire on the VERY turn the user
+                    # first states the aversion (e.g. "i can't stand cilantro"
+                    # is mined fresh at -0.8 by mine_stance and must stay there
+                    # — the limitation branch was relaxing it to -0.333). Guard:
+                    # require the resolved stance to PREDATE the current turn (
+                    # strictly before, so a just-mined stance with
+                    # turn_number == turn_num is skipped). This preserves the
+                    # real feature — a HELD positive stance later limited by the
+                    # user ("i love hiking" -> "my knee's acting up, i can't
+                    # really hike anymore") still softens — while leaving fresh
+                    # first-person aversions at full strength.
+                    _existing = self.opinions.stances.get(_target)
+                    if _existing is None or _existing.turn_number >= self.opinions.turn_num:
+                        return  # freshly-mined this turn (or absent) -> not a limitation of a HELD stance
                     try:
                         self.opinions._soft_reversal = True
                         self.opinions.reverse_stance(_target, utterance=text)
@@ -4018,7 +4330,7 @@ class UserModel:
         "really", "very", "just", "only", "also", "too", "quite", "more",
         "most", "much", "many", "such", "own", "same", "other", "another",
         "is", "are", "was", "were", "be", "been", "being", "am",
-        "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
+        "has", "have", "had", "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
         "it", "they're", "im", "i'm", "you're", "we're", "there",
     }
 
@@ -4119,6 +4431,22 @@ class UserModel:
         while len(head) > 1 and head[-1] in self._OPINION_STOP:
             head.pop()
         if not head:
+            return None
+        # CONTENT-ADEQUACY GATE (round 2026-08-17T1730Z): a resolved activity/
+        # event object that consists ENTIRELY of non-content words — an
+        # aspectual/particle verb residue ("coming back", "started keeping",
+        # "got burned", "found out"), a bare timeframe ("went last night"), or a
+        # generic noun ("found project") — is not a real thing RAVANA learned
+        # and must NOT be stored as a `does`/`event` fact (it later echoes in
+        # "what have you learned about me" dumps and pollutes recall). Reject
+        # the head only when NO content-bearing word survives, so genuine
+        # activities that happen to contain one of these words (e.g. "night
+        # sky", "side project", "last harvest") are still kept. This is the
+        # SAME shared chokepoint the activity/event miners already route
+        # through, so the gate generalizes across both blocks (rule 6g) with
+        # one addition, not per-verb branches. Seed vocabulary: removing an
+        # entry only re-admits one low-value object shape. No retraining.
+        if all(t in _OBJ_NONCONTENT for t in head):
             return None
         return " ".join(head)
 
