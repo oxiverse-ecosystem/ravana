@@ -679,6 +679,31 @@ _OBJECT_SKIP = frozenset({
 })
 
 
+# should be skipped before calling _activity_verb_ok in temporal mining blocks.
+# Combines determiners, prepositions, conjunctions, and common non-activity
+# words to prevent them from being selected as activity verbs. SEED vocabulary.
+_VERB_CLOSED_CLASS = frozenset({
+    # Determiners
+    "the", "a", "an", "my", "your", "our", "their", "his", "her", "its",
+    "this", "these", "those", "that", "some", "every", "all", "each",
+    # Prepositions
+    "in", "on", "at", "for", "from", "to", "by", "of", "with", "about",
+    "since", "around", "into", "during", "after", "before", "over", "near",
+    "under", "through", "without", "despite", "except", "besides", "unlike",
+    # Conjunctions and clause markers
+    "and", "or", "but", "so", "because", "when", "while", "where", "if",
+    "that", "which", "what", "who", "how", "why",
+    # Copula and auxiliaries (already in _ASPECTUAL_VERBS, included for completeness)
+    "is", "are", "was", "were", "am", "be", "being",
+    # Common adverbs and framers
+    "now", "then", "here", "there", "already", "still", "just", "recently",
+    "lately", "soon", "today", "tonight", "yesterday", "tomorrow", "earlier",
+    "later", "currently", "really", "very", "quite", "pretty", "kind",
+    # Pronouns (not verbs)
+    "i", "me", "we", "us", "you", "he", "him", "she", "it", "they", "them",
+})
+
+
 def _activity_object(clause_tokens, verb_idx) -> str:
     """Extract the activity object following the verb at verb_idx in a token
     list (the verb patient, e.g. (frames) in (building frames since 2019)).
@@ -10643,6 +10668,29 @@ class UserModel:
         if _obj and len(_obj.split()) <= 5:
             return f"{_verb} {_obj}"
         return None
+
+    # C-fix (round 2026-08-12T0613Z): universal ghost topics that can NEVER
+    # own a stance. Comparative / superlative patterns occasionally capture a
+    # non-attitude head (an indefinite pronoun like "anything", or a grammatical
+    # gerund like "standing"/"being" stripped from a longer phrase). These are
+    # rejected as single-word stance topics. This is a tiny UNIVERSAL seed set
+    # (indefinite pronouns + grammatical gerunds), NOT a per-topic deny-list —
+    # it generalizes to any topic the user names and RAVANA cannot learn
+    # attitude objects from these ghosts.
+    _STANCE_GHOST_TOPICS = {
+        # indefinite pronouns / quantifiers
+        "anything", "something", "everything", "nothing", "whatever",
+        "whoever", "whichever", "anyone", "everyone", "someone", "noone",
+        "nobody", "everybody", "somebody", "anybody",
+        # grammatical gerunds that pattern-matchers emit as a head but can
+        # never be an attitude object
+        "standing", "being", "doing", "having", "going", "coming", "feeling",
+        "thinking", "knowing", "wanting", "making", "taking", "getting",
+        "being", "saying", "talking", "looking", "feeling", "seeming",
+        "open", "single", "moment", "sense", "breath", "note", "held",
+        "restless", "quietest", "quiet", "outside", "inside", "away",
+        "around", "through", "across", "behind", "before", "after",
+    }
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.
