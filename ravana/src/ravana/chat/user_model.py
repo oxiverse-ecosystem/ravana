@@ -90,6 +90,80 @@ def is_activity_verb(word: str) -> bool:
     return False
 
 
+# Relation-verb seed lexicon (round 2026-08-20T1935Z residual fix, feature
+# t_ec6c6b51). A relationship disclosure often states a DURABLE ATTRIBUTE /
+# ABILITY about a named relative using a verb that is NOT in the activity
+# lexicon — the canonical case from the round: "my grandmother yaya SPEAKS
+# three languages: greek, french, italian". "speaks" is not an activity verb
+# (it names a capability, not a basket-weaving-style activity), so the
+# relationship miner's activity-verb gate missed the whole disclosure and the
+# enumeration was never stored. Other real disclosures of this shape: "my
+# uncle ravi WORKS as a mechanic", "my niece STUDIES medicine", "my brother
+# PLAYS the violin".
+#
+# This is SEED vocabulary (a data set, not an answer table) — RAVANA-expandable
+# by the same PersonalFactStore the user can correct; removing entries degrades
+# gracefully (one fewer relation-verb recognized for grammar). NOT a per-person
+# or per-relationship table, NOT authored prose. Deliberately EXCLUDES
+# pure-location verbs ("lives"/"resides"/"stays"/"live") — those are owned by
+# the dedicated location miner (m_loc), so admitting them here would
+# double-store "my grandmother lives in paris" under both the location and the
+# relationship key. The activity lexicon already covers the overlapping
+# activity verbs (climb/weave/teach/...); this set is the SUPPLEMENT of
+# attribute/ability verbs the activity set does not carry.
+_RELATION_VERB_LEXICON = {
+    # communication / language ability
+    "speaks", "speak", "talks", "talk", "communicates", "communicate",
+    # profession / role / study
+    "works", "work", "studies", "study", "studied", "teaches", "teach",
+    "taught", "practices", "practice", "practised", "performs", "perform",
+    "operates", "operate", "manages", "manage", "runs", "run", "owns",
+    "own", "keeps", "keep", "raises", "raise", "grows", "grow", "designs",
+    "design", "codes", "code", "builds", "build", "built", "repairs",
+    "repair", "crafts", "craft", "volunteers", "volunteer", "collects",
+    "collect", "trades", "trade", "hosts", "host", "guides", "guide",
+    "coaches", "coach", "trains", "train", "competes", "compete",
+    "composes", "compose", "records", "record", "mounts", "mount",
+    "knits", "knit", "sews", "sew", "welds", "weld", "forges", "forge",
+    "carves", "carve", "spins", "spin", "weaves", "weave", "sails", "sail",
+    "races", "race", "climbs", "climb", "hikes", "hike", "fishes", "fish",
+    "farms", "farm", "gardens", "garden", "bakes", "bake", "brews", "brew",
+    "cooks", "cook", "reads", "read", "writes", "write", "paints", "paint",
+    "draws", "draw", "sings", "sing", "dances", "dance", "swims", "swim",
+    "drives", "drive", "plays", "play", "learns", "learn", "learned",
+    "learnt",
+}
+
+
+def is_relation_verb(word: str) -> bool:
+    """Return True if `word` is a (possibly inflected) relation/attribute verb
+    from the seed lexicon — a durable capability/role a named relative is said
+    to HAVE (speaks/works/studies/plays/...). Used by the relationship miner to
+    recognize attribute disclosures that carry no activity verb, and by the
+    recall grammar rule to render them WITHOUT a spurious copula
+    ("your grandmother yaya speaks three languages", not "is speaks"). Pure
+    vocabulary lookup — no content. Excludes location verbs (owned by m_loc)."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _RELATION_VERB_LEXICON:
+        return True
+    for suf in ("ing", "ed", "s", "es"):
+        if w.endswith(suf) and w[: -len(suf)] in _RELATION_VERB_LEXICON:
+            return True
+    return False
+
+
+def is_verb_phrase(word: str) -> bool:
+    """True when `word` heads a VERB-PHRASE personal fact (activity OR relation
+    verb). The single source of truth for the recall/ack grammar rule that drops
+    the copula for verb-phrase values (so "your grandmother yaya speaks three
+    languages" is grammatical, not "is speaks"). Superset of is_activity_verb;
+    callers that previously used is_activity_verb for the copula decision should
+    use this so relation-verb facts render correctly too. Pure vocabulary
+    lookup — no content."""
+    return is_activity_verb(word) or is_relation_verb(word)
+
 
 # real affect categories in brain_regions._CAUSE_SEEDS and
 # support_router._SUPPORT_AFFECT). Used by the bare-copula name guard: a
@@ -2000,19 +2074,76 @@ class UserModel:
                     if _sp in _pet_slots._PRONOUN_STOP:
                         continue
                     _species = _pet_slots.species_of(_sp)
+                    _species_is_seed = _species is not None
                     if _species is None and _sp.isalpha():
                         _species = _pet_slots.learn_species(_sp)
                     elif _species is None:
                         _species = _sp
                     if _species is not None:
+                        # PRESERVE THE SURFACE SPECIES PHRASE (round
+                        # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
+                        # is greedy: a disclosure like "i keep a pet parrot named
+                        # Mango" has TWO species words before "named" ("pet" then
+                        # "parrot"). The REGEX only captures the word IMMEDIATELY
+                        # before "named" — "parrot" — and species_of('parrot')
+                        # collapses it to its seed CANON 'bird', storing the bare
+                        # ('i','bird',<name>) fact. But the possession pattern
+                        # (r"\bi\s+(?:have|keep)\s+(?:a|an|the)\s+<species phrase>
+                        # \s+(?:named|called)\s+<name>") captures the FULL surface
+                        # "pet parrot" and stores the entity-keyed
+                        # ('pet parrot','name',<name>) fact. The two miners then
+                        # DISAGREE on the key ("bird" vs "pet parrot"), and the
+                        # pet/relationship recaller (engine.py 1d branch) only
+                        # scans subject-'i' facts — so it surfaces the bare canon
+                        # "your bird is mango." instead of the user's own words
+                        # "your pet parrot is mango." Fix: when the captured token
+                        # is a SEED canon (parrot->bird) AND the same surface
+                        # species phrase was ALSO stored by the possession pattern
+                        # (i.e. the prior-token word is 'pet' / a known species and
+                        # it forms a compound "<prior> <captured>"), keep the FULL
+                        # surface compound as the slot key instead of collapsing to
+                        # the canon. This makes the catch-all and the possession
+                        # pattern AGREE on the key by construction, so the recaller
+                        # renders the surface phrase the user actually said. The
+                        # compound is still resolved through pet_slots (every
+                        # component is a seed/learned species), so no per-animal
+                        # table, no authored reply. A lone non-compound capture
+                        # (e.g. "i got a border collie named Biscuit" -> species
+                        # 'dog' but no 'pet' prefix) still collapses to the canon
+                        # exactly as before, so legit pet capture is unchanged.
+                        _surface = _sp
+                        # Look at the ORIGINAL text before the match to find the
+                        # word immediately preceding the captured species token
+                        # (group(0) only spans "<species> named <name>", so its
+                        # own prefix is empty). A disclosure like
+                        # "i keep a pet parrot named Mango" leaves "pet" right
+                        # before "parrot"; capture it so the compound surface key
+                        # can be reconstructed.
+                        _pre = q_clean[: _m.start()].rstrip()
+                        _prior = _pre.split()[-1].lower() if _pre else ""
+                        # When the captured token collapses to a SEED canon AND
+                        # the word immediately before it ("pet"/a known species)
+                        # forms a compound surface phrase, prefer keeping the FULL
+                        # surface compound as the slot key. The possession pattern
+                        # stores the entity-keyed ('<compound>','name',<name>)
+                        # fact; aligning the catch-all to the same surface key
+                        # makes miner + recaller agree by construction instead of
+                        # emitting the bare canon ('bird') that the recaller
+                        # renders as "your bird". Single-token captures (no
+                        # qualifying prior word) keep collapsing to the canon, so
+                        # legit pet capture is unchanged.
+                        if (_species_is_seed
+                                and _prior in ("pet",)
+                                and _pet_slots.species_of(_prior) is not None):
+                            _surface = f"{_prior} {_sp}"
                         for _nm in _names:
                             _nm = _nm.strip().strip(".,!?")
                             if not _nm:
                                 continue
                             _i = 1
-                            while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                            while _pet_slots.slot_for(_surface, _i) in self.personal_facts.facts:
                                 _i += 1
-                            _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                            _put_fact(_pet_slots.slot_for(_surface, _i), _nm, 0.6)
                     continue
                 # APPOSITIVE PET (round 2026-08-17T1730Z, 6f): "my pet raccoon
                 # Pip steals..." / "my dog Rex barks" / "my cat Mochi sleeps".
@@ -2356,20 +2487,38 @@ class UserModel:
                 _rest = _mk.group(2)
                 _toks = _rest.split()
                 _vidx = None
+                _v_is_rel = False
                 for _i, _t in enumerate(_toks):
-                    if is_activity_verb(_t.lower().strip(".,!?")):
+                    _tw = _t.lower().strip(".,!?")
+                    if is_activity_verb(_tw):
                         _vidx = _i
+                        break
+                    # GENERALIZE (feature t_ec6c6b51, round 2026-08-20T1935Z
+                    # residual): also recognize a RELATION verb (speaks/works/
+                    # studies/plays/... — a durable attribute/ability the named
+                    # relative HAS). The canonical missed case was "my grandmother
+                    # yaya SPEAKS three languages: greek, french, italian" — "speaks"
+                    # is not an activity verb and "yaya" is lowercase, so the old
+                    # activity-verb OR capitalized-name gate skipped the whole
+                    # disclosure and the enumeration was never stored. A relation
+                    # verb is a legitimate verb-phrase head, so it opens the same
+                    # capture path as an activity verb (name = tokens before it,
+                    # value = verb + object). Seed lexicon (is_relation_verb),
+                    # RAVANA-expandable; not a per-relationship table.
+                    if is_relation_verb(_tw):
+                        _vidx = _i
+                        _v_is_rel = True
                         break
                 # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
                 # establishes the RELATIONSHIP + NAME regardless of whether an
-                # activity verb is recognised. When NO activity verb is found,
-                # only a LEADING CAPITALIZED token counts as a name (mirrors the
-                # appositive-pet branch's isupper() guard) so a temporal/activity
-                # phrase ("last spring") is never stored as the name. If there is
-                # neither a name nor a verb, skip — no informative fact to store.
-                # No per-role table: the head word is the user's own relation
-                # word, the name the user's own noun, the verb (when present)
-                # real content from the user's words.
+                # activity verb is recognised. When NO activity/relation verb is
+                # found, only a LEADING CAPITALIZED token counts as a name
+                # (mirrors the appositive-pet branch's isupper() guard) so a
+                # temporal/activity phrase ("last spring") is never stored as the
+                # name. If there is neither a name nor a verb, skip — no
+                # informative fact to store. No per-role table: the head word is
+                # the user's own relation word, the name the user's own noun, the
+                # verb (when present) real content from the user's words.
                 _put_fact_done = False
                 if _vidx is None:
                     _name_toks = []
@@ -2392,12 +2541,51 @@ class UserModel:
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
-                    _obj_raw = re.split(
-                        r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
-                    _obj = self._opinion_topic(_obj_raw.lower()) or ""
-                    _obj = _strip_obj_framers(_obj)
-                    if _obj and len(_obj.split()) <= 5:
-                        _val = f"{_verb} {_obj}"
+                    if _v_is_rel:
+                        # Relation-verb value: KEEP the enumeration + connective.
+                        # The activity path splits the object on "and" (so "baskets
+                        # from river reeds" -> "baskets") because activities rarely
+                        # enumerate; a relation-verb disclosure like "speaks three
+                        # languages: greek, french, and italian" MUST preserve the
+                        # list and its connective ("as a mechanic", "three
+                        # languages"), so here we stop only at a sentence/clause
+                        # boundary (period / "where|that|which|when|but") and KEEP
+                        # coordination ("and"/"or") and prepositional connectives
+                        # ("as"/"in"/"on"). Content comes verbatim from the user's
+                        # own words (lowercased). The only trims: a TRAILING
+                        # closed-class framer/preposition (so "... speaks french
+                        # in" -> "... speaks french") and a LEADING bare determiner
+                        # ("a"/"the") that opens the object — neither carries list
+                        # or attribute meaning. We do NOT run the opinion-topic
+                        # framer stripper (which would drop "as"/"a"), so the
+                        # disclosed phrase stays intact. Structural, bounded to 12
+                        # tokens so a runaway clause cannot swallow the sentence.
+                        _obj_raw = re.split(
+                            r"\s*(?:[.!?]+|where|that|which|when|but)\b",
+                            _obj_rest)[0].strip(" ,.!?;:")
+                        _obj_toks = _obj_raw.lower().split()
+                        # strip a single leading determiner only (keep connectives)
+                        if _obj_toks and _obj_toks[0] in (
+                                "the", "a", "an", "my", "your", "his", "her",
+                                "their", "our", "its", "this", "these", "those"):
+                            _obj_toks = _obj_toks[1:]
+                        # strip trailing closed-class framer / preposition
+                        _PREP = ("up", "down", "from", "at", "in", "on", "with",
+                                 "to", "of", "by", "for", "about", "into",
+                                 "onto", "over", "under", "near", "behind",
+                                 "beside", "off", "out", "as")
+                        while _obj_toks and _obj_toks[-1] in _PREP:
+                            _obj_toks.pop()
+                        _obj = " ".join(_obj_toks).strip()
+                        if _obj and len(_obj.split()) <= 12:
+                            _val = f"{_verb} {_obj}"
+                    else:
+                        _obj_raw = re.split(
+                            r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
+                        _obj = self._opinion_topic(_obj_raw.lower()) or ""
+                        _obj = _strip_obj_framers(_obj)
+                        if _obj and len(_obj.split()) <= 5:
+                            _val = f"{_verb} {_obj}"
                 # COMBINED-attr storage: (i, "<rel> <name>", "<verb> <object>").
                 # Reachable from recall branch (c) / open-ended recaller by the
                 # relation head. A name-less disclosure (e.g. "my grandmother
@@ -4564,6 +4752,21 @@ class UserModel:
         # generalizes to any connector the user rotates in, no per-topic rule.
         "though", "although", "yet", "however", "nevertheless", "nonetheless",
         "still", "anyway", "besides", "meanwhile", "otherwise",
+        # Round 2026-08-20T1935Z FRAGMENT FIX: a simile connector ("like")
+        # and a sequence connector ("after" / "before") left DANGLING
+        # PREPOSITION/CONNECTIVE fragments in mined topics. Observed: "i keep
+        # grinning like an idiot" -> topic "keep grinning like"; "petrichor
+        # after a storm is my favorite" -> topic "petrichor after"; the same
+        # class would dangle "the silence before sleep" -> "silence before".
+        # Both are open-class-looking heads that are actually closed-class
+        # connectives the cut-loop should have terminated on. "like" is
+        # already excluded from being a STANCE VERB (the like/love detector
+        # names the verb explicitly), so adding it here only affects topic
+        # normalization, never preference detection. Structural closed-class
+        # set; no per-topic rule. Cuts at the connector so "keep grinning like
+        # an idiot" -> "keep grinning", "petrichor after a storm" ->
+        # "petrichor", "silence before sleep" -> "silence".
+        "like", "after", "before",
 
         "really", "very", "just", "only", "also", "too", "quite", "more",
         "most", "much", "many", "such", "own", "same", "other", "another",

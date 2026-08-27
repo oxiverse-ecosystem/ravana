@@ -167,7 +167,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
-from .user_model import is_activity_verb as _mem_is_activity_verb
+from .user_model import is_verb_phrase as _mem_is_activity_verb
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
