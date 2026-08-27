@@ -1637,3 +1637,22 @@ class SelfQueryMixin:
                 "can make big stretches of time blur together. that's a guess, not "
                 "something i know for sure — what's your sense of it?")
 
+    def _agent_stance_key(self, target: str) -> str:
+        """Canonical key for an agent-derived stance on `target`.
+
+        Mirrors the junk-guard used for the constitutive-value keys so a
+        non-topic (``"right"``/``"it"``/``"that"``) can never become a stored
+        stance — those are exactly the confabulation class the stance resolver
+        must reject. Returns the stripped lowercase key, or ``""`` if the target
+        is not a real topic (callers treat the empty key as "no stance").
+        """
+        _t = (target or "").strip().lower()
+        _JUNK = {"all", "really", "it", "that", "things", "right",
+                 "way", "matter", "thing", "point",
+                 "idea", "question", "stuff", "something",
+                 "anything", "everything", "issue", "topic",
+                 "yes", "no", "maybe", "ok", "okay",
+                 "about", "on", "the", "a", "an"}
+        if not _t or _t in _JUNK:
+            return ""
+        return _t
