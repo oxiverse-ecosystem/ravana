@@ -85,6 +85,31 @@ def test_conditional_detected(engine, q):
     assert engine._is_conditional_query(q) is True
 
 
+# ── Fix: definitional/explain queries must NOT be routed to the counterfactual
+# simulator (category-error regression). The promoted prototype router used to
+# OVERRIDE the definitional exclusion and promote "explain X" to conditional,
+# sending definition requests into the forward-simulator where the verb became
+# the intervened node ("explain would lead to energy"). Definitional lead-ins
+# must resolve to cond=False so they fall to the web/definition/uncertainty path.
+@pytest.mark.parametrize("q", [
+    "explain tidal energy to me, the ocean as a power plant",
+    "explain the doldrums versus the horse latitudes",
+    "explain how photosynthesis works",
+    "describe the water cycle",
+    "what is dendrochronology, counting tree rings for history?",
+    "how does a combustion engine work",
+    "how do vaccines train the immune system",
+    "how is steel made",
+    "what causes tides",
+    "what makes the sky blue",
+    "why do stars twinkle",
+    "tell me about bioluminescent bays",
+    "define entropy",
+])
+def test_definitional_not_conditional(engine, q):
+    assert engine._is_conditional_query(q) is False
+
+
 def test_conditional_not_a_preamble_route():
     """The process_turn gate must skip the preamble hold for a conditional.
 

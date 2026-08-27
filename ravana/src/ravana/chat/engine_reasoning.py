@@ -2682,18 +2682,31 @@ class ReasoningMixin:
         the user wants *reasoned out*, ideally from the web — not a generic
         reflective 'what does it mean to you?' turn.
         """
-        # Stage 3 (M-A) promoted route: the fused prototype router drives the
-        # decision for `conditional` when promoted; falls through to regex below.
-        if self._router_says("conditional", text):
-            return True
         t = text.lower().strip(" ?!.")
 
-        # "define X", "tell me about X", "who was X") is NOT a hypothetical even
-        # if its subject happens to trip a broadened conditional cue (e.g.
-        # "photosynthesis"). Routing a definition request into the counterfactual
-        # simulator is a category error — it should hit the web/definition path.
-        if re.match(r"^(what (is|are|was|were|refers to|means)|define|tell me about|who (is|was|were)|where (is|was|were))\b", t):
+        # Definitional / knowledge-lead-in exclusion runs FIRST, before the
+        # prototype-router promotion. A definition or explanation request
+        # ("explain tidal energy", "what is X", "describe how X works") is NOT a
+        # hypothetical — routing it into the counterfactual forward-simulator is a
+        # category error (the simulator picks the verb/lead-in as the intervened
+        # node and emits absurd chains like "explain would lead to energy"). The
+        # promoted router (below) would otherwise OVERRIDE this exclusion and
+        # mis-route definitional queries to the simulator, so it must be checked
+        # only AFTER the definitional test passes.
+        if re.match(r"^(what (is|are|was|were|refers to|means)|define|tell me about|"
+                    r"who (is|was|were)|where (is|was|were)|"
+                    r"explain|describe|"
+                    r"how (does|do|is|are|can|could|would|should)|"
+                    r"what (causes|makes)|why (is|are|do|does) (?!.*\b(if|would|could))\b)", t):
             return False
+
+        # Stage 3 (M-A) promoted route: the fused prototype router drives the
+        # decision for `conditional` when promoted; falls through to regex below.
+        # (Runs after the definitional exclusion so a knowledge request is never
+        # overridden into the simulator.)
+        if self._router_says("conditional", text):
+            return True
+
         if re.search(r"\b(if|suppose|supposing|assume|assuming|what if|"
                      r"what would happen|what happens if|imagine if|"
                      r"pretend that|in a world without)\b", t):
