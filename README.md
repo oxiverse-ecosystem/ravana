@@ -109,41 +109,16 @@ on this codebase:
   coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
-- **Forms and recalls its own stance on a topic you've discussed.** Asked
-  *"what do you think about chanterelles?"* after you've said *"i really love
-  chanterelles"*, it answers from a stance it **derived and recorded as its own**
-  (`i'm strongly for chanterelles.`) — grounded in your real learned view,
-  attenuated (it leans, never copies), and persisted so it recalls the same stance
-  next time. On a topic with no evidence it stays honestly silent
-  (`i'm still figuring that out …`) instead of borrowing your opinion. No LLM, no
-  retrain, no authored reply pool. See `docs/AGENT_SELF_STANCE.md`.
-- **Engages BOTH sides of a binary self-opinion.** Asked *"what's your take on the
-  sea versus the mountains?"* or *"do you prefer the countryside or the cities?"*,
-  it splits on the contrastive connective (`versus` / `vs` / `or` / `over` /
-  `rather than`) and resolves **each** side through its real stance state — e.g.
-  `i'm for sea.; i'm still figuring out mountains.` — instead of collapsing to the
-  last token and dropping the other side. A side with no view is answered honestly,
-  never fabricated. No LLM, no retrain, no authored reply pool. See
-  `docs/CONTRASTIVE_SELF_OPINION.md`.
-- **Resolves a relative-clause topic to its content head in a self-opinion
-  query.** Asked *"your honest read on people who talk in theatres?"* or
-  *"what's your take on friends who keep their promises?"*, it no longer
-  collapses the topic to the trailing last token (`theatres` / `promises`) — it
-  resolves the **content head** (`people who talk` / `friends who keep`), which
-  matches the stance key it mined from you, so it engages the real lean it
-  learned (`i'm against people who talk.`) instead of the hollow
-  `i'm still figuring that out`. Flat topics (`"your honest read on privacy"` ->
-  `privacy`) are unchanged; an ungrounded relative clause stays honestly silent,
-  never fabricated. No LLM, no retrain, no authored reply pool. See
-  `docs/SELF_OPINION_RELATIVE_CLAUSE.md`.
-- **Remembers and totals counts you disclose.** Told *"i keep twelve racing
-  pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
-  structured state (not free text) so it can answer *"how many racing pigeons do i
-  keep?"* with `you have twelve racing pigeons.` and *"how many pets do i have in
-  total?"* with `you have 21 pets in total.` (losses aren't counted as pets) — and
-  a later *"it's seven hives now"* supersedes an earlier *"i keep six hives"*, so
-  recall returns the corrected `you have seven hives.` No LLM, no retrain, no
-  authored reply pool. See `docs/QUANTITY_MEMORY.md`.
+- **Reflects on its model of you (meta-identity).** Asked *"do i seem like a
+  real person to you"*, *"what am i to you"*, or *"what have you learned about
+  me"*, it answers from its **live** accumulated model of you — your real name,
+  the stances and facts it has picked up, and its own self-coherence — instead
+  of a biographical fact lookup or an episodic echo:
+  `i know you as Corvin. and from what you've told me i've picked up 2 stances you've shared and 1 facts about your life. you've let me see where you stand on things like oysters, surveillance. my own sense of self is still forming — my self-coherence sits around 0.25 and is holding steady.`
+  Every word of content is read from runtime stores (no authored prose; the
+  prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
+  *"what's my name"* is not intercepted and still resolves from its own path. See
+  `docs/CAPABILITY_META_IDENTITY.md`.
 
 - **Answers a multi-part (compound) question in full — both conjuncts resolve.** Asked *"what's my ferret's name and what does he do with my keys?"* — where the recall resolvers are single-shot and used to answer the first clause and drop the rest — it now resolves BOTH and answers *"your ferret is pip and your ferret pip hides car keys."* (before the fix: only *"your ferret is pip."*). The capability is **general**: it deterministically splits a genuine compound interrogative (a coordinating `" and "` between two questions, or two `"?"`-terminated questions) into independent sub-queries, runs the **same** durable-store-backed recall resolver on each clause, and combines the distinct answers with `" and "`. A declarative `"and"` (a non-question) is left whole (safe no-op), and if fewer than two clauses resolve it **fails closed** rather than fabricating. No LLM, no per-topic reply table, no retraining. See `docs/CAPABILITY_COMPOUND_QUERY_DECOMPOSITION.md`.
 
