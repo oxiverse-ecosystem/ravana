@@ -4522,9 +4522,64 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"suppose)\s+(?:i|we|you|he|she|they)\s+"
             r"(like|love|hate|dislike|prefer|enjoy|adore|care\s+for|"
             r"loathe|detest|can'?t\s+stand|cant\s+stand)\b\s+(.+)", q)
-        if not _m:
-            return None
-        _obj = _m.group(3).strip(" .!?")
+        _obj = None
+        _fm_match = False
+        if _m:
+            _obj = _m.group(3).strip(" .!?")
+        else:
+            # GENERALIZE (round 2026-08-20T0701Z): the "am i for or against X" /
+            # "do you think i'm for or against X" / "are you for or against X"
+            # frame is the SAME user-stance question in a different surface
+            # form — the user is asking RAVANA to read back THEIR OWN stance on
+            # X, not RAVANA's knowledge of X. The old matcher only caught the
+            # explicit like/dislike-verb form, so this fell through to the
+            # semantic-ignorance handler ("i don't have a clean definition for
+            # winter") — a self/other boundary error. Extract the topic after
+            # "for or against" / "for it or against it" and consult the same
+            # live UserStanceStore. Structural (regex over the user's real
+            # words), no per-topic table, no retraining.
+            # GENERALIZE (round 2026-08-20T0701Z): the "am i for or against X"
+            # / "do you think i'm for or against X" frame is the SAME
+            # user-stance question in a different surface form — the user is
+            # asking RAVANA to read back THEIR OWN stance on X, not RAVANA's
+            # knowledge of X. The old matcher only caught the explicit
+            # like/dislike-verb form, so this fell through to the
+            # semantic-ignorance handler ("i don't have a clean definition for
+            # winter") — a self/other boundary error. Extract the topic X
+            # (which sits either AFTER the polarity clause in natural speech,
+            # e.g. "am i for or against street art", or BEFORE it, e.g.
+            # "winter — am i for it or against it"), then consult the same
+            # live UserStanceStore. Structural (regex over the user's real
+            # words + a closed-class stop list), no per-topic table, no
+            # retraining.
+            _POL = (r"(?:am|are|do\s+you\s+think)\s+(?:i|i'm|i\s+am|you|we)\s+"
+                    r"(?:for|against|for\s+or\s+against|for\s+it\s+or\s+against\s+it)")
+            _mm = re.search(_POL, q)
+            _obj = None
+            if _mm:
+                _fm_match = True
+                _after = re.split(
+                    r"\?|after\s+everything|at\s+this\s+point|right\s+now",
+                    q[_mm.end():])[0].strip(" ,;-\u2014")
+                _before = q[:_mm.start()].strip(" ,;-")
+                _STOP = {"am", "are", "for", "against", "or", "it", "i", "i'm",
+                         "you", "we", "do", "think", "the", "this", "that", "my",
+                         "me", "at", "point", "now", "everything", "after",
+                         "right", "is", "was", "were", "a", "an", "of", "on",
+                         "to", "in", "and", "but"}
+                _aw = [w for w in re.findall(r"[a-z][a-z'-]+", _after)
+                       if w not in ("about", "on", "toward", "of") and w not in _STOP]
+                if _aw:
+                    # Keep up to 3 trailing content words so multi-word topics
+                    # like "street art" survive (the stance store resolves them
+                    # via content-word matching); the BEFORE case keeps a single
+                    # leading word (e.g. "winter").
+                    _obj = " ".join(_aw[:3])
+                else:
+                    _bw = [w for w in re.findall(r"[a-z][a-z'-]+", _before)
+                           if w not in _STOP]
+                    if _bw:
+                        _obj = _bw[-1]
         if not _obj:
             return None
         um = getattr(self, "user_model", None)
@@ -4550,6 +4605,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # Last resort: try resolving from the raw object directly.
             _key = opinions.resolve_topic(_obj)
         if _key is None:
+            # GENERALIZE (round 2026-08-20T0701Z): the "am i for or against X"
+            # frame matched (a USER-stance question) but no stance is held for
+            # X. Previously this returned None and the query fell through to the
+            # semantic-ignorance handler ("i don't have a clean definition for
+            # X") — a self/other boundary violation, since the user asked about
+            # THEIR OWN attitude, not RAVANA's concept of X. Answer honestly in
+            # the USER scope instead. The topic is the user's real extracted
+            # word (state-driven, not a scripted stance), and the reply is an
+            # explicit epistemic-honesty statement — no fabricated valuation,
+            # no per-topic table, no retraining. Genuine gaps (e.g. RAVANA
+            # mined "winter" disclosures under the related key "silence") are
+            # surfaced honestly rather than masked.
+            if _fm_match and _obj:
+                return (f"honestly, i don't have a clear read on how you feel "
+                        f"about {_obj} specifically yet — you've told me things "
+                        f"around it, but i'd rather hear it straight from you "
+                        f"than guess.")
             return None
         _s = opinions.stances.get(_key)
         if _s is None:

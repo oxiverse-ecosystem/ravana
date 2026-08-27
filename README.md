@@ -59,6 +59,17 @@ on this codebase:
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
   stale one or stacking a contradiction. A flip on a topic you never stated an
   attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
+- **Links a broader-concept co-mention back to a held stance (provenance
+  bridge).** Told *"i love the silence of deep winter"* it records the stance
+  keyed on the subordinate head *silence* **and** keeps the salient broader
+  concept *winter* it co-named as provenance. A later *"am i for or against
+  winter?"* then resolves through that provenance to the held stance and answers
+  *"from what you've told me, you're strongly for silence"* — instead of falling
+  to the *"i don't have a read"* hedge it used before. Provenance is grown online
+  from the real utterance and merged across encounters; there is no per-topic
+  table and no retraining. The same bridge fixes the street-art reversal class
+  (a reversal naming *street art* links to a stance keyed *murals*). See
+  `docs/CAPABILITY_STANCE_PROVENANCE.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:

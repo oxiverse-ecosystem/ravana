@@ -1073,20 +1073,71 @@ class SelfQueryMixin:
             # resolve to the real object ("mangroves"). The target is the user's
             # actual topic (real state), so the reply names the right subject —
             # no authored per-topic sentence.
+            # GENERALIZE (round 2026-08-20T0701Z): the FIRST/LAST-content-token
+            # heuristics (DEFECT A/B) were both fragile — they pick a single
+            # token at a fixed position, which misfires on real opinion frames:
+            #   * "how do you feel about ME leaving the water" lands on
+            #     "leaving" (a verb), and "do you think I'M contradictory" lands
+            #     on "contradictory" only by luck; the pronoun itself
+            #     ("my"/"me"/"i'm") was a recurring leak -> "forming a view on my".
+            #   * "so do you think i'm for or against street art" -> first token
+            #     "for" (a closed-class polarity word), not "street art".
+            # Fix: take the MAXIMAL noun phrase immediately after the opinion cue
+            # — i.e. the first CONTENT token that is NOT a closed-class word,
+            # pronoun, polarity word, or verb-scaffold, then keep accumulating
+            # subsequent content tokens (multiword topics like "street art",
+            # "public transit") until a closed-class boundary. Structural
+            # (closed-class + pronoun + polarity vocabulary), generalizes to any
+            # topic wording, no per-topic list. The target is the user's real
+            # subject (real state) so the reply names the right topic — no
+            # authored per-topic sentence.
+            _PRON_OR_CLOSED = (
+                "about", "on", "the", "a", "an", "of", "for", "with", "to",
+                "at", "in", "by", "from", "as", "if", "than", "but", "so",
+                "now", "then", "there", "here", "up", "down", "out", "off",
+                "when", "where", "why", "how", "who", "what", "which",
+                "because", "before", "after", "while", "during", "through",
+                "over", "under", "into", "onto", "upon", "until", "against",
+                "we", "should", "could", "would", "is", "are", "do", "does",
+                "you", "your", "i", "i'm", "i've", "i'd", "i'll", "my", "me",
+                "we're", "our", "us", "they", "them", "he", "she", "his",
+                "her", "its", "their", "it", "that", "this", "and", "or")
             _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
                                "support", "defend", "fund", "build", "make",
-                               "change", "help", "avoid", "prevent")
+                               "change", "help", "avoid", "prevent",
+                               "leaving", "feel", "think", "believe",
+                               # attitude verbs (round 2026-08-20T0701Z regression
+                               # t_a9ce2550): 'do you think i LIKE X' must resolve
+                               # the topic to X, not 'like X'. Structural verb
+                               # vocabulary — generalizes to any preference verb.
+                               "like", "likes", "liked", "love", "loves",
+                               "loved", "hate", "hates", "hated", "prefer",
+                               "prefers", "preferred", "dislike",
+                               "dislikes", "disliked")
             _i = 0
-            while _i < len(_toks) and _toks[_i] in _VERB_SCAFFOLD:
+            while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
+                                       or _toks[_i] in _VERB_SCAFFOLD
+                                       or _toks[_i].isdigit()):
                 _i += 1
-            _target = _toks[_i] if _i < len(_toks) else ""
-            if not _target:
-                # DEFECT B guard: after stripping closed-class + pronoun tokens the
-                # query named no real topic (e.g. "how do you feel about me?" with
-                # no object). Don't answer "a view on <empty>"; fall through so the
-                # next handler (or honest uncertainty) deals with it. Fail-open.
+            if _i >= len(_toks):
+                # No real topic after the cue (e.g. "how do you feel about me?"
+                # with no object). Don't answer "a view on <empty>"; fall
+                # through so the next handler (or honest uncertainty) deals with
+                # it. Fail-open.
                 _agent_opinion = None
+                _stance, _reason = None, None
             else:
+                # Accumulate the topic noun phrase: first content token, then
+                # keep adjacent content tokens (handles "street art", "public
+                # transit") but stop at the first closed-class/polarity boundary.
+                _target_toks = [_toks[_i]]
+                _j = _i + 1
+                while _j < len(_toks) and _toks[_j] not in _PRON_OR_CLOSED \
+                        and _toks[_j] not in _VERB_SCAFFOLD \
+                        and not _toks[_j].isdigit():
+                    _target_toks.append(_toks[_j])
+                    _j += 1
+                _target = " ".join(_target_toks)
                 _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
