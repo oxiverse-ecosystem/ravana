@@ -2513,18 +2513,16 @@ class MemoryMixin:
             # there is NO cue do we default to the immediately-preceding turn
             # (genuine "what did i just say?").
             _cue = ""
-            # Broaden cue capture (round 2026-08-14T1110Z): the old regex only
-            # matched `about/that/regarding/on <word>`, so a possessive/relative
-            # query like "what did i say MY BROTHER does" or "what did i tell you
-            # about MY CATS" (the latter actually matched via `about`) left the
-            # cue empty and fell through to a verbatim prior-turn echo. We now
-            # also capture `my <word>`, `the <word>`, and `<word>'s` so the
-            # query's real subject (brother, cat, ...) is used to retrieve the
-            # matching episode. This is structural (possessive/referent regex),
-            # not a per-topic table.
+            # Round 2026-08-14T0103Z: capture the CONTENT word after the
+            # preposition, not the leading determiner. The old pattern
+            # `[a-z']+` grabbed "the" from "about the commission", so the
+            # topic-cued branch delegated to _retrieve_episodic with the cue
+            # "the" and the recall mis-targeted an adjacent turn. Skip an
+            # optional leading determiner so "about the commission" yields
+            # "commission". Structural (determiner strip), not a per-topic fix.
             _m = re.search(
-                r"\b(?:about|that|regarding|on|my|the)\s+([a-z']+)"
-                r"|([a-z']+)'s\b", t)
+                r"\b(?:about|that|regarding|on)\s+(?:(?:the|that|this|these|"
+                r"those|a|an|my|your|our|their|his|her)\s+)?([a-z']+)", t)
             if _m:
                 _cue = (_m.group(1) or _m.group(2) or "").lower().strip(".,!?")
             if _cue and len(_cue) >= 3:
