@@ -2226,6 +2226,7 @@ class UserModel:
                 # relational miner.
                 _raw_attr = (_m.group(1).strip().lower()
                              if _m.lastindex is not None and _m.lastindex >= 1
+                             and _m.group(1) is not None
                              else "")
                 # attr may be multi-word ("cousin nora"); a relation-led attr
                 # starts with a relation word followed by a proper-noun name.
