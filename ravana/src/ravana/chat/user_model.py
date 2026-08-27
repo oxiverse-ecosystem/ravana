@@ -2279,8 +2279,19 @@ class UserModel:
                     _attr = f"{_kin} {_name}".strip()
                 else:
                     _attr = _kin
-                if not _put_fact_done:
-                    _put_fact(_attr, _val if _val else _kin, 0.6)
+                # GENERALIZE (round 2026-08-20T0701Z): never store a DEGENERATE
+                # relationship fact whose value is just the relationship word
+                # itself (e.g. ('i','grandmother','grandmother') from "my
+                # grandmother" with neither a recognized name nor activity verb).
+                # Such a fact carries no information and renders as the broken
+                # "your grandmother is grandmother." at recall. Only store when
+                # there is real content: a name was captured, OR an activity
+                # verb produced a value, AND the value is not identical to the
+                # relationship word. Content comes from the user's own words;
+                # honest skip when there is nothing informative to store.
+                _final_val = _val if _val else _kin
+                if not _put_fact_done and _final_val != _kin and (_name or _val):
+                    _put_fact(_attr, _final_val, 0.6)
 
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
@@ -3199,6 +3210,32 @@ class UserModel:
                 _age = _AGE_WORDS.get(_am.group(2).lower())
             if _age is None or _age < 1 or _age > 120:
                 continue
+            # GENERALIZE (round 2026-08-20T0701Z): the age-anchored-start miner
+            # must only capture the USER'S OWN activity-start ("i picked up the
+            # cello when i was nine"), NOT a "when i was N" clause that merely
+            # dates an event done TO the user by someone else ("my grandmother
+            # taught me to fold paper cranes when i was four"). The old code
+            # scanned the whole clause for any activity verb and stored
+            # since_age="taught fold paper cranes 4" — a junk fact that later
+            # leaks into recall ("since_age is my grandmother yuki taught me 4").
+            # Fix: skip when the sentence describes a RELATIONSHIP/third-party
+            # activity — i.e. it contains a "my <kin/role>" possessive (the
+            # activity's actor is the relative, not the user). The relationship
+            # vocabulary is the shared relation_attrs.relation_of lexicon
+            # (RAVANA-expandable, single source of truth) — no per-name table,
+            # no retraining. A genuine first-person age-start ("i was nine when
+            # i started dancing") has no such possessive and is still mined.
+            try:
+                from .relation_attrs import relation_of as _ra_of_d3
+            except Exception:
+                _ra_of_d3 = lambda w: None
+            _has_relative_actor = False
+            for _wt in re.findall(r"\bmy\s+([a-z][a-z]+)\b", q_clean, re.IGNORECASE):
+                if _ra_of_d3(_wt.lower()) is not None:
+                    _has_relative_actor = True
+                    break
+            if _has_relative_actor:
+                continue
             # The activity may appear EITHER before the age clause
             # ("i picked up the cello when i was nine") OR after it
             # ("since i was nine i've played cello"). Scan the whole sentence
@@ -3615,8 +3652,22 @@ class UserModel:
                 elif abs(_p) <= 0.05 and abs(_v) >= 0.3:
                     _p = 0.6 if _v > 0 else -0.6
                 _p = max(-1.0, min(1.0, _p))
+                # PROVENANCE (round 2026-08-20T0701Z-followup, residual
+                # limitation #1). The keyed `_topic` ("silence") may be a
+                # SUBORDINATE concept while the utterance also names the
+                # SALIENT broader concept the user actually meant ("winter").
+                # Capture the salient content nouns of the FULL object phrase
+                # (`_raw`, before _opinion_topic collapsed it to the head), so
+                # the resolver + reversal miner can later bridge a co-mention
+                # of "winter"/"street art" to this stance even though the key
+                # differs. The set is GROWN ONLINE from the real utterance —
+                # seed is empty, nothing hardwired, RAVANA revises it by
+                # further talk. Generic: content-noun extraction reuses the
+                # same closed-class stop set the miner already routes through.
+                _prov = self._opinion_provenance(_raw)
                 self.opinions.express_stance(_topic, polarity=_p, confidence=_conf,
-                                            valence=_v, arousal=_a)
+                                            valence=_v, arousal=_a,
+                                            provenance=_prov)
 
         # Stance-reversal mining: "i take back X" / "i changed my mind about X" /
         # "i retract my stance on X" recodes the user's valuation of the topic to
@@ -4334,28 +4385,36 @@ class UserModel:
         "it", "they're", "im", "i'm", "you're", "we're", "there",
     }
 
-    # C-fix (round 2026-08-12T0613Z): universal ghost topics that can NEVER
-    # own a stance. Comparative / superlative patterns occasionally capture a
-    # non-attitude head (an indefinite pronoun like "anything", or a grammatical
-    # gerund like "standing"/"being" stripped from a longer phrase). These are
-    # rejected as single-word stance topics. This is a tiny UNIVERSAL seed set
-    # (indefinite pronouns + grammatical gerunds), NOT a per-topic deny-list —
-    # it generalizes to any topic the user names and RAVANA cannot learn
-    # attitude objects from these ghosts.
-    _STANCE_GHOST_TOPICS = {
-        # indefinite pronouns / quantifiers
-        "anything", "something", "everything", "nothing", "whatever",
-        "whoever", "whichever", "anyone", "everyone", "someone", "noone",
-        "nobody", "everybody", "somebody", "anybody",
-        # grammatical gerunds that pattern-matchers emit as a head but can
-        # never be an attitude object
-        "standing", "being", "doing", "having", "going", "coming", "feeling",
-        "thinking", "knowing", "wanting", "making", "taking", "getting",
-        "being", "saying", "talking", "looking", "feeling", "seeming",
-        "open", "single", "moment", "sense", "breath", "note", "held",
-        "restless", "quietest", "quiet", "outside", "inside", "away",
-        "around", "through", "across", "behind", "before", "after",
-    }
+    def _opinion_provenance(self, phrase: str) -> List[str]:
+        """Return the salient content nouns of an opinion-object phrase.
+
+        Companion to `_opinion_topic`: where that method returns the single
+        content HEAD the stance is keyed on, this returns ALL salient content
+        nouns of the phrase (the head plus any modifiers that survived the
+        closed-class strip). Used to seed a stance's PROVENANCE so the
+        resolver + reversal miner can bridge a later co-mention of a broader
+        concept (e.g. "winter", "street art") back to a stance keyed on a
+        subordinate word ("silence", "vandalism"). Generic and store-driven:
+        the nouns come from the user's actual words, nothing is hardwired, and
+        the set is merged online across encounters. Seed vocabulary = the
+        shared closed-class stop set already used by the opinion miners.
+        """
+        toks = [t for t in re.findall(r"[a-z'][a-z']*", (phrase or "").lower())]
+        if not toks:
+            return []
+        # Drop leading closed-class framers (determiners/prepositions/particles)
+        # and trailing modifiers using the SAME stop set the miner routes through,
+        # but keep INTERNAL content nouns (the salient concepts co-named with the
+        # head). We keep every token that is NOT a stop word — that yields the
+        # full salient concept set rather than only the head.
+        out = [t for t in toks if t not in self._OPINION_STOP]
+        # Also drop pure particles (so "up"/"down" never enter provenance).
+        _PARTICLES = {
+            "up", "down", "off", "out", "in", "on", "away", "back", "over",
+            "under", "around", "through", "along", "by", "past", "upon",
+        }
+        out = [t for t in out if t not in _PARTICLES]
+        return out
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.

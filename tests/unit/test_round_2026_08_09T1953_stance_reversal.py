@@ -73,3 +73,46 @@ def test_change_of_heart_cue_reverses():
     um.mine_personal_facts("i've had a change of heart, the new transit plan is a mistake")
     after = um.opinions.stances.get("new transit plan")
     assert after is not None and after.polarity < before_pol
+
+
+def test_provenance_captured_from_subordinate_keyed_stance():
+    """Residual limitation #1: a stance keyed on a SUBORDINATE concept (the
+    head, e.g. 'silence') must still record the SALIENT broader concept the
+    user named in the same utterance ('winter') as provenance, so a later
+    question about the broader concept bridges to the held stance instead of
+    forcing the honest-fallback 'i don't have a read' path.
+
+    Without the provenance capture, the stance's provenance is empty and a
+    later 'am i for or against winter' resolves to None (the bug). With it, the
+    resolver bridges via the recorded provenance and returns the held stance.
+    """
+    um = UserModel()
+    um.opinions.stances.clear()
+    um.mine_personal_facts("i love the silence of deep winter, it's the only quiet i get")
+    st = um.opinions.stances.get("silence")
+    assert st is not None, "stance must be keyed on the subordinate head 'silence'"
+    # The salient broader concept 'winter' must be in the recorded provenance.
+    assert "winter" in st.provenance, (
+        f"provenance must include the salient broader concept, got {st.provenance}")
+    # End-to-end: a later query about the broader concept bridges to the stance.
+    assert um.opinions.resolve_topic("winter") == "silence"
+    assert um.opinions.resolve_topic("am i for or against winter") == "silence"
+
+
+def test_provenance_bridges_street_art_reversal_class():
+    """The SAME residual class on the street-art reversal: the original
+    disclosure and the reversal both name a salient concept ('street art')
+    that differs from the keyed head. The reversal miner routes through
+    resolve_topic, so proving the bridge resolves 'street art' to the held
+    stance key proves the reversal will link correctly too.
+    """
+    um = UserModel()
+    um.opinions.stances.clear()
+    # Seed a held stance the way the round's street-art material did: keyed on
+    # the subordinate head but provenance carries the salient concept.
+    um.opinions.express_stance("murals", polarity=1.0, confidence=0.8,
+                               provenance=["murals", "street", "art"])
+    # The reversal about street art must resolve to the held 'murals' stance,
+    # not fall through (which left D5's honest fallback firing).
+    assert um.opinions.resolve_topic("street art") == "murals"
+
