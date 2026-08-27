@@ -60,3 +60,30 @@ def test_r1_own_name_query_not_hijacked():
     eng.process_turn("i keep a sourdough starter i named doris")
     r = eng.process_turn("what is my name?")
     assert "doris" not in r.lower(), f"own-name query hijacked by possession: {r!r}"
+
+
+def test_r1_qualifier_prefixed_query_matches_stored_entity():
+    """Round 2026-08-22T0058Z: a recall query that adds a relationship
+    qualifier the disclosure omitted must still resolve to the stored entity,
+    not fall through to the GloVe cross-entity linker (which mis-linked
+    'pet rabbit' to a sibling entity). 'my pet rabbit Nimbus' is stored under
+    key 'rabbit'; 'what's my pet rabbit's name' must recall 'nimbus'."""
+    eng = _new_engine("t_r1_qual_rabbit")
+    eng.process_turn("my little cousin Bea is learning to read")
+    eng.process_turn("my pet rabbit Nimbus chews my phone chargers")
+    r = eng.process_turn("what's my pet rabbit's name and what does he do?")
+    assert "nimbus" in r.lower(), f"expected rabbit 'nimbus', got: {r!r}"
+    # must NOT leak the cousin fact
+    assert "bea" not in r.lower(), f"qualifier query mis-linked to sibling: {r!r}"
+
+
+def test_r1_qualifier_on_stored_key_matches_unqualified_query():
+    """The symmetric case: the miner auto-prefixed 'little cousin Bea' but the
+    user later asks 'my cousin Bea'. The stored key 'little cousin bea' must
+    match the unqualified query 'cousin bea'."""
+    eng = _new_engine("t_r1_qual_cousin")
+    eng.process_turn("my pet rabbit Nimbus chews my phone chargers")
+    eng.process_turn("my little cousin Bea is learning to read")
+    r = eng.process_turn("what's my cousin Bea into, the reading thing?")
+    assert "bea" in r.lower(), f"expected cousin 'bea', got: {r!r}"
+    assert "nimbus" not in r.lower(), f"unqualified query mis-linked to pet: {r!r}"

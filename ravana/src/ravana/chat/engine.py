@@ -4770,8 +4770,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Same-subject attitude frame (the user is the attitude holder). The
         # object clause after the attitude verb carries the topic.
         _m = re.search(
-            r"\b(i|we|you)\b\s+(?:think|feel|believe|figure|reckon|guess|"
+            r"\b(i|we|you)\b\s+(?:still\s+)?"
+            r"(?:think|feel|believe|figure|reckon|guess|"
             r"suppose)\s+(?:i|we|you|he|she|they)\s+"
+            r"(?:still\s+)?"
             r"(like|love|hate|dislike|prefer|enjoy|adore|care\s+for|"
             r"loathe|detest|can'?t\s+stand|cant\s+stand)\b\s+(.+)", q)
         _obj = None

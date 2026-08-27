@@ -2637,22 +2637,53 @@ class UserModel:
         # from the user's own words; no authored reply, no retraining.
         _mk = re.search(r"\bmy\s+([a-z][a-z-]+)\b\s*(.*)", q_clean)
         if _mk:
-            _kin = _mk.group(1).lower()
-            # GENERALIZE (round 2026-08-21T2156Z defect D2): a multi-word kin
-            # modifier ("great-aunt" / "great aunt") is normalized to its head
-            # relationship word via the SHARED relation_attrs.relation_of
-            # vocabulary, so "my great-aunt Hortense ..." is accepted by the same
-            # role gate as "my aunt" (the bare word "great" is not a relation,
-            # so it was previously dropped). The hyphenated form is captured by
-            # the relaxed char class above; normalization happens here, before
-            # the relation_of() gate below. Seed structure, no per-kin branch.
             try:
                 from .relation_attrs import relation_of as _mk_rel_of
-                _kin_norm = _mk_rel_of(_kin)
-                if _kin_norm:
-                    _kin = _kin_norm
             except Exception:
-                pass
+                _mk_rel_of = lambda w: None
+            _kin = _mk.group(1).lower()
+            _rest0 = _mk.group(2)
+            # GENERALIZE (round 2026-08-22T0058Z, DEFECT B): a relationship
+            # disclosure can carry one or more LEADING MODIFIERS before the
+            # relationship word — "my OLD mentor Dr. Osei", "my OLD BEEKEEPING
+            # mentor Dr. Osei", "my DEAR friend Priya", "my LATE uncle Bram".
+            # The OLD code took only the FIRST word after "my" as the relation
+            # head, so "old"/"dear"/"late" (not relationship words) became the
+            # head and the WHOLE disclosure was dropped — a later "who is my
+            # mentor?" had nothing to recall.
+            #
+            # Fix: scan the remainder left-to-right for the FIRST token that is
+            # a relationship word (via relation_of). Everything before it is a
+            # modifier and is dropped; that token becomes the head. SCAN STOPS
+            # at the first CAPITALIZED proper-noun name (e.g. "wren" in "my
+            # friend wren, she's a ceramicist") so a bare "<rel> <Name>, <clause>"
+            # disclosure keeps the Name in the remainder for the embedded-clause
+            # path below — this preserves the pre-existing behavior that the
+            # first attempt at this fix broke. When no relationship word is
+            # found before a name or the end, the head is unchanged and the
+            # block falls through honestly (no fictitious fact).
+            #
+            # Seed vocabulary consulted via relation_of / learn_relation (RAVANA
+            # runtime-extensible), not a per-role table; no authored prose; no
+            # retraining. Bounded by the remainder length.
+            if _mk_rel_of(_kin) is None and _rest0:
+                _rt = _rest0.split()
+                _head_found = False
+                for _j, _tk in enumerate(_rt):
+                    _wt = _tk.lower().strip(".,!?;:\"'" + "'")
+                    if _mk_rel_of(_wt) is not None:
+                        _kin = _mk_rel_of(_wt)
+                        _rest0 = " ".join(_rt[_j + 1:])
+                        _head_found = True
+                        break
+                    # a capitalized proper noun is the entity NAME, not a
+                    # modifier — stop scanning so the embedded-clause path can
+                    # capture it.
+                    if _tk[:1].isupper():
+                        break
+            _kin_norm = _mk_rel_of(_kin)
+            if _kin_norm:
+                _kin = _kin_norm
             # GENERALIZE (round 2026-08-17T1730Z): a relationship disclosure is
             # not restricted to blood kin. Mentors, teachers, coaches, friends,
             # neighbors, bosses, colleagues, roommates, landlords, and any
@@ -2678,7 +2709,6 @@ class UserModel:
                 _ra_learn = lambda w: ""
             if _kin in _KIN or _ra_of(_kin) is not None:
                 _role = True
-                # GROW the shared relationship vocabulary (relation_attrs)
                 # from the live disclosure, so the recaller (engine.py 1c/1d),
                 # which already consults relation_of / is_relation_attribute /
                 # base_relation, generalizes to this role WITHOUT a per-role
@@ -2696,7 +2726,7 @@ class UserModel:
                 except Exception:
                     pass
             if _role:
-                _rest = _mk.group(2)
+                _rest = _rest0
                 _toks = _rest.split()
                 _vidx = None
                 _v_is_rel = False
@@ -2839,6 +2869,60 @@ class UserModel:
                         _obj = _strip_obj_framers(_obj)
                         if _obj and len(_obj.split()) <= 5:
                             _val = f"{_verb} {_obj}"
+                        else:
+                            # GENERALIZE (feature t_6b93e125, round
+                            # 2026-08-22T0058Z residual DEFECT B-variant): a
+                            # relationship disclosure can carry its object as a
+                            # NON-NOUN-PHRASE CLAUSE — "my mentor taught me how
+                            # to read the hive's mood", "my grandmother showed
+                            # me where the river bends", "my uncle taught me
+                            # why the stars wheel at night". The opinion-topic
+                            # resolver is built to collapse such clauses to a
+                            # content HEAD ("read" / "where" / "why") and then
+                            # REJECT that head as verb-residue (it lives in
+                            # _OBJ_NONCONTENT), so _obj comes back EMPTY and the
+                            # degenerate-fact guard drops the WHOLE disclosure.
+                            # The raw clause is real, informative content the
+                            # user said, so we keep it verbatim instead of
+                            # dropping it. This mirrors the relation-verb path
+                            # above (which preserves the user's own enumerated
+                            # phrase rather than trimming it to a content head).
+                            # We only fall back to the raw clause when the
+                            # topic-resolver produced nothing — genuine
+                            # noun-phrase objects still go through the resolver
+                            # and keep the existing "real concept head" shape.
+                            # The fallback is BOUNDED (<= 12 tokens, trailing
+                            # closed-class framers stripped) so a runaway clause
+                            # cannot swallow the sentence, and we re-use the
+                            # same clause-boundary splitter used by the
+                            # relation-verb path so a trailing ".!?" / "where|
+                            # that|which|when|but" cleanly ends the value.
+                            # Content comes verbatim from the user's own words;
+                            # no authored reply; no per-relationship table; no
+                            # retraining. RAVANA-expandable: the same
+                            # PersonalFactStore the user can correct.
+                            _raw = re.split(
+                                r"\s*(?:[.!?]+|where|that|which|when|but)\b",
+                                _obj_rest)[0].strip(" ,.!?;:")
+                            # drop a leading possessive framer ("me", "us") that
+                            # opens a taught/showed clause but carries no
+                            # content ("my mentor taught me HOW...").
+                            _raw_toks = _raw.lower().split()
+                            if _raw_toks and _raw_toks[0] in (
+                                    "me", "us", "them", "him", "her", "you",
+                                    "myself", "himself", "herself"):
+                                _raw_toks = _raw_toks[1:]
+                            # strip trailing closed-class framer / preposition
+                            _FALLBACK_PREP = (
+                                "up", "down", "from", "at", "in", "on", "with",
+                                "to", "of", "by", "for", "about", "into",
+                                "onto", "over", "under", "near", "behind",
+                                "beside", "off", "out", "as")
+                            while _raw_toks and _raw_toks[-1] in _FALLBACK_PREP:
+                                _raw_toks.pop()
+                            _raw = " ".join(_raw_toks).strip()
+                            if _raw and len(_raw.split()) <= 12:
+                                _val = f"{_verb} {_raw}"
                 # GENERALIZE (round 2026-08-21T2156Z defect D2): an EMBEDDED
                 # relative clause ("my friend wren, she's a ceramicist") has no
                 # activity verb before the name, and the name is LOWERCASE after

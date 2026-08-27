@@ -1185,6 +1185,16 @@ class SelfQueryMixin:
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."
+            # Fail-open: when no real topic object was extracted (e.g. "what do
+            # you think about?" with only a pronoun/empty tail) _agent_stance_on
+            # returns (None, None) — there is no stance to render. Touching
+            # _stance.rstrip() on None crashed the WHOLE turn (measured:
+            # "when you're not answering me, what do you think about?" raised
+            # AttributeError and killed the first turn of every fresh session).
+            # Return None so the caller falls through to honest handling rather
+            # than inventing a stance about nothing. No authored fallback needed.
+            if _stance is None:
+                return None
             # The stance sentence and its reason are two clauses — join them
             # with a clear separator so a value-grounded reply reads as
             # "i care deeply about privacy. that is a basic right..." rather
