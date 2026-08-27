@@ -3012,6 +3012,100 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return f"your {_attr} is {_v}."
             return None
 
+        # ── (1b2) PRIOR / ORIGINAL-STANCE recall (feature round 2026-08-21T1653Z,
+        # Defect 2). Queries that ask about the user's PAST attitude AFTER a
+        # reversal — "did I used to say I loved cold weather", "what was my
+        # original take on lab-grown meat before I flipped", "were you for or
+        # against X before" — must be answered from the USER's OWN stance store
+        # (the prior_polarity / prior_stance episodic trace recorded by
+        # reverse_stance / recode_stance_toward), NOT from world-knowledge.
+        # Previously these fell through to _consult_internal_knowledge and
+        # emitted a confident WRONG subject ("loved is a bit outside what i
+        # know" — measured this round: T42/T43). The content now comes entirely
+        # from the durable stance store: when a held stance carries a prior
+        # trace we report it; otherwise we report the current stance (the user
+        # may simply be asking about a held opinion). Fully store-driven; the
+        # topic is resolved against the live UserStanceStore (no per-topic
+        # table); no authored reply; no retraining. Gated on an interrogative
+        # frame that names the PRIOR (used to / original / before / earlier /
+        # initially) so a plain current-stance query ("what do I think of X")
+        # is not hijacked. Fail-closed: returns None when no stance resolves,
+        # so a genuinely unstored topic reaches honest uncertainty.
+        if opinions is not None:
+            # Only treat this as a PRIOR-STANCE RECALL when the user is ASKING
+            # (interrogative). A declarative "i used to think cities were X but
+            # now Y" is a live reversal act that mine_stance_reversal must
+            # handle — it must NOT be hijacked into a recall. Gate on a question
+            # mark OR an interrogative front (did/were/do/what/how + auxiliary).
+            _q_front = re.compile(
+                r"^\s*(?:did|do|does|are|were|was|have|has|what|how|who|"
+                r"when|why|which|is|can|would|could|will|should)\b", re.I)
+            _is_question = ("?" in q) or bool(_q_front.match(q))
+            _prior_q = _is_question and bool(re.search(
+                r"\b(used to|original|before (?:i|you)|earlier|initially|"
+                r"at first|back then|what was my|did i (?:used to|once)|"
+                r"how did i (?:feel|think) (?:before|about .* before)|"
+                r"before (?:the|i) (?:flipped|changed|revised|took it back))\b", q))
+            if _prior_q:
+                # Resolve the topic against the live stance store. Prefer a
+                # _TOLD-style cue extraction, else a direct resolve_topic on the
+                # whole query (so "did i used to love cold weather" links to the
+                # held "cold weather give" stance whose prior trace records
+                # "strongly for cold weather give").
+                _pcue = None
+                _pt = re.search(
+                    r"\b(used to|originally|before|earlier|initially|at first|"
+                    r"back then|what was my|did i)\s+(?:say|tell you|think|"
+                    r"feel|love|like|hate|support|believe|prefer|care about|"
+                    r"used to love|used to like|used to think)\s+(?:i\s+)?"
+                    r"(?:was|were|am|about|of|on)?\s*([a-z][a-z \-]{1,40})", q)
+                if _pt:
+                    _pcue = _pt.group(2).strip().strip("?.!").lower()
+                if _pcue is None:
+                    # Broader fallbacks for prior-frame phrasings the narrow
+                    # verb regex above misses: "what was my original take on
+                    # X", "before I flipped, what was my X", "were you for or
+                    # against X before". Use the engine's own topic extractor
+                    # on the query, then resolve — store-driven, no per-topic
+                    # rule.
+                    _broad = re.search(
+                        r"\b(?:original take on|take on|opinion on|stance on|"
+                        r"view on|feel(?:ing)? about|think of|thought about|"
+                        r"attitude (?:to|toward|on)|used to (?:love|like|hate|"
+                        r"think|feel|support|believe|prefer|care about))\s+"
+                        r"([a-z][a-z \-]{1,40})", q)
+                    if _broad:
+                        _pcue = _broad.group(1).strip().strip("?.!").lower()
+                if _pcue is None:
+                    # Last resort: the engine's generic opinion-topic extractor
+                    # on the whole query (handles "before i flipped about X").
+                    try:
+                        _pcue = self._opinion_topic(q)
+                    except Exception:
+                        _pcue = None
+                _topic = None
+                if _pcue:
+                    _topic = opinions.resolve_topic(_pcue) or _pcue
+                if _topic is None:
+                    _topic = opinions.resolve_topic(q)
+                if _topic is not None:
+                    _s = opinions.query_stance(_topic)
+                    if _s is not None:
+                        if getattr(_s, "prior_stance", None):
+                            return (f"yes — you used to be {_s.prior_stance}; "
+                                    f"i've kept that.")
+                        # No reversal recorded yet: report the current stance
+                        # honestly (the user may be asking about a held opinion
+                        # they haven't changed).
+                        _w = self._polarity_word(_s.polarity)
+                        return f"from what you've told me, you're {_w} {_topic}."
+            # NOTE: do NOT return None here for a non-prior query — that would
+            # short-circuit the rest of _structured_recall (1c/1d biographical
+            # and relationship-enumeration recall). Only a genuinely-prior query
+            # that resolved to nothing falls through to honest uncertainty, and
+            # that is handled by returning None *inside* the `if _prior_q:` block
+            # below. A non-prior query must fall through to the later branches.
+
         # ── (1c) Possessive-entity + count + activity biographical recall ──
         # These were PREVIOUSLY NESTED inside the (1b) "_TOLD" block, so they
         # only fired when the query ALSO matched "what did i tell you about

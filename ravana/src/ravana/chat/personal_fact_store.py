@@ -261,6 +261,20 @@ class Stance:
     # talk (express_stance merges provenance across encounters). No per-topic
     # table, no retraining.
     provenance: List[str] = field(default_factory=list)
+    # ATTRIBUTE-CHANGE HISTORY (feature round 2026-08-21T1653Z, Defect 2):
+    # the PREVIOUS polarity/confidence immediately BEFORE the last recode, plus
+    # the human-readable prior stance string. This is the episodic trace of the
+    # user's OWN opinion revisions (per opencode cognitive review: a revision
+    # writes an episodic trace alongside the live semantic value, the
+    # superseded flag keeps it from competing during normal inference, and the
+    # live slot is never clobbered). It lets RAVANA later answer "what was my
+    # original take / did i used to love X" from the USER's own stance store
+    # instead of world-knowledge, and render the prior value in a linked
+    # acknowledgment. Online + incremental: every recode (reverse_stance /
+    # recode_stance_toward) updates this from real user input; never authored,
+    # no per-topic table, no retraining. None until the stance has been revised.
+    prior_polarity: Optional[float] = None
+    prior_stance: Optional[str] = None
 
 
 class UserStanceStore:
@@ -424,6 +438,60 @@ class UserStanceStore:
             return _best
         return None
 
+    def _resolve_prior_stance(self, phrase: str) -> Optional[str]:
+        """Resolve `phrase` to a stance the user ALREADY HELD in a PRIOR turn.
+
+        Same linkage logic as ``resolve_topic`` (exact / substring /
+        content-word Jaccard / provenance bridge) but it SKIPS any stance whose
+        ``turn_number`` equals the current turn — i.e. one the opinion miner just
+        created in THIS turn from a co-mentioned concept ("the cold gets to me
+        now" -> fresh "cold" stance). A free-form contradiction recode must walk
+        back a HELD valuation, never a brand-new same-turn attitude, so a fresh
+        co-mention must not preempt the genuinely-held (provenance-bridged) topic
+        (e.g. "silence" co-mentioned with "winter"). Generic and store-driven:
+        identical resolution, just scoped to prior turns. Returns None when no
+        prior stance plausibly matches.
+        """
+        stances = self.stances
+        if not stances:
+            return None
+        head = (phrase or "").lower().strip()
+        _prior = {k: s for k, s in stances.items()
+                  if getattr(s, "turn_number", 0) < self.turn_num}
+        if not _prior:
+            return None
+        if head in _prior:
+            return head
+        for k in _prior:
+            if head and (head in k or k in head):
+                return k
+        hw = set(re.findall(r"[a-z']+", head)) - STOP_WORDS - _FILLER_TOKENS
+        best, best_j = None, 0.0
+        for k in _prior:
+            kw = set(re.findall(r"[a-z']+", k)) - STOP_WORDS - _FILLER_TOKENS
+            if not hw or not kw:
+                continue
+            j = len(hw & kw) / len(hw | kw)
+            if j > best_j:
+                best, best_j = k, j
+        if best is not None and best_j >= 0.4:
+            return best
+        # PROVENANCE BRIDGE (scoped to prior stances only).
+        if hw:
+            _best, _best_score = None, 0.0
+            for k, s in _prior.items():
+                _prov = getattr(s, "provenance", None) or []
+                if not _prov:
+                    continue
+                _overlap = len(hw & set(_prov))
+                if _overlap <= 0:
+                    continue
+                _score = _overlap + 0.001 * s.confidence
+                if _score > _best_score:
+                    _best, _best_score = k, _score
+            return _best
+        return None
+
     def reinforce(self, topic: str) -> None:
         s = self.stances.get(topic.lower().strip())
         if s is None:
@@ -531,6 +599,20 @@ class UserStanceStore:
         if self._reversed_utterance.get(key) == _guard_key:
             return existing
         old_polarity = existing.polarity
+        # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating (see
+        # reverse_stance for the rationale: feature round 2026-08-21T1653Z).
+        if old_polarity >= 0.6:
+            _prior_word = "strongly for"
+        elif old_polarity > 0.1:
+            _prior_word = "for"
+        elif old_polarity <= -0.6:
+            _prior_word = "strongly against"
+        elif old_polarity < -0.1:
+            _prior_word = "against"
+        else:
+            _prior_word = "uncertain about"
+        existing.prior_polarity = old_polarity
+        existing.prior_stance = f"{_prior_word} {key}"
         # Decisive recode toward the newly-stated value (bounded blend).
         _b = max(0.0, min(1.0, blend))
         existing.polarity = old_polarity * (1.0 - _b) + float(new_polarity) * _b
