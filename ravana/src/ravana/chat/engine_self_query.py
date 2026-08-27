@@ -157,7 +157,6 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
-from . import pet_slots
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -347,24 +346,11 @@ class SelfQueryMixin:
         # A target-less call (e.g. "what do you like" with no object) falls back
         # to the gist guess rather than inventing a concept.
         if not target:
-            # R3 fix (round 2026-08-11T0521Z): a target-less call previously
-            # returned the dangling stance prefix "i'm drawn to." followed by a
-            # fragment, which the caller joined into the broken sentence
-            # "i'm drawn to. still figuring that out — ...". Emit a COMPLETE,
-            # grammatical honest sentence instead (no dangling prefix): the
-            # agent states it is still forming a sense of what it is drawn to
-            # and turns the question back to the user. The content is a
-            # structural honest fallback (no topic was given to take a stance
-            # on), not authored per-topic prose — an honest flat fallback beats
-            # fake depth. The full sentence lives in the stance slot; reason is
-            # empty so the caller's "stance + reason" join stays grammatical.
             _gist = self._agent_likes_guess()
             if _gist == "still figuring that out":
-                return ("i'm still getting a sense of what i'm drawn to — "
-                        "what are you into? i'll tell you how i'm leaning "
-                        "once we've talked some", "")
-            return (f"i find myself drawn to things like {_gist} — they sit "
-                    f"well with how i'm wired right now. what about you?", "")
+                return ("i'm drawn to", "still figuring that out — what are you into? "
+                        "i'll tell you how i'm leaning once we've talked some")
+            return ("i'm drawn to", f"things like {_gist} — they sit well with how i'm wired right now")
         # A target was given (e.g. "do you like music") — compute a REAL stance
         # from valence + GloVe transitivity below; do NOT delegate to the gist
         # guess (that would skip the actual value computation).
@@ -543,26 +529,6 @@ class SelfQueryMixin:
         # that it was tentative, invite the user's take.
         return (f"i hadn't settled on {target} — last i said i was still forming "
                 f"a view. has your sense of it changed? i'm happy to land one.")
-
-    def _agent_stance_key(self, target: str) -> str:
-        """Canonical key for an agent-derived stance on `target`.
-
-        Mirrors the junk-guard used for the constitutive-value keys so a
-        non-topic (``"right"``/``"it"``/``"that"``) can never become a stored
-        stance — those are exactly the confabulation class the stance resolver
-        must reject. Returns the stripped lowercase key, or ``""`` if the target
-        is not a real topic (callers treat the empty key as "no stance").
-        """
-        _t = (target or "").strip().lower()
-        _JUNK = {"all", "really", "it", "that", "things", "right",
-                 "way", "matter", "thing", "point",
-                 "idea", "question", "stuff", "something",
-                 "anything", "everything", "issue", "topic",
-                 "yes", "no", "maybe", "ok", "okay",
-                 "about", "on", "the", "a", "an"}
-        if not _t or _t in _JUNK:
-            return ""
-        return _t
 
     def _route_self_experience(self, user_input: str) -> Optional[str]:
         """Experiential self-model responder (cortical midline structures).
@@ -782,32 +748,11 @@ class SelfQueryMixin:
                           "personal_facts", None)
             _bits = []
             if _pf is not None:
-                # D6 (round 2026-08-10T0813Z): render a real biographical
-                # sketch, not a raw fact dump. Skip 'event' (transient
-                # lived-experiences) and 'does' micro-activities — those read
-                # as noise here ("someone who event: lost kestrel"). Prefer
-                # name / location / role / pet / is / likes, which describe WHO
-                # the user is. Reads the live store; no authored prose.
-                _SKIP_ATTR = ("event", "does")
                 for _k, _f in _pf.facts.items():
                     if isinstance(_k, tuple) and len(_k) == 3 and \
-                            not getattr(_f, "superseded", False) \
-                            and _k[1] not in _SKIP_ATTR:
+                            not getattr(_f, "superseded", False):
                         _val = str(getattr(_f, "value", _f) or "")
-                        _attr = _k[1]
-                        if _attr == "name":
-                            _bits.append(f"is named {_val}")
-                        elif _attr == "location":
-                            _bits.append(f"lives in {_val}")
-                        elif _attr == "role":
-                            _bits.append(f"is a {_val}")
-                        elif _attr == "likes":
-                            _bits.append(f"likes {_val}")
-                        elif pet_slots.is_pet_attribute(_attr):
-                            _sp = pet_slots.base_species(_attr)
-                            _bits.append(f"has a {_sp} called {_val}")
-                        else:
-                            _bits.append(f"{_attr}: {_val}")
+                        _bits.append(f"{_k[1]}: {_val}")
                     if len(_bits) >= 3:
                         break
             if _bits:
@@ -1048,12 +993,6 @@ class SelfQueryMixin:
             # value (honest, no fabrication).
         if _agent_opinion:
             _tail = t[_agent_opinion.end():]
-            # Drop a leading "honest"/"honest read"/"your read" scaffold that
-            # may sit between the cue and the topic ("your honest read on the
-            # trapeze versus the gym" -> tail begins "honest read on the ...").
-            _tail = re.sub(
-                r"^\s*(honest\s+)?(read|take|view|opinion|thoughts|stance)"
-                r"(\s+(on|about|now|these\s+days))?\s*", "", _tail)
             # Take the LAST meaningful content noun as the stance target. The
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
