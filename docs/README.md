@@ -24,8 +24,8 @@ truth; every claim here was checked against `ravana/`, `ravana_ml/`, and
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Repo layout, the test suite, how to run it, the path shims, and contribution conventions. |
 | [API_REFERENCE.md](API_REFERENCE.md) | Comprehensive class/function reference for all three packages. |
 | [STANCE_REVERSAL.md](STANCE_REVERSAL.md) | How the user changing their mind recodes a held stance (first-person reversal / retraction cues), verified against the live engine. |
-| [OPEN_CLASS_VERB_CAPTURE.md](OPEN_CLASS_VERB_CAPTURE.md) | How RAVANA learns *what the user does* from first-person self-reports — open-class (deny-list) verb capture incl. novel/hyphenated verbs, with path:line citations. |
-| [DATE_GROUNDED_RECALL_YEAR_ANCHOR.md](DATE_GROUNDED_RECALL_YEAR_ANCHOR.md) | Date-grounded recall for year-only first-person temporal starts (Q59) — anchoring `"since 2017"` → 1 Jan 2017, with path:line citations. |
+| [CAPABILITY_DURATION_MINING.md](CAPABILITY_DURATION_MINING.md) | How "i've been brewing beer for a decade" / "a few years" become a dated `since` fact recallable by `when did you start…` — four duration-mining blocks, verified against the live engine. |
+| [CAPABILITY_DATE_RECALL_PARAPHRASE.md](CAPABILITY_DATE_RECALL_PARAPHRASE.md) | How rotated/paraphrased date queries ("all this volcano stuff") still recall the right `since` fact (stem-linked `does`/`event` facts) and reply grammatically (morphological gerund), verified against the live engine. |
 | [FAQ.md](FAQ.md) | Troubleshooting: installation, runtime, development issues. |
 
 ## Quick orientation
