@@ -2664,6 +2664,7 @@ class UserModel:
             "raise", "tend", "brew", "bake", "write", "read", "learn",
             "practice", "collect", "fix", "paint", "code", "design", "craft",
             "volunteer", "cook", "fish", "hike", "garden", "farm", "lead",
+            "gather", "count", "harvest", "forage", "observe", "sketch",
             "organize", "keep", "grind", "race", "sail", "fly", "knit",
             "sew", "weld", "forge", "carve", "compose", "record", "perform",
             "coach", "train", "compete", "spin", "weave", "mount", "trade",
