@@ -2458,7 +2458,8 @@ class MemoryMixin:
             # matching episode. This is structural (possessive/referent regex),
             # not a per-topic table.
             _m = re.search(
-                r"\b(?:about|that|regarding|on|my|the)\s+([a-z']+)"
+                r"\b(?:about|that|regarding|on|my|the)\s+"
+                r"(?:the\s+)?([a-z']+)"
                 r"|([a-z']+)'s\b", t)
             if _m:
                 _cue = (_m.group(1) or _m.group(2) or "").lower().strip(".,!?")
