@@ -2948,7 +2948,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     # D7 (round 2026-08-16T1745Z): verb-phrase values (from the
                     # relationship-activity miner) render without a copula.
                     try:
-                        from .user_model import is_activity_verb as _is_act
+                        from .user_model import is_verb_phrase as _is_act
                     except Exception:
                         _is_act = lambda w: False
                     _vv = (_v or "").strip()
@@ -3003,7 +3003,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # shared SEED lexicon (user_model.is_activity_verb), not
                         # a per-topic table and not authored prose.
                         try:
-                            from .user_model import is_activity_verb as _is_act
+                            from .user_model import is_verb_phrase as _is_act
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
@@ -3115,7 +3115,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # D7 (round 2026-08-16T1745Z): verb-phrase values
                         # (relationship-activity miner) render without a copula.
                         try:
-                            from .user_model import is_activity_verb as _is_act
+                            from .user_model import is_verb_phrase as _is_act
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
@@ -3158,7 +3158,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     is_pet_attribute as _or_is_pet,
                     base_species as _or_base_sp,
                 )
-                from .user_model import is_activity_verb as _or_is_act
+                from .user_model import is_verb_phrase as _or_is_act
             except Exception:  # pragma: no cover - imports are always present
                 _or_rel_of = lambda w: None
                 _or_is_rel = lambda a: False
@@ -3246,26 +3246,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _at and _at[-1] == _qr_name:
                             _matched = True
                         elif _qr_name in _val.lower().split():
-                            # A bare pet-slot fact (species-keyed attr, value ==
-                            # name) is the WEAK generic pet render ("your cat is
-                            # mochi"). When a richer 'does' fact ALSO names this
-                            # entity with an explicit noun phrase ("keep pet
-                            # parrot named mango"), defer to the type-agnostic
-                            # reverse-name resolver below (D-B, round
-                            # 2026-08-17T1126Z) which recovers that fuller
-                            # phrase ("your pet parrot.") instead of answering
-                            # here with the bare canonical species. Simple pet
-                            # facts with no competing 'does' entry (e.g. "my cat
-                            # Mochi sleeps...") are unaffected and still match.
-                            if _or_is_pet(_attr) and any(
-                                    _dk[0] == "i" and _dk[1].lower() == "does"
-                                    and not getattr(_df, "superseded", False)
-                                    and _qr_name in (getattr(_df, "value", "") or "").lower().split()
-                                    for _dk, _df in pf.facts.items()
-                                    if isinstance(_dk, tuple) and len(_dk) == 3):
-                                pass
-                            else:
-                                _matched = True
+                            _matched = True
                     # (c) pet match.
                     if not _matched and _qr_pet is not None and _or_is_pet(_attr):
                         if _or_base_sp(_attr) == _qr_pet:
@@ -3414,7 +3395,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _v = (_act or _val or "").strip()
                             if _v:
                                 try:
-                                    from .user_model import is_activity_verb as _is_act
+                                    from .user_model import is_verb_phrase as _is_act
                                 except Exception:
                                     _is_act = lambda w: False
                                 _vv = _v.split()
@@ -4062,7 +4043,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if _attr_d == "event":
             return f"you mentioned {val}"
         try:
-            from .user_model import is_activity_verb as _is_act
+            from .user_model import is_verb_phrase as _is_act
         except Exception:
             _is_act = lambda w: False
         _kv = (val or "").strip()
@@ -4538,7 +4519,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # The verb test uses the shared SEED lexicon
                 # (user_model.is_activity_verb); content comes from the store.
                 try:
-                    from .user_model import is_activity_verb as _is_act
+                    from .user_model import is_verb_phrase as _is_act
                 except Exception:
                     _is_act = lambda w: False
                 _kv = (_val or "").strip()
@@ -5556,12 +5537,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"^(who|what|when|where|which|why|how|did|do|does|is|are|"
                 r"was|were|had|has|have|will|would|could|can)\b", t):
             return False
-        # 1) Explicit recall markers: "what did you say about X",
-        #    "do you remember when I ...", "what do you know about me", etc.
-        if re.search(
-            r"\b(did you (say|tell|mention|write)|do you (remember|recall|know)|"
-            r"what (did|do) you|tell me (what|about)|remember when|recall when|"
-            r"have you (forgotten|forgot)|anything i (told|said|shared))\b", t):
+        # 1) Explicit recall markers. Two classes:
+        #    (a) ALWAYS autobiographical — the user is explicitly asking about
+        #        their OWN prior speech/disclosures ("what did you say about
+        #        X", "anything i told you", "have you forgotten"). These imply
+        #        the user by construction, so no extra personal-reference test.
+        #    (b) CONDITIONAL — "do you (remember|recall|know) / what (did|do)
+        #        you / tell me (what|about) / remember when / recall when".
+        #        These shapes ALSO match plain WORLD-knowledge questions
+        #        ("what do you know about mycoremediation", "tell me about the
+        #        library of alexandria", "do you know about polders"), which
+        #        must NOT reach the episodic echo. The confabulation root cause
+        #        (round 2026-08-20T1935Z, turn 12: "what do you know about
+        #        mycoremediation" echoed an unrelated "you keep grinning like"
+        #        fact) was exactly this: a bare conditional marker with NO
+        #        personal reference was treated as autobiographical recall, so
+        #        the broad stem-match in _try_hippocampal_retrieval surfaced a
+        #        random stored life-fact. Gate (b) therefore ALSO requires a
+        #        personal-possessive reference (my/mine/i/me/we/our/myself) —
+        #        only then is it genuinely about the user's disclosed life.
+        #        Structural (intent distribution, not a topic list); fail-open.
+        _EXPLICIT_SPEECH = re.search(
+            r"\b(did you (say|tell|mention|write)|anything i (told|said|shared)|"
+            r"have you (forgotten|forgot))\b", t)
+        if _EXPLICIT_SPEECH:
+            return True
+        _CONDITIONAL = re.search(
+            r"\b(do you (remember|recall|know)|what (did|do) you|"
+            r"tell me (what|about)|remember when|recall when)\b", t)
+        if _CONDITIONAL and re.search(
+                r"\b(my|mine|i|me|we|our|myself)\b", t):
             return True
         # 2) Personal-possessive reference to the user's OWN entity:
         #    "what is wrong with MY car", "when was MY sister born". This is a

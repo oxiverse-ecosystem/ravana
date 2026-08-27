@@ -2479,7 +2479,7 @@ class ReasoningMixin:
                     # recall agree by construction. Content comes from the
                     # PersonalFactStore, never authored prose.
                     try:
-                        from .user_model import is_activity_verb as _is_act
+                        from .user_model import is_verb_phrase as _is_act
                     except Exception:
                         _is_act = lambda w: False
                     _vv = (str(val) or "").strip().split()
@@ -2529,7 +2529,7 @@ class ReasoningMixin:
                     # bakery") ack without a spurious copula. Shared seed
                     # lexicon; content from the store.
                     try:
-                        from .user_model import is_activity_verb as _is_act
+                        from .user_model import is_verb_phrase as _is_act
                     except Exception:
                         _is_act = lambda w: False
                     _ev = (str(val) or "").strip().split()
