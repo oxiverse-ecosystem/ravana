@@ -152,6 +152,16 @@ def _gerund_of(verb: str) -> str:
         return _v
     if _v in _IRREGULAR_GERUND:
         return _IRREGULAR_GERUND[_v]
+    # A stem already ending in -ing (e.g. "restoring", "building") is ALREADY a
+    # gerund; re-appending -ing would produce a broken double-gerund
+    # ("restoringing"). This is the root cause of the "you started restoringing
+    # radios" defect (round 2026-08-15T0830Z): the date-recall realizer called
+    # _gerund_of on a bare stem that was itself already a gerund. Pass it through
+    # unchanged. (The leading-verb "building frames" case is handled separately
+    # in _verb_phrase_to_gerund, but every other caller feeds a bare stem here,
+    # so the guard belongs at the lowest level too.)
+    if _v.endswith("ing") and len(_v) >= 5:
+        return _v
     if len(_v) >= 3 and _v[-1] in "bcdfgklmnprstvz" and _v[-2] in "aeiou" \
             and _v[-3] in "bcdfgklmnprstvz" and _v[-1] != _v[-2] \
             and _v[-2] != _v[-3]:
@@ -3020,67 +3030,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _eattr == "is":
                         return f"your {_ent} is {_v}."
                     return f"your {_ent}'s {_eattr} is {_v}."
-        # Round 2026-08-13T2059Z: type-agnostic reverse name-to-relationship
-        # resolver (the 6f generalization). who is X to me / what is X to me
-        # must answer from the durable store for ANY named entity (friend,
-        # cousin, partner, neighbour, auntie, cat, dog, or runtime-learned).
-        # Reverse-indexes PersonalFactStore by entity name and renders the
-        # relationship label plus role/does from stored facts. No per-entity
-        # table, no pet grammar, no authored answer dict. Content from the
-        # store. Fails closed to None for an unknown name.
-        _WHO = re.search(
-            r"\b(?:who|what)\s+is\s+([a-z][a-z']+)\s+(?:to|for)\s+me\b", q)
-        if _WHO and pf is not None:
-            _ent = _WHO.group(1).lower().strip()
-            _rel_fact = None
-            _role_fact = None
+        # Possession-attribute (material) recall (Bug 4, round 2026-08-15T0830Z):
+        # "what's my cabin made of" / "what material is my sword" / "what's my
+        # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
+        # mine_personal_facts. The existing possessive branch (above) only
+        # matched a fixed attribute whitelist (name/age/breed/...), so a material
+        # fact fell through to the episodic echo. Resolve the entity noun and
+        # render from the live store via possession_attrs (single source of
+        # truth); honest None fallback when nothing matches (never fabricate).
+        _MATQ = re.search(
+            r"\b(?:what'?s|what\s+is|what\s+material\s+is|what\s+is\s+the\s+material\s+of)\s+"
+            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
+            r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
+        if _MATQ and pf is not None:
+            _ent = _MATQ.group(1).lower().strip()
+            _cand = None
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
-                if _k[0] != _ent or getattr(_f, "superseded", False):
-                    continue
-                if _k[1] == "relationship":
-                    _rel_fact = _f
-                elif _k[1] == "role":
-                    _role_fact = _f
-            if _rel_fact is not None:
-                _bits = [f"{_ent} is your {_rel_fact.value}."]
-                if _role_fact is not None:
-                    _bits.append(f"{_ent} {_role_fact.value}.")
-                return " ".join(_bits)
-        # Round 2026-08-13T2059Z: what does my REL do / study / work / job.
-        # Resolve the relationship word to the named entity via the same
-        # reverse index, then render the entity role/does. Generalizes the
-        # prior narrow sibling path to every stored relation type.
-        _REL_WORK = re.search(
-            r"\bwhat\s+(?:does|is)\s+my\s+([a-z][a-z]+)\s+"
-            r"(do|does|study|studies|work|works|job|role|for\s+work)\b", q)
-        if _REL_WORK and pf is not None:
-            _rel = _REL_WORK.group(1).lower().strip()
-            _verb_group = _REL_WORK.group(2).lower().strip()
-            # Map the captured verb group to the preferred fact attribute:
-            # study/work queries -> "does" or "work"
-            # role/job queries -> "role"
-            if _verb_group in ("job", "role"):
-                _preferred_attrs = ("role",)
-            else:
-                _preferred_attrs = ("does", "work")
-            _ent_hit = None
-            for _k, _f in pf.facts.items():
-                if not (isinstance(_k, tuple) and len(_k) == 3):
-                    continue
-                if _k[1] == "relationship" and _f.value == _rel \
-                        and not getattr(_f, "superseded", False):
-                    _ent_hit = _k[0]
-                    break
-            if _ent_hit is not None:
-                for _attr in _preferred_attrs:
-                    for _k, _f in pf.facts.items():
-                        if not (isinstance(_k, tuple) and len(_k) == 3):
-                            continue
-                        if _k[0] == _ent_hit and _k[1] == _attr \
-                                and not getattr(_f, "superseded", False):
-                            return f"your {_rel} {_ent_hit} {_f.value}."
+                if _k[0] == _ent and not getattr(_f, "superseded", False):
+                    _attr = _k[1]
+                    # 'madeof' is the primary material fact; a feature noun
+                    # (roof/wall/.., per possession_attrs._FEATURE_NOUNS) is more
+                    # specific when the query names that part.
+                    if _attr == "madeof":
+                        _cand = _f
+                    elif _cand is None:
+                        from . import possession_attrs as _pa
+                        if _pa.is_feature_noun(_attr):
+                            _cand = _f
+            if _cand is not None:
+                _attr, _v = _cand.attribute, _cand.value
+                if _attr == "madeof":
+                    return f"your {_ent} is made of {_v}."
+                return f"your {_ent}'s {_attr} is {_v}."
         # Count / quantity recall: "how many X do i have / keep / raise" ->
         # scan 'does' facts whose value contains a leading cardinal number
         # and the cue noun; or a dedicated count attribute. Honest fallback

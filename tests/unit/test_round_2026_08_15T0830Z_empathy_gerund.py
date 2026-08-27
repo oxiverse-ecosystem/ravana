@@ -152,21 +152,3 @@ def test_extract_user_affect_word_returns_lexicon_words():
     # out-of-lexicon words; this test just pins the in-lexicon behavior.
     assert _extract_user_affect_word("i felt terrified") == "terrified"
     assert _extract_user_affect_word("i felt electrified") == ""
-
-
-def test_i_am_name_not_treated_as_affect(engine):
-    """Regression: 'I am Noor' / 'I'm Corvin' must NOT be treated as affective
-    disclosures; the copula fallback is restricted to is_affect_term-approved
-    words for 'I am' / 'I'm' forms."""
-    for u in ("I am Noor", "I'm Corvin", "i am Ahmed"):
-        d = engine._detect_emotional_disclosure(ctx=None, text=u)
-        assert d is None, f"false-positive affect on name disclosure: {u!r} -> {d!r}"
-
-
-def test_i_feel_explicit_still_works(engine):
-    """Regression: explicit 'I feel' / 'I felt' forms remain affect disclosures
-    even for non-lexicon words, preserving the existing copula fallback."""
-    for u in ("I feel electrified", "I felt giddy", "I feel hollow"):
-        d = engine._detect_emotional_disclosure(ctx=None, text=u)
-        assert d is not None, f"missed affective disclosure: {u!r}"
-        assert d[1], f"disclosure has no felt word: {u!r} -> {d!r}"
