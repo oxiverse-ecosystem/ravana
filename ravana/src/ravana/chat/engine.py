@@ -2420,106 +2420,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
-    # ── Agent self-stance recall helper (round 2026-08-12T1234Z, t_2595f8ad) ──
-    # Extracted from the single-topic `_SELFSTANCE` block in _structured_recall
-    # so the contrastive ("X versus Y") capability can resolve EACH side through
-    # the SAME real-state path without duplicating the (substantial) recall +
-    # formation + legacy logic. A binary contrast question is just two
-    # self-opinion questions about two topics; engaging both is a genuine
-    # capability gain, not a hardcoded reply. Returns a composed reply string
-    # when RAVANA has a real (or honest-ungrounded) stance for the topic, else
-    # None so the caller falls through to the next recall path.
-    def _agent_self_stance_reply(self, opinions, beliefs, topic_phrase: str
-                                 ) -> Optional[str]:
-        if opinions is None:
-            return None
-        _topic_phrase = (topic_phrase or "").strip().strip("?.!")
-        if not _topic_phrase:
-            return None
-        _topic = opinions.resolve_topic(_topic_phrase) or _topic_phrase.lower().strip()
-        # ROUND 2026-08-09i FIX: reject DEICTIC / GENERIC topic phrases.
-        _GEN = {"anything", "something", "everything", "nothing",
-                 "that", "it", "this", "stuff", "things", "thing",
-                 "matter", "point", "idea", "question", "issue",
-                 "topic", "yes", "no", "maybe", "ok", "okay", "like",
-                 "rather", "or", "and", "but", "if", "than", "as", ""}
-        _phrase_tokens = [t for t in re.findall(r"[a-z']+", _topic_phrase.lower())]
-        _substantive = [t for t in _phrase_tokens
-                        if t not in _GEN and len(t) > 2
-                        and t not in ("the", "a", "an", "of", "about",
-                                      "on", "my", "i", "you", "what",
-                                      "do", "did", "tell", "say", "think",
-                                      "feel", "stance", "position", "own",
-                                      "owning", "your")]
-        if not _substantive:
-            _s = None
-        else:
-            _s = opinions.query_stance(_topic)
-        # Agent Self-Stance Formation & Recall: consult RAVANA's OWN store
-        # first (RECALL), then derive a grounded lean from the user's learned
-        # stance (FORM), then fall back to the honest legacy path. No fabrication.
-        _own_topic = _topic
-        if opinions is not None and _topic and _topic not in opinions.stances:
-            _head = _topic.split()[0] if _topic.split() else _topic
-            _own_topic = _head
-        _own_key = self._agent_stance_key(_own_topic) if hasattr(
-            self, "_agent_stance_key") else (_own_topic.strip().lower() if _own_topic.strip() else "")
-        _own_store = getattr(self, "_agent_stances", None)
-        if not isinstance(_own_store, dict):
-            _own_store = {}
-            self._agent_stances = _own_store
-        _own_stance = _own_store.get(_own_key) if _own_key else None
-        if _own_stance is not None and getattr(_own_stance, "confidence", 0.0) >= 0.35:
-            _pol = _own_stance.polarity
-            if _pol >= 0.6:
-                _w = "strongly for"
-            elif _pol > 0.1:
-                _w = "for"
-            elif _pol <= -0.6:
-                _w = "strongly against"
-            elif _pol < -0.1:
-                _w = "against"
-            else:
-                _w = "uncertain about"
-            return f"i'm {_w} {_own_key}."
-        if _s is not None and getattr(_s, "confidence", 0.0) >= 0.35 and _own_key:
-            _conf = max(0.35, min(0.85, float(_s.confidence) * 0.8))
-            _pol = float(_s.polarity) * 0.7
-            try:
-                from ravana.chat.personal_fact_store import Stance
-                _own_store[_own_key] = Stance(
-                    topic=_own_key, polarity=_pol, confidence=_conf,
-                    valence=getattr(_s, "valence", 0.0),
-                    arousal=getattr(_s, "arousal", 0.0),
-                    turn_number=getattr(self, "turn_count", 0) or 0,
-                    rehearsal_count=1)
-            except Exception:
-                pass
-            if _pol >= 0.6:
-                _w = "strongly for"
-            elif _pol > 0.1:
-                _w = "for"
-            elif _pol <= -0.6:
-                _w = "strongly against"
-            elif _pol < -0.1:
-                _w = "against"
-            else:
-                _w = "uncertain about"
-            return f"i'm {_w} {_own_key}."
-        if _s is not None:
-            _pol = _s.polarity
-            if _pol >= 0.6:
-                _w = "strongly for"
-            elif _pol > 0.1:
-                _w = "for"
-            elif _pol <= -0.6:
-                _w = "strongly against"
-            elif _pol < -0.1:
-                _w = "against"
-            else:
-                _w = "uncertain about"
-            return f"i'm {_w} {_topic}."
-        return None
+    # ── Shared reverse-name resolver helper (round 2026-08-17T1126Z, D-B) ──
+    # TYPE-AGNOSTIC "who is X to me" resolution. A query names an entity by NAME;
+    # the relationship label is reverse-derived from the fact store, whatever the
+    # fact's shape (combined-attr, attr=relation+value=name, or attr='does' with
+    # the name buried in the value). One shared path covers kin, pets, and any
+    # runtime-learned relationship — no per-entity-type branch. Content comes from
+    # the store; no authored prose, no per-name table.
+    @staticmethod
+    def _strip_entity_from_does(value: str, name: str) -> str:
+        """From a 'does' fact value like 'keep pet parrot named mango', recover the
+        entity type ('pet parrot') by removing the trailing 'named <name>' (or bare
+        name) and any leading possession verb / article. The name is supplied by the
+        query, so this is pure string-shaping of store content — no fabrication."""
+        v = (value or "").lower().strip()
+        if not v:
+            return ""
+        # drop 'named <name>' / 'name is <name>' / 'called <name>'
+        v = re.sub(r"\b(named|name is|called|called the)\s+" + re.escape(name) + r"\b", " ", v)
+        v = re.sub(r"\b" + re.escape(name) + r"\b", " ", v)  # bare-name fallback
+        # strip a leading possession verb and article
+        v = re.sub(r"^(keep|keep on|have|has|have on|own|owns|raise|raises|grow|grows|"
+                   r"feed|feeds|got|get|getting|raise up|rear|breed|breeds)\b", " ", v).strip()
+        v = re.sub(r"^(a|an|the|my|our|your)\b", " ", v).strip()
+        v = re.sub(r"\s+", " ", v).strip()
+        return v
+
 
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
@@ -2565,6 +2491,50 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # (0a) R1 (2026-08-18T1340Z round): ENTITY-SCOPED NAME recall with
+        # cross-lemma linking. A possession named by the user is stored under
+        # the ENTITY key (e.g. ('sourdough starter','name','doris'),
+        # ('best friend','name','tomas')), NOT under the "i" profile. When the
+        # query asks for a NAME and names a specific entity (a possessive
+        # "my X" or a paraphrase "that sourdough culture"), resolve the query's
+        # entity PHRASE to the stored entity key by GloVe cosine (the same seed
+        # embeddings the rest of the engine reasons over — no synonym table, no
+        # LLM, no retraining) and read the entity-scoped name fact. This is the
+        # genuine R1 capability: it links "sourdough culture" -> "sourdough
+        # starter" and reports "your sourdough starter's name is doris". The
+        # linker is store-driven and generalizes to any entity RAVANA has
+        # learned; it fails CLOSED (returns None) when no stored entity clears
+        # the bar, so an unknown possession gets honest uncertainty instead of a
+        # confabulated fact. It runs BEFORE branch (1d) below, which only scans
+        # subject=="i" facts and would otherwise wrongly answer a
+        # possession-name query with an unrelated "i"-scoped name fact.
+        _name_q = bool(re.search(
+            r"\b(name|named|called)\b", q)) and bool(
+            re.search(r"\?$|\b(what|who|which|tell|do|does|did|how)\b", q))
+        if _name_q and pf is not None:
+            try:
+                # candidate stored ENTITY-scoped name facts (subject != 'i').
+                # pf.facts is { (subject, attr, val): PersonalFact }; iterate
+                # keys, not (k, v) pairs.
+                _ent_name_keys = [
+                    _k for _k in pf.facts.keys()
+                    if isinstance(_k, tuple) and len(_k) == 3
+                    and _k[0] not in ("i", "me", "my", "you")
+                    and _k[1] == "name"
+                    and not getattr(pf.facts[_k], "superseded", False)
+                ]
+                if _ent_name_keys:
+                    _stored_entities = {_k[0] for _k in _ent_name_keys}
+                    _linked_ent = self._link_recall_entity(q, _stored_entities)
+                    if _linked_ent is not None:
+                        # pick the (possibly multi-instance) name fact for it
+                        for _k in _ent_name_keys:
+                            if _k[0] == _linked_ent:
+                                _v = getattr(pf.facts[_k], "value", _k[2])
+                                return f"your {_linked_ent}'s name is {_v}."
+            except Exception:
+                pass
+
         # ── (0) META-IDENTITY query: answer from RAVANA's LIVE model of the
         # USER (Bug 5, round 2026-08-15T1537Z). Queries like "do i seem like
         # a real person to you" / "what am i to you" / "tell me something
@@ -2588,6 +2558,111 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"am\s+i\s+(?:even\s+)?real\s+to\s+you)\b", q)
         if _meta:
             return self._meta_identity_reply()
+
+        # ── (0a) AUTO-BIOGRAPHICAL RECALL of the USER (new capability,
+        # feature t_a41f7e29, round 2026-08-18T0937Z).
+        # Answers RAVANA's own USER-autobiography queries — "what will you
+        # remember most about me", "did i tell you i liked X", "have i told
+        # you about my brother", "does that still fit / have i changed" —
+        # from the REAL user-model stores (personal_facts / opinions.stances /
+        # belief_store) BEFORE the agent-own-speech recall gate
+        # (_route_agent_own_recall) can misroute them into RAVANA's own-reply
+        # echo store (round 2026-08-18T0937Z residual R34/R43/R57/U17). Fully
+        # store-driven, no authored reply, no per-topic table, no retraining.
+        # Fail-closed: returns None when no user-autobiography intent matches,
+        # so genuine agent-self questions still reach the self-model path.
+        _ab = self._autobiographical_recall(user_input)
+        if _ab is not None:
+            return _ab
+
+        # ── (0b) USER-MODEL AGGREGATION (new capability, feature t_3d147353)
+        # Queries that ask RAVANA to REPORT the accumulated CONTENT of its model
+        # of the user — "what have you picked up about me", "what stands out
+        # about me", "tell me about myself", "everything you know about me",
+        # "what's your read on me", "describe me", "what do you remember me
+        # telling you". These are NOT the existential realness questions handled
+        # by _meta_identity_reply (which only reports counts + topics). Previously
+        # they fell through to the graceful-uncertainty fallback and produced
+        # degenerate output ("i don't really have a solid grasp on picked far so
+        # far" — measured T48 of round 2026-08-16T1241Z). Now they render the
+        # REAL stored facts / stances / beliefs. Fully store-driven, no authored
+        # reply, no per-topic table, no retraining. Fail-closed: returns None
+        # (honest uncertainty) when nothing is stored, so a brand-new user gets a
+        # clean "still learning who you are" instead of garbage.
+        _agg = re.search(
+            r"\b("
+            r"what have you picked up about me|"
+            r"what(?:'s| is| do| did) your (?:read|take) on me|"
+            r"what do you (?:make|think) of me|"
+            r"tell me about myself|"
+            r"tell me (?:everything|all|what) you (?:know|remember|learned|"
+            r"picked up|gathered) about me|"
+            r"summ?ar?y? (?:up )?(?:what you(?:'ve| have) (?:learned|picked up|"
+            r"gathered) about me|your (?:read|take) on me)|"
+            r"describe me|"
+            r"how would you describe me|"
+            r"what do you remember me (?:telling|saying|sharing)|"
+            r"everything you know about me|"
+            r"what stands out (?:about|to you)? ?(?:me|about me)|"
+            r"who do you think i am|"
+            r"give me your (?:read|take|impression) (?:of|on) me"
+            r")\b", q)
+        if _agg:
+            return self._aggregate_user_model()
+
+        # ── (0c) CATEGORY-AWARE ENUMERATION RECALL (new capability, feature
+        # t_f1dae1aa, round 2026-08-16T1745Z).
+        # Queries that ask RAVANA to LIST the entities it has learned in a
+        # CATEGORY — "name everyone in my family", "name all my pets", "who
+        # have i told you about", "list the people in my family" — have no
+        # specific cue (no "indira", no "mochi"), so the cued-recall branches
+        # (1b) never fired and the query fell through to a generic ack
+        # ("noted.") or a nonsense echo ("right, people family."). Measured as
+        # probe turn T59 of this round: "name everyone in my family you've
+        # heard about" -> "noted.".
+        #
+        # Fix: detect the enumeration intent and SCAN the live PersonalFactStore
+        # for relationship + pet facts, then list each entity. Fully
+        # store-driven — every name, relationship, and detail is read from a
+        # runtime fact RAVANA mined, never authored. The relationship/pet
+        # membership tests come from the SHARED lexicon modules
+        # (relation_attrs / pet_slots) so the miner, the cued-recall renderers,
+        # AND this enumerator agree on what counts as a "relative" / "pet" by
+        # construction (the slot-key-collision lesson from pet_slots.py). No
+        # per-person table, no retraining, no LLM.
+        #
+        # Fail-closed: returns None when no category entities are stored, so a
+        # brand-new user gets honest uncertainty ("still learning who you are")
+        # rather than a fabricated list.
+        try:
+            from .relation_attrs import is_relation_attribute, base_relation
+            from .pet_slots import is_pet_attribute, base_species
+        except Exception:  # pragma: no cover - imports are always present
+            is_relation_attribute = lambda a: False
+            base_relation = lambda a: None
+            is_pet_attribute = lambda a: False
+            base_species = lambda a: None
+        _enum = re.search(
+            r"\b("
+            r"name\s+(?:everyone|all|the\s+people|the\s+family|my\s+family)\b.*?"
+            r"(?:family|relatives?|relations?|people|kin)|"
+            r"name\s+all\s+my\s+pets|"
+            r"list\s+(?:everyone|all|the\s+people|my\s+(?:family|relatives?|pets))|"
+            r"list\s+(?:my\s+)?(?:family|relatives?|pets)|"
+            r"(?:who|what)\s+(?:have|has)\s+i\s+(?:told|said|mentioned|shared)\s+(?:you|about)|"
+            r"who\s+(?:in|from)\s+my\s+family|"
+            r"who\s+(?:are|do)\s+(?:the\s+)?people\s+in\s+my\s+family"
+            r")\b", q)
+        if _enum:
+            # Detect category: pets-only vs relations-only vs both
+            _cat = None
+            if re.search(r"\bpets?\b", q):
+                _cat = "pets"
+            elif re.search(r"\b(family|relatives?|relations?|people|kin)\b", q):
+                _cat = "relations"
+            return self._enumerate_entities(
+                is_relation_attribute, base_relation,
+                is_pet_attribute, base_species, category=_cat)
 
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
@@ -2774,7 +2849,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     # D7 (round 2026-08-16T1745Z): verb-phrase values (from the
                     # relationship-activity miner) render without a copula.
                     try:
-                        from .user_model import is_verb_phrase as _is_act
+                        from .user_model import is_activity_verb as _is_act
                     except Exception:
                         _is_act = lambda w: False
                     _vv = (_v or "").strip()
@@ -2829,7 +2904,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # shared SEED lexicon (user_model.is_activity_verb), not
                         # a per-topic table and not authored prose.
                         try:
-                            from .user_model import is_verb_phrase as _is_act
+                            from .user_model import is_activity_verb as _is_act
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
@@ -2859,29 +2934,377 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # from the possessive and read the matching entity-scoped fact.
         _ENT_ATTR = re.search(
             r"\bmy\s+([a-z][a-z]+)(?:'s)?\s+(name|age|breed|job|work|is|"
-            r"does|location|live|color|type|kind|favorite)\b", q)
+            r"does|location|live|color|type|kind|favorite)?\b", q)
         if _ENT_ATTR and pf is not None:
             _ent = _ENT_ATTR.group(1).lower().strip()
-            # fold the spoken attribute to the store's relation key
-            _eattr_raw = _ENT_ATTR.group(2).lower()
+            # fold the spoken attribute to the store's relation key (only when
+            # a rel-word is present; a bare "my <entity>" has no rel-word and
+            # routes straight to branch (b) which scans combined-attr facts).
+            _eattr_raw = (_ENT_ATTR.group(2) or "").lower()
             _eattr = ("does" if _eattr_raw == "does"
                       else "is" if _eattr_raw == "is"
                       else "name" if _eattr_raw == "name"
                       else _eattr_raw)
-            for _k, _f in pf.facts.items():
-                if not (isinstance(_k, tuple) and len(_k) == 3):
-                    continue
-                if _k[0] == _ent and _k[1] == _eattr \
-                        and not getattr(_f, "superseded", False):
-                    _v = _f.value
-                    if _eattr == "name":
-                        return f"your {_ent}'s name is {_v}."
-                    if _eattr == "does":
-                        return f"your {_ent} does {_v}."
-                    if _eattr == "is":
-                        return f"your {_ent} is {_v}."
-                    return f"your {_ent}'s {_eattr} is {_v}."
+            if _eattr:
+                # (a) entity-scoped fact (subject == entity), the canonical
+                #     possessive shape ("my partner's name is theo" -> partner).
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] == _ent and _k[1] == _eattr \
+                            and not getattr(_f, "superseded", False):
+                        _v = _f.value
+                        if _eattr == "name":
+                            return f"your {_ent}'s name is {_v}."
+                        if _eattr == "does":
+                            return f"your {_ent} does {_v}."
+                        if _eattr == "is":
+                            return f"your {_ent} is {_v}."
+                        return f"your {_ent}'s {_eattr} is {_v}."
+            # (b) GENERALIZE (round 2026-08-16): the miner stores a
+            #     single-token-entity disclosure like "my niece Priya is an
+            #     astronomer" as a COMBINED attr ("niece priya") under subject
+            #     "i" (the possessive splitter only entity-scopes a multi-word
+            #     attr whose LAST token is a relation word; "priya" is not one,
+            #     so "my niece priya is X" stays attr="niece priya",
+            #     subject="i"). A later "what's my niece's name / what does my
+            #     niece study / does my cousin have a craft" therefore misses
+            #     branch (a) (subject=="niece" never exists; or no rel-word was
+            #     spoken so branch (a) is skipped) and falls through to an
+            #     episodic echo (measured this round: T29 "what's my niece's
+            #     name" -> "you told me you do grew"; T32 "does my cousin have a
+            #     craft" -> "cousin craft is a bit outside what i know"). This
+            #     is the same recall/miner storage-shape disagreement as the
+            #     round-2026-08-15T0326Z possessive fix, just for the
+            #     combined-attr / bare-entity case. Fix: also scan subject=="i"
+            #     facts whose attr BEGINS with the entity word (so "niece priya"
+            #     is reachable from entity "niece") and render the whole stored
+            #     value. No per-entity table; generalizes to ANY relationship
+            #     the user disclosed this way (niece/cousin/aunt/uncle/...).
+            #     SAFETY (round 2026-08-16 regression guard): branch (b) is a
+            #     RECALL resolver. It must NOT fire on a declarative disclosure
+            #     ("my favorite movie is inception" -> _ent="favorite") — that
+            #     would answer the statement instead of recording it, breaking
+            #     episodic capture (test_c_record_episode_captures_facts). And
+            #     it must NOT hijack a MATERIAL query ("what's my desk made of")
+            #     which _MATQ handles below. Gate on a genuine INTERROGATIVE
+            #     frame: the query either ends with "?" OR begins with an
+            #     interrogative word (what/who/where/.../do/does/...). A bare
+            #     copula "is" inside a declarative "my X is Y" is NOT a question,
+            #     so a naive "contains is" test wrongly fired on disclosures —
+            #     the structural fix is to require sentence-initial inversion or
+            #     a trailing "?". Not a per-topic table.
+            _is_question = bool(
+                re.search(r"\?$", q.strip())
+                or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention)\b", q.strip()))
+            _is_material = bool(re.search(
+                r"\b(made of|made from|made out of|built of|built from|"
+                r"material|composed of)\b", q))
+            if _is_question and not _is_material:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] != "i" or getattr(_f, "superseded", False):
+                        continue
+                    _attr = _k[1].lower()
+                    if _attr == _ent or _attr.startswith(_ent + " ") \
+                            or _attr.startswith(_ent + "'"):
+                        _v = _f.value
+                        # D7 (round 2026-08-16T1745Z): verb-phrase values
+                        # (relationship-activity miner) render without a copula.
+                        try:
+                            from .user_model import is_activity_verb as _is_act
+                        except Exception:
+                            _is_act = lambda w: False
+                        _vv = (_v or "").strip()
+                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                            return f"your {_attr} {_v}."
+                        return f"your {_attr} is {_v}."
+        # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
+        # feature t_1a4a3938, round 2026-08-17T1126Z) ───────────────────────
+        # Queries that name a relationship (kin) or a specific person/entity and
+        # ask RAVANA to REPORT what it knows about them in the OPEN — "tell me
+        # about my grandmother", "who is my grandmother?", "what does my
+        # grandmother do?", "what do you know about my brother", "describe my
+        # niece priya" — previously returned None / metacognitive-uncertainty
+        # because every resolver keyed on a BARE name ("who is indira") or a
+        # specific verb ("what does X do"), never on the relationship word when
+        # phrased openly. That was the residual limitation logged at the end of
+        # round 2026-08-17T1126Z (#1), and it was made worse by the D7 miner
+        # bug (same round) that failed to STORE named-relationship facts when the
+        # name was lowercase. Both are now fixed end-to-end.
+        #
+        # Fix: detect a relationship word (via the SHARED relation_attrs lexicon,
+        # so the miner, the enumerator, and this recaller agree on what a
+        # "relative" is by construction) and/or a name token and/or a pet entity
+        # in the query, then scan the live PersonalFactStore for EVERY
+        # subject=="i" fact that (a) is a relationship attribute whose base
+        # relation matches, (b) carries the named person, or (c) is a pet of the
+        # queried species. Render all matches with the D7 copula rule
+        # (verb-phrase values drop the copula; noun-phrase values keep it).
+        # Fully store-driven; no authored reply; no per-person table; no
+        # retraining. Fail-closed: returns None when nothing maps, so an unknown
+        # relative gets honest uncertainty instead of a fabricated bio.
+        if pf is not None:
+            try:
+                from .relation_attrs import (
+                    relation_of as _or_rel_of,
+                    is_relation_attribute as _or_is_rel,
+                    base_relation as _or_base_rel,
+                )
+                from .pet_slots import (
+                    is_pet_attribute as _or_is_pet,
+                    base_species as _or_base_sp,
+                )
+                from .user_model import is_activity_verb as _or_is_act
+            except Exception:  # pragma: no cover - imports are always present
+                _or_rel_of = lambda w: None
+                _or_is_rel = lambda a: False
+                _or_base_rel = lambda a: None
+                _or_is_pet = lambda a: False
+                _or_base_sp = lambda a: None
+                _or_is_act = lambda w: False
+            _QR_STOP = {
+                "the", "a", "an", "of", "about", "on", "my", "i", "you", "what",
+                "who", "which", "where", "when", "why", "how", "is", "are", "was",
+                "were", "to", "in", "for", "with", "that", "this", "it", "and",
+                "or", "but", "from", "by", "as", "at", "me", "do", "does", "did",
+                "have", "has", "tell", "show", "know", "think", "feel", "describe",
+                "everything", "all", "anything", "something", "stands", "out",
+                "your", "read", "take", "impression", "picked", "up", "learned",
+                "learnt", "remember", "said", "told", "shared", "mention", "ravana",
+            }
+            _qr_salient = [t for t in re.findall(r"[a-z']+", q.lower())
+                           if t not in _QR_STOP]
+            # GATE on an interrogative / recall frame. This resolver REPORTS
+            # stored knowledge, so it must only fire when the user is ASKING
+            # about a relationship/person ("tell me about my X", "who is my X",
+            # "what does my X do"). A declarative disclosure ("my friend is
+            # hurting", "my grandmother bakes bread") is NOT a query — it must
+            # reach the empathy / fact-mining paths untouched. The empathy router
+            # owns genuine distress; a recall branch that answers every
+            # "my <relation>" utterance as a fact echo would swallow grief and
+            # other-suffering (regression: test_genuine_distress_still_routes_
+            # to_empathy). Same frame guard the reverse-name resolver and the
+            # _ENT_ATTR branch use, by construction.
+            _or_is_q = bool(
+                re.search(r"\?$", q.strip())
+                or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention|describe|"
+                    r"everything|all|name|list|show)\b", q.strip()))
+            _qr_rel = None
+            _qr_name = None
+            _qr_pet = None
+            for _t in _qr_salient:
+                if _qr_rel is None and _or_rel_of(_t) is not None:
+                    _qr_rel = _or_rel_of(_t)
+                elif _qr_name is None and _or_rel_of(_t) is None \
+                        and not _or_is_act(_t) \
+                        and _t not in ("me", "you", "i"):
+                    # An activity verb (start/study/keep/...) is never a person's
+                    # NAME token. Treating it as one latched "when did i start X"
+                    # onto a `does`/activity fact (round 2026-08-17 bug). Skip it.
+                    _qr_name = _t
+                if _qr_pet is None and _or_base_sp(_t) is not None:
+                    _qr_pet = _or_base_sp(_t)
+            if (_qr_rel is not None or _qr_name is not None or _qr_pet is not None) \
+                        and _or_is_q:
+                _bits = []
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] != "i" or getattr(_f, "superseded", False):
+                        continue
+                    _attr = _k[1].lower()
+                    _val = (getattr(_f, "value", "") or "").strip()
+                    # Activity / date facts are owned by the activity (1b/1c) and
+                    # date-grounded (1f) resolvers. Branch (1d) is the
+                    # relationship/person/pet recall path; letting it answer from
+                    # `does`/`event`/`since`/`since_age` facts hijacks temporal
+                    # and activity queries (round 2026-08-17 bug: "when did i
+                    # start building frames" -> "your does is ..."). The SAME
+                    # name-match rule (b) that latched a `does` fact also latches
+                    # a `since` fact ("... your since is study volcanoes 2015."),
+                    # so `since`/`since_age` MUST be excluded here too, not just
+                    # `does`/`event`. This only NARROWS the matcher; no reply
+                    # string is added.
+                    if _attr in ("does", "event", "since", "since_age"):
+                        continue
+                    _matched = False
+                    # (a) relationship attribute whose base relation matches.
+                    if not _matched and _qr_rel is not None and _or_is_rel(_attr):
+                        if _or_base_rel(_attr) == _qr_rel:
+                            _matched = True
+                    # (b) name match: the query's name token is the trailing
+                    #     name of a combined-attr fact, or appears in the value.
+                    if not _matched and _qr_name is not None:
+                        _at = _attr.split()
+                        if _at and _at[-1] == _qr_name:
+                            _matched = True
+                        elif _qr_name in _val.lower().split():
+                            _matched = True
+                    # (c) pet match.
+                    if not _matched and _qr_pet is not None and _or_is_pet(_attr):
+                        if _or_base_sp(_attr) == _qr_pet:
+                            _matched = True
+                    if not _matched:
+                        continue
+                    _vv = _val.lower().strip()
+                    if _vv and _vv.split() and _or_is_act(_vv.split()[0]):
+                        _bits.append(f"your {_attr} {_val}.")
+                    else:
+                        _bits.append(f"your {_attr} is {_val}.")
+                if _bits:
+                    return " ".join(_bits)
+
         # Possession-attribute (material) recall (Bug 4, round 2026-08-15T0830Z):
+        # D7 (round 2026-08-16T1745Z): reverse NAME lookup (top-level). A query
+        # naming ONLY the person's name ("who is indira to me", "who is priya")
+        # has no kin HEAD token, so the relationship-entity resolver (above)
+        # misses it and the query fell through to an identity blurb (measured:
+        # T61 -> "you live in bramblewick"). The combined-attr fact ("grandmother
+        # indira") stores BOTH the relationship and the name, so when a salient
+        # cue word equals the attr's trailing NAME token, report the
+        # relationship ("your grandmother"). Generalizes across every
+        # relationship the user named (no per-name table); honest None fallback
+        # when no fact carries that name. Gated on an interrogative frame so it
+        # does not hijack a declarative mention of the name. Not authored prose
+        # — the relationship word is the stored attr's head; content from store.
+        if pf is not None:
+            _name_is_q = bool(
+                re.search(r"\?$", q.strip())
+                or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention)\b", q.strip()))
+            if _name_is_q:
+                _qcn = set(re.findall(r"[a-z']+", q.lower())) - {
+                    "the", "a", "an", "of", "about", "on", "my", "i", "you",
+                    "what", "who", "which", "where", "when", "why", "how",
+                    "is", "are", "was", "were", "to", "in", "for", "with",
+                    "that", "this", "it", "and", "or", "but", "from", "by",
+                    "as", "at", "me", "do", "does", "did", "have", "has",
+                    "whom", "tell", "know", "say", "said", "recall",
+                    "remember", "mention", "name", "relation",
+                }
+                if _qcn:
+                    # relation_of is the runtime-extensible relationship-word test
+                    # from relation_attrs (same vocabulary the miner uses), so the
+                    # resolver generalizes to any kin/pet word RAVANA has learned.
+                    try:
+                        from .relation_attrs import relation_of as _relation_of
+                    except Exception:
+                        def _relation_of(w):
+                            return None
+                    # TYPE-AGNOSTIC reverse-name resolver (round 2026-08-17T1126Z,
+                    # D-B). A "who is X to me" / "who is X" query names an entity
+                    # by NAME, and the relationship must be reverse-derived from
+                    # the fact store, whatever the fact's shape:
+                    #   (1) combined-attr  ('i','sister lena','...')  -> name is
+                    #       the LAST attr token (the D7 form).
+                    #   (2) attr=relationship, name in VALUE
+                    #       ('i','sister','wren')  -> rel='sister', name='wren'.
+                    #   (3) attr='does', name in VALUE
+                    #       ('i','does','keep pet parrot named mango') -> entity
+                    #       'pet parrot', name 'mango'.
+                    # One shared reverse-index path covers kin, pets, and any
+                    # runtime-learned relationship the user named — NOT a second
+                    # narrow branch per entity type (that was the regression this
+                    # round's heartbeat flagged). Content comes entirely from the
+                    # store; no authored prose, no per-name table.
+                    # Honest None fallback when no fact carries that name.
+                    for _k, _f in pf.facts.items():
+                        if not (isinstance(_k, tuple) and len(_k) == 3):
+                            continue
+                        if _k[0] != "i" or getattr(_f, "superseded", False):
+                            continue
+                        _attr = _k[1].lower()
+                        _val = (getattr(_f, "value", "") or "").lower().strip()
+                        # Activity / date facts are owned by the activity (1b/1c)
+                        # and date-grounded (1f) resolvers. This reverse-name
+                        # resolver is for RELATIONSHIPS / PEOPLE / PETS — letting
+                        # it answer from a PURE-ACTIVITY `does`/`event`/`since`/
+                        # `since_age` fact hijacks temporal and activity queries
+                        # (round 2026-08-17 bug: "when did i start building
+                        # frames" -> "your building frames ..." because the
+                        # `does` value's LAST token ("frames") matched a salient
+                        # query word and was treated as a person's NAME).
+                        # A PET `does` fact ("keep pet parrot named mango") is
+                        # NOT an activity — it carries a real named entity, so
+                        # the reverse-name path below must still resolve it
+                        # ("who is mango?" -> "your pet parrot."). Only exclude
+                        # activity/date facts that are NOT pet-bearing, keyed on
+                        # the shared pet lexicon (a pet `does` value names a
+                        # species or uses "named <name>"); no authored table.
+                        if _attr in ("does", "event", "since", "since_age"):
+                            # A PET `does`/`event` fact carries a real named
+                            # entity ("keep pet parrot named mango" / "i have a
+                            # cat named pixel") — the reverse-name path below
+                            # must still resolve it ("who is mango?" ->
+                            # "your pet parrot."). A PURE-ACTIVITY fact
+                            # ("building frames", "start studying volcanoes")
+                            # is owned by the activity (1b/1c) / date-grounded
+                            # (1f) resolvers; treating its value's last token as
+                            # a person's NAME hijacks temporal/activity queries
+                            # (round 2026-08-17 bug: "when did i start building
+                            # frames" -> "your building frames ..."). Discriminate
+                            # on the pet markers "named"/"pet" — a bare noun like
+                            # "frames" is NOT a pet, so the activity fact is
+                            # excluded. (NOTE: pet_slots.base_species is a
+                            # near-identity resolver for arbitrary nouns, so it
+                            # cannot be used to test "is this a pet" here; the
+                            # explicit markers are the reliable signal.)
+                            _is_pet = ("named" in _val) or ("pet" in _val)
+                            if not _is_pet:
+                                continue
+                        _attr_toks = _attr.split()
+                        _rel = None          # relationship/entity label to render
+                        _act = None          # optional activity value to append
+                        # (1) combined-attr "<kin> <name>"
+                        if len(_attr_toks) >= 2 and _attr_toks[-1] in _qcn:
+                            _rel = " ".join(_attr_toks[:-1])
+                            _act = _val
+                        # (2) attr is a relationship word, name is the value
+                        elif _relation_of(_attr) is not None and _val in _qcn:
+                            _rel = _attr
+                        # (3) attr='does', name is inside the value
+                        #     (e.g. 'keep pet parrot named mango')
+                        elif _attr == "does" and _val.split() and _val.split()[-1] in _qcn:
+                            # entity = value with the trailing 'named <name>'
+                            # (or bare name) stripped, then the leading
+                            # possession verb/article removed.
+                            _entity = self._strip_entity_from_does(_val, list(_qcn)[0])
+                            _rel = _entity or "pet"
+                        if _rel is None:
+                            continue
+                        # Reverse-name match. Render the FULL relationship (not
+                        # just a kinship head — round 2026-08-17 defect E:
+                        # "who is Lena to me and what does she do?" dropped both
+                        # the name and the stored activity). When the query also
+                        # asks what the person/entity DOES (do/does/work/live/...),
+                        # append the stored activity value, dropping the copula
+                        # for verb-phrase values via the shared D7 seed lexicon
+                        # (is_activity_verb) — same render rule as the D7
+                        # ack/recall paths. Content comes entirely from the store.
+                        _ans = f"your {_rel}."
+                        if re.search(r"\b(do|does|did|work|live|for a living|hobby|like to)\b", q.lower()):
+                            _v = (_act or _val or "").strip()
+                            if _v:
+                                try:
+                                    from .user_model import is_activity_verb as _is_act
+                                except Exception:
+                                    _is_act = lambda w: False
+                                _vv = _v.split()
+                                if _vv and _is_act(_vv[0]):
+                                    _ans = f"your {_rel} {_v}."
+                                else:
+                                    _ans = f"your {_rel} is {_v}."
+                        return _ans
         # "what's my cabin made of" / "what material is my sword" / "what's my
         # roof made of" reads the ENTITY-scoped 'madeof' / feature fact mined by
         # mine_personal_facts. The existing possessive branch (above) only
@@ -2889,45 +3312,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fact fell through to the episodic echo. Resolve the entity noun and
         # render from the live store via possession_attrs (single source of
         # truth); honest None fallback when nothing matches (never fabricate).
-        # Try the alternative "what is the material of my X" form first
-        _MATQ_ALT = re.search(
-            r"\bwhat\s+is\s+the\s+material\s+of\s+"
-            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)\b", q)
-        if _MATQ_ALT:
-            _MATQ = _MATQ_ALT
-            _ent = _MATQ.group(1).lower().strip()
-            _feat_query = None
-        else:
-            _MATQ = re.search(
-                r"\b(?:what'?s|what\s+is|what\s+material\s+is)\s+"
-                r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
-                r"(?:([a-z][a-z]+)\s+)?"  # optional feature between entity and "made of"
-                r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
-            if _MATQ:
-                _ent = _MATQ.group(1).lower().strip()
-                _feat_query = _MATQ.group(2).lower().strip() if _MATQ.group(2) else None
-            else:
-                _ent = None
-                _feat_query = None
+        _MATQ = re.search(
+            r"\b(?:what'?s|what\s+is|what\s+material\s+is|what\s+is\s+the\s+material\s+of)\s+"
+            r"(?:my|the|our|your|a|an)?\s*([a-z][a-z]+)(?:'s)?\s+"
+            r"(?:made\s+of|made\s+from|material|built\s+of|built\s+from)\b", q)
         if _MATQ and pf is not None:
+            _ent = _MATQ.group(1).lower().strip()
             _cand = None
-            from . import possession_attrs as _pa
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _k[0] == _ent and not getattr(_f, "superseded", False):
                     _attr = _k[1]
-                    # If the query named a specific feature ("what's my desk frame
-                    # made of"), prefer an exact feature match; otherwise fall back
-                    # to madeof or any feature noun.
-                    if _feat_query and _pa.is_feature_noun(_feat_query):
-                        if _attr == _feat_query:
+                    # 'madeof' is the primary material fact; a feature noun
+                    # (roof/wall/.., per possession_attrs._FEATURE_NOUNS) is more
+                    # specific when the query names that part.
+                    if _attr == "madeof":
+                        _cand = _f
+                    elif _cand is None:
+                        from . import possession_attrs as _pa
+                        if _pa.is_feature_noun(_attr):
                             _cand = _f
-                            break
-                    elif _attr == "madeof":
-                        _cand = _f
-                    elif _cand is None and _pa.is_feature_noun(_attr):
-                        _cand = _f
             if _cand is not None:
                 _attr, _v = _cand.attribute, _cand.value
                 if _attr == "madeof":
@@ -3387,6 +3792,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     for _act in _since_acts:
                         if _stem(_act) in _stems or _act == _val.split()[0]:
                             _verb_ctx.setdefault(_act, []).append(_val)
+            # Extract query object (if any) for object-disambiguated matching.
+            # When the query explicitly names an object ("building widgets"),
+            # require the stored activity to match that object, not just the verb.
+            _query_obj = None
+            _ACTIVITY_VERBS = {
+                "building", "build", "builds", "built",
+                "keeping", "keep", "keeps", "kept",
+                "restoring", "restore", "restores", "restored",
+                "fixing", "fix", "fixes", "fixed",
+                "studying", "study", "studies", "studied",
+                "making", "make", "makes", "made",
+                "working", "work", "works", "worked",
+                "teaching", "teach", "teaches", "taught",
+                "learning", "learn", "learns", "learned",
+                "playing", "play", "plays", "played",
+            }
+            _qtoks_list = [t for t in re.findall(r"[a-z']+", q.lower())]
+            for _i, _qt in enumerate(_qtoks_list):
+                if _qt in _ACTIVITY_VERBS and _i + 1 < len(_qtoks_list):
+                    _next = _qtoks_list[_i + 1]
+                    _STOP_QUERY_OBJ = {"the", "a", "an", "my", "this", "that"}
+                    if _next not in _STOP_QUERY_OBJ:
+                        _query_obj = _stem(_next)
+                        break
             _best_year = None
             _best_age = None
             _best_score = 0
@@ -3406,12 +3835,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _yr = int(_parts[1])
                     except ValueError:
                         continue
+                    # Object-disambiguated matching: if query has an explicit object,
+                    # require the stored activity to contain that object (stem match).
+                    if _query_obj is not None:
+                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
+                        if _query_obj not in _act_stems:
+                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
                         _best_score = _score
                         _best_year = _yr
-                        _best_age = None  # clear the other candidate
                         _best_act = _act
                 elif _k[1] == "since_age":
                     _parts = _v.rsplit(" ", 1)
@@ -3422,11 +3856,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _age = int(_parts[1])
                     except ValueError:
                         continue
+                    # Object-disambiguated matching: if query has an explicit object,
+                    # require the stored activity to contain that object (stem match).
+                    if _query_obj is not None:
+                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
+                        if _query_obj not in _act_stems:
+                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
                         _best_score = _score
-                        _best_year = None  # clear the other candidate
                         _best_age = _age
                         _best_act = _act
             # Require at least one meaningful token overlap so an unrelated
@@ -3464,16 +3903,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         um = getattr(self, "user_model", None)
         name = (getattr(um, "user_name", "") or "").strip()
         _pf = getattr(um, "personal_facts", None) if um else None
-        # Compute n_facts from active, non-superseded entries only
-        n_facts = 0
-        if _pf is not None:
-            for _f in (getattr(_pf, "facts", {}) or {}).values():
-                if not getattr(_f, "superseded", False):
-                    n_facts += 1
+        n_facts = len(getattr(_pf, "facts", {}) or {}) if _pf is not None else 0
         opinions = getattr(um, "opinions", None) if um else None
         stances = getattr(opinions, "stances", {}) or {}
         n_stances = len(stances)
-        strength = self.identity.state.strength
+        ident = self.identity.state.strength
         trend = self.identity.get_trend()
 
         if trend > 0.01:
@@ -3506,10 +3940,680 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 + ", ".join(_topics))
 
         _parts.append(
-            f"my own sense of self is still forming — my self-coherence "
-            f"sits around {strength:.2f} and is {_trend_word}")
+            f"my own sense of self is still forming — my self-coherence sits "
+            f"around {ident:.2f} and is {_trend_word}")
 
         return ". ".join(_parts) + "."
+
+    # ── AUTOBIOGRAPHICAL RECALL helpers (feature t_a41f7e29, round 2026-08-18T0937Z)
+    # Used by _autobiographical_recall to compose answers about the USER from
+    # the real, runtime-grown user-model stores. Shared renderers keep these in
+    # lockstep with _aggregate_user_model (the canonical renderer) so answers
+    # agree by construction.
+
+    def _polarity_word(self, pol: float) -> str:
+        """ONE vocabulary token for a stance polarity band (a lexicon entry,
+        not a scripted sentence). Mirrors _aggregate_user_model's band map."""
+        if pol >= 0.6:
+            return "strongly for"
+        if pol > 0.1:
+            return "for"
+        if pol <= -0.6:
+            return "strongly against"
+        if pol < -0.1:
+            return "against"
+        return "uncertain about"
+
+    def _render_fact_line(self, attr: str, val: str) -> str:
+        """Render ONE user fact into a clean statement. EXACT copy of the
+        fact-rendering branch in _aggregate_user_model (L3701-3740) so the two
+        paths render identically — no divergent special-casing."""
+        _attr_d = (attr or "").replace("_", " ").strip()
+        if _attr_d in ("location", "live in", "grew"):
+            return f"you're from {val}"
+        if _attr_d.startswith("favorite"):
+            return f"your {_attr_d.replace('favorite ', '')} is {val}"
+        if _attr_d == "name":
+            return f"your name is {val}"
+        if _attr_d == "does":
+            return f"you {val}"
+        if _attr_d == "event":
+            return f"you mentioned {val}"
+        try:
+            from .user_model import is_activity_verb as _is_act
+        except Exception:
+            _is_act = lambda w: False
+        _kv = (val or "").strip()
+        if _kv and _kv.split() and _is_act(_kv.split()[0]):
+            return f"your {_attr_d} {val}"
+        return f"your {_attr_d} is {val}"
+
+    def _collect_user_model_state(self):
+        """Return (facts, stances, beliefs) of the USER's real learned profile,
+        deduped exactly like _aggregate_user_model. facts = list of
+        (attr, val, conf); stances = list of (topic, polarity, conf);
+        beliefs = list of (pred, val, conf)."""
+        um = getattr(self, "user_model", None)
+        pf = getattr(um, "personal_facts", None) if um else None
+        opinions = getattr(um, "opinions", None) if um else None
+        beliefs = getattr(self, "belief_store", None)
+        _fact_by_attr = {}
+        if pf is not None:
+            for _k, _f in (getattr(pf, "facts", {}) or {}).items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _subj, _attr, _val = _k
+                if _subj.lower() != "i":
+                    continue
+                _v = (_f.value or "").strip()
+                if not _v:
+                    continue
+                _cur = _fact_by_attr.get(_attr)
+                if _cur is None or len(_v) > len(_cur[0]):
+                    _fact_by_attr[_attr] = (_v, getattr(_f, "confidence", 0.5))
+        facts = [(a, v, c) for a, (v, c) in _fact_by_attr.items()]
+        _kept = []
+        _seen_vals = set()
+        for _attr, _val, _conf in facts:
+            _n = _val.lower().strip()
+            if _n in _seen_vals:
+                continue
+            if any((_n != _o and (_n in _o or _o in _n)) for _oa, _o, _oc in _kept):
+                continue
+            _seen_vals.add(_n)
+            _kept.append((_attr, _val, _conf))
+        facts = _kept
+        stances = []
+        if opinions is not None:
+            for _topic, _s in (getattr(opinions, "stances", {}) or {}).items():
+                stances.append((_topic, getattr(_s, "polarity", 0.0),
+                                getattr(_s, "confidence", 0.5)))
+        belief_items = []
+        if beliefs is not None:
+            for (_sid, _pred), _triple in (getattr(beliefs, "beliefs", {}) or {}).items():
+                if _sid.lower() != "i":
+                    continue
+                _val, _conf, _turn = _triple if isinstance(_triple, tuple) else (_triple, 0.5, 0)
+                belief_items.append((_pred, _val, _conf))
+        return facts, stances, belief_items
+
+    def _match_stance(self, phrase: str):
+        """Find the user's real stance whose topic relates to `phrase`. Returns
+        (topic, polarity, conf) or None. Containment + content-token-overlap,
+        both directions — no per-topic table, generalizes across any topic the
+        user has actually disclosed."""
+        opinions = getattr(getattr(self, "user_model", None), "opinions", None)
+        if opinions is None:
+            return None
+        stances = getattr(opinions, "stances", {}) or {}
+        if not stances:
+            return None
+        _p = (phrase or "").lower().strip().replace("-", " ")
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        _best = None
+        for _topic, _s in stances.items():
+            _t = (_topic or "").lower().strip().replace("-", " ")
+            if _t and (_t in _p or _p in _t):
+                _best = (_topic, getattr(_s, "polarity", 0.0),
+                         getattr(_s, "confidence", 0.5))
+                break
+            _ttoks = set(w for w in re.findall(r"[a-z']+", _t) if len(w) >= 3)
+            if _ttoks & _ptoks:
+                _best = (_topic, getattr(_s, "polarity", 0.0),
+                         getattr(_s, "confidence", 0.5))
+                break
+        return _best
+
+    def _match_fact(self, phrase: str):
+        """Find the user's real fact whose attr OR value relates to `phrase`.
+        Returns (attr, val, conf) or None — prefers the longest matching value."""
+        facts, _, _ = self._collect_user_model_state()
+        _p = (phrase or "").lower().strip().replace("-", " ")
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        _best = None
+        for _attr, _val, _conf in facts:
+            _search = f"{(_attr or '').lower()} {(_val or '').lower()}"
+            if _search and (_search in _p or _p in _search):
+                _best = (_attr, _val, _conf)
+                break
+            _vtoks = set(w for w in re.findall(r"[a-z']+", _search) if len(w) >= 3)
+            if _vtoks & _ptoks:
+                if _best is None or len(_val) > len(_best[1]):
+                    _best = (_attr, _val, _conf)
+        return _best
+
+    def _extract_disclosure_topic(self, text: str) -> str:
+        """Strip a leading first/second-person + disclosure verb from a phrase
+        to recover the TOPIC (e.g. \"i liked cold-weather hiking\" -> \"cold
+        weather hiking\"; \"about my brother\" -> \"about my brother\"). General
+        verb list, no per-topic special-casing."""
+        _t = re.sub(
+            r"^(?:i|you)\s+(?:really\s+)?(?:like|likes|liked|love|loves|loved|"
+            r"hate|hates|hated|dislike|dislikes|enjoy|enjoys|enjoyed|care\s+"
+            r"(?:about|for)|prefer|prefers|preferred|am\s+into|was\s+into|"
+            r"into|told you|told|said|said\s+about|mentioned|mention)\s*",
+            "", (text or "").strip()).strip()
+        return _t
+
+    def _autobiographical_recall(self, user_input: str) -> Optional[str]:
+        """AUTO-BIOGRAPHICAL RECALL of the USER (feature t_a41f7e29,
+        round 2026-08-18T0937Z).
+
+        ROUND RESIDUAL this closes (R34/R43/R57 + U17 from
+        tmp/reports/ravana-2026-08-18T0937Z.md): queries about what the USER
+        has told RAVANA —
+
+          * \"what will you remember most about me?\"            (R57 — GAP)
+          * \"did i tell you i liked cold-weather hiking?\"       (R34 — MISROUTE)
+          * \"have i told you about my brother?\"                 (R43 family)
+          * \"wait, earlier i told you i loved X — does that
+             still fit, or have i changed?\"                      (U17 — stale reply)
+
+        — were either unhandled (fell to degenerate uncertainty) or MISROUTED
+        into the loosely-keyed AgentReplyStore (_route_agent_own_recall), which
+        surfaced RAVANA's OWN echo (\"i said: good to know you love...\") instead
+        of an answer about the USER's disclosed fact/stance. That is a self/other
+        boundary inversion, and it is brittle (it depends on a junk reply key
+        like \"hiking\" existing in _own_replies).
+
+        FIX: detect the user-autobiography intent and compose the answer from
+        the REAL user-model stores (personal_facts, opinions.stances,
+        belief_store) — the same stores _aggregate_user_model /
+        _user_stance_reply already read. Every answer slot is read from runtime
+        state RAVANA grows autonomously; the user can correct any fact/stance
+        and the stores merge on correction. No authored prose, no per-topic
+        answer table, no retraining. The deciding test (\"can RAVANA change this
+        by itself, through experience?\") passes: the content comes entirely
+        from the learned stores, not from code.
+
+        Three sub-intents, all fail-closed (return None) when no user-
+        autobiography intent matches or the relevant store is empty, so genuine
+        agent-self questions still reach _route_self_query / _route_agent_own_
+        recall unchanged (self/other boundary preserved):
+
+          (A) SALIENCE — \"remember MOST about me\" / \"what do you remember
+              about me\" -> compose from the real profile, leading with the
+              single most-confident learned item + a short tail of the rest.
+          (B) CONFIRMATION — \"did i tell you i liked X\" / \"have i told you
+              about my brother\" -> a YES/NO confirmation reading the user's
+              REAL stance or fact (states the actual learned content), not the
+              agent's own echo. Honest \"not that i recall\" when nothing maps.
+          (C) CONTRADICTION-RECONCILE — \"does that still fit / have i changed\"
+              -> reads the user's REAL (already-reconciled) stance on the named
+              topic and reports its CURRENT value, so the reply reflects the
+              latest state rather than a stale echo (closes U17: the stance
+              STORE is correct; only the reply routing missed it).
+        """
+        q = (user_input or "").lower().strip()
+        if not q:
+            return None
+        # User-autobiography intents are first-person disclosure framing. Agent-
+        # self questions (\"what did YOU say about X\") lack this and fall through.
+        if not re.search(r"\b(i|me|my|mine|we|our)\b", q):
+            return None
+
+        # ── (A) SALIENCE: what RAVANA will remember MOST / about the user ──
+        _A = re.search(
+            r"\b(what will you remember most about me"
+            r"|what do you remember about me"
+            r"|what's the (?:biggest|main|one) thing you (?:know|remember|"
+            r"picked up) about me"
+            r"|the (?:one )?thing you (?:remember|keep|take) (?:most )?about me"
+            r"|what stands out most (?:about|to you)? ?me"
+            r"|what will you take (?:away|from) (?:this|about me))\b", q)
+        if _A:
+            _facts, _stances, _beliefs = self._collect_user_model_state()
+            if not _facts and not _stances and not _beliefs:
+                return None
+            _items = [("fact", a, v, c) for a, v, c in _facts] + \
+                     [("stance", t, None, c) for t, p, c in _stances]
+            if not _items:
+                return None
+            _items.sort(key=lambda x: x[3], reverse=True)
+            _top = _items[0]
+            if _top[0] == "fact":
+                _lead = "the thing that stands out most is " + \
+                        self._render_fact_line(_top[1], _top[2])
+            else:
+                _lead = (f"what stays with me most is that you're "
+                         f"{self._polarity_word(_top[2])} {_top[1]}")
+            _rest = []
+            for _it in _items[1:4]:
+                if _it[0] == "fact":
+                    _rest.append(self._render_fact_line(_it[1], _it[2]))
+                else:
+                    pass  # stances already captured via salience word
+            # Add remaining stances (if any) to the tail for completeness.
+            for _t, _p, _c in _stances:
+                if _t != _top[1]:
+                    _rest.append(f"you're {self._polarity_word(_p)} {_t}")
+            if _rest:
+                return _lead + ". " + "and i've also picked up: " + \
+                       "; ".join(_rest[:3]) + "."
+            return _lead + "."
+
+        # ── (B) CONFIRMATION: "did i tell you i liked X" / "have i told you
+        #    about my brother" — answer from the REAL user store, not the
+        #    agent's own echo. ──
+        _B = re.search(
+            r"\b(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
+            r"mentioned|share|shared|let you know)\b", q)
+        if _B:
+            # Recover the disclosure content after the tell-clause.
+            _rem = re.sub(
+                r"^.*?(?:did|have|had)\s+(?:i|you)\s+(?:tell|told|say|said|"
+                r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
+                "", q).strip()
+            _topic = self._extract_disclosure_topic(_rem)
+            if not _topic:
+                _topic = _rem
+            # No real disclosure topic (e.g. "who have i told you ABOUT" — an
+            # enumeration request) -> fall through to the (0c) enumeration
+            # recall path instead of claiming it as a confirmation. Also bail on
+            # a bare "about" so genuine enumerations aren't answered with "not
+            # that i recall".
+            if not _topic or _topic.strip() in ("about", "about you", "about me"):
+                return None
+            _stance = self._match_stance(_topic)
+            if _stance is not None:
+                _topic_d, _pol, _conf = _stance
+                return (f"yes — you told me you're "
+                        f"{self._polarity_word(_pol)} {_topic_d}. i've kept that.")
+            _fact = self._match_fact(_topic)
+            if _fact is not None:
+                return ("yes — i remember: " +
+                        self._render_fact_line(_fact[0], _fact[1]) + ".")
+            return ("not that i recall — you haven't told me about that yet. "
+                    "what did you want me to know?")
+
+        # ── (C) CONTRADICTION-RECONCILE: "does that still fit / have i changed"
+        #    — report the user's CURRENT real stance, not a stale echo. ──
+        _C = re.search(
+            r"\b(does that still fit|have i changed|did i change|am i still|"
+            r"do i still|still fit|or have i changed|where do i stand now|"
+            r"has that changed)\b", q)
+        if _C:
+            # Topic = the disclosure in the SAME utterance. The disclosure may
+            # precede the reconcile question ("earlier i told you i loved X.
+            # does that still fit") or follow it ("does that still fit — i
+            # loved X"). Robust extraction: (1) drop a leading "earlier i told
+            # you / i said" disclosure-lead marker, (2) cut at the FIRST
+            # reconcile-question keyword so trailing "does that still fit..."
+            # is removed, (3) strip the residue disclosure lead. No per-topic
+            # special-casing — works for any X the user actually disclosed.
+            _body = re.sub(
+                r"^(?:wait|so|okay|ok|well|earlier|hmm|uh|right)[,\s]*", "", q)
+            _body = re.sub(
+                r"^(?:earlier\s+i told you|i told you|you told me|i said|"
+                r"i mentioned|i think i told you)\s*", "", _body).strip()
+            _body = re.split(
+                r"\b(does that still fit|have i changed|did i change|am i still|"
+                r"do i still|still fit|or have i changed|where do i stand now|"
+                r"has that changed)\b", _body)[0].strip().rstrip(".!?")
+            _topic = self._extract_disclosure_topic(_body)
+            _stance = self._match_stance(_topic) if _topic else None
+            if _stance is not None:
+                _topic_d, _pol, _conf = _stance
+                _w = self._polarity_word(_pol)
+                if _pol > 0.1 or _pol < -0.1:
+                    return (f"you told me you were leaning that way, and it "
+                            f"still holds — you're {_w} {_topic_d}.")
+                return (f"you've softened on that — you're {_w} {_topic_d} now, "
+                        f"so it doesn't sit the same as when you first said it.")
+            _fact = self._match_fact(_topic) if _topic else None
+            if _fact is not None:
+                return ("you told me: " + self._render_fact_line(_fact[0], _fact[1]) +
+                        ". that hasn't changed that i know of.")
+            return ("i don't have a clear read from you on that yet — tell me "
+                    "where you stand and i'll keep it in mind.")
+
+        return None
+
+    def _aggregate_user_model(self) -> Optional[str]:
+        """AGGREGATION capability (feature t_3d147353, round 2026-08-16T1241Z).
+
+        A user-model aggregation query ("what have you picked up about me",
+        "what stands out about me", "tell me about myself", "everything you
+        know about me", "describe me", "what do you remember me telling you")
+        asks RAVANA to REPORT the accumulated CONTENT of its model of the user
+        — not just counts/topics (that is _meta_identity_reply's job) and not
+        an existential realness frame.
+
+        Root cause it fixes: these queries were not recognized as a distinct
+        intent, so they fell through to the graceful-uncertainty fallback,
+        which resolved the subject to a closed-class/garbage token and emitted
+        degenerate text (round 2026-08-16T1241Z, T48: "i don't really have a
+        solid grasp on picked far so far"). The engine in fact held 9 facts +
+        4 stances but had no path to render them.
+
+        Design (passes the no-hardcoding line by construction):
+        - Every returned sentence is grounded in a runtime store RAVANA grows
+          autonomously (personal_facts, opinions.stances, belief_store). No
+          authored prose, no per-topic answer table, no retraining.
+        - The user can correct any fact/stance; the stores merge on correction,
+          so the aggregate always reflects the latest state.
+        - Rendering picks ONE word for polarity band (single lexicon token, a
+          vocabulary entry — not a scripted sentence) and slots in the REAL
+          topic and value from state.
+        - Fail-closed: when nothing is stored, returns None so the honest
+          uncertainty path answers — a new user gets "still learning who you
+          are" rather than garbage.
+        """
+        um = getattr(self, "user_model", None)
+        if um is None:
+            return None
+        pf = getattr(um, "personal_facts", None)
+        opinions = getattr(um, "opinions", None)
+        beliefs = getattr(self, "belief_store", None)
+
+        # Collect NON-SUPERSEDED store content (the real learned profile).
+        # A single disclosure can be mined into several overlapping facts
+        # (e.g. "i grew up in aldermoor" -> does:"grew" AND
+        # does:"grew village called aldermoor"). Dedupe by exact value and,
+        # for facts sharing one attribute, keep the LONGEST value (the most
+        # complete disclosure) so the aggregate isn't a list of fragments.
+        _fact_by_attr = {}
+        if pf is not None:
+            for _k, _f in (getattr(pf, "facts", {}) or {}).items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if getattr(_f, "superseded", False):
+                    continue
+                _subj, _attr, _val = _k
+                if _subj.lower() != "i":
+                    continue
+                _v = (_f.value or "").strip()
+                if not _v:
+                    continue
+                _cur = _fact_by_attr.get(_attr)
+                if _cur is None or len(_v) > len(_cur[0]):
+                    _fact_by_attr[_attr] = (_v, getattr(_f, "confidence", 0.5))
+        facts = [(a, v, c) for a, (v, c) in _fact_by_attr.items()]
+        # General dedupe of mined fragments: one disclosure is frequently
+        # mined into several OVERLAPPING facts (e.g. "i grew up in a village
+        # called aldermoor in the hills" -> location:"aldermoor in the hills"
+        # AND grew:"grew village called aldermoor", and the grew fact can be
+        # stored twice under the same attribute). Keep one complete rendering
+        # and drop: (a) exact-duplicate values even when stored under
+        # DIFFERENT attributes (this collapsed the doubled
+        # "you grew village called aldermoor" line measured here); (b) a
+        # value that is a strict substring of another retained value. General
+        # — keyed by value content, no per-entity special-casing.
+        _kept = []
+        _seen_vals = set()
+        for _attr, _val, _conf in facts:
+            _n = _val.lower().strip()
+            if _n in _seen_vals:
+                continue
+            if any((_n != _o and (_n in _o or _o in _n))
+                   for _oa, _o, _oc in _kept):
+                continue
+            _seen_vals.add(_n)
+            _kept.append((_attr, _val, _conf))
+        facts = _kept
+        stances = []
+        if opinions is not None:
+            for _topic, _s in (getattr(opinions, "stances", {}) or {}).items():
+                _pol = getattr(_s, "polarity", 0.0)
+                _conf = getattr(_s, "confidence", 0.5)
+                stances.append((_topic, _pol, _conf))
+        belief_items = []
+        if beliefs is not None:
+            for (_sid, _pred), _triple in (getattr(beliefs, "beliefs", {}) or {}).items():
+                if _sid.lower() != "i":
+                    continue
+                _val, _conf, _turn = _triple if isinstance(_triple, tuple) else (_triple, 0.5, 0)
+                belief_items.append((_pred, _val, _conf))
+
+        if not facts and not stances and not belief_items:
+            # Nothing learned yet — fail-closed to honest uncertainty.
+            return None
+
+        parts = []
+        # ── Facts: render each as a clean statement. ──
+        for _attr, _val, _conf in facts:
+            _attr_d = _attr.replace("_", " ").strip()
+            if _attr_d in ("location", "live in", "grew"):
+                parts.append(f"you're from {_val}")
+            elif _attr_d.startswith("favorite"):
+                parts.append(f"your {_attr_d.replace('favorite ', '')} is {_val}")
+            elif _attr_d == "name":
+                parts.append(f"your name is {_val}")
+            elif _attr_d == "does":
+                # Self-disclosed ACTIVITY stored as a verb-phrase clause
+                # (e.g. "spent whole childhood", "got promoted last month").
+                # The miner keeps the user's own words verbatim, so render as a
+                # first-person predicate ("you spent whole childhood"). The
+                # prior fall-through produced the garbled "your does spent whole
+                # childhood" (round 2026-08-18T0937Z). Mirrors the engine_memory.py
+                # self-profile render fix.
+                _sv = (_val or "").strip()
+                parts.append(f"you {_sv}")
+            elif _attr_d == "event":
+                # Self-disclosed EVENT (mined as event=<verb phrase>, e.g.
+                # "lose appetite"). Render as an honest "you mentioned <clause>"
+                # — the prior fall-through produced "your event is lose
+                # appetite" (round 2026-08-18T0937Z).
+                parts.append(f"you mentioned {_val}")
+            else:
+                # D7 (round 2026-08-16T1745Z): a combined-attr relationship fact
+                # ("grandmother indira" -> "weaves baskets") must render as
+                # "your grandmother indira weaves baskets" (verb phrase, no
+                # copula) or "your niece priya is an astronomer" (noun phrase).
+                # The verb test uses the shared SEED lexicon
+                # (user_model.is_activity_verb); content comes from the store.
+                try:
+                    from .user_model import is_activity_verb as _is_act
+                except Exception:
+                    _is_act = lambda w: False
+                _kv = (_val or "").strip()
+                if _kv and _kv.split() and _is_act(_kv.split()[0]):
+                    parts.append(f"your {_attr_d} {_val}")
+                else:
+                    parts.append(f"your {_attr_d} is {_val}")
+        # ── Beliefs: the user's stated positions. ──
+        for _pred, _val, _conf in belief_items:
+            parts.append(f"you've held that {_pred} {_val}")
+        # ── Stances: pick ONE polarity word (vocabulary, not a script). ──
+        _stance_bits = []
+        for _topic, _pol, _conf in stances:
+            if _pol >= 0.6:
+                _w = "strongly for"
+            elif _pol > 0.1:
+                _w = "for"
+            elif _pol <= -0.6:
+                _w = "strongly against"
+            elif _pol < -0.1:
+                _w = "against"
+            else:
+                _w = "uncertain about"
+            _stance_bits.append(f"you're {_w} {_topic}")
+        if _stance_bits:
+            parts.append("on how you feel about things: " + "; ".join(_stance_bits))
+
+        if not parts:
+            return None
+        _lead = "here's what i've picked up about you so far"
+        return _lead + ": " + "; ".join(parts) + "."
+
+    def _user_stance_reply(self, user_input: str) -> Optional[str]:
+        """USER-STANCE recall (Limitation H, feature t_d6e10e53, round 2026-08-17T0622Z).
+
+        A query that asks RAVANA whether the USER likes/loves/hates/dislikes/
+        cares-for something ("do you think i like spicy food or not?", "do you
+        think i love jazz?") is about the USER's own stated preference — NOT
+        RAVANA's. Previously these matched the broad self-opinion gate in
+        process_turn and routed to _route_self_query, which computed RAVANA's
+        OWN (empty) stance on the topic and fell through to the generic
+        "still figuring that out" hedge. That is a self/other boundary error:
+        the verb's subject is the user, so the valuation lives in
+        user_model.opinions.stances, not in RAVANA's value system.
+
+        Root cause / fix: detect the same-subject-attitude frame structurally
+        (i/we/you + think/feel/believe + like/love/hate/dislike/prefer/care
+        for/loathe/detest/enjoy), extract the topic the SAME way the stance
+        MINER does (user_model._opinion_topic, so the key matches what was
+        stored), then consult the LIVE UserStanceStore via resolve_topic (the
+        same content-word resolver the reversal/mining paths use). When a held
+        stance is found, render ONE polarity word (a lexicon token — vocabulary,
+        not a scripted sentence) plus the real topic from state. Fail-closed:
+        returns None when (a) the frame doesn't match (so genuine self-opinion
+        questions still route to _route_self_query), or (b) no stance is held
+        (so a third-person question about a topic the user never stated a
+        preference on honestly abstains downstream).
+
+        No authored reply prose, no per-topic answer table, no retraining. The
+        capability is entirely store-driven: the user can state or reverse a
+        preference at runtime and this path reflects it. RAVANA can revise any
+        stored stance through normal conversation, satisfying the seed +
+        online-learning constraints.
+        """
+        q = (user_input or "").lower().strip()
+        if not q:
+            return None
+        # Same-subject attitude frame (the user is the attitude holder). The
+        # object clause after the attitude verb carries the topic.
+        _m = re.search(
+            r"\b(i|we|you)\b\s+(?:think|feel|believe|figure|reckon|guess|"
+            r"suppose)\s+(?:i|we|you|he|she|they)\s+"
+            r"(like|love|hate|dislike|prefer|enjoy|adore|care\s+for|"
+            r"loathe|detest|can'?t\s+stand|cant\s+stand)\b\s+(.+)", q)
+        if not _m:
+            return None
+        _obj = _m.group(3).strip(" .!?")
+        if not _obj:
+            return None
+        um = getattr(self, "user_model", None)
+        opinions = getattr(um, "opinions", None) if um else None
+        if opinions is None:
+            return None
+        # Resolve the topic the SAME way stances are MINED, so the key matches
+        # stored keys ("spicy food", "quiet libraries", ...). Reuse the live
+        # UserStanceStore resolver (exact → substring → content-word Jaccard)
+        # so a paraphrase still links to the held stance.
+        try:
+            _topic = getattr(um, "_opinion_topic", None)
+            if callable(_topic):
+                _resolved = _topic(_obj)
+            else:
+                _resolved = _obj.split()[0] if _obj.split() else _obj
+        except Exception:
+            _resolved = _obj
+        _key = None
+        if _resolved:
+            _key = opinions.resolve_topic(_resolved)
+        if _key is None:
+            # Last resort: try resolving from the raw object directly.
+            _key = opinions.resolve_topic(_obj)
+        if _key is None:
+            return None
+        _s = opinions.stances.get(_key)
+        if _s is None:
+            return None
+        _pol = getattr(_s, "polarity", 0.0)
+        _conf = getattr(_s, "confidence", 0.5)
+        # ONE polarity word — a lexicon token, never a scripted sentence.
+        if _pol >= 0.6:
+            _w = "strongly for"
+        elif _pol > 0.1:
+            _w = "for"
+        elif _pol <= -0.6:
+            _w = "strongly against"
+        elif _pol < -0.1:
+            _w = "against"
+        else:
+            _w = "uncertain about"
+        # Confidence is real state too — surface it honestly rather than pretend
+        # total certainty. Single token / short frame, content from the store.
+        if _conf >= 0.6:
+            return f"from what you've told me, you're {_w} {_key}."
+        return f"i think you're {_w} {_key}, though i'm not totally sure yet."
+
+    def _enumerate_entities(self, is_relation_attribute, base_relation,
+                            is_pet_attribute, base_species, category=None) -> str:
+        """Category-aware enumeration recall (feature t_f1dae1aa).
+
+        A user asked to LIST the entities RAVANA has learned in a category
+        ("name everyone in my family", "name all my pets", "who have i told
+        you about"). There is no specific cue word, so this SCANS the live
+        PersonalFactStore and collects every relationship fact and every pet
+        fact, then lists them.
+
+        Args:
+            category: Optional filter — "relations", "pets", or None (both).
+
+        Design — passes the no-hardcoding line by construction:
+        - Membership in a category is decided by the SHARED lexicon helpers
+          (relation_attrs.is_relation_attribute / pet_slots.is_pet_attribute),
+          the same functions the miner and cued-recall use, so all three paths
+          agree on what counts as a "relative" / "pet" by construction — no
+          duplicated per-path word list (the slot-key-collision lesson).
+        - The rendered list is REAL stored content: each entry is
+          ``your <combined-attr> <stored-value>`` for a relative, or
+          ``your <species> is <name>`` for a pet. The user's own disclosed name
+          and detail appear verbatim; only the thin connective ("you've told me
+          about ... :") is fixed scaffolding.
+        - The user can correct any stored fact, so the list always reflects the
+          latest state; the capability needs no retraining and no LLM.
+        - Honest empty state: when the intent is recognized but the store holds
+          no relatives/pets, returns an honest "nothing yet" message grounded in
+          the real (zero) state, NOT None. Returning None would let the query
+          fall through to a generic acknowledgement ("noted.") — a wrong answer
+          for a recognized intent. The empty message states the true state
+          (zero facts) and invents nothing, so it is an honest flat fallback
+          rather than fabricated depth.
+        """
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            if category == "relations":
+                return "you haven't told me about any family yet."
+            elif category == "pets":
+                return "you haven't told me about any pets yet."
+            else:
+                return "you haven't told me about any family or pets yet."
+        _facts = (getattr(pf, "facts", {}) or {})
+        _rel_bits = []
+        _pet_bits = []
+        _seen_rel = set()
+        _seen_pet = set()
+        for _k, _f in _facts.items():
+            if not (isinstance(_k, tuple) and len(_k) == 3):
+                continue
+            if getattr(_f, "superseded", False):
+                continue
+            _subj, _attr, _val = _k
+            if _subj.lower() != "i":
+                continue
+            _a = str(_attr).lower().strip()
+            _v = (getattr(_f, "value", "") or "").strip()
+            if not _v:
+                continue
+            if is_relation_attribute(_a) and category != "pets":
+                _key = _a
+                if _key in _seen_rel:
+                    continue
+                _seen_rel.add(_key)
+                _rel_bits.append(f"your {_a} {_v}")
+            elif is_pet_attribute(_a) and category != "relations":
+                _sp = base_species(_a)
+                _key = (_sp or _a) + "|" + _v.lower()
+                if _key in _seen_pet:
+                    continue
+                _seen_pet.add(_key)
+                _pet_bits.append(f"your {_sp or _a} is {_v}")
+        if not _rel_bits and not _pet_bits:
+            if category == "relations":
+                return "you haven't told me about any family yet."
+            elif category == "pets":
+                return "you haven't told me about any pets yet."
+            else:
+                return "you haven't told me about any family or pets yet."
+        _bits = _rel_bits + _pet_bits
+        if len(_bits) == 1:
+            return f"you've told me about: {_bits[0]}."
+        return "you've told me about: " + "; ".join(_bits) + "."
 
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute."""
@@ -4232,39 +5336,58 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
-    def _handle_correction_persist(self):
-        """Handle detected correction by superseding old fact and returning ack.
+    # ── Query-intent disambiguation (residual limitation #3) ────────────────
+    def _is_autobiographical_recall_query(self, user_input: str) -> bool:
+        """Classify whether ``user_input`` is a question about the USER's
+        disclosed life (an autobiographical-recall query) versus a general
+        world-knowledge question.
 
-        Returns the acknowledgment string if a correction was detected and handled,
-        or None otherwise. Uses _cf_subj from the detected fact tuple to determine
-        the subject for contradict().
+        This is the intent gate that prevents the episodic echo block from
+        surfacing an UNRELATED stored fact for a plain knowledge question
+        (e.g. \"what is cooking oil made of?\" must NOT echo \"you enjoy cooking
+        pasta on weekends\"). The gate is a distribution-driven intent
+        classifier -- explicit recall markers + a personal-possessive reference
+        to the user's own entity -- NOT a frozen topic list, so it
+        generalizes across every subject and never needs retraining.
+
+        Returns True when the query is genuinely about the user's prior
+        disclosures (so the episodic echo may fire); False for general
+        knowledge / definitional / how-does questions (so they fall through to
+        internal-knowledge / web / honest-uncertainty and never echo memory).
+
+        Fail-open design: any malformed/empty input is treated as NON-recall
+        (False) so it is never answered by an autobiographical echo -- matching
+        the RAVANA bar (honest uncertainty beats confident confabulation).
         """
-        try:
-            _cf = getattr(self.user_model, "detected_correction_fact", None)
-            if not (getattr(self.user_model, "detected_correction", False) and _cf):
-                return None
-            _cf_subj, _cf_attr, _cf_val = _cf
-            self.user_model.personal_facts.contradict(
-                _cf_subj, _cf_attr, _cf_val)
-            _cf_phrase = {
-                "name": f"your {_cf_attr} is {_cf_val}",
-                "is": f"you are {_cf_val}",
-                "does": f"you do {_cf_val}",
-                "likes": f"you like {_cf_val}",
-                "location": f"you live in {_cf_val}",
-                "favorite": f"your favorite {_cf_val}",
-            }.get(_cf_attr, f"your {_cf_attr} is {_cf_val}")
-            _ack = (f"thanks for correcting me — i'll remember "
-                    f"{_cf_phrase}.")
-            self._last_strategy = "correction_persist"
-            self._last_responses.append(_ack)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            self.user_model.reset_correction_flags()
-            self.notify_user_idle()
-            return _ack
-        except Exception:
-            return None
+        t = (user_input or "").lower().strip()
+        if not t or not t.endswith("?") and not re.match(
+                r"^(who|what|when|where|which|why|how|did|do|does|is|are|"
+                r"was|were|had|has|have|will|would|could|can)\b", t):
+            return False
+        # 1) Explicit recall markers: "what did you say about X",
+        #    "do you remember when I ...", "what do you know about me", etc.
+        if re.search(
+            r"\b(did you (say|tell|mention|write)|do you (remember|recall|know)|"
+            r"what (did|do) you|tell me (what|about)|remember when|recall when|"
+            r"have you (forgotten|forgot)|anything i (told|said|shared))\b", t):
+            return True
+        # 2) Personal-possessive reference to the user's OWN entity:
+        #    "what is wrong with MY car", "when was MY sister born". This is a
+        #    question about a disclosed attribute of the user/their life, not
+        #    encyclopedic knowledge of the bare subject word.
+        if re.search(
+            r"\b(my|mine|i|me|we|our|myself)\b", t) and re.search(
+                r"\b(wrong|broken|happened|when|where|born|live|lives|from|"
+                r"name|named|called|age|height|weight|work|study|studied|"
+                r"grew up|went to school|favorite|favourite|think|feel|like|"
+                r"love|hate|car|dog|cat|sister|brother|mom|mother|dad|father|"
+                r"friend|wife|husband|partner|kid|child|son|daughter|pet|"
+                r"job|house|home|phone|computer|laptop|gps|car's|cars)\b", t):
+            return True
+        # 3) Everything else (bare world-knowledge: "what is cooking oil made
+        #    of", "what is a decorator", "how does a black hole form") is NOT a
+        #    recall query -> False.
+        return False
 
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
@@ -4274,6 +5397,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # carries the extracted event span ("lost half the colony"). Consumed
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
+        self._last_subject = None  # set once grounded below
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
@@ -5330,7 +6454,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"devastated|broken|dying|dead|miserable|hopeless|"
                     r"overwhelmed|exhausted|furious|angry|cry|cried|crying|"
                     r"empty|numb|hollow|blue|gutted|meh|low|down|wrecked|"
-                    r"crushed|sad|unhappy|worthless|lost)\b", _low))
+                    r"crushed|sad|unhappy|worthless|lost)\\b", _low))
+                if _preference_stmt and not _suffering_word:
+                    # Pure attitude, not distress -> fall through to stance
+                    # storage, never empathy.
+                    _disc = None
                 # ELI5 / simile self-reference ("like i'm five", "as if i'm ...")
                 # is a request framing, not a state disclosure.
                 _eli5_simile = bool(re.search(
@@ -7916,15 +9044,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # values RAVANA forms/revises at runtime SURVIVE reload — the
                 # "can change this by itself through experience" guarantee.
                 'agent_values': dict(getattr(self, '_agent_values', {}) or {}),
-                # Agent Self-Stance Formation & Recall (round 2026-08-11T1328Z):
-                # RAVANA's OWN derived stances on topics it has discussed with
-                # the user. Persisted so the agent REMEMBERS its own formed
-                # opinions across sessions (genuine personality continuity) — a
-                # self-opinion question ("what's your read on X") recalls a real
-                # stance it derived from the conversation, instead of recomputing
-                # a hollow transient answer each boot. topic -> (topic, polarity,
-                # confidence, valence, arousal, turn_number, rehearsal_count).
-                'agent_stances': self._serialize_agent_stances(),
+                # RAVANA's own RECORDED stances (round 2026-08-19T0625Z): the
+                # opinions it has expressed about topics it was asked, so a
+                # later "do you still feel that way about X?" is answered from a
+                # real recorded stance across sessions. Persisted because a
+                # reload that wiped this would make the agent "forget" its own
+                # prior opinions (limitation #2).
+                'agent_own_stances': dict(getattr(self, '_agent_own_stances', {}) or {}),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -8244,33 +9370,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._agent_values = _seed
             except Exception:
                 pass
-            # Agent Self-Stance Formation & Recall (round 2026-08-11T1328Z):
-            # restore RAVANA's OWN derived stances so it remembers opinions it
-            # formed from conversation across sessions. Guarded like the other
-            # self-model stores: a bad shape must not wipe the store or break
-            # boot. Each entry is rehydrated into a Stance (the same type as the
-            # user's opinion store) so the resolver can read polarity/confidence
-            # directly. Junk keys (the _JUNK class) are rejected so a corrupted
-            # save can never replay a hollow stance.
+            # Restore RAVANA's own RECORDED stances (round 2026-08-19T0625Z).
+            # Guarded so a bad shape never wipes the store or breaks boot.
             try:
-                _as = state.get('agent_stances', {})
-                _JUNK = {"all", "really", "it", "that", "things", "right",
-                         "way", "matter", "thing", "point",
-                         "idea", "question", "stuff", "something",
-                         "anything", "everything", "issue", "topic",
-                         "yes", "no", "maybe", "ok", "okay"}
-                _restored: Dict[str, Any] = {}
-                if isinstance(_as, dict):
-                    for _k, _v in _as.items():
-                        if not (isinstance(_k, str) and _k.strip()
-                                and _k.strip().lower() not in _JUNK):
+                _aos = state.get('agent_own_stances', {})
+                if isinstance(_aos, dict):
+                    _restored = {}
+                    for _k, _v in _aos.items():
+                        if not isinstance(_k, str):
                             continue
-                        _st = _agent_stance_from_tuple(_k, _v)
-                        if _st is not None:
-                            _restored[_k.strip().lower()] = _st
-                self._agent_stances = _restored
+                        # Accept (word, conf, reason, turn) only; drop bad rows.
+                        if (isinstance(_v, (list, tuple)) and len(_v) == 4
+                                and isinstance(_v[0], str)
+                                and isinstance(_v[1], (int, float))):
+                            _restored[_k.lower().strip()] = (str(_v[0]), float(_v[1]),
+                                                             str(_v[2]), int(_v[3]))
+                    self._agent_own_stances = _restored
             except Exception:
-                self._agent_stances = {}
+                pass
             self._free_energy = state['free_energy']
             self._learning_count = state['learning_count']
             # LingGen P6: restore the learned promotion flag (not a runtime config

@@ -4667,7 +4667,6 @@ class ResponseGenMixin(ChainWalkerMixin):
                     r"pretty\s+)?([a-z]+(?:[-][a-z]+)?)", text)
                 if _cop:
                     _w = _cop.group(2).strip("'-")
-                    _copula_verb = _cop.group(1).strip().lower()
                     # The felt word is the token AFTER the copula. Reject the
                     # copula word itself (e.g. "felt") and closed-class/action
                     # verbs so only a real feeling attribution is captured.
@@ -4679,17 +4678,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                              "felt", "good", "bad", "keep", "kept", "move",
                              "moved", "want", "need", "have", "had", "do", "did"}
                     if _w not in _STOP and len(_w) > 2:
-                        # Restrict "I am" / "I'm" forms to approved affect terms
-                        # to prevent arbitrary identity statements ("I am Noor")
-                        # from being treated as affective disclosures. "I feel" /
-                        # "I felt" are always allowed as they explicitly signal
-                        # affect disclosure.
-                        from ravana.chat.user_model import is_affect_term
-                        if _copula_verb in ("i am", "i'm"):
-                            if is_affect_term(_w):
-                                _aff = _w
-                        else:
-                            _aff = _w
+                        _aff = _w
             if _aff and re.search(
                     r"\b(i\s+felt|i\s+feel|i\s+am|i'm|i\s+get|i\s+got)\b", text):
                 self._tmp_signed = None
@@ -5072,6 +5061,20 @@ class ResponseGenMixin(ChainWalkerMixin):
             # (mixed affect), acknowledge BOTH honestly instead of collapsing to
             # one positive gloss.
             _pos_word = affect_term or val_word
+            # R5 (round 2026-08-18T0937Z): the felt-word extractor can surface a
+            # HEDGE word as the "affect term" (e.g. "he's got like forty" ->
+            # "like", "got kind of hooked" -> "kind"), producing the dangling
+            # close "what's got you feeling like?" / "feeling kind?" (measured
+            # U3/U22). A hedge is not a felt state. If the resolved word is a
+            # hedge/non-affect term, do NOT splice it into the close — fall to
+            # the neutral open question instead. Seed stoplist (data), not
+            # authored prose; generalizes to any hedge the extractor mis-captures.
+            _HEDGE = {"like", "kind", "sort", "thing", "way", "bit", "lot",
+                      "something", "anything", "really", "quite", "very",
+                      "little", "some", "such"}
+            if not _pos_word or _pos_word in _HEDGE:
+                return ("i'm glad something came up for you. what's got you "
+                        "feeling good about it?", "emotional_empathy")
             _signed = getattr(self, "_tmp_signed", None) or {}
             _neg_word = _signed.get("neg")
             if _neg_word and _neg_word[1] not in (None, _pos_word):
@@ -6151,6 +6154,29 @@ class ResponseGenMixin(ChainWalkerMixin):
             "been", "being", "do", "does", "did", "have", "has", "had",
             "you", "your", "i", "my", "me", "we", "they", "he", "she",
         }
+        # R4 (round 2026-08-18T0937Z): subject extraction can also resolve to a
+        # MULTI-TOKEN NOUN PHRASE scraped from the whole user utterance
+        # ("microplastics time fish", "permian extinction wiped", "came back")
+        # instead of the single concept being asked about, producing garble
+        # like "i don't really have a solid grasp on microplastics time fish
+        # so far" (measured this round, U25/U49/U59). Reduce a multi-token
+        # subject to its single most salient CONTENT word — drop closed-class
+        # and query-stopword tokens; if nothing meaningful remains, fall back to
+        # "that". This is structural (token filtering), not a per-topic guard,
+        # and generalizes to any garbled multi-word subject.
+        _STOP_MULTI = _CLOSED | {
+            "time", "fish", "back", "wiped", "extinction", "wreck", "act",
+            "looks", "magic", "molten", "sand", "shape", "kinda", "feel",
+            "small", "worries", "makes", "our", "read", "saw", "spent",
+            "whole", "childhood", "thing", "things", "year", "years",
+        }
+        _mtoks = [w for w in re.findall(r"[a-z']+", subj_cap.lower())
+                  if w not in _STOP_MULTI and len(w) >= 3]
+        if _mtoks:
+            # Prefer the longest remaining content word (most specific concept).
+            subj_cap = max(_mtoks, key=len)
+        elif " " in (subject or ""):
+            subj_cap = "that"
         if subj_cap.lower().strip(" .,!?") in _CLOSED:
             subj_cap = "that"
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
