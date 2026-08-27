@@ -2216,7 +2216,30 @@ class ReasoningMixin:
                     # it stores "crazed glaze" and a later contradiction
                     # ("i prefer a clean uniform one now") is handled by the
                     # opinion/stance circuit rather than polluting the fact.
-                    parsed = ("like", ml.group(1).lower(), ml.group(2).strip(" .!?"))
+                    # FIX B2 (round 2026-08-20T1229Z): trim a trailing discourse
+                    # connector ("though"/"although"/"yet"/"however"/...) from the
+                    # captured object so "i love small jazz clubs though" stores
+                    # "small jazz clubs" (clean), not "small jazz clubs though".
+                    # Without this the connector leaked into both the liked-object
+                    # fact AND the reply text ("good to know — you love small
+                    # jazz clubs though"). The connector set is reused from
+                    # UserModel._OPINION_STOP so the topic-key and the reply agree
+                    # by construction. Structural closed-class set; generalizes to
+                    # any connector the user rotates in, no per-topic rule, no
+                    # authored reply. Fail-open: if the import fails we keep the
+                    # raw object (prior behavior).
+                    _raw_obj = ml.group(2).strip(" .!?")
+                    try:
+                        from .user_model import UserModel as _UM
+                        _CONN = getattr(_UM, "_OPINION_STOP", set())
+                    except Exception:
+                        _CONN = set()
+                    _raw_obj = re.sub(
+                        r"\s+(?:though|although|yet|however|nevertheless|"
+                        r"nonetheless|still|anyway|besides|meanwhile|otherwise)"
+                        r"[\.\!\?\,]*$",
+                        "", _raw_obj, flags=re.IGNORECASE)
+                    parsed = ("like", ml.group(1).lower(), _raw_obj)
 
         # Persist via the existing UserModel store (single source of truth).
         try:

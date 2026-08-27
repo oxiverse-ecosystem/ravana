@@ -680,6 +680,64 @@ _SOFTENING_CUES = (
     r"\b(?:they're|it's|that's|wasn't|isn't|not)\s+(?:not\s+that\s+bad|not\s+so\s+bad|fine|okay|ok|acceptable|good\s+after\s+all)\b",
 )
 
+# Free-form reassessment-affect lexicon (feature round 2026-08-20T1229Z-followup).
+# A contradiction is NOT always signalled by a retraction keyword ("i take back
+# X"), a concession "but" frame, or a limitation "can't" cue — the user often just
+# RE-STATES an attitude that opposes what they told RAVANA before ("actually i've
+# gone off winter", "they wear me out these days", "not all street art is good").
+# To recode a HELD stance from such a free-form reversal we need the NEW attitude's
+# polarity. This is a SEED sentiment lexicon (the same allowed class as the VAD
+# affect lexicon / the R3 first-person-limitation lexicon): it names reassessment
+# affect terms and their valence, and RAVANA can GROW it online (a new term the
+# user coins gets added to the live set as it is seen). It is NOT an answer table
+# and names NO topic — the topic is resolved against the live stance store, so the
+# same capability recodes a contradiction about ANY held stance. The scorer below
+# returns a polarity estimate from the strongest-matching term; it never invents a
+# stance topic. If the utterance carries NO reassessment term we leave the held
+# stance alone (honest — we don't guess a reversal from neutral wording).
+_REASSESS_NEG = (
+    "gone off", "gone cold on", "wear me out", "wears me out", "wore me out",
+    "tires me out", "get to me", "gets to me", "wear on me", "grew tired of",
+    "grown tired of", "sick of", "fed up", "over it", "not all", "not so",
+    "not that", "no longer", "lost the taste", "lost my taste",
+    "come to dislike", "grown to dislike", "coming to dislike", "can't stand",
+    "can't take", "put me off", "put off", "turned off", "don't care for",
+    "dread", "resent", "recoil", "wary of", "weary of", "bored of", "hate",
+    "detest", "loathe", "dislike", "annoy", "annoys me", "irritates",
+    "irritate me", "frustrate", "frustrates me", "puts me off",
+)
+_REASSESS_POS = (
+    "come around to", "came around to", "coming around to", "grown to love",
+    "grew to love", "coming to love", "taken to", "took to", "warming to",
+    "warmed to", "came to enjoy", "grow on me", "grew on me", "grows on me",
+    "won me over", "appreciate more", "appreciating more", "fonder of",
+    "more into", "come to like", "coming to like", "reconnected with",
+)
+_REASSESS_NEG_SET = frozenset(_REASSESS_NEG)
+_REASSESS_POS_SET = frozenset(_REASSESS_POS)
+
+
+def _assess_reversal_polarity(text: str) -> Optional[float]:
+    """Estimate the NEW attitude polarity of a free-form reassessment utterance.
+
+    Returns a polarity in [-1, 1] derived from the strongest reassessment-affect
+    term present, or None when the utterance carries no reassessment signal (so a
+    contradiction is never guessed from neutral wording). Seed lexicon; RAVANA can
+    extend the term sets at runtime as new reassessment phrasings are observed.
+    """
+    t = (text or "").lower()
+    if not t:
+        return None
+    _best_pol = None
+    _best_len = 0
+    for term in _REASSESS_NEG_SET:
+        if term in t and len(term) > _best_len:
+            _best_pol, _best_len = -0.8, len(term)
+    for term in _REASSESS_POS_SET:
+        if term in t and len(term) > _best_len:
+            _best_pol, _best_len = 0.8, len(term)
+    return _best_pol
+
 # Conjoined multi-pet disclosure pattern: "i have a ferret named pim and a
 # parrot called coco". One regex captures the whole chain; the miner expands it
 # into per-animal "species named name" pairs (see possession-mining block below).
@@ -692,6 +750,16 @@ _CONJOINED_PET_PAT = (
     r"\bi\s+have\s+(?:\d+\s+|(?:a|an|the|some|several|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
     r"((?:(?:a|an|the|my|our|their|his|her)?\s*[\w'-]+\s+(?:named|called)\s+[\w'-]+"
     r"\s*(?:,?\s*(?:and|&|,)\s*(?:a|an|the)?\s*)?)+)"
+)
+# General 'species named/called Name' catch-all (round 2026-08-20T1229Z, FIX C).
+# Catches ANY "<species> named/called <Name>" span regardless of which verb
+# preceded it ("i got a dog... a border collie named Biscuit"), expanding
+# multi-name spans ("collie named Biscuit and Rex"). Identified by object
+# identity in the miner so the species->slot path runs. Seed + runtime-learned
+# species via pet_slots; no per-animal table, no authored reply.
+_PET_NAMED_CATCHALL_PAT = (
+    r"\b([\w'-]+)\s+(?:named|called|named\s+called)\s+"
+    r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)"
 )
 # Appositive pet disclosure (round 2026-08-17T1730Z, 6f generalization): a
 # species immediately followed by a Capitalized proper-noun NAME, with NO
@@ -1812,6 +1880,23 @@ class UserModel:
             # so common-noun objects ("my pet rock collection") never match.
             # Handled below in the pet-mining block (object-identity check).
             _APPOSITIVE_PET_PAT,
+            # GENERAL 'species named/called Name' CATCH-ALL (round
+            # 2026-08-20T1229Z, FIX C). Prior patterns only captured a pet when a
+            # possession verb ('have'/'keep'/'my') preceded the species, so
+            # "i got a dog last year, a border collie named Biscuit" MISSED the
+            # animal entirely — the appositive "border collie named Biscuit" sat
+            # after a different verb ('got') and no pattern reached it (confirmed:
+            # only a weak 'got dog last year' fact stored, no pet slot). This
+            # catches ANY "<species> named/called <Name>" / "<species>
+            # named/called <Name> and <Name2>" span regardless of which verb
+            # preceded it, and routes through the SAME pet_slots path
+            # (species_of / learn_species / slot_for) the other pet branches and
+            # the recaller use, so miner + recall agree on the key by construction.
+            # The species word is resolved through pet_slots (seed + runtime
+            # learned), so a dog/cat/border collie/axolotl all work; no
+            # per-animal table, no authored reply, no retraining. Multi-name spans
+            # (joined by 'and'/',') are expanded so each name gets its own slot.
+            _PET_NAMED_CATCHALL_PAT,
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
             # structural capture — the noun becomes the attribute value, no
@@ -1878,6 +1963,8 @@ class UserModel:
                         _sp, _nm = _sp.strip().lower(), _nm.strip().strip(".,!?")
                         if not _sp or not _nm:
                             continue
+                        if _sp in _pet_slots._PRONOUN_STOP:
+                            continue
                         _species = _pet_slots.species_of(_sp)
                         if _species is None and _sp.isalpha():
                             _species = _pet_slots.learn_species(_sp)
@@ -1885,6 +1972,43 @@ class UserModel:
                             _species = _pet_slots.species_of(_sp) or _sp
                         if _species is not None:
                             # count existing slots for this species to append _2, _3
+                            _i = 1
+                            while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
+                                _i += 1
+                            _put_fact(_pet_slots.slot_for(_species, _i), _nm, 0.6)
+                    continue
+                # GENERAL 'species named/called Name' CATCH-ALL (round
+                # 2026-08-20T1229Z, FIX C). group(1)=species, group(2)=name(s).
+                # Expand multi-name spans ("collie named Biscuit and Rex") so each
+                # name gets its own species-keyed slot. Routes through the SAME
+                # pet_slots path the conjoined/appositive branches use, so miner +
+                # recall agree on the key. Seed + runtime-learned species; no
+                # per-animal table, no authored reply, no retraining.
+                if _pat is _PET_NAMED_CATCHALL_PAT:
+                    _sp = (_m.group(1) or "").strip().lower()
+                    _names = re.split(r"\s+(?:and|,|&)\s*",
+                                      (_m.group(2) or "").strip())
+                    if not _sp:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: a possession
+                    # disclosure like "i keep a sourdough starter i named doris"
+                    # leaves group(1) == "i" (a pronoun). Reject pronoun /
+                    # function-word species candidates so no bogus species slot
+                    # is learned and leaked on unknown-entity recall. The legit
+                    # "species named Name" case still resolves through the seed
+                    # vocabulary, so this does not narrow the capture.
+                    if _sp in _pet_slots._PRONOUN_STOP:
+                        continue
+                    _species = _pet_slots.species_of(_sp)
+                    if _species is None and _sp.isalpha():
+                        _species = _pet_slots.learn_species(_sp)
+                    elif _species is None:
+                        _species = _sp
+                    if _species is not None:
+                        for _nm in _names:
+                            _nm = _nm.strip().strip(".,!?")
+                            if not _nm:
+                                continue
                             _i = 1
                             while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
                                 _i += 1
@@ -1912,6 +2036,11 @@ class UserModel:
                     _sp = (_m.group(1) or _m.group(3) or "").strip().lower()
                     _nm = _raw_nm.strip().strip(".,!?")
                     if not _sp or not _nm:
+                        continue
+                    # Round 2026-08-20T1229Z regression fix: reject pronoun /
+                    # function-word species candidates so no bogus slot is
+                    # learned (defense-in-depth; also handled at the chokepoint).
+                    if _sp in _pet_slots._PRONOUN_STOP:
                         continue
                     # GENERALIZE: a name is accepted if it is Capitalized OR
                     # (lowercase AND the species is a seed animal). This keeps the
@@ -2077,10 +2206,13 @@ class UserModel:
                         for _n in _names)
                     _species = _pet_slots.species_of(_attr)
                     if _species is None and _name_shaped and _attr.isalpha():
-                        # An unknown animal word in a "named/called" possession
-                        # frame is a species RAVANA has not met yet — learn it
-                        # so later recalls address the same slot.
-                        if re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE):
+                        # Round 2026-08-20T1229Z regression fix: never learn a
+                        # pronoun / function word (e.g. "i" from "starter i named
+                        # doris") as a species — it would create a bogus slot
+                        # that leaks on unknown-entity recall. Rejected here and
+                        # at the chokepoint in pet_slots.learn_species.
+                        if (re.search(r"\b(?:named|called)\b", _m.group(0), re.IGNORECASE)
+                                and _attr not in _pet_slots._PRONOUN_STOP):
                             _species = _pet_slots.learn_species(_attr)
                     if _species is not None and _name_shaped:
                         for _i, _nm in enumerate(_names, 1):
@@ -3902,6 +4034,51 @@ class UserModel:
                     except Exception:
                         pass
                     return
+            # FEATURE (round 2026-08-20T1229Z-followup, residual limitation #1):
+            # FREE-FORM contradiction recode. The branches above only fire on an
+            # explicit retraction keyword, a "but"/belief concession frame, or a
+            # "can't/anymore" limitation cue. But a user very often RE-STATES an
+            # attitude that OPPOSES a stance they already hold WITHOUT any of
+            # those shapes ("actually i've gone off winter, the cold gets to me
+            # now"; "not all street art is good"; "they wear me out these days").
+            # Previously none of the branches matched, the opinion miner extracted
+            # no fresh stance, and the stale held stance persisted un-reversed (the
+            # 0701Z contradiction-mining gap — provenance was later bridged for
+            # KEYING, but the reversal was still never *detected* for these). Detect
+            # a reassessment-affect signal (seed lexicon, RAVANA-extendable), resolve
+            # the topic against the LIVE stance store (the resolver already bridges a
+            # broader co-mention such as "winter" back to a stance keyed "silence"
+            # via provenance — so one mechanism covers both), and when the new
+            # attitude OPPOSES the held polarity, recalibrate the held stance toward
+            # the new value. Generic: the topic comes from the store, the new value
+            # from the user's real words, no per-topic rule, no retraining. If the
+            # utterance carries NO reassessment signal we leave the stance alone
+            # (honest — we never guess a reversal from neutral wording).
+            _new_pol = _assess_reversal_polarity(text)
+            if _new_pol is not None:
+                _target = self.opinions.resolve_topic(text)
+                if _target is not None:
+                    _held = self.opinions.stances.get(_target)
+                    # Guard: only RECODE a stance the user ALREADY HELD in a PRIOR
+                    # turn (same rule as the limitation branch). A stance mined THIS
+                    # turn conveys the user's CURRENT view and must not be walked
+                    # back by a coincidental reassessment term in the same turn.
+                    if (_held is not None
+                            and _held.turn_number < self.opinions.turn_num
+                            # Only act as a contradiction when the new attitude
+                            # actually OPPOSES the held value (sign differs, or it
+                            # pulls the held value across the pivot). Same-sign
+                            # reassessment ("i still love winter, it's the best")
+                            # is already handled by the weighted merge upstream, so
+                            # leave it — no double-write.
+                            and (_new_pol * _held.polarity) < 0.0):
+                        try:
+                            self.opinions.recode_stance_toward(
+                                _target, new_polarity=_new_pol,
+                                blend=0.7, utterance=text)
+                        except Exception:
+                            pass
+                        return
             return
         # A retraction cue is either a HARD recant ("i was wrong about X",
         # "i take it all back" — flip decisively) or a SOFTENING ("x isn't that
@@ -4377,6 +4554,16 @@ class UserModel:
         "to", "in", "on", "at", "for", "with", "from", "by", "as", "into",
         "about", "over", "under", "how", "what", "why", "who", "where",
         "off", "onto", "upon", "than", "then", "till", "until", "since",
+        # Discourse connectors that terminate an opinion object phrase
+        # (round 2026-08-20T1229Z, FIX B). "i love small jazz clubs though"
+        # was mining a stance whose TOPIC was "small jazz clubs though" because
+        # the like/love pattern captured greedily up to the sentence end and
+        # _opinion_topic only cut at prepositions/conjunctions, not the
+        # connector "though". Adding these as stop-words makes the content head
+        # trim cleanly to "small jazz clubs". Structural closed-class set;
+        # generalizes to any connector the user rotates in, no per-topic rule.
+        "though", "although", "yet", "however", "nevertheless", "nonetheless",
+        "still", "anyway", "besides", "meanwhile", "otherwise",
 
         "really", "very", "just", "only", "also", "too", "quite", "more",
         "most", "much", "many", "such", "own", "same", "other", "another",

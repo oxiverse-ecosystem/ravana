@@ -154,6 +154,19 @@ _VAD_SEED: Dict[str, Tuple[float, float, float]] = {
     "laugh":       (0.75, 0.75, 0.45),
     "laughter":    (0.75, 0.75, 0.45),
     "smile":       (0.65, 0.45, 0.40),
+    # ── genuine affect words previously missing from the seed lexicon ──
+    # (round 2026-08-20T1229Z, FIX A2). These are real felt-states a user
+    # rotates in; without them the detector could not score them and the
+    # disclosure either fell through to a hollow ack or (for "creepy"/"wary")
+    # was mis-scored. Seed vocabulary, RAVANA-expandable via the same
+    # Hebbian/online path; no retraining.
+    "creepy":     (-0.55, 0.45, -0.35),
+    "creeps":     (-0.55, 0.45, -0.35),
+    "wary":       (-0.25, 0.35, -0.30),
+    "numb":       (-0.35, 0.25, -0.20),
+    "scary":      (-0.70, 0.80, -0.45),
+    "terrified":  (-0.90, 0.95, -0.55),
+    "terrifying": (-0.85, 0.90, -0.50),
     # ── negative social / relational states ──
     "betrayed":    (-0.75, 0.65, -0.55),
     "abandoned":   (-0.75, 0.45, -0.60),

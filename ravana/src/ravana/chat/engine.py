@@ -60,16 +60,29 @@ def _extract_user_affect_word(text: str) -> str:
         from .user_model import is_affect_term
     except Exception:
         is_affect_term = lambda w: False
+    # Hedge words that must NOT be returned as a felt-state (round
+    # 2026-08-20T1229Z, FIX A). "kind" is accidentally in the VAD seed lexicon
+    # (+0.55), so the affect-term scan matched "kind" in "i'm kind of wary" and
+    # the copula regex below grabbed it as the felt word -> RAVANA answered
+    # "i'm glad you feel good" to a user expressing wariness. A hedge is a
+    # dampener, never a feeling; reject it so the REAL felt word (the token
+    # AFTER the hedge) is what gets named. Structural stop-set (seed, not an
+    # answer table); generalizes to any hedged disclosure.
+    _HEDGE = {"kind", "sort", "pretty", "fairly", "rather", "quite",
+               "somewhat", "slightly", "bit", "little", "really", "very",
+               "so", "a", "little", "some", "such"}
+    def _is_real_affect(w: str) -> bool:
+        return bool(w) and w not in _HEDGE and is_affect_term(w)
     _m = re.search(
         r"\b(i\s*(?:feel|feeling|felt|am|'m|get|got|was|were|been)\s+"
         r"(?:so|really|very|quite|a\s+little\s+|kind\s+of\s+|pretty\s+)?)"
         r"([a-z]+(?:[-][a-z]+)?)", (text or "").lower())
     if _m:
         _w = _m.group(2).strip("'-")
-        if is_affect_term(_w):
+        if _is_real_affect(_w):
             return _w
     for _tok in re.findall(r"[a-z]+(?:[-][a-z]+)?", (text or "").lower()):
-        if is_affect_term(_tok):
+        if _is_real_affect(_tok):
             return _tok
     return ""
 
@@ -2453,7 +2466,66 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
-    # ── Shared reverse-name resolver helper (round 2026-08-17T1126Z, D-B) ──
+    def mine_user_belief(self, user_input: str) -> None:
+        """Capture a first-person CONVICTION statement into the user-belief store.
+
+        Round 2026-08-20T1229Z, FIX D (root cause): the only belief-store write
+        lived INSIDE `_handle_assertion`, but conviction statements ("i really
+        believe urban rooftop gardens are the future", "i think we should protect
+        mangrove forests") are routed to the reasoning pipeline (which returns the
+        hollow "noted." ack) and never reach that handler — so `n_beliefs` stayed
+        0 across the whole 75-turn round. The user's explicit beliefs were
+        therefore invisible to the "what do i believe about X" recall path.
+
+        Fix: detect a first-person conviction frame and write the proposition to
+        `self.belief_store` under the SAME key shape the recall path already
+        expects (`("user", "told:<turn>")`, matched on belief TEXT). Structural
+        detection: a small set of conviction cue phrases + first-person check +
+        question-rejection; generalizes to any topic the user rotates in, RAVANA
+        can revise the belief by talking (the store merges on re-assertion), no
+        per-topic table, no authored reply, no retraining. Fail-open: any
+        exception is swallowed so this never blocks the main reply.
+        """
+        try:
+            from .belief_store import BeliefStore  # ensure importable
+        except Exception:
+            BeliefStore = None
+        if not hasattr(self, "belief_store") or self.belief_store is None:
+            return
+        _t = (user_input or "").strip()
+        if not _t or _t.endswith("?"):
+            return
+        _tl = _t.lower()
+        if not re.match(r"^(i|i'm|i am|we|we're|we are)\b", _tl):
+            return
+        # Conviction cue phrases -> capture the proposition that follows.
+        _CUES = (
+            r"\bi\s+(?:really\s+)?believe\s+(?:that\s+)?(.+)$",
+            r"\bi\s+think\s+(?:that\s+)?(.+)$",
+            r"\bi\s+(?:am|'m)\s+convinced\s+(?:that\s+)?(.+)$",
+            r"\bi\s+hold\s+(?:that\s+)?(.+)$",
+            r"\bi\s+(?:firmly\s+)?feel\s+(?:that\s+)?(.+)$",
+            r"\bwe\s+should\s+(.+)$",
+            r"\bwe\s+must\s+(.+)$",
+            r"\bwe\s+need\s+to\s+(.+)$",
+        )
+        _prop = None
+        for _c in _CUES:
+            _m = re.search(_c, _tl, re.IGNORECASE | re.DOTALL)
+            if _m:
+                _prop = _m.group(1).strip().strip(".,!?;:")
+                break
+        if not _prop or len(_prop) < 3:
+            return
+        # Key by a monotonic index so two convictions in the same turn_count
+        # don't collide and overwrite each other (turn_count only advances once
+        # per process_turn, but a single turn can assert several beliefs, and a
+        # later recall matches on BELIEF TEXT not key, so the key only needs to
+        # be unique). The recall path queries by matching the stored proposition.
+        _idx = len(self.belief_store.beliefs)
+        self.belief_store.assert_belief(
+            "user", f"told:{_idx}", _prop, confidence=0.8)
+
     # TYPE-AGNOSTIC "who is X to me" resolution. A query names an entity by NAME;
     # the relationship label is reverse-derived from the fact store, whatever the
     # fact's shape (combined-attr, attr=relation+value=name, or attr='does' with
@@ -3168,7 +3240,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _at and _at[-1] == _qr_name:
                             _matched = True
                         elif _qr_name in _val.lower().split():
-                            _matched = True
+                            # A bare pet-slot fact (species-keyed attr, value ==
+                            # name) is the WEAK generic pet render ("your cat is
+                            # mochi"). When a richer 'does' fact ALSO names this
+                            # entity with an explicit noun phrase ("keep pet
+                            # parrot named mango"), defer to the type-agnostic
+                            # reverse-name resolver below (D-B, round
+                            # 2026-08-17T1126Z) which recovers that fuller
+                            # phrase ("your pet parrot.") instead of answering
+                            # here with the bare canonical species. Simple pet
+                            # facts with no competing 'does' entry (e.g. "my cat
+                            # Mochi sleeps...") are unaffected and still match.
+                            if _or_is_pet(_attr) and any(
+                                    _dk[0] == "i" and _dk[1].lower() == "does"
+                                    and not getattr(_df, "superseded", False)
+                                    and _qr_name in (getattr(_df, "value", "") or "").lower().split()
+                                    for _dk, _df in pf.facts.items()
+                                    if isinstance(_dk, tuple) and len(_dk) == 3):
+                                pass
+                            else:
+                                _matched = True
                     # (c) pet match.
                     if not _matched and _qr_pet is not None and _or_is_pet(_attr):
                         if _or_base_sp(_attr) == _qr_pet:
@@ -5855,6 +5946,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # and dedupes, so this is idempotent with the per-branch calls.
         try:
             self._ingest_episodic(user_input)
+        except Exception:
+            pass
+        # FIX D (round 2026-08-20T1229Z): capture first-person conviction
+        # statements ("i believe/think X", "we should protect X") into the
+        # user-belief store. The unconditional episodic ingest above only writes
+        # the hippocampal buffer; the belief store (recalled by the
+        # "what do i believe about X" path) was never populated for these
+        # statements because they route to the reasoning pipeline, not
+        # _handle_assertion. This runs unconditionally so the belief is stored
+        # regardless of which downstream branch forms the reply. Fail-open.
+        try:
+            self.mine_user_belief(user_input)
         except Exception:
             pass
 

@@ -474,6 +474,48 @@ class UserStanceStore:
         self.last_reversal = (existing.topic, old_polarity, existing.polarity)
         return existing
 
+    def recode_stance_toward(self, topic: str, new_polarity: float,
+                             blend: float = 0.7,
+                             utterance: Optional[str] = None) -> Optional[Stance]:
+        """Recalibrate a HELD stance toward a NEW expressed value (contradiction update).
+
+        Unlike ``reverse_stance`` (which flips toward the opposite pole of the
+        prior value, for explicit retractions), this is the delta-rule update for
+        a FREE-FORM contradiction: the user re-states an attitude on a topic they
+        already hold (e.g. "actually i've gone off winter" after "i love the
+        silence of deep winter"), and the new attitude has a polarity of its own.
+        The stance is moved toward that NEW value with a decisive blend, so a
+        clearly-stated reversal actually lands (a weighted merge alone is too weak
+        for a contradiction — see the feature round that added this).
+
+        Idempotent within a turn via the same utterance/turn guard as
+        ``reverse_stance``. Sets ``last_reversal`` so the ack composer can render
+        a linked "you've changed your mind about X" acknowledgment (no authored
+        reply string — the content comes from the recoded stance).
+        """
+        key = topic.lower().strip()
+        existing = self.stances.get(key)
+        if existing is None:
+            return None
+        _norm = re.sub(r"\s+", " ", (utterance or "").lower().strip())
+        _guard_key = _norm if _norm else self.turn_num
+        if self._reversed_utterance.get(key) == _guard_key:
+            return existing
+        old_polarity = existing.polarity
+        # Decisive recode toward the newly-stated value (bounded blend).
+        _b = max(0.0, min(1.0, blend))
+        existing.polarity = old_polarity * (1.0 - _b) + float(new_polarity) * _b
+        # A contradiction injects uncertainty about the prior value, so confidence
+        # relaxes toward the new read rather than staying pinned at the old peak.
+        existing.confidence = max(0.15,
+                                  existing.confidence * (1.0 - _b * 0.5)
+                                  + 0.15 * _b)
+        existing.rehearsal_count += 1
+        existing.turn_number = self.turn_num
+        self._reversed_utterance[key] = _guard_key
+        self.last_reversal = (existing.topic, old_polarity, existing.polarity)
+        return existing
+
     def _decay_score(self, s: Stance) -> float:
         recency = 1.0 / (1.0 + (self.turn_num - s.turn_number) * 0.25)
         return s.confidence * recency
