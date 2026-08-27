@@ -394,19 +394,135 @@ class SelfQueryMixin:
             if _cache is not None:
                 _cache[_ckey] = result
             return result
-        # 2) No value exists for this topic. HONEST failure: RAVANA does not
-        #    fabricate a stance. It says it is still forming one and invites the
-        #    user in. This is the correct, non-degenerate behavior — a flat,
-        #    honest "i don't know yet" beats fake depth. (The prior code
-        #    returned "i'm a bit cautious about X ... close to really" — pure
-        #    confabulation keyed on ambient valence + a junk cache entry. We
-        #    deliberately do NOT use GloVe transitivity to a value here: that
-        #    path fabricated plausible-but-unearned stances for arbitrary words
-        #    like "right"/"source" by anchoring them to a cached junk target.
-        #    Stances are grounded ONLY in the durable value store (above) or in
-        #    real user-stated stances — never inferred from similarity.)
+        # 2) No constitutive value exists for this topic. Before declaring an
+        #    honest "still figuring that out", consult RAVANA's OWN derived
+        #    stance store and — crucially — the USER's actual learned stance on
+        #    the topic. This is the Agent Self-Stance Formation & Recall
+        #    capability (round 2026-08-11T1328Z): the residual limitation the
+        #    round documented is that a self-opinion question ("what's your read
+        #    on X") fell through to the hollow frame even when the USER had spent
+        #    turns stating strong views on X. The agent is not a blank slate
+        #    about a topic it has discussed — it has an informed lean that it
+        #    DERIVES from real conversational evidence (the user's stance),
+        #    RECORDS as its own, and recalls stably. No fabrication: the stance
+        #    comes from genuine grounding, never from ambient mood or similarity.
+        #
+        #    (a) Recall: if the agent already formed + stored a stance on this
+        #        topic (in a prior turn or a prior session — persisted), return
+        #        it. This is personality continuity, not recomputation.
+        _own = getattr(self, "_agent_stances", None) or {}
+        _own_key = self._agent_stance_key(target)
+        _recalled = _own.get(_own_key)
+        if _recalled is not None and getattr(_recalled, "confidence", 0.0) >= 0.35:
+            _word = self._agent_stance_word(_recalled.polarity, _recalled.confidence)
+            stance = f"i {_word} {target}"
+            reason = (f"you've shared how you feel about {target}, and that "
+                      f"shaped where i land")
+            result = (stance, reason)
+            if _cache is not None:
+                _cache[_ckey] = result
+            return result
+        #    (b) Formation: ground a NEW stance on the USER's real learned stance
+        #        toward this topic (UserStanceStore). If the user has expressed a
+        #        stance, the agent's own view is INFORMED by it (a partner in a
+        #        conversation is not indifferent to what the other person cares
+        #        about). This is the derivation the round's limitation called
+        #        for: the engine had no structured self-model for topics the user
+        #        discussed, so it could not render a real lean. Now it can.
+        _user_stance = None
+        try:
+            _um = getattr(self, "user_model", None)
+            if _um is not None and getattr(_um, "opinions", None) is not None:
+                _res = _um.opinions.resolve_topic(target)
+                if _res is not None:
+                    _user_stance = _um.opinions.query_stance(_res)
+        except Exception:
+            _user_stance = None
+        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
+            # The agent's lean is GROUNDED in the user's stance polarity: if the
+            # user is strongly for X, the agent is drawn to X (mirroring a real
+            # conversational alignment), attenuated so it never equals the
+            # user's conviction. A neutral user stance (|pol| < 0.05) leaves the
+            # agent genuinely undecided. No LLM, no retraining: this is read live
+            # from the store every time.
+            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
+            _pol = float(_user_stance.polarity) * 0.7  # agent leans, not copies
+            # Record the derived stance so it persists + is recalled stably
+            # (formation → consolidation, the whole point of the capability).
+            try:
+                from ravana.chat.personal_fact_store import Stance
+                _own[_own_key] = Stance(
+                    topic=_own_key, polarity=_pol, confidence=_conf,
+                    valence=getattr(_user_stance, "valence", 0.0),
+                    arousal=getattr(_user_stance, "arousal", 0.0),
+                    turn_number=getattr(self, "turn_count", 0) or 0,
+                    rehearsal_count=1)
+            except Exception:
+                pass
+            _word = self._agent_stance_word(_pol, _conf)
+            stance = f"i {_word} {target}"
+            reason = (f"you've shared how you feel about {target}, and that "
+                      f"shaped where i land")
+            result = (stance, reason)
+            if _cache is not None:
+                _cache[_ckey] = result
+            return result
+        # 3) Truly no evidence (no constitutive value, no recalled stance, no
+        #    user stance): HONEST failure. RAVANA does not fabricate a stance.
+        #    It says it is still forming one and invites the user in. This is
+        #    the correct, non-degenerate behavior — a flat, honest "i don't know
+        #    yet" beats fake depth. (We deliberately do NOT use GloVe
+        #    transitivity to a value here: that path fabricated
+        #    plausible-but-unearned stances for arbitrary words like "right"/
+        #    "source" by anchoring them to a cached junk target. Stances are
+        #    grounded ONLY in the durable value store, the agent's own recalled
+        #    stance, or the user's real learned stance — never inferred from
+        #    similarity.)
         return ("i'm still figuring that out",
                 "i don't have a settled view on that yet — what do you think?")
+
+    def _agent_stance_word(self, pol: float, conf: float) -> str:
+        """Map a derived stance polarity to a short grounded phrasing token.
+
+        These are single short LEXICON entries (a word/phrase, never a
+        sentence), so the reply the caller composes (`f"i {word} {topic}"`) is
+        a thin connective wrapping REAL cognitive state, not authored prose.
+        The deciding test: if the topic changed, the ANSWER CONTENT still comes
+        from the polarity/confidence RAVANA computed — only the token varies.
+        """
+        if pol >= 0.6:
+            return "strongly value"
+        if pol >= 0.3:
+            return "lean toward"
+        if pol > 0.05:
+            return "am drawn to"
+        if pol <= -0.6:
+            return "am against"
+        if pol <= -0.3:
+            return "am wary of"
+        if pol < -0.05:
+            return "am cool on"
+        return "feel neutral about"
+
+    def _agent_stance_key(self, target: str) -> str:
+        """Canonical key for an agent-derived stance on `target`.
+
+        Mirrors the junk-guard used for the constitutive-value keys so a
+        non-topic (``"right"``/``"it"``/``"that"``) can never become a stored
+        stance — those are exactly the confabulation class the stance resolver
+        must reject. Returns the stripped lowercase key, or ``""`` if the target
+        is not a real topic (callers treat the empty key as "no stance").
+        """
+        _t = (target or "").strip().lower()
+        _JUNK = {"all", "really", "it", "that", "things", "right",
+                 "way", "matter", "thing", "point",
+                 "idea", "question", "stuff", "something",
+                 "anything", "everything", "issue", "topic",
+                 "yes", "no", "maybe", "ok", "okay",
+                 "about", "on", "the", "a", "an"}
+        if not _t or _t in _JUNK:
+            return ""
+        return _t
 
     def _route_self_experience(self, user_input: str) -> Optional[str]:
         """Experiential self-model responder (cortical midline structures).

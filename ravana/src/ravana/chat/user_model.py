@@ -946,9 +946,40 @@ class UserModel:
                 # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
                 # stative/cognitive verbs ("thinking"/"convinced").
                 _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
-                _has_closed = any(w.lower() in _CLOSED for w in _nw)
+                # D3 fix (round 2026-08-11T1328Z): the guard below tested the
+                # WHOLE candidate against the non-name stoplist, so multi-word
+                # transient/copula phrases slipped through and were stored as
+                # the user's NAME — "i'm not here" -> name "not here"; "i'm
+                # most myself" -> name "most myself"; "i'm gone" -> name
+                # "gone" — and then corrupted every self-summary ("from what
+                # you've told me, your name is not here; your name is gone").
+                # A name is a SHORT PROPER NOUN, never a predicate phrase. Test
+                # PER TOKEN: reject the candidate if ANY token is a closed-class
+                # word, a non-name state word, a reflexive pronoun, or a
+                # location/deixis word ("here"/"there"/"gone"). This is
+                # structural predicate-vs-proper-noun discrimination, generalizes
+                # across every persona (no per-name list), and degrades
+                # gracefully (a missing stop word merely loses this one guard).
+                _NAME_PRON = {
+                    "myself", "yourself", "himself", "herself", "itself",
+                    "themselves", "gone", "here", "there", "now", "then",
+                    "elsewhere", "anywhere", "nowhere", "somewhere",
+                    # Non-name states / descriptors / deixis (folds in the
+                    # later _NON_NAME stoplist so this guard never references a
+                    # variable assigned later in the function scope).
+                    "happy", "sad", "tired", "busy", "fine", "good", "bad",
+                    "hungry", "thirsty", "angry", "mad", "glad", "ok", "okay",
+                    "sorry", "lost", "ready", "done", "sure", "right", "wrong",
+                    "well", "sick", "late", "early", "home", "awake", "asleep",
+                    "confused", "scared", "afraid", "excited", "nervous",
+                    "calm", "what", "who", "why", "how", "where", "when",
+                    "not", "no", "yes", "maybe",
+                }
+                _has_stop = (
+                    any(w.lower() in _CLOSED for w in _nw)
+                    or any(w.lower() in _NAME_PRON for w in _nw))
                 _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
-                if len(_nw) > 2 or _has_closed or _head_verb:
+                if len(_nw) > 2 or _has_stop or _head_verb:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
@@ -1129,6 +1160,36 @@ class UserModel:
                     else:
                         _put_fact(_attr, _val, 0.6)
 
+        # D4 (round 2026-08-11T1328Z): a communication / meta verb is itself a
+        # speech-act or inner-state report, never a possession or lived
+        # activity. "i told a friend X" / "i keep saying it" / "i felt a kind
+        # of weight lift" must not become ('i','does','told friend...') /
+        # ('i','does','keep saying') / ('i','does','felt kind'). Reject any
+        # activity capture whose VERB is in this SEED set (RAVANA-expandable,
+        # not a per-topic answer table). A real activity verb ("keep pigeons"/
+        # "brew"/"forge"/"run") is never in this set, so genuine disclosures
+        # still pass in both the D3-style loop and the general-activity loop.
+        # NOTE (round 2026-08-11T1328Z audit fix t_86c5c46b): this set is for
+        # SPEECH-ACT / INNER-STATE verbs only ("tell"/"say"/"feel"/"think"...).
+        # Genuine possession / loss verbs "keep"/"kept"/"lose"/"lost" were
+        # wrongly listed here, so first-person disclosures ("i keep homing
+        # pigeons", "i lost a kestrel", "i keep a saltwater reef tank") were
+        # dropped BEFORE capture, and the downstream count-correction path
+        # (which needs the stored 'does' text fact as its prior) went dead,
+        # leaving stale "six hives" after a "seven" correction. Their
+        # meta-discourse protection is already provided by the OBJECT-level
+        # guards (_META_HEAD / _META_DISCOURSE / embedded-question scan), which
+        # reject "keep saying" / "felt kind" / "lose track of whether..." on
+        # the object HEAD — so the verb-level guard must NOT reject real
+        # possession/loss verbs. Keep/lose are SEPARATELY in the activity/event
+        # verb seed lists so the disclosures still land.
+        _META_VERBS = (
+            "tell", "tells", "told", "say", "says", "said", "mention",
+            "mentions", "mentioning", "recall", "recount", "repeat",
+            "repeated", "feel", "feels",
+            "felt", "think", "know", "learn", "forget",
+        )
+
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
         # existing "my X is Y" / "i am a role" miners miss — e.g. "i run a chai
         # stall near the mysore palace", "i play the tabla when the stall is
@@ -1179,8 +1240,36 @@ class UserModel:
                 r"\bbecause\b|\band\b|\.|\!|\?|$|,)",
                 q_clean, re.IGNORECASE)
             if _m:
+                # D4 (round 2026-08-11T1328Z): reject the capture when the
+                # activity VERB is a communication / meta / inner-state verb
+                # ("tell"/"told"/"keep"/"lose"/"felt"...). "i told a friend X"
+                # / "i keep saying it" must not become a 'does' possession
+                # fact. SEED vocabulary, shared with the general-activity loop.
+                if _verb.lower() in _META_VERBS:
+                    continue
                 _obj = self._opinion_topic(_m.group(1).strip().lower())
                 if _obj and len(_obj.split()) <= 5:
+                    # D4 fix (round 2026-08-11T1328Z): the resolved object HEAD
+                    # must not be a communication / meta-discourse / abstract-
+                    # state word ("saying", "told", "kind", "track", "felt"...).
+                    # "i keep saying it" / "i felt a kind of weight lift" matched
+                    # the activity verb and stored junk ('does' = "keep saying"
+                    # / "felt kind") that pollutes recall. A real possession/
+                    # activity head ("pigeons", "tabla", "homing pigeons") is
+                    # never in this SEED vocabulary and still passes. Shared
+                    # with the general-activity miner below so both capture the
+                    # same real disclosures and reject the same meta-discourse.
+                    _META_HEAD = (
+                        "saying", "says", "said", "tell", "tells", "telling",
+                        "told", "mention", "mentions", "mentioning", "recall",
+                        "recount", "repeat", "repeated", "keep", "kept",
+                        "lose", "lost", "kind", "weight", "hush", "lift",
+                        "track", "sort", "type", "notion", "feeling", "feels",
+                        "felt", "bit", "thing", "stuff", "business", "matter",
+                        "point",
+                    )
+                    if _obj.split()[0] in _META_HEAD:
+                        continue
                     # Store the verb WITH the object ("keep homing pigeons")
                     # so activity recall ("what do i keep?") can match the
                     # verb and return a complete, grammatical answer instead
@@ -1356,8 +1445,45 @@ class UserModel:
                 "shiver", "sweat", "tear", "tears", "breath", "pulse", "blood",
                 "sigh", "lump", "swelling", "cramp", "tingle", "numb",
             )
-            if len(_o.split()) <= 2 and any(w in _SENSATION_BODY
-                                            for w in _o.split()):
+            # R5 (round 2026-08-11T0521Z): scope the body/sensation gate so it
+            # ONLY rejects a SENSATION PHRASE — an object whose content words are
+            # ALL body/sensation words (e.g. bare "chest", "felt chest",
+            # "felt cold bite", "broke ice"). This is the inner-state / affective
+            # detail the R5 round was created to drop. It must NOT drop a real noun
+            # phrase that merely CONTAINS a body word alongside a real noun
+            # ("hand planes", "foot cream", "chest freezer") — those carry a real
+            # possession/activity head and pass through (verified by probe). The
+            # earlier broad form (`len<=2 and any body word`) wrongly rejected
+            # real 2-word objects like "build hand planes" and is superseded here.
+            _words = _o.split()
+            if _words and all(w in _SENSATION_BODY for w in _words):
+                return False
+            # D4 fix (round 2026-08-11T1328Z): the activity/event miner must
+            # capture REAL possessions / lived actions, NOT the user's own
+            # META-DISCOURSE or inner-state reporting. "i keep saying it",
+            # "i felt a kind of weight lift", "i told a friend", "i lost
+            # track of whether" matched an activity verb and stored junk
+            # ('does'/'event' = "keep saying" / "felt kind" / "told friend
+            # drowned" / "lose track") that then pollutes recall and profile
+            # summaries. These are speech-act / abstract-state objects, not
+            # things the user possesses or does. Reject the capture when the
+            # object HEAD is a communication/meta verb (saying/telling/told/
+            # mention), a self-reference pronoun, or an abstract-state noun
+            # (kind/weight/hush/lift/track/sort/type/notion/feeling) — the
+            # words a possession/activity head would never be. This is a SEED
+            # vocabulary (RAVANA-expandable, shared with the empathy/affect
+            # lexicon); a real possession noun ("pigeons"/"loft"/"banjo"/
+            # "ginger beer") is never in this set and still passes. Not a
+            # per-topic answer table.
+            _META_DISCOURSE = (
+                "saying", "says", "said", "tell", "tells", "telling", "told",
+                "mention", "mentions", "mentioning", "recall", "recount",
+                "repeat", "repeated", "keep", "kept", "lose", "lost",
+                "kind", "weight", "hush", "lift", "track", "sort", "type",
+                "notion", "feeling", "feels", "felt", "bit", "thing",
+                "stuff", "business", "matter", "point",
+            )
+            if _head in _META_DISCOURSE:
                 return False
             # R5 fix (round 2026-08-11T0521Z): do NOT reject on word-count
             # alone. The earlier "<2 reject" + "<=5 cap" dropped legitimate real
@@ -1367,11 +1493,22 @@ class UserModel:
             # words handled by the guards above), never on length. A single real
             # noun ("jar") and a long real noun phrase ("repeated the juniper
             # this spring and found a root") must BOTH pass; the R5 intent (drop
-            # inner-state "felt chest") is preserved by the _SENSATION_BODY gate
-            # above, not a length cap.
+            # inner-state "felt chest") is preserved by the all-words sensation
+            # gate above, not a length cap.
             return bool(_obj)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
+            # D4 (round 2026-08-11T1328Z): a communication / meta verb
+            # ("tell"/"told"/"say"/"said"/"mention"/"keep"/"lose"/"felt"...) is
+            # itself a speech-act or inner-state report, not a possession or
+            # lived activity — "i told a friend X" / "i keep saying it" must
+            # not become ('i','does','told friend...') / ('i','does','keep
+            # saying'). Reject on the VERB so the capture is suppressed even
+            # when the object head is a real noun ("friend"). SEED vocabulary,
+            # RAVANA-expandable; a real activity verb ("keep pigeons"/"brew"/
+            # "forge") is never in this set. Not a per-topic answer table.
+            if _verb in _META_VERBS:
+                continue
             _raw_obj = _am.group(2).strip().lower()
             _obj = self._opinion_topic(_raw_obj)
             if _activity_obj_is_real(_obj, _raw_obj):
@@ -1394,6 +1531,13 @@ class UserModel:
             re.IGNORECASE)
         for _em in _evt_pat.finditer(q_clean):
             _verb = _em.group(1).lower()
+            # D4 (round 2026-08-11T1328Z): the event miner shares the same
+            # meta-discourse verb guard as the activity miners — "i told a
+            # friend drowned" must not become ('i','event','told friend
+            # drowned'). A real lived-event verb ("lost"/"found"/"broke"/
+            # "dropped" a thing) is never in this set.
+            if _verb in _META_VERBS:
+                continue
             _raw_obj = _em.group(2).strip().lower()
             _obj = self._opinion_topic(_raw_obj)
             if _activity_obj_is_real(_obj, _raw_obj):

@@ -73,6 +73,14 @@ on this codebase:
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
+- **Forms and recalls its own stance on a topic you've discussed.** Asked
+  *"what do you think about chanterelles?"* after you've said *"i really love
+  chanterelles"*, it answers from a stance it **derived and recorded as its own**
+  (`i'm strongly for chanterelles.`) — grounded in your real learned view,
+  attenuated (it leans, never copies), and persisted so it recalls the same stance
+  next time. On a topic with no evidence it stays honestly silent
+  (`i'm still figuring that out …`) instead of borrowing your opinion. No LLM, no
+  retrain, no authored reply pool. See `docs/AGENT_SELF_STANCE.md`.
 - **Remembers and totals counts you disclose.** Told *"i keep twelve racing
   pigeons"* / *"i have three cats"* / *"i lost five hens"*, it stores each count as
   structured state (not free text) so it can answer *"how many racing pigeons do i
@@ -211,6 +219,7 @@ See [`docs/`](docs/README.md):
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
 - [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
 - [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
+- [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
 
 ## Benchmark results
 
