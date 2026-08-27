@@ -76,6 +76,16 @@ on this codebase:
   explicit years: `when did i start brewing beer` → `you started brew in 2016.`
   No per-phrase code; the resolver already knows how to read a `since` fact.
   See `docs/CAPABILITY_DURATION_MINING.md`.
+- **Recalls the right dated fact even when you paraphrase.** A rotated query that
+  shares no word with the stored activity still recalls it — *"what year did i
+  start all this volcano stuff again"* → *"you started studying volcanoes back in
+  2015."* — because the resolver links each `does`/`event` fact to the dated
+  `since` activity by **morphological stem** (so *volcano* in a separate
+  `start studying volcanoes` fact reaches the `study 2015` fact). The reply is
+  also grammatical: the stored verb is realized as a **gerund** ("started
+  **studying** volcanoes", not "started **study**"), and a redundant inceptive
+  ("started studying…") is collapsed to the gerund. No LLM, no per-topic reply
+  table. See `docs/CAPABILITY_DATE_RECALL_PARAPHRASE.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?"* before forming its own position, it returns an honest non-answer
   rather than fabricating one:
