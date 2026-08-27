@@ -2038,6 +2038,85 @@ class UserModel:
                     _prescan_ra_learn(_prescan_word)
                 except Exception:
                     pass
+
+        # GENERAL RELATIONAL MINER (round 2026-08-13T2059Z): a bare
+        # "my <relation> <name> <rest>" disclosure (my cousin nora is a
+        # glaciologist...; my partner june runs a library; my neighbour otto
+        # fixes clocks; my auntie bea breeds ponies) is a RELATIONSHIP + an
+        # ENTITY, not a self-profile attribute. It MUST be captured as a
+        # relationship fact keyed by the NAMED ENTITY (subject=name,
+        # attr=relationship) plus the descriptive rest as role/does keyed by
+        # the same entity — reusing the SAME _put_fact_ent path the
+        # possessive miner uses, so miner + recaller agree on the key by
+        # construction. This generalizes across EVERY relationship type
+        # (friend/sister/brother/cousin/partner/neighbour/auntie/pet/...);
+        # it does NOT add a second narrow branch per entity kind.
+        # RELATION_WORDS is SEED vocabulary: a closed set of common-English
+        # relation terms, RAVANA-expandable at runtime via _learn_relation()
+        # (the user can name any relation — e.g. "my godfather luis" extends
+        # the set). It is DATA (not an if/elif answer path), and removing an
+        # entry degrades gracefully (one fewer relation class captured). A
+        # bare-capitalized-name test after it makes the miner fire on names
+        # RAVANA has not seen, so it never needs the list to be exhaustive.
+        _RELATION_WORDS = (
+            "friend", "friends", "sister", "brother", "cousin", "siblings",
+            "aunt", "auntie", "uncle", "nephew", "niece", "mother", "mom",
+            "father", "dad", "parent", "parents", "grandmother", "grandfather",
+            "grandma", "grandpa", "son", "daughter", "child", "children",
+            "kid", "kids", "wife", "husband", "spouse", "partner", "fiance",
+            "fiancee", "boyfriend", "girlfriend", "colleague", "coworker",
+            "boss", "manager", "mentor", "student", "teacher", "neighbour",
+            "neighbor", "roommate", "flatmate", "landlord", "tenant",
+            "godfather", "godmother", "godparent", "stepfather", "stepmother",
+            "stepsister", "stepbrother", "halfsister", "halfbrother",
+            "grandson", "granddaughter", "pet", "cat", "dog", "horse", "pony",
+            "companion", "bestie", "pal", "buddy", "acquaintance",
+        )
+        # mutable per-instance learned-relation set so RAVANA grows it online
+        _rel_known = set(getattr(self, "_learned_relations", set())) | set(_RELATION_WORDS)
+        # single-match form: "my <rel> <Name> <rest>" at end of clause or
+        # anywhere; iterate so conjoined "my cat mochi ... and my dog pip ..."
+        # captures BOTH entities (one match per "my <rel> <Name>" segment).
+        _REL_RE = re.compile(
+            r"\bmy\s+([a-z][a-z]+)\s+([A-Za-z][A-Za-z'-]+)"
+            r"(?:\s+([^.?!]+?))?(?=\s+(?:and|but|,|&)|[.!?]|$)",
+            re.IGNORECASE)
+        for _m_rel in _REL_RE.finditer(q_clean):
+            _rel = _m_rel.group(1).lower().strip()
+            _ent = (_m_rel.group(2) or "").strip().strip(".,!?")
+            _rest = (_m_rel.group(3) or "").strip().strip(".,!?")
+            _looks_relation = (_rel in _rel_known) or (
+                _rel.endswith("friend") or _rel.endswith("mate")
+                or _rel in ("partner", "spouse", "sibling"))
+            # Pet species (cat/dog/horse/...) are owned by the pet-slot system
+            # (pet_slots.py) which keys them as (i, species) / (i, species_N);
+            # never route them through the entity-keyed relationship store, or
+            # "my cat is pixel" would be lost from the pet slot and break the
+            # species-coexistence / cued-recall tests. Kinship + people
+            # relations still flow through the relational miner.
+            _is_pet = _pet_slots.species_of(_rel) is not None
+            _name_shape = bool(re.match(r"^[A-Za-z][A-Za-z'-]+$", _ent)) \
+                and _ent.lower() not in _VALUE_STOP
+            if _looks_relation and _name_shape and len(_ent) >= 2 and not _is_pet:
+                _put_fact_ent(_ent, "relationship", _rel, 0.65)
+                if _rest:
+                    _r = re.sub(r"^\s+", "", _rest).strip()
+                    # drop a leading copula + optional article ("is a X") OR a
+                    # bare leading article ("a X") — the copula may already be
+                    # consumed by the capture, leaving "a glaciologist ...".
+                    _r = re.sub(r"^(?:is|are|was|were|'s)\s+(?: of)?\s+(?:a|an|the)\s+",
+                                "", _r, flags=re.IGNORECASE).strip()
+                    _r = re.sub(r"^(?:is|are|was|were)\s+", "", _r,
+                                flags=re.IGNORECASE).strip()
+                    _r = re.sub(r"^(?:a|an|the)\s+", "", _r,
+                                flags=re.IGNORECASE).strip()
+                    _r = re.split(r"(?<=[.!?])\s+|[.!?]\s*$", _r)[0].strip()
+                    if _r and len(_r.split()) <= 10:
+                        _put_fact_ent(_ent, "role", _r, 0.6)
+                if _rel not in _RELATION_WORDS:
+                    _rel_known.add(_rel)
+                    self._learned_relations = _rel_known
+
         for _pat in (
             # D2 (round v2): tolerate an optional "name" word between the
             # relation and "is" so "my daughter name is ingrid" stores
@@ -2159,6 +2238,30 @@ class UserModel:
                 # "my cousin nora is ..." skips (nora is the named entity), but
                 # "my child is a curious kid" does NOT (the word after "child"
                 # is the copula "is", so it is a normal self-attribute).
+                # Seed relation-term vocabulary for the membership guard below.
+                # DATA (not an if/elif answer path): RAVANA-expandable at
+                # runtime via _learn_relation() — the user can name any
+                # relation and the set grows. Removing an entry degrades
+                # gracefully (one fewer relation class captured); a
+                # bare-capitalized-name test after it makes the miner fire on
+                # names RAVANA has not seen, so it never needs to be exhaustive.
+                _RELATION_WORDS = (
+                    "friend", "friends", "sister", "brother", "cousin", "siblings",
+                    "aunt", "auntie", "uncle", "nephew", "niece", "mother", "mom",
+                    "father", "dad", "parent", "parents", "grandmother", "grandfather",
+                    "grandma", "grandpa", "son", "daughter", "child", "children",
+                    "kid", "kids", "wife", "husband", "spouse", "partner", "fiance",
+                    "fiancee", "boyfriend", "girlfriend", "colleague", "coworker",
+                    "boss", "manager", "mentor", "student", "teacher", "neighbour",
+                    "neighbor", "roommate", "flatmate", "landlord", "tenant",
+                    "godfather", "godmother", "godparent", "stepfather", "stepmother",
+                    "stepsister", "stepbrother", "halfsister", "halfbrother",
+                    "grandson", "granddaughter", "pet", "cat", "dog", "horse", "pony",
+                    "companion", "bestie", "pal", "buddy", "acquaintance",
+                )
+                # mutable per-instance learned-relation set so RAVANA grows it
+                # online (mirrors the relational miner's runtime learning).
+                _rel_known = set(getattr(self, "_learned_relations", set())) | set(_RELATION_WORDS)
                 if _raw_attr:
                     _raw_head = _raw_attr.split()[0] if _raw_attr.split() else ""
                     _after = re.search(
