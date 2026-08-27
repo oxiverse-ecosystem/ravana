@@ -12,7 +12,6 @@ This test fails WITHOUT the capability (the reply is the generic hedge, not a
 stance-grounded answer) and passes WITH it.
 """
 import os
-import re
 import sys
 import tempfile
 
@@ -80,11 +79,7 @@ def test_user_stance_recall_fail_closed_when_no_stance(tmpdir):
     ans = e.process_turn("do you think i like quantum physics?")
     assert e._last_strategy != "user_stance_recall", \
         "must not claim a stance the user never expressed"
-    # Word-boundary check for the polarity word "for" — a plain substring test
-    # false-positives on words like "forming" (as in "still forming a view"),
-    # which is the honest fail-closed hedge, not a fabricated stance claim.
-    ans_l = (ans or "").lower()
-    assert "quantum physics" not in ans_l or not re.search(r"\bfor\b", ans_l), ans
+    assert "quantum physics" not in (ans or "").lower() or "for" not in (ans or "").lower(), ans
 
 
 def test_user_stance_recall_does_not_capture_agent_self_opinion(tmpdir):

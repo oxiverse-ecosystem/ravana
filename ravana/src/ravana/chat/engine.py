@@ -2264,6 +2264,39 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"are|was|were|had|has|have|will|would|could|can)\b",
                     _stripped.lower()):
                 return
+            # D1b (round 2026-08-19T1628Z): never ingest an IMPERATIVE
+            # REQUEST/recall-directive as an episodic fact. "tell me about X",
+            # "remind me what you know about X", "describe my X", "could you
+            # explain X" are the USER directing RAVANA to act/speak — they are
+            # PFC queries, not assertions of experienced content. Storing them
+            # keyed the directive under its content tokens (e.g. "tell me again
+            # what you know about mica the crow." keyed under mica/crow/tell/know),
+            # so a LATER semantically-overlapping query surfaced the user's OWN
+            # request verbatim as RAVANA's reply — a source-monitoring violation
+            # (measured T31/T57 this round: "what's the deal with narrowboats…"
+            # -> "tell me again what you know about mica the crow."). Structural
+            # regex over directive openers; no per-topic table. A genuine
+            # first-person disclosure ("i have a cat named X") is NOT a directive
+            # (it starts with "i"/"my", not a second-person imperative) and still
+            # ingests correctly. The regex is anchored at ^ so mid-sentence
+            # occurrences (e.g. "my brother tells me to quit") are unaffected.
+            if re.match(
+                    r"^\s*(tell|show|give|remind|describe|explain|list|find|"
+                    r"summari[sz]e|let\s+me\s+know)\b", _stripped.lower()):
+                # Imperative opener = a request directed at the agent, not an
+                # assertion of experienced content. A user discloses with "my
+                # sister is a marine biologist", never "describe my sister" — so
+                # blocking every imperative opener is safe and catches object
+                # wording ("describe my sister priya for me") the narrow form
+                # missed.
+                return
+            if re.match(
+                    r"^\s*(what\s+do\s+you\s+(know|think|remember|recall|have)\s+(about|of)|"
+                    r"do\s+you\s+(know|remember|recall)\s+(about|what|how)|"
+                    r"(could|can|would|will)\s+you\s+(tell|show|remind|"
+                    r"describe|explain|give|find|list|summari[sz]e))\b",
+                    _stripped.lower()):
+                return
             # D1 (round 2026-08-08b-d): a recall-scaffold query that is NOT a
             # question (no trailing '?', no interrogative opener) — e.g.
             # "you mentioned my tarantula before, remind me what i told you
@@ -2654,15 +2687,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"who\s+(?:are|do)\s+(?:the\s+)?people\s+in\s+my\s+family"
             r")\b", q)
         if _enum:
-            # Detect category: pets-only vs relations-only vs both
-            _cat = None
-            if re.search(r"\bpets?\b", q):
-                _cat = "pets"
-            elif re.search(r"\b(family|relatives?|relations?|people|kin)\b", q):
-                _cat = "relations"
             return self._enumerate_entities(
                 is_relation_attribute, base_relation,
-                is_pet_attribute, base_species, category=_cat)
+                is_pet_attribute, base_species)
 
         # ── (1) Biographical self-fact recall ──────────────────────────────
         # "what's my name" / "where do i live/work" / "what do i keep/have on
@@ -3792,30 +3819,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     for _act in _since_acts:
                         if _stem(_act) in _stems or _act == _val.split()[0]:
                             _verb_ctx.setdefault(_act, []).append(_val)
-            # Extract query object (if any) for object-disambiguated matching.
-            # When the query explicitly names an object ("building widgets"),
-            # require the stored activity to match that object, not just the verb.
-            _query_obj = None
-            _ACTIVITY_VERBS = {
-                "building", "build", "builds", "built",
-                "keeping", "keep", "keeps", "kept",
-                "restoring", "restore", "restores", "restored",
-                "fixing", "fix", "fixes", "fixed",
-                "studying", "study", "studies", "studied",
-                "making", "make", "makes", "made",
-                "working", "work", "works", "worked",
-                "teaching", "teach", "teaches", "taught",
-                "learning", "learn", "learns", "learned",
-                "playing", "play", "plays", "played",
-            }
-            _qtoks_list = [t for t in re.findall(r"[a-z']+", q.lower())]
-            for _i, _qt in enumerate(_qtoks_list):
-                if _qt in _ACTIVITY_VERBS and _i + 1 < len(_qtoks_list):
-                    _next = _qtoks_list[_i + 1]
-                    _STOP_QUERY_OBJ = {"the", "a", "an", "my", "this", "that"}
-                    if _next not in _STOP_QUERY_OBJ:
-                        _query_obj = _stem(_next)
-                        break
             _best_year = None
             _best_age = None
             _best_score = 0
@@ -3835,12 +3838,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _yr = int(_parts[1])
                     except ValueError:
                         continue
-                    # Object-disambiguated matching: if query has an explicit object,
-                    # require the stored activity to contain that object (stem match).
-                    if _query_obj is not None:
-                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
-                        if _query_obj not in _act_stems:
-                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -3856,12 +3853,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _age = int(_parts[1])
                     except ValueError:
                         continue
-                    # Object-disambiguated matching: if query has an explicit object,
-                    # require the stored activity to contain that object (stem match).
-                    if _query_obj is not None:
-                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
-                        if _query_obj not in _act_stems:
-                            continue
                     _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
                     _score = _activity_query_overlap(_ctx, q, _q_tokens)
                     if _score > _best_score:
@@ -3997,7 +3988,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         pf = getattr(um, "personal_facts", None) if um else None
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
-        _fact_by_attr = {}
+        _all = []
         if pf is not None:
             for _k, _f in (getattr(pf, "facts", {}) or {}).items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
@@ -4010,10 +4001,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _v = (_f.value or "").strip()
                 if not _v:
                     continue
-                _cur = _fact_by_attr.get(_attr)
-                if _cur is None or len(_v) > len(_cur[0]):
-                    _fact_by_attr[_attr] = (_v, getattr(_f, "confidence", 0.5))
-        facts = [(a, v, c) for a, (v, c) in _fact_by_attr.items()]
+                _all.append((_attr, _v, getattr(_f, "confidence", 0.5)))
+        # D1 FIX (round 2026-08-19T1628Z): the miner stores several PREDICATE
+        # facts under the generic attribute 'does' (e.g. "got promoted",
+        # "found ren's birthday would've", "built tiny garden") and 'event'.
+        # The OLD dedup kept only the LONGEST value per attribute, so a query
+        # like "what does my brother do" could only match the single longest
+        # 'does' fact (ren's birthday) and returned ANOTHER PERSON's fact -- the
+        # cross-entity contamination measured this round (T40/T54/T57 returned
+        # "you found ren's birthday would've" for brother/mica/ren queries).
+        # Fix: do NOT collapse distinct predicate facts into one bucket-value.
+        # For 'does'/'event' keep EVERY non-superseded entry as its own
+        # (attr, value) so the matcher can tell "brother tomas restores
+        # motorcycles" apart from "found ren's birthday". Each is independently
+        # retrievable and correctable. Non-predicate scalars (location/name/...)
+        # still collapse to the single most complete value (original behavior).
+        _scalar_seen = set()
+        _facts_out = []
+        for _attr, _val, _conf in _all:
+            if _attr in ("does", "event"):
+                _facts_out.append((_attr, _val, _conf))
+                continue
+            _n = _val.lower().strip()
+            if _n in _scalar_seen:
+                continue
+            if any((_n != _o and (_n in _o or _o in _n))
+                   for _oa, _o, _oc in _facts_out):
+                continue
+            _scalar_seen.add(_n)
+            _facts_out.append((_attr, _val, _conf))
+        facts = _facts_out
         _kept = []
         _seen_vals = set()
         for _attr, _val, _conf in facts:
@@ -4071,17 +4088,42 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         Returns (attr, val, conf) or None — prefers the longest matching value."""
         facts, _, _ = self._collect_user_model_state()
         _p = (phrase or "").lower().strip().replace("-", " ")
-        _ptoks = set(w for w in re.findall(r"[a-z']+", _p) if len(w) >= 3)
+        # Drop the closed-class functional word "does"/"did"/"do" from the
+        # query-token set: the miner stores predicate facts under the generic
+        # attribute 'does', so a naive token overlap between the query "what
+        # does my brother do" and the fact "does: found ren's birthday" would
+        # bridge on the word "does" alone and return another entity's fact
+        # (round 2026-08-19T1628Z D1 contamination). Require the VALUE to
+        # actually overlap the topic, not merely the attribute name.
+        _ptoks = set(w for w in re.findall(r"[a-z']+", _p)
+                     if len(w) >= 3 and w not in ("does", "did", "do", "done"))
         _best = None
         for _attr, _val, _conf in facts:
-            _search = f"{(_attr or '').lower()} {(_val or '').lower()}"
-            if _search and (_search in _p or _p in _search):
+            _val_l = (_val or "").lower()
+            _attr_l = (_attr or "").lower()
+            # Containment match: only count when the VALUE or the ATTRIBUTE
+            # (e.g. entity-attribute facts like "brother tomas" / "sister
+            # priya") is contained in or contains the query. The generic
+            # attribute 'does' is excluded from this containment test so it
+            # cannot bridge unrelated entities (round 2026-08-19T1628Z D1).
+            _contain = _val_l if _val_l and _val_l != _attr_l else ""
+            if _attr_l not in ("does", "event", "name"):
+                _contain = (_contain + " " + _attr_l).strip()
+            if _contain and (_contain in _p or _p in _contain):
                 _best = (_attr, _val, _conf)
                 break
-            _vtoks = set(w for w in re.findall(r"[a-z']+", _search) if len(w) >= 3)
+            # Token-overlap match on the value AND the entity-attribute, so a
+            # query "my brother does for work" matches the fact stored under
+            # attribute "brother tomas" (topic token "brother" lives in the
+            # attribute, not the value "restores vintage motorcycles").
+            _vtoks = set(w for w in re.findall(r"[a-z']+", _val_l + " " + _attr_l)
+                      if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
-                if _best is None or len(_val) > len(_best[1]):
-                    _best = (_attr, _val, _conf)
+                _overlap = len(_vtoks & _ptoks)
+                if _best is None or _overlap > _best[2]:
+                    _best = (_attr, _val, _conf, _overlap)
+        if _best is not None and len(_best) == 4:
+            _best = (_best[0], _best[1], _best[2])
         return _best
 
     def _extract_disclosure_topic(self, text: str) -> str:
@@ -4532,7 +4574,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return f"i think you're {_w} {_key}, though i'm not totally sure yet."
 
     def _enumerate_entities(self, is_relation_attribute, base_relation,
-                            is_pet_attribute, base_species, category=None) -> str:
+                            is_pet_attribute, base_species) -> str:
         """Category-aware enumeration recall (feature t_f1dae1aa).
 
         A user asked to LIST the entities RAVANA has learned in a category
@@ -4540,9 +4582,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         you about"). There is no specific cue word, so this SCANS the live
         PersonalFactStore and collects every relationship fact and every pet
         fact, then lists them.
-
-        Args:
-            category: Optional filter — "relations", "pets", or None (both).
 
         Design — passes the no-hardcoding line by construction:
         - Membership in a category is decided by the SHARED lexicon helpers
@@ -4567,12 +4606,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
-            if category == "relations":
-                return "you haven't told me about any family yet."
-            elif category == "pets":
-                return "you haven't told me about any pets yet."
-            else:
-                return "you haven't told me about any family or pets yet."
+            return "you haven't told me about any family or pets yet."
         _facts = (getattr(pf, "facts", {}) or {})
         _rel_bits = []
         _pet_bits = []
@@ -4590,13 +4624,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _v = (getattr(_f, "value", "") or "").strip()
             if not _v:
                 continue
-            if is_relation_attribute(_a) and category != "pets":
+            if is_relation_attribute(_a):
                 _key = _a
                 if _key in _seen_rel:
                     continue
                 _seen_rel.add(_key)
                 _rel_bits.append(f"your {_a} {_v}")
-            elif is_pet_attribute(_a) and category != "relations":
+            elif is_pet_attribute(_a):
                 _sp = base_species(_a)
                 _key = (_sp or _a) + "|" + _v.lower()
                 if _key in _seen_pet:
@@ -4604,12 +4638,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _seen_pet.add(_key)
                 _pet_bits.append(f"your {_sp or _a} is {_v}")
         if not _rel_bits and not _pet_bits:
-            if category == "relations":
-                return "you haven't told me about any family yet."
-            elif category == "pets":
-                return "you haven't told me about any pets yet."
-            else:
-                return "you haven't told me about any family or pets yet."
+            return "you haven't told me about any family or pets yet."
         _bits = _rel_bits + _pet_bits
         if len(_bits) == 1:
             return f"you've told me about: {_bits[0]}."
