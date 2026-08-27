@@ -2250,8 +2250,12 @@ class UserModel:
                 # per-relation branch. _rel_known covers the seed set +
                 # runtime-learned relations so it stays in sync with the
                 # relational miner.
-                _raw_attr = (_m.group(1).strip().lower()
-                             if _m.lastindex is not None and _m.lastindex >= 1
+                # Guard on the group value itself: group(1) can be None even
+                # when lastindex >= 1 (an earlier alternative captured a
+                # different group), which would crash on .strip().
+                _g1 = _m.group(1)
+                _raw_attr = (_g1.strip().lower()
+                             if _g1 is not None
                              else "")
                 # attr may be multi-word ("cousin nora"); a relation-led attr
                 # starts with a relation word followed by a proper-noun name.
@@ -9450,6 +9454,71 @@ class UserModel:
             # attach a material).
             elif any(_poss.is_kind_noun(w) for w in _dtoks):
                 continue
+
+        # Quantitative possession / activity capture (round 2026-08-11T0521Z):
+        # "i keep twelve racing pigeons", "i have three cats", "i bake two
+        # sourdough loaves", "i lost five hens" — extract the LEADING count +
+        # the noun phrase and store it as a structured (subject, kind, count,
+        # noun) record in self.quantity_memory. This decouples the NUMBER from
+        # the gist sentence so a later "how many racing pigeons do i keep" can
+        # be answered with a clean count and "how many pets in total" can be
+        # AGGREGATED across the store. The 'does'/'event' text fact (which
+        # already preserves the number) is still written above; this adds the
+        # structured count on top. Seed + online: the number-word lexicon and
+        # verb->category map live in QuantityMemory (extendable at runtime), so
+        # a new quantity phrasing is captured without retraining or a per-topic
+        # table. Structural: any "i <verb> <count> <noun>" lands here.
+        # Skip interrogatives — a count QUESTION ("how many cats do i have")
+        # must never be stored as if RAVANA had asserted a quantity. The
+        # mine runs for both declarative disclosures and (later) the opinion
+        # miner, which has its own _is_question guard; this one mirrors it so a
+        # first-person count question is never seeded as a fact.
+        _qty_is_question = (q_clean.rstrip().endswith("?")
+                             or bool(re.match(
+                                 r"^(what|who|when|where|why|how|which|is|are|"
+                                 r"do|does|did|can|could|would|should|will|may|"
+                                 r"might|am|have|has|had)\b", q_clean)))
+        _qty_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(" + "|".join(QuantityMemory.VERB_KIND.keys()) + r")"
+            r"(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+            r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+            r"eighteen|nineteen|twenty|\d+)\s+"
+            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|"
+            r"\s+from\s+))",
+            re.IGNORECASE)
+        if not _qty_is_question:
+            for _qm in _qty_pat.finditer(q_clean):
+                _v = _qm.group(1).lower()
+                _num_tok = _qm.group(2).lower()
+                _noun_raw = _qm.group(3).strip().lower()
+                _vk = QuantityMemory.VERB_KIND.get(_v)
+                if _vk is None:
+                    continue
+                _kind, _cat = _vk
+                _cnt = number_to_int(_num_tok)
+                if _cnt is None or _cnt <= 0:
+                    continue
+                # Resolve a canonical noun: an animal word -> its species (so
+                # "racing pigeons" aggregates with "homing pigeons" under
+                # "pigeon"); otherwise the last content noun, singularized.
+                _toks = [t for t in re.findall(r"[a-z']+", _noun_raw)
+                         if t not in self._OPINION_STOP]
+                if not _toks:
+                    continue
+                _spec = _pet_slots.species_of(_toks[-1]) or _pet_slots.species_of(
+                    _toks[0])
+                _canon = _spec if _spec else (
+                    _toks[-1][:-1] if len(_toks[-1]) > 3 and _toks[-1].endswith("s")
+                    else _toks[-1])
+                self.quantity_memory.assert_quantity(
+                    "i", _kind, _cnt, _noun_raw, _canon, category=_cat,
+                    confidence=0.6, source="seed_regex")
 
         # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are

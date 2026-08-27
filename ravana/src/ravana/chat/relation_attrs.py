@@ -146,7 +146,13 @@ def relation_of(word: str) -> Optional[str]:
     _norm = w.replace("-", " ").strip()
     _norm = re.sub(r"\s+", " ", _norm)
     if _norm != w:
-        _head = _norm.split()[-1]  # "great aunt" -> "aunt", "step brother" -> "brother"
+        _parts = _norm.split()
+        # Guard against all-symbol/empty tokens ("--", "//") that split to
+        # nothing — they are not relationships. Without this, _norm.split()[-1]
+        # raises IndexError and aborts the whole miner pass.
+        if not _parts:
+            return None
+        _head = _parts[-1]  # "great aunt" -> "aunt", "step brother" -> "brother"
         _canon = _RELATION_SEED.get(_head) or _RELATION_LEARNED.get(_head)
         if _canon is not None:
             return _canon
