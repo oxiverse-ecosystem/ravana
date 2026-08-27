@@ -2056,10 +2056,24 @@ class MemoryMixin:
             if self._is_distinct_topic_recall(user_input):
                 _scope = self._scoped_topic_transcript(user_input)
                 if _scope is not None:
-                    _topic_ep = self._retrieve_episodic(user_input,
-                                                       transcript=_scope)
-                    if _topic_ep is not None:
-                        return _topic_ep
+                    # Exclude the CURRENT query turn from the scope. By the time
+                    # this runs inside process_turn, the query may already have
+                    # been appended to the episodic transcript (mined as a turn),
+                    # and the query text contains the topic word ("...about the
+                    # commission...") — so an unscoped match could resolve to the
+                    # query turn itself instead of the prior disclosure episode.
+                    # Drop any scope turn whose text is a near-match for the
+                    # query so the retriever targets the genuine prior episode.
+                    _qnorm = (user_input or "").lower().strip()
+                    _scope = [
+                        t for t in _scope
+                        if (t.get("text", "") or "").lower().strip() != _qnorm
+                    ]
+                    if _scope:
+                        _topic_ep = self._retrieve_episodic(user_input,
+                                                           transcript=_scope)
+                        if _topic_ep is not None:
+                            return _topic_ep
             _idx = getattr(self, "_episodic_index", None) or {}
             _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
                           "born", "grew", "located", "location", "origin")
