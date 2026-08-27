@@ -4795,7 +4795,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # this, "what did i tell you about the commission" returned "not
             # that i recall" and the adjacent-turn episode was never reached.
             if re.match(r"^(?:about|regarding|on|of)\b", _rem):
-                return None
+                # Only fall through to episodic replay when a stored episode
+                # about the topic actually exists — otherwise fail closed with
+                # the honest "not that i recall" (an undisclosed topic must not
+                # echo a sibling episode). This keeps topic_recall green while
+                # letting "what did i tell you about the commission" replay the
+                # real commission episode.
+                if self._retrieve_episodic(q) is not None:
+                    return None
             return ("not that i recall — you haven't told me about that yet. "
                     "what did you want me to know?")
 
