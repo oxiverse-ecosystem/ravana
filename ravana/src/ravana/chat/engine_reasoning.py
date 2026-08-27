@@ -1251,39 +1251,6 @@ class ReasoningMixin:
         if not facts:
             return None
 
-        # B-fix (round 2026-08-10T1401Z): a stored utterance that is itself a
-        # QUESTION or REQUEST must NEVER be echoed back as "you told me
-        # earlier: <question>". The ingest guard only excludes utterances that
-        # end in '?' / open interrogatively, so imperatives/requests
-        # ("give me your honest read on X", "tell me what you think") were
-        # encoded as episodic facts and later retrieved by lexical overlap,
-        # producing a source-monitoring error (a prior QUESTION surfaced as a
-        # remembered FACT). A fact worth recalling is a declarative assertion.
-        # Filter the candidate pool to declarative texts only; if every
-        # candidate is a question/request, fail open (return None) so the turn
-        # falls through honestly instead of parroting a prior query.
-        def _is_non_declarative(text):
-            _t = (text or "").strip()
-            if not _t:
-                return True
-            if _t.endswith("?"):
-                return True
-            _low = _t.lower()
-            if re.match(
-                r"^(what|who|when|where|which|why|how|do|does|did|can|could|"
-                r"should|would|will|is|are|was|were|has|have|had)\b", _low):
-                return True
-            if re.match(
-                r"^(give|tell|show|write|make|create|explain|describe|let|"
-                r"help|remind|remember|ask|say|what's|what is)\b", _low):
-                return True
-            return False
-        _decl = [f for f in facts if not _is_non_declarative(getattr(f, "object", ""))]
-        if _decl:
-            facts = _decl
-        # A lone surviving question-shaped fact is better left un-echoed.
-        if len(facts) == 1 and _is_non_declarative(getattr(facts[0], "object", "")):
-            return None
         # Attribute words = content words of the question, minus the subject and
         # generic interrogative/stop tokens. These identify WHICH stored fact the
         # user is asking about.
@@ -1511,26 +1478,7 @@ class ReasoningMixin:
             # No fact carries a value word for this predicate: fail open to the
             # lexical fallback below (do NOT confabulate).
         elif lex_ok:
-            # D2 fix (round 2026-08-11T1328Z): a genuine QUESTION must not be
-            # answered by echoing an UNRELATED prior turn. The ranking above can
-            # pick a best match on a single loose token overlap (e.g. "come on,
-            # the sump over the shack any day, right?" surfaced a foraging fact
-            # about the quarry) and dump it as "you told me earlier: <unrelated
-            # turn>" — a self/other boundary breach and an honest-memory error.
-            # Require the chosen fact to share at least TWO content tokens with
-            # the question; below that it is a spurious match and we fail open to
-            # the honest fallback rather than confabulate a wrong memory. The
-            # floor is structural (raw token overlap, no per-question list) and
-            # only constrains THIS lexical path; the dedicated recall-of-own-
-            # words questions ("what did you tell me about X") keep >=2 overlap
-            # with their target fact and still pass.
-            _q_tok = {t for t in re.findall(r"[a-zA-Z']+", (user_input or "").lower())
-                      if len(t) >= 3}
-            _f_tok = {t for t in re.findall(r"[a-zA-Z']+", (lex_fact.object or "").lower())
-                      if len(t) >= 3}
-            if len(_q_tok & _f_tok) >= 2:
-                return lex_fact.object
-            # Below the relevance floor: do not echo an unrelated memory.
+            return lex_fact.object
 
         # Fallback: ONLY when the subject has a single stored fact (where it
         # is by construction the right one). With multiple same-subject facts
@@ -1933,17 +1881,6 @@ class ReasoningMixin:
                 got = buf.retrieve(key)
                 if got:
                     cands.extend(got)
-            # SOURCE MONITORING (round 2026-08-10T1401Z): a user's self-
-            # disclosure ("my cat is called pip", "actually pip is my sister's
-            # cat") is stored in the buffer as a USER fact (user_fact=True).
-            # Multi-hop RELATIONAL reasoning is world-knowledge retrieval — it
-            # must not replay a user's own autobiographical utterance as if it
-            # were a fact answering "what is my cat's name?". Skipping
-            # user_fact triples here is consistent with the buffer's own
-            # contract (user facts are NEVER drained into the world graph) and
-            # closes the self/other boundary at the multi-hop path.
-            cands = [f for f in cands
-                     if not getattr(f, "user_fact", False)]
             # de-dup
             seen, uniq = set(), []
             for f in cands:
@@ -2123,17 +2060,9 @@ class ReasoningMixin:
         # An "i <verb> <object>" statement is an activity disclosure UNLESS the
         # verb is one of the stative verbs above (those are handled by the
         # affect/opinion/benign paths). Require a following content word so
-        # bare "i run" still counts. GENERALISED (round 2026-08-13T2059Z): the
-        # verb token now ALSO consumes hyphenated compound verbs
-        # (e.g. "tide-pool", "astro-photograph") and any lowercase token, so a
-        # first-person disclosure using a novel or compound verb is recognised
-        # as a disclosure (and routed to store+ack) instead of leaking into the
-        # knowledge-query / uncertainty path. The stative deny-list below still
-        # excludes copula/affect verbs; everything else is treated as an
-        # activity report. Open-class, not a per-verb whitelist — RAVANA learns
-        # the verb from experience, it never hardcodes the verb set.
+        # bare "i run" still counts.
         _gen_act = re.compile(
-            r"\bi\s+([a-z']+(?:-[a-z']+)*)(?:\s+[a-z'\-]+)+", re.IGNORECASE)
+            r"\bi\s+([a-z']+)(?:\s+[a-z']+)+\b", re.IGNORECASE)
         _m = _gen_act.search(q)
         _is_activity = bool(_m) and _m.group(1).lower() not in _STATIVE_VERBS
         if not (_self_pat.search(q) or _is_activity):
@@ -2737,6 +2666,7 @@ class ReasoningMixin:
         _COND_RE = re.compile(
             r"(ruled the world|took over|take over|in charge|in control|"
             r"seized power|ran the world|were made of|was made of|"
+            r"disappear|vanished|destroyed|"
             r"what would .* be like|if .* were in charge|if .* took over|"
             r"if .* ran the world|if .* governed|would happen if|"
             r"if .* (disappear|vanished|destroyed)|if .* could (photosynthes|fly|think))"
@@ -2769,17 +2699,6 @@ class ReasoningMixin:
         t = (text or "").strip().rstrip(" .!?")
         if not t:
             return False
-        # A trailing "?" marks a COMPLETE interrogative speech act — a question
-        # is, by definition, a closed proposition with its dependencies satisfied
-        # (it is the hearer's turn to answer, not a dangling lead-in). The
-        # coordinator/complementizer checks below would otherwise mis-flag a
-        # question that HAPPENS to end in a COMP word ("...all that?") as an open
-        # fragment and withhold a warranted reply via the preamble hold. Root
-        # cause of round 2026-08-12T1234Z DEFECT 1 ("so what's your real read on
-        # the hawk versus the blade, now you've heard all that?" -> "mm-hmm, what
-        # were you going to say?"). Test the RAW trailing "?" before the strip.
-        if (text or "").strip().endswith("?"):
-            return True
         toks = [w.strip(".,!?") for w in t.split() if w.strip(".,!?")]
         if not toks:
             return False
@@ -2909,23 +2828,9 @@ class ReasoningMixin:
         The preamble detector must never eat it. Returns False (not a preamble)
         for these so generation proceeds.
         """
-        raw = (text or "").strip()
-        low = raw.lower().rstrip(" .!?")
-        if not low:
+        low = (text or "").strip().lower().rstrip(" .!?")
+        if not low or low.endswith("?"):
             return False
-        # A trailing "?" is the strongest signal of a COMPLETE query — an
-        # interrogative is, by definition, an answerable speech act. The old
-        # guard returned False for *any* "?"-ended text, which let complete
-        # opinion/wh- questions ("so what's your real read on X versus Y?")
-        # fall through to the preamble hold and get swallowed with "mm-hmm,
-        # what were you going to say?". Check the RAW trailing "?" BEFORE the
-        # punctuation strip below (the strip would erase it and defeat the
-        # test). A dangling fragment that merely ends in "?" (e.g. "what i mean
-        # is?") is already caught as incomplete by the caller's
-        # _is_clause_complete check before this is consulted, so returning True
-        # here is safe. (Round 2026-08-12T1234Z — DEFECT 1.)
-        if raw.endswith("?"):
-            return True
         # wh- words + imperative definition commands are complete queries.
         _QUERY_MARKERS = (
             "what", "who", "where", "when", "why", "how", "which",

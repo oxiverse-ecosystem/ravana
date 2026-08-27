@@ -84,21 +84,6 @@ on this codebase:
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
   `from what you've told me, you live in berlin; your cat is rex; …`
-- **Learns what you *do*, not just who you are.** Told *"i tide-pool at low
-  water and catalogue the anemones and limpets"* or *"i astrophotograph the milky
-  way"* it captures the activity as a personal fact (`('i','does') ->
-  "tide-pool ..."`) — including **novel and hyphenated-compound verbs** it had
-  never seen, via an open-class (deny-list) capture rather than a frozen verb
-  whitelist. The same turn is recognised as a self-disclosure and acknowledged,
-  instead of leaking into a "i don't know that" knowledge query. See
-  `docs/OPEN_CLASS_VERB_CAPTURE.md`.
-- **Dates a year-only temporal start.** Told *"i have been firing my kiln since
-  2017"* (with a session date set) it anchors the disclosure to **1 January 2017**
-  and later answers *"when did i start firing"* with the grounded date —
-   `you mentioned that around 1 January 2017.` — instead of returning empty.
-  The anchor is pure date arithmetic over a seed cue set (no LLM, no hardcoded
-  reply), gated behind a session date like every temporal-grounding feature. See
-  `docs/DATE_GROUNDED_RECALL_YEAR_ANCHOR.md`.
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
 - **Mines activity durations into dated facts.** Told *"i've been brewing beer
@@ -393,10 +378,6 @@ See [`docs/`](docs/README.md):
 - [Training](docs/TRAINING.md) — `train.py` modes and the LingGen promotion gate.
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
-- [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
-- [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
-- [Reverse Pet Lookup by Name](docs/PET_NAME_RECALL.md) — answering "who is wren to me?" by reverse-indexing the pet store by the name value.
-- [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
 
 ## Benchmark results
 
