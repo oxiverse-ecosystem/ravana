@@ -3981,6 +3981,26 @@ class ResponseGenMixin(ChainWalkerMixin):
         subject = (ctx.subject or "").lower().strip()
         if not subject:
             return False
+        # D2 (round 2026-08-17T1126Z): reject generic comparative/null pronouns as
+        # a sub-answer target. Words like "other", "the former", "the latter",
+        # "one", "something", "this", "that", "it" are not real entities — a
+        # sub-answer that asserts a FACT about them ("other intrinsically forms
+        # light") is grounded to nothing and is decoder babble. This is the
+        # backstop for the decompose()/comparative() fix that already refuses to
+        # synthesize a "what is other" sub-question; here we also reject the case
+        # where such a stopword still reaches the monitor as the clause subject.
+        # The set is seed vocabulary (linguistic function words), not authored
+        # content; RAVANA cannot learn a "fact" about "other", so withholding is
+        # always correct here. Fail-closed: a real concept (>=3 chars, not in the
+        # set) passes untouched.
+        _GENERIC_CONCEPTS = {
+            "other", "others", "the former", "the latter", "former", "latter",
+            "one", "ones", "something", "anything", "everything", "nothing",
+            "this", "that", "these", "those", "it", "they", "them", "the same",
+            "another", "such", "which", "what", "who", "whom", "whose",
+        }
+        if subject in _GENERIC_CONCEPTS or subject.strip(" .") in _GENERIC_CONCEPTS:
+            return False
 
         # (1) Verified factual anchor for the subject — reuse the SAME evidence
         # the decomposition path trusts, so the two monitors share one notion of
@@ -6917,7 +6937,17 @@ class ResponseGenMixin(ChainWalkerMixin):
                     pass
             
             # Try C: Relation-guided surface realizer
-            if not answer_text and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
+            # D2 (round 2026-08-17T1126Z): only assert a relation for a concept
+            # RAVANA actually KNOWS (has a stored definition or web-learned
+            # source). Free-associating an UNKNOWN concept to a hub word ("crispr
+            # connects to light") is fabricated knowledge, not a verified fact — the
+            # brain withholds ("i'm not sure") when it has no source. Without this
+            # gate an otherwise-unknown concept (auto-expanded into the graph from
+            # the user's own words) gets a confident but baseless relation emitted.
+            _tc_known = bool(
+                (sq_target and sq_target.lower() in getattr(self, '_definitions', {}))
+                or (sq_target and sq_target.lower() in getattr(self, '_concept_sources', {})))
+            if not answer_text and _tc_known and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
                 try:
                     pool = sub_assocs or ctx.associated_concepts
                     subj_lower = (sq_target or ctx.subject or "").lower()
@@ -7217,12 +7247,25 @@ class ResponseGenMixin(ChainWalkerMixin):
             return True
         if main in getattr(self, '_concept_sources', {}):
             return True
-        # Otherwise require a semantically close association (high FOK).
+        # D2 (round 2026-08-17T1126Z): an UNKNOWN concept — no stored definition,
+        # no web-learned source, and not present in the concept graph — must NOT
+        # be grounded by a loose association alone. Free-association to a single
+        # hub word ("crispr connects to light") is decoder babble presented as
+        # knowledge, not a verified fact. The brain withholds ("i'm not sure")
+        # when it has no source for a claim; so must RAVANA. Only a concept that
+        # is actually KNOWN (in the concept graph) may lean on association
+        # spreading for a decomposition answer. Unknown concepts fall through to
+        # honest metacognitive uncertainty, which is the correct, general
+        # behavior for anything RAVANA has never actually learned.
+        _known = (main in getattr(self, '_concept_keywords', {})
+                  or main in getattr(self, '_concept_labels', {}))
+        if not _known:
+            return False
+        # Known concept: require a semantically close association (high FOK).
         vec = self._glove_vector(main) if hasattr(self, '_glove_vector') else None
         if vec is None:
-            # No embedding to judge by: trust graph presence as weak grounding.
-            return main in getattr(self, '_concept_keywords', {}) or \
-                   main in getattr(self, '_concept_labels', {})
+            # No embedding to judge by: graph presence already confirmed above.
+            return True
         best = -1.0
         for label, _score in (ctx.associated_concepts or [])[:12]:
             v = self._glove_vector(label)

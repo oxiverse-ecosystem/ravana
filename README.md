@@ -119,8 +119,75 @@ on this codebase:
   prior probe-tuned "feeling-real" frame was deleted). Fail-closed: a plain
   *"what's my name"* is not intercepted and still resolves from its own path. See
   `docs/CAPABILITY_META_IDENTITY.md`.
+- **Reports the actual learned profile (content aggregation).** Asked *"what
+  have you picked up about me"*, *"describe me"*, *"what stands out about me"*,
+  *"tell me about myself"*, or *"what's your read on me"*, it surfaces the
+  **real content** of its model of you — your name, where you're from, disclosed
+  facts, stated beliefs, and the polarity of each stance it holds — read live
+  from the durable stores:
+  `here's what i've picked up about you so far: your name is corvin; you're from aldermoor in the hills; you grew village called aldermoor; you an astronomer who studies pulsars; on how you feel about things: you're strongly for sea; you're strongly against put.`
+  This is distinct from meta-identity (which reports *counts + topics*, not the
+  facts themselves). Previously these queries fell through to the
+  graceful-uncertainty path and emitted degenerate text despite real facts being
+  stored. Fail-closed: a brand-new user returns `None` and the honest path
+  answers. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_USER_MODEL_AGGREGATION.md`.
+- **Enumerates the entities it has learned in a category.** Asked *"name everyone
+  in my family"*, *"name all my pets"*, or *"who have i told you about"* — queries
+  with **no specific cue word** — it **scans its live PersonalFactStore** and
+  lists every relative and pet it mined, drawn from the real stored facts:
+  `you've told me about: your grandmother indira weaves baskets; your brother arjun climbs mountains; your cat is mochi; your dog is biscuit.`
+  Previously these fell through to a generic acknowledgement (*"noted."*) because
+  the cued-recall paths require a named entity. Category membership is decided by
+  the **shared** lexicon helpers the miner and cued-recall already use, so all
+  three paths agree on what counts as a relative/pet by construction (no
+  duplicated word list). A brand-new user with nothing disclosed gets an honest
+  *"you haven't told me about any family or pets yet."* instead of a fabricated
+  list. No LLM, no per-topic reply table, no retraining. See
+  `docs/CAPABILITY_CATEGORY_ENUMERATION_RECALL.md`.
+- **Reads the USER's own held stance on a third-person query (self/other
+  boundary).** Asked *"do you think i like spicy food or not?"* — where *you* are
+  the attitude holder — it answers from **your** stored preference, not its own:
+  `from what you've told me, you're strongly for spicy food.` (a disclosure of
+  *"i hate cold coffee"* is later recalled the same way: *"you're strongly against
+  cold coffee."*). Previously these matched the broad self-opinion gate and RAVANA
+  answered from its *own* (empty) stance — the generic *"still figuring that out"*
+  hedge — a self/other confusion. The topic is resolved the **same way the stance
+  miner resolves it**, so a paraphrase (*"i adore jazz"* → query *"do you think i
+  love jazz"*) still links to the held stance; the polarity is rendered as ONE word
+  from the live store. Fail-closed: a topic you never stated a preference on, or a
+  genuine question about *RAVANA's* own view, falls through to the normal path and
+  is **not** answered with a fabricated stance. No LLM, no per-topic reply table,
+  no retraining. See `docs/CAPABILITY_USER_STANCE_RECALL.md`.
+- **Recalls what it knows about a named relationship or person from open
+  phrasing.** Asked *"tell me about my grandmother"*, *"who is my grandmother?"*,
+  *"what does my grandmother do?"*, *"what do you know about my brother"*, or
+  *"describe my niece priya"* — it reports the stored relationship/pet fact from
+  the **same** open phrasing, not just a bare *"who is X"*:
+  `your grandmother indira bakes sourdough bread.` (and *"who is theo?"* → *"your
+  brother theo fixes bicycles."*). Pets are covered too (*"tell me about my cat"*
+  → *"your cat is pixel."*). This needed two fixes: the relationship miner now
+  stores the named fact regardless of name casing (it previously required a
+  CAPITALIZED name and silently dropped lowercase chat names), and a new
+  recall branch keys on the relationship word itself when phrased openly. The
+  branch is gated on an interrogative frame so declarative disclosures (*"my
+  friend is hurting"*) still reach the empathy router, and an unknown relative
+  fails closed with honest uncertainty rather than a fabricated bio. No LLM, no
+  per-person reply table, no retraining. See
+  `docs/CAPABILITY_OPEN_ENDED_RELATIONSHIP_RECALL.md`.
+- **Separates world-knowledge questions from autobiographical recall.** Asked
+  *"what is cooking oil made of?"* it does **not** echo an unrelated stored fact
+  about you (*"you enjoy cooking pasta on weekends"*) — the query is classified
+  as a general-knowledge question and falls through to internal-knowledge / web /
+  honest-uncertainty. The same phrase *"what is wrong with my car?"*, because it
+  references your **own** disclosed entity (*my* car), is still answered from
+  episodic memory (`gps`, `reboot`). The gate is a distribution-driven intent
+  classifier (explicit recall markers + a personal-possessive reference), not a
+  frozen topic list, so it generalizes across every subject and needs no
+  retraining. Fail-open: a general knowledge question can never be answered by an
+  autobiographical echo. See `docs/CAPABILITY_QUERY_INTENT_GATE.md`.
 
-These capabilities are backed by four durable stores — an **identity model**
+These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
 (`PersonalFactStore`), and **beliefs** (`BeliefStore`) — plus a **ConceptGraph**
 world-model. The README's benchmark and architecture sections describe the

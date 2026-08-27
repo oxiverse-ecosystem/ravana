@@ -2449,30 +2449,47 @@ class ReasoningMixin:
                     # ("cat", "cat_2"); render naturally ("your cat is gravy").
                     _phrase = _pet_slots.render(attr, val)
                 if _phrase is None:
-                    # ROUND 2026-08-15T1537Z FIX (D2): a `since`/`since_age`
-                    # fact stores its value as "<activity> <year>" (e.g. "move
-                    # 2009") for date-grounded recall. The generic
-                    # `"your {attr} is {val}"` fallback would ack it as
-                    # "your since is move 2009" — ungrammatical and leaks the
-                    # internal fact-shape. Render it as a natural
-                    # acknowledgement of a dated activity instead, mirroring the
-                    # recall phrasing ("you started <activity> in <year>"). The
-                    # content still comes from the stored fact, not authored
-                    # prose; the activity is realized via the SAME gerund helper
-                    # the recall path uses so ack and recall agree.
-                    if attr in ("since", "since_age") and " " in str(val):
-                        _act, _, _yr = str(val).rpartition(" ")
-                        try:
-                            from ravana.chat.engine import _verb_phrase_to_gerund
-                            _act_g = _verb_phrase_to_gerund(_act)
-                        except Exception:
-                            _act_g = _act
-                        if attr == "since_age":
-                            _phrase = f"you've been {_act_g} since you were about {_yr}"
-                        else:
-                            _phrase = f"you started {_act_g} in {_yr}"
+                    # D7 (round 2026-08-16T1745Z): a relationship-activity fact
+                    # stores a VERB-PHRASE value ("weaves baskets"), not a noun
+                    # phrase. Render WITHOUT a copula so the ack is grammatical
+                    # ("your grandmother indira weaves baskets") instead of
+                    # "your grandmother indira is weaves baskets". The verb test
+                    # uses the shared SEED lexicon user_model.is_activity_verb
+                    # (same one the cued-recall grammar fix uses), so ack and
+                    # recall agree by construction. Content comes from the
+                    # PersonalFactStore, never authored prose.
+                    try:
+                        from .user_model import is_activity_verb as _is_act
+                    except Exception:
+                        _is_act = lambda w: False
+                    _vv = (str(val) or "").strip().split()
+                    if _vv and _is_act(_vv[0]):
+                        _phrase = f"your {attr} {val}"
                     else:
-                        _phrase = f"your {attr} is {val}"
+                        # ROUND 2026-08-15T1537Z FIX (D2): a `since`/`since_age`
+                        # fact stores its value as "<activity> <year>" (e.g. "move
+                        # 2009") for date-grounded recall. The generic
+                        # `"your {attr} is {val}"` fallback would ack it as
+                        # "your since is move 2009" — ungrammatical and leaks the
+                        # internal fact-shape. Render it as a natural
+                        # acknowledgement of a dated activity instead, mirroring the
+                        # recall phrasing ("you started <activity> in <year>"). The
+                        # content still comes from the stored fact, not authored
+                        # prose; the activity is realized via the SAME gerund helper
+                        # the recall path uses so ack and recall agree.
+                        if attr in ("since", "since_age") and " " in str(val):
+                            _act, _, _yr = str(val).rpartition(" ")
+                            try:
+                                from ravana.chat.engine import _verb_phrase_to_gerund
+                                _act_g = _verb_phrase_to_gerund(_act)
+                            except Exception:
+                                _act_g = _act
+                            if attr == "since_age":
+                                _phrase = f"you've been {_act_g} since you were about {_yr}"
+                            else:
+                                _phrase = f"you started {_act_g} in {_yr}"
+                        else:
+                            _phrase = f"your {attr} is {val}"
             else:
                 _ent = _fact_subj
                 _phrase = {
@@ -2486,7 +2503,20 @@ class ReasoningMixin:
                     "is": f"your {_ent} is {val}",
                 }.get(attr, None)
                 if _phrase is None:
-                    _phrase = f"your {_ent}'s {attr} is {val}"
+                    # D7 (round 2026-08-16T1745Z): mirror the self-subject
+                    # verb-phrase rule for entity-keyed facts so possessive /
+                    # relationship activity disclosures ("my partner runs a
+                    # bakery") ack without a spurious copula. Shared seed
+                    # lexicon; content from the store.
+                    try:
+                        from .user_model import is_activity_verb as _is_act
+                    except Exception:
+                        _is_act = lambda w: False
+                    _ev = (str(val) or "").strip().split()
+                    if _ev and _is_act(_ev[0]):
+                        _phrase = f"your {_ent}'s {attr} {val}"
+                    else:
+                        _phrase = f"your {_ent}'s {attr} is {val}"
             # Return the rendered relation phrase only (e.g. "you do chai
             # stall"); the caller wraps it in the "noted — i'll remember ..."
             # frame. Returning a ready-made ack string here caused a tuple-

@@ -40,6 +40,44 @@ _CORRECTION_FACT_PATTERNS = [
     r"([\w\s]+?)\s+are\s+(\w+)[,.]*\s+not\s+(\w+)",
 ]
 
+
+# Activity-verb seed lexicon (shared by the relationship-activity miner D7 and
+# the cued-recall grammar fix). Used to tell a VERB-PHRASE personal fact
+# ("weaves baskets") from a NOUN-PHRASE fact ("an astronomer") so recall can
+# render "your grandmother indira weaves baskets" (no copula) vs "your niece
+# priya is an astronomer" (copula). This is SEED vocabulary (a data set, not an
+# answer path) — RAVANA-expandable by the same PersonalFactStore the user can
+# correct; removing entries degrades gracefully (one fewer verb-form recognized
+# for grammar). NOT a per-topic reply dictionary and NOT authored prose.
+_ACTIVITY_VERB_LEXICON = {
+    "run", "own", "operate", "play", "teach", "study", "manage", "drive",
+    "build", "make", "sell", "restore", "grow", "watch", "raise", "tend",
+    "brew", "bake", "write", "read", "learn", "practice", "collect", "fix",
+    "paint", "code", "design", "craft", "volunteer", "cook", "fish", "hike",
+    "garden", "farm", "lead", "organize", "keep", "grind", "race", "sail",
+    "knit", "sew", "weld", "forge", "carve", "compose", "record",
+    "perform", "coach", "train", "compete", "spin", "weave", "mount",
+    "trade", "host", "guide", "climb", "repair", "work",
+}
+
+
+def is_activity_verb(word: str) -> bool:
+    """Return True if `word` is a (possibly inflected) activity verb from the
+    seed lexicon. Used by cued recall to render verb-phrase personal facts
+    without a spurious copula. Pure vocabulary lookup — no content."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _ACTIVITY_VERB_LEXICON:
+        return True
+    # base-form recovery for inflected tokens not pre-listed
+    for suf in ("ing", "ed", "s", "es"):
+        if w.endswith(suf) and w[: -len(suf)] in _ACTIVITY_VERB_LEXICON:
+            return True
+    return False
+
+
+
 # real affect categories in brain_regions._CAUSE_SEEDS and
 # support_router._SUPPORT_AFFECT). Used by the bare-copula name guard: a
 # first-person "i'm X" where X is any of these is a TRANSIENT STATE, never a
@@ -332,6 +370,29 @@ _AFFECT_TERM_LEXICON = frozenset({
     "happy", "joy", "joyful", "delighted", "thrilled", "euphoric",
     "excited", "proud", "grateful", "relieved", "content", "peaceful",
     "calm", "glad", "cheerful", "hopeful", "gleeful",
+})
+
+# Round 2026-08-17T1126Z: affective-object guard for the EVENT miner. A
+# first-person "i <event-verb> <object>" where the object is a SENTIMENT
+# adjective ("i find it fascinating", "i found that surprising") is a
+# cognitive-affective COPULA, not a discovery event — storing it as
+# `event: find fascinating` is garbage (measured: T16 of this round produced
+# exactly that). The verb "find" legitimately means find-a-lost-object
+# ("i found my keys"), so the verb must stay in _EVENT_VERBS; the guard is on
+# the OBJECT. This is seed vocabulary: sentiment adjectives RAVANA encounters.
+# Removing one only loses that one shape, never content RAVANA can't change. It
+# is not a per-topic answer table and not authored reply prose. RAVANA can
+# extend it at runtime the same way it extends the verb lexicons.
+_AFFECTIVE_OBJECT_ADJ = frozenset({
+    "fascinating", "interesting", "boring", "amazing", "amazed",
+    "surprising", "surprised", "strange", "odd", "weird", "wonderful",
+    "terrible", "awful", "beautiful", "ugly", "funny", "sad", "happy",
+    "annoying", "comforting", "disturbing", "delightful", "disappointing",
+    "exciting", "calming", "confusing", "clear", "obvious", "mysterious",
+    "scary", "frightening", "moving", "touching", "inspiring", "refreshing",
+    "reassuring", "overwhelming", "eye-opening", "mind-blowing", "deep",
+    "profound", "meaningful", "pointless", "useless", "helpful",
+    "rewarding", "worthwhile", "enjoyable", "pleasant", "unpleasant",
 })
 
 
@@ -1922,38 +1983,119 @@ class UserModel:
                     else:
                         _put_fact(_attr, _val, 0.6)
 
-        # D4 (round 2026-08-11T1328Z): a communication / meta verb is itself a
-        # speech-act or inner-state report, never a possession or lived
-        # activity. "i told a friend X" / "i keep saying it" / "i felt a kind
-        # of weight lift" must not become ('i','does','told friend...') /
-        # ('i','does','keep saying') / ('i','does','felt kind'). Reject any
-        # activity capture whose VERB is in this SEED set (RAVANA-expandable,
-        # not a per-topic answer table). A real activity verb ("keep pigeons"/
-        # "brew"/"forge"/"run") is never in this set, so genuine disclosures
-        # still pass in both the D3-style loop and the general-activity loop.
-        # NOTE (round 2026-08-11T1328Z audit fix t_86c5c46b): this set is for
-        # SPEECH-ACT / INNER-STATE verbs only ("tell"/"say"/"feel"/"think"...).
-        # Genuine possession / loss verbs "keep"/"kept"/"lose"/"lost" were
-        # wrongly listed here, so first-person disclosures ("i keep homing
-        # pigeons", "i lost a kestrel", "i keep a saltwater reef tank") were
-        # dropped BEFORE capture, and the downstream count-correction path
-        # (which needs the stored 'does' text fact as its prior) went dead,
-        # leaving stale "six hives" after a "seven" correction. Their
-        # meta-discourse protection is already provided by the OBJECT-level
-        # guards (_META_HEAD / _META_DISCOURSE / embedded-question scan), which
-        # reject "keep saying" / "felt kind" / "lose track of whether..." on
-        # the object HEAD — so the verb-level guard must NOT reject real
-        # possession/loss verbs. Keep/lose are SEPARATELY in the activity/event
-        # verb seed lists so the disclosures still land.
-        _META_VERBS = (
-            "tell", "tells", "told", "say", "says", "said", "mention",
-            "mentions", "mentioning", "recall", "recount", "repeat",
-            "repeated", "feel", "feels",
-            "felt", "think", "know", "learn", "forget",
+
+        # D7 (round 2026-08-16T1745Z): relationship-ACTIVITY disclosures were
+        # never mined. "my X is Y" (equational) was captured, but the dominant
+        # real-world shape "my <relation> <Name> <verb> <object>" (e.g. "my
+        # grandmother Indira weaves baskets", "my brother Arjun climbs mountains")
+        # fell through entirely — only an incidental match happened when a
+        # conjoined-pet pattern accidentally grabbed "cousin". Consequently every
+        # cued recall of that family member (T29 "what's my grandmother's name",
+        # T32 "does my brother have a hobby", T51 "what did i tell you about my
+        # grandmother", T52 "my brother", T61 "who is indira") had nothing to
+        # recall and echoed an unrelated fact. This is the recurring L2 residual
+        # limitation, now closed GENERALIZABLY.
+        #
+        # Fix: capture ANY "my <kin> <Name> <verb> <object>" disclosure as a
+        # COMBINED-attr fact (attr = "<kin> <name>", subject "i", value = the
+        # verb+object HEAD) — the EXACT storage shape the recall branch (c) in
+        # engine.py:_structured_recall already resolves ("my niece priya" ->
+        # attr "niece priya"). So miner and recaller agree by construction; no
+        # per-relationship table. The relationship vocabulary is SEED structure
+        # (RAVANA-expandable: it feeds the same PersonalFactStore the user can
+        # correct; removing a word degrades gracefully), NOT authored reply
+        # prose and NOT a per-topic answer dictionary. The verb set is the SAME
+        # closed activity-verb seed the self-activity loop uses, so a disclosure
+        # like "my brother Arjun climbs mountains" stores ("i", "brother arjun",
+        # "climbs mountains") and a later "does my brother have a hobby?" /
+        # "what did i tell you about my brother" resolves it correctly.
+        _KIN = {
+            "grandmother", "grandfather", "grandma", "grandpa", "granny",
+            "granddad", "nana", "papa", "mum", "mom", "mother", "dad",
+            "father", "aunt", "auntie", "uncle", "sister", "brother",
+            "cousin", "niece", "nephew", "daughter", "son", "wife",
+            "husband", "spouse", "partner", "stepmother", "stepfather",
+            "stepsister", "stepbrother", "halfsister", "halfbrother",
+            "grandson", "granddaughter", "motherinlaw", "fatherinlaw",
+        }
+        _REL_ACTIVITY_VERBS = (
+            "run", "own", "operate", "play", "teach", "study", "manage",
+            "drive", "build", "make", "sell", "restore", "grow", "watch",
+            "raise", "tend", "brew", "bake", "write", "read", "learn",
+            "practice", "collect", "fix", "paint", "code", "design",
+            "craft", "volunteer", "cook", "fish", "hike", "garden",
+            "farm", "lead", "organize", "keep", "grind", "race", "sail",
+            "fly", "knit", "sew", "weld", "forge", "carve", "compose",
+            "record", "perform", "coach", "train", "compete", "spin",
+            "weave", "mount", "trade", "host", "guide", "climb", "repair", "work",
         )
+        # Accept inflected verb forms (3rd-person -s, -es, -ing) so
+        # disclosures like "weaves / climbs / grows / paints" match the
+        # base seed verb. The base set is the SEED; inflections are
+        # derived mechanically (no per-form list), so adding a base verb
+        # auto-covers its forms. Not authored prose.
+        _REL_ACTIVITY_VERB_FORMS = set(_REL_ACTIVITY_VERBS)
+        for _vb in _REL_ACTIVITY_VERBS:
+            _REL_ACTIVITY_VERB_FORMS.add(_vb + "s")
+            _REL_ACTIVITY_VERB_FORMS.add(_vb + "es")
+            _REL_ACTIVITY_VERB_FORMS.add(_vb + "ing")
+        # NO re.IGNORECASE here: kin + verb are always lowercase in the
+        # input, while the Name is capitalized, so the capitalized-name
+        # token cleanly separates from the lowercase activity verb.
+        # (IGNORECASE made [A-Z] also match lowercase and the name group
+        # greedily swallowed the verb.) kin/verb are lowercased after
+        # matching, so casing in the source is irrelevant.
+        # FIX (feature t_1a4a3938, round 2026-08-17T1126Z): the OLD regex
+        # required the Name to be CAPITALIZED ([A-Z][A-Za-z]*) so it could be
+        # told apart from the lowercase activity verb. But in real chat the name
+        # is usually lowercase ("my grandmother indira bakes bread"), so the
+        # capitalized group matched nothing, the name-less fallback fired, and
+        # its kin+verb slot ("indira") was not an activity verb -> the fact was
+        # NEVER stored. That silently broke every later open-ended recall of that
+        # relative (the residual "tell me about my grandmother" gap logged at the
+        # end of round 2026-08-17T1126Z).
+        #
+        # Fix: find the activity verb by MEMBERSHIP, not by position or
+        # capitalization. After "my <kin>" we scan the remaining tokens
+        # left-to-right for the FIRST token that is an activity verb; the tokens
+        # before it (if any) are the Name, the tokens after it are the object.
+        # This is structural — one verb lexicon, no per-name table, no case
+        # assumption — and generalizes to any name casing/length. Content comes
+        # from the user's own words; no authored reply, no retraining.
+        _mk = re.search(r"\bmy\s+([a-z][a-z]+)\b\s*(.*)", q_clean)
+        if _mk:
+            _kin = _mk.group(1).lower()
+            if _kin in _KIN:
+                _rest = _mk.group(2)
+                _toks = _rest.split()
+                _vidx = None
+                for _i, _t in enumerate(_toks):
+                    if _t.lower().strip(".,!?") in _REL_ACTIVITY_VERB_FORMS:
+                        _vidx = _i
+                        break
+                if _vidx is not None:
+                    _name = " ".join(_toks[:_vidx]).lower()
+                    _verb = _toks[_vidx].lower().strip(".,!?")
+                    _obj_rest = " ".join(_toks[_vidx + 1:])
+                    # trim at a framer conjunction so trailing framing ("every
+                    # sunday") doesn't bloat the stored object — mirrors the old
+                    # regex object boundary.
+                    _obj_raw = re.split(
+                        r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
+                    _obj = self._opinion_topic(_obj_raw.lower()) or ""
+                    _obj = _strip_obj_framers(_obj)
+                    if _obj and len(_obj.split()) <= 5:
+                        # COMBINED-attr storage: ("i", "<kin> <name>",
+                        # "<verb> <object>") — reachable from recall branch
+                        # (c) / the open-ended recaller by the relation head
+                        # "kin". A name-less disclosure ("my sister climbs
+                        # rocks") stores attr="sister"; still reachable from
+                        # "my sister".
+                        _attr = f"{_kin} {_name}".strip() if _name else _kin
+                        _put_fact(_attr, f"{_verb} {_obj}", 0.6)
+
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
-        # existing "my X is Y" / "i am a role" miners miss — e.g. "i run a chai
         # stall near the mysore palace", "i play the tabla when the stall is
         # closed", "i've been watching the night sky for twelve years". These are
         # first-person disclosures of what the user DOES / has, and must land in
@@ -2434,6 +2576,15 @@ class UserModel:
                 continue
             _obj = self._opinion_topic(_em.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
+            # Affective-object guard (round 2026-08-17T1126Z): "i find it
+            # fascinating" / "i found that surprising" is a cognitive-affective
+            # copula, not a discovery event. The object is a SENTIMENT
+            # adjective, so skip storing `event: <verb> <adj>` (which is
+            # garbage). A genuine discovery ("i found my keys") has a real
+            # content object and still stores. Seed vocabulary (_AFFECTIVE_OBJECT_ADJ),
+            # no authored prose, no retraining.
+            if _obj and _obj.split()[0] in _AFFECTIVE_OBJECT_ADJ:
+                continue
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("does", f"{_verb} {_obj}", 0.5)
 
@@ -3920,6 +4071,30 @@ class UserModel:
         toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
         if not toks:
             return None
+        # REJECT directional PARTICLE heads (round 2026-08-16). A disclosure
+        # like "i grew up in a village called aldermoor" has the verb object
+        # span begin with the particle "up" ("up in a village called
+        # aldermoor"). The particle is NOT a content head — it is a closed-class
+        # framer. The old code returned "up" as the salient head, and the
+        # activity/event miners then stored a bare-verb junk fact ("does=grew",
+        # "event=grew") because _strip_obj_framers trimmed the trailing "up" and
+        # left only the verb. Those junk facts poisoned every does-keyed recall
+        # ("where did i grow up" -> "you do grew"; "what have you learned about
+        # me" -> "your does is grew"). Treating a particle as a content head is
+        # the same class of error as a function word being kept — particles are
+        # closed-class framers. Drop them so the real content head ("village")
+        # surfaces. Structural: a small closed particle set, generalizes to any
+        # "i <verb> <particle> <object>" disclosure (grew up / came back /
+        # went out / sat down / fell over / turned around). No per-topic table,
+        # no retraining; removing an entry only loses one particle shape.
+        _PARTICLES = {
+            "up", "down", "off", "out", "in", "on", "away", "back", "over",
+            "under", "around", "through", "along", "by", "past", "upon",
+        }
+        while toks and toks[0] in _PARTICLES:
+            toks.pop(0)
+        if not toks:
+            return None
         # Drop leading closed-class words (determiners/prepositions).
         while toks and toks[0] in self._OPINION_STOP:
             toks.pop(0)
@@ -3974,8 +4149,6 @@ class UserModel:
             'dominance': emotion_vad[2],
             'turn': len(self.interaction_history),
         })
-        if len(self.interaction_history) > 100:
-            self.interaction_history = self.interaction_history[-100:]
 
     def infer_user_goal(self, query: str) -> str:
         q = query.lower().strip()

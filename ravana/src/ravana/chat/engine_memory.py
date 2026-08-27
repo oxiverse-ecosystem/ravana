@@ -167,6 +167,7 @@ from ravana.language.verb_lexicon import VerbLexicon
 from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext, Correction, CorrectionType
 
 from .user_model import UserModel
+from .user_model import is_activity_verb as _mem_is_activity_verb
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -475,7 +476,17 @@ class MemoryMixin:
                     elif attr == "is":
                         bits.append(f"you are {val}")
                     else:
-                        bits.append(f"your {attr} is {val}")
+                        # A verb-phrase value (mined activity: "fixes bicycles",
+                        # "bakes sourdough bread") must NOT get a copula — "your
+                        # brother theo is fixes bicycles" is ungrammatical. Drop
+                        # the copula so it reads "your <attr> <val>" (matches the
+                        # D7 cued-recall render rule; seed lexicon, no authored
+                        # text). A plain noun value keeps the copula.
+                        _val_str = (val or "").strip()
+                        if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
+                            bits.append(f"your {attr} {_val_str}")
+                        else:
+                            bits.append(f"your {attr} is {_val_str}")
                 return bits
             for attr, val in facts.items():
                 if attr == "favorite":
@@ -508,7 +519,14 @@ class MemoryMixin:
                 elif (_pet := _pet_slots.render_pair(ent, attr, val)):
                     bits.append(_pet)
                 else:
-                    bits.append(f"your {ent}'s {attr} is {val}")
+                    # verb-phrase value: drop the copula (same rule as the
+                    # self-profile dump above + D7 cued recall) so a mined
+                    # activity reads "your cabin's roof <val>", not "is <val>".
+                    _val_str = (val or "").strip()
+                    if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
+                        bits.append(f"your {ent}'s {attr} {_val_str}")
+                    else:
+                        bits.append(f"your {ent}'s {attr} is {_val_str}")
             return bits
 
         # find an entity token from the query that exists in the index
@@ -1832,8 +1850,20 @@ class MemoryMixin:
                         elif (_pet := _pet_slots.render_pair(_ent, _attr, _val)):
                             _bits.append(_pet)
                         else:
-                            _bits.append(f"your {_ent}'s {_attr} is {_val}" if not _is_user
-                                         else f"your {_attr} is {_val}")
+                            # verb-phrase value: drop the copula (same rule as
+                            # the D7 cued-recall + the other self-profile render
+                            # path) so a mined activity reads "your brother theo
+                            # fixes bicycles", not "is fixes bicycles". A plain
+                            # noun value keeps the copula.
+                            _sv = (str(_val) or "").strip()
+                            if _sv and _mem_is_activity_verb(_sv.split()[0]):
+                                _bits.append(
+                                    f"your {_ent}'s {_attr} {_sv}" if not _is_user
+                                    else f"your {_attr} {_sv}")
+                            else:
+                                _bits.append(
+                                    f"your {_ent}'s {_attr} is {_sv}" if not _is_user
+                                    else f"your {_attr} is {_sv}")
             if _bits:
                 # Case-insensitive dedup: the same fact can surface from both
                 # the personal-fact store ("your name is a hypocrite") and the

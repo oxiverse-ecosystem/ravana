@@ -28,17 +28,24 @@ env:
   RAVANA_OFFLINE: "1"
 
 jobs:
-  # ── Critical Path Tests (fast, runs on every push) ──
-  # Excludes the AV BLAS soak (see av-soak job) so this job stays inside the
-  # 10-minute budget and the fast path is not blocked by the Windows-only
-  # stress test.
-  ci-critical:
+  # ── Warm GloVe cache (built once, shared via actions/cache) ──
+  # The 144MB projected-vector cache (data/ravana_glove_cache.npz) used to be
+  # tracked via Git LFS, which re-served it on every CI job and exhausted the
+  # repo's 10GB LFS bandwidth quota. We now build it ONCE here (downloading the
+  # ~822MB raw GloVe archive only on cache miss) and share it across all test
+  # shards via actions/cache. This cuts LFS egress from ~1GB/run to a single
+  # 822MB download per cache-population (rare).
+  warm-glove-cache:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    env:
+      # This job is the ONLY one allowed to fetch the raw GloVe archive.
+      RAVANA_OFFLINE: "0"
+      RAVANA_ALLOW_GLOVE_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v5
         with:
-          lfs: true
+          lfs: false
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -48,7 +55,55 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev,test]
-      - name: Verify GloVe LFS cache resolved
+      - name: Restore GloVe cache (or mark miss)
+        id: glove-cache
+        uses: actions/cache@v4
+        with:
+          path: data/ravana_glove_cache.npz
+          key: glove-proj-cache-v1
+      - name: Build GloVe cache if missing
+        if: steps.glove-cache.outputs.cache-hit != 'true'
+        run: python .github/scripts/warm_glove_cache.py
+      - name: Verify cache present
+        run: python .github/scripts/check_lfs_assets.py
+      # Upload as a cross-OS artifact: actions/cache is OS-scoped, so the
+      # windows-latest av-soak job cannot restore an ubuntu-built cache. The npz
+      # is a plain numpy file (OS-independent), so an artifact bridges the gap.
+      - name: Upload GloVe cache artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: glove-cache
+          path: data/ravana_glove_cache.npz
+          if-no-files-found: error
+          retention-days: 7
+
+  # ── Critical Path Tests (fast, runs on every push) ──
+  # Excludes the AV BLAS soak (see av-soak job) so this job stays inside the
+  # 10-minute budget and the fast path is not blocked by the Windows-only
+  # stress test.
+  ci-critical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [warm-glove-cache]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: false
+      - name: Restore GloVe cache
+        uses: actions/cache@v4
+        with:
+          path: data/ravana_glove_cache.npz
+          key: glove-proj-cache-v1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev,test]
+      - name: Verify GloVe cache
         run: python .github/scripts/check_lfs_assets.py
       - name: Run CI-critical tests
         run: |
@@ -61,6 +116,7 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    needs: [warm-glove-cache]
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +124,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          lfs: true
+          lfs: false
+      - name: Restore GloVe cache
+        uses: actions/cache@v4
+        with:
+          path: data/ravana_glove_cache.npz
+          key: glove-proj-cache-v1
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -78,7 +139,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev,test]
-      - name: Verify GloVe LFS cache resolved
+      - name: Verify GloVe cache
         run: python .github/scripts/check_lfs_assets.py
       - name: Run unit tests (shard ${{ matrix.shard }}/4)
         run: |
@@ -92,10 +153,16 @@ jobs:
   integration-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    needs: [warm-glove-cache]
     steps:
       - uses: actions/checkout@v5
         with:
-          lfs: true
+          lfs: false
+      - name: Restore GloVe cache
+        uses: actions/cache@v4
+        with:
+          path: data/ravana_glove_cache.npz
+          key: glove-proj-cache-v1
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -105,7 +172,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev,test]
-      - name: Verify GloVe LFS cache resolved
+      - name: Verify GloVe cache
         run: python .github/scripts/check_lfs_assets.py
       - name: Run integration tests
         run: |
@@ -117,10 +184,16 @@ jobs:
   misc-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: [warm-glove-cache]
     steps:
       - uses: actions/checkout@v5
         with:
-          lfs: true
+          lfs: false
+      - name: Restore GloVe cache
+        uses: actions/cache@v4
+        with:
+          path: data/ravana_glove_cache.npz
+          key: glove-proj-cache-v1
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -130,7 +203,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev,test]
-      - name: Verify GloVe LFS cache resolved
+      - name: Verify GloVe cache
         run: python .github/scripts/check_lfs_assets.py
       - name: Run root-level tests
         run: |
@@ -147,10 +220,16 @@ jobs:
   av-soak:
     runs-on: windows-latest
     timeout-minutes: 20
+    needs: [warm-glove-cache]
     steps:
       - uses: actions/checkout@v5
         with:
-          lfs: true
+          lfs: false
+      - name: Restore GloVe cache (cross-OS artifact from warm-glove-cache)
+        uses: actions/download-artifact@v4
+        with:
+          name: glove-cache
+          path: data
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -160,7 +239,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev,test]
-      - name: Verify GloVe LFS cache resolved
+      - name: Verify GloVe cache
         shell: bash
         run: python .github/scripts/check_lfs_assets.py
       - name: Run AV soak (engine build + turns)

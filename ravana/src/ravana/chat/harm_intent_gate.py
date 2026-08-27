@@ -143,6 +143,26 @@ class HarmIntentGate:
         if self._st_loaded:
             return self._st_model
         self._st_loaded = True
+        # ROOT-CAUSE FIX (round 2026-08-16T1241Z): the sentence-transformers
+        # model is pulled from the HF Hub on first use. When it is NOT cached
+        # locally and the host is offline (RAVANA_OFFLINE=1, or HF/transformers
+        # offline env set), SentenceTransformer() blocks FOREVER on the network
+        # download with no timeout — which hung CognitiveChatEngine.process_turn
+        # for the whole CI gate (unit/integration/misc/av-soak all inherited it).
+        # Match the repo-wide offline contract (see engine_graph.py / web_learner.py
+        # D1 fix round v-aug06): never hit the network under offline mode. Fail
+        # closed (None) so Stage-1/2 regex+GloVe cascade still runs. The model is
+        # also only used by the optional pragma-no-cover Stage-3 branch, so the
+        # downstream `if _st is not None` guard makes skipping it a no-op for safety.
+        import os
+        _offline = (
+            os.environ.get("RAVANA_OFFLINE") == "1"
+            or os.environ.get("HF_HUB_OFFLINE") == "1"
+            or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+        )
+        if _offline:
+            self._st_model = None
+            return self._st_model
         try:  # pragma: no cover - optional dependency
             from sentence_transformers import SentenceTransformer
             self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
