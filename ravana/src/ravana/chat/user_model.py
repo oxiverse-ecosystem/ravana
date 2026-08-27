@@ -71,6 +71,61 @@ _AFFECT_STATE_LEXICON = {
     "sticking", "getting", "shaking", "crying", "dying", "lying", "trying",
     "running", "falling", "breaking", "caring", "waiting", "working",
     "learning", "growing", "changing", "feeling",
+    # Round 2026-08-13T2059Z: broaden to catch transient-state name
+    # poisoning from emotional / participle words the prior set missed
+    # (gutted / devastated / elated / shattered / drained / defeated /
+    # wrecked / crushed / broken / frozen / shaken / heartbroken /
+    # desolate / miserable / forlorn / wretched / bereft / gloomy / glum /
+    # morose / melancholy / mournful / dismal / bitter / gleeful / rueful /
+    # sorrowful / fretful / homesick / vexed / wistful / suspicious / wary /
+    # jubilant / content / serene / tranquil / smug / sheepish / blithe /
+    # coy / bashful / shy / sulky / querulous / uptight / vitriolic / void /
+    # dubious / sullen / edgy / queasy / ticked / bereaved / anguished /
+    # distraught / disheartened / dismayed). SEED vocabulary (RAVANA-
+    # expandable), not an authored answer path — removing entries degrades
+    # gracefully (one fewer guard), it is not content RAVANA can never change.
+    "gutted", "devastated", "elated", "crushed", "heartbroken", "thrilled",
+    "ecstatic", "miserable", "shattered", "wrecked", "defeated", "drained",
+    "bitter", "gleeful", "rueful", "overjoyed", "despondent", "desolate",
+    "forlorn", "wretched", "anguished", "bereft", "broken", "bereaved",
+    "inconsolable", "dejected", "sorrowful", "gloomy", "glum", "morose",
+    "melancholy", "mournful", "dismal", "crestfallen", "distraught",
+    "dismayed", "disheartened", "fretful", "homesick", "horrified",
+    "humiliated", "mortified", "terrified", "unnerved", "vexed", "wistful",
+    "yearning", "aggrieved", "appalled", "bewildered", "chagrined",
+    "daunted", "deflated", "delirious", "exasperated", "flabbergasted",
+    "incensed", "indignant", "infuriated", "outraged", "peeved", "perturbed",
+    "rattled", "resentful", "spooked", "startled", "stung", "sulky",
+    "suspicious", "wary", "jubilant", "gratified", "invigorated", "content",
+    "serene", "tranquil", "smug", "sheepish", "blithe", "coy", "bashful",
+    "shy", "sullen", "querulous", "uptight", "vitriolic", "void", "dubious",
+    "edgy", "queasy", "ticked", "frozen", "shaken",
+}
+
+# Round 2026-08-13T2059Z: stance-connector / function / common-adverb words
+# that may follow a bare "i'm" copula in an opinion or emotion frame, but are
+# NEVER proper-noun names. "i'm against plastics" / "i'm over the moon" /
+# "i'm still buzzing" must not store name=against / name=over / name=still.
+# SEED vocabulary (RAVANA-expandable via the shared lexicon), not a per-name
+# table; removing entries degrades gracefully. Combined with the verb-form
+# check (gerunds in 'ing', past/past-participle in 'ed') below, this rejects
+# transient states regardless of which token they occupy.
+_NAME_REJECT_FUNCTION = {
+    "against", "for", "with", "without", "over", "under", "about", "around",
+    "despite", "regardless", "beyond", "beneath", "beside", "except",
+    "plus", "minus", "near", "far", "via", "per", "yes", "no", "maybe",
+    "always", "never", "sometimes", "often", "usually", "already", "still",
+    "just", "really", "very", "quite", "too", "also", "even", "almost",
+    "nearly", "not", "actually", "basically", "probably", "definitely",
+    "surely", "clearly", "simply", "merely", "mostly", "partly", "fully",
+    "completely", "totally", "absolutely", "exactly", "particularly",
+    "especially", "generally", "naturally", "obviously", "truly", "honestly",
+    "frankly", "seriously", "admittedly", "ideally", "hopefully",
+    "personally", "ultimately", "virtually", "wrongly", "correctly",
+    "rightly", "rather", "instead", "though", "however", "whereas",
+    "although", "because", "since", "unless", "until", "whether", "either",
+    "neither", "both", "each", "every", "any", "some", "such", "same",
+    "other", "another", "own",
 }
 
 
@@ -802,6 +857,33 @@ class UserModel:
             r"(?:\s+(?:called|named|spelled))\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3})",
             q_clean, re.IGNORECASE)
+        # Round 2026-08-13T2059Z: capture location from "based in X" /
+        # "located in X" and from natural-feature location phrases
+        # ("on the isle of skye", "on the island of man", "in the valley of
+        # X"). The prior m_loc only matched live/lives/am/was/were/grew up
+        # + in/near/at/from, so "i'm a lighthouse keeper based in skye" and
+        # "i keep the lighthouse on the isle of skye" stored NO location and
+        # a later "where do i live" fell back to the NAME. Structural: extra
+        # trigger shapes, no per-toponym table; the same _put_fact("location")
+        # path is reused so recall stays consistent by construction.
+        _m_loc_based = re.search(
+            r"\b(?:i(?:'m| am)|he|she|they|we|you)\s+(?:[a-z]+['\-]?\s+){0,8}?"
+            r"(?:based|located|stationed|situated)\s+(?:in|on|at|near)\s+"
+            r"([A-Za-z][A-Za-z'\\-]*(?:\s+[A-Za-z][A-Za-z'\\-]*){0,2})",
+            q_clean, re.IGNORECASE)
+        _m_loc_feat = re.search(
+            r"\b(?:in|on|at|near|off)\s+the\s+(?:isle|island|coast|shore|"
+            r"headland|peninsula|cove|bay|fjord|valley|dale|glen|beach)\s+"
+            r"of\s+([A-Za-z][A-Za-z'\\-]*)",
+            q_clean, re.IGNORECASE)
+        _loc_cand = None
+        if _m_loc_based:
+            _loc_cand = _m_loc_based.group(1).strip().strip(" .,!")
+        elif _m_loc_feat:
+            _loc_cand = _m_loc_feat.group(1).strip().strip(" .,!")
+        if _loc_cand and len(_loc_cand.split()) <= 5 and _loc_cand.lower() not in _VALUE_STOP:
+            self.user_location = _loc_cand
+            _put_fact("location", _loc_cand, 0.6)
         if _named_loc:
             m_loc = type("_Loc", (), {"group": lambda self, n: _named_loc.group(1)})()
             # store the named toponym directly (reuse m_loc handling below)
@@ -966,40 +1048,27 @@ class UserModel:
                 # ("shaking"/"tired"), irregulars ("torn"/"lost"), and
                 # stative/cognitive verbs ("thinking"/"convinced").
                 _NAME_REJECT_AFFECT = _AFFECT_STATE_LEXICON
-                # D3 fix (round 2026-08-11T1328Z): the guard below tested the
-                # WHOLE candidate against the non-name stoplist, so multi-word
-                # transient/copula phrases slipped through and were stored as
-                # the user's NAME — "i'm not here" -> name "not here"; "i'm
-                # most myself" -> name "most myself"; "i'm gone" -> name
-                # "gone" — and then corrupted every self-summary ("from what
-                # you've told me, your name is not here; your name is gone").
-                # A name is a SHORT PROPER NOUN, never a predicate phrase. Test
-                # PER TOKEN: reject the candidate if ANY token is a closed-class
-                # word, a non-name state word, a reflexive pronoun, or a
-                # location/deixis word ("here"/"there"/"gone"). This is
-                # structural predicate-vs-proper-noun discrimination, generalizes
-                # across every persona (no per-name list), and degrades
-                # gracefully (a missing stop word merely loses this one guard).
-                _NAME_PRON = {
-                    "myself", "yourself", "himself", "herself", "itself",
-                    "themselves", "gone", "here", "there", "now", "then",
-                    "elsewhere", "anywhere", "nowhere", "somewhere",
-                    # Non-name states / descriptors / deixis (folds in the
-                    # later _NON_NAME stoplist so this guard never references a
-                    # variable assigned later in the function scope).
-                    "happy", "sad", "tired", "busy", "fine", "good", "bad",
-                    "hungry", "thirsty", "angry", "mad", "glad", "ok", "okay",
-                    "sorry", "lost", "ready", "done", "sure", "right", "wrong",
-                    "well", "sick", "late", "early", "home", "awake", "asleep",
-                    "confused", "scared", "afraid", "excited", "nervous",
-                    "calm", "what", "who", "why", "how", "where", "when",
-                    "not", "no", "yes", "maybe",
-                }
-                _has_stop = (
-                    any(w.lower() in _CLOSED for w in _nw)
-                    or any(w.lower() in _NAME_PRON for w in _nw))
-                _head_verb = _nw[0].lower() in _NAME_REJECT_AFFECT
-                if len(_nw) > 2 or _has_stop or _head_verb:
+                _has_closed = any(w.lower() in _CLOSED for w in _nw)
+                # Round 2026-08-13T2059Z: generalize the guard. The prior
+                # code only inspected the HEAD token, so "i'm against" /
+                # "i'm gutted" / "i'm devastated" slipped through and were
+                # stored as the user's NAME (name poisoning — a later
+                # "what's my name" returned "against"/"gutted"). Reject when
+                # ANY token is a transient-state / function / stance-connector
+                # word (seed vocabularies _AFFECT_STATE_LEXICON +
+                # _NAME_REJECT_FUNCTION), and reject verb-forms (gerunds in
+                # 'ing', past/past-participle in 'ed', only for words >=5
+                # letters so 3-4 letter names like 'ted'/'reed' survive). A
+                # proper noun is NEVER any of these, so the guard is
+                # exhaustive without enumerating every emotion word. SEED
+                # data, RAVANA-expandable; removing entries degrades
+                # gracefully, it is not content RAVANA cannot change.
+                _any_state = any(
+                    w.lower() in _NAME_REJECT_AFFECT
+                    or w.lower() in _NAME_REJECT_FUNCTION
+                    or (len(w) >= 5 and (w.endswith("ing") or w.endswith("ed")))
+                    for w in _nw)
+                if len(_nw) > 2 or _has_closed or _any_state:
                     name_cand = ""
             # Reject common states / descriptors / interrogatives so a bare
             # self-description is never stored as the user's name. Seed
@@ -1016,6 +1085,87 @@ class UserModel:
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
+
+        # Round 2026-08-13T2059Z: GENERAL RELATIONAL MINER (the 6f
+        # generalization gap — "who is wren to me" must resolve from the
+        # store, type-agnostically, for ANY relationship the user states).
+        # A bare "my <relation> <name> <rest>" disclosure (my cousin nora is
+        # a glaciologist...; my partner june runs a library; my neighbour otto
+        # fixes clocks; my auntie bea breeds ponies) is a RELATIONSHIP + an
+        # ENTITY, not a self-profile attribute. It MUST be captured as a
+        # relationship fact keyed by the NAMED ENTITY (subject=name,
+        # attr=relationship) plus the descriptive rest as role/does keyed by
+        # the same entity — reusing the SAME _put_fact_ent path the
+        # possessive miner uses, so miner + recaller agree on the key by
+        # construction. This generalizes across EVERY relationship type
+        # (friend/sister/brother/cousin/partner/neighbour/auntie/pet/...);
+        # it does NOT add a second narrow branch per entity kind.
+        # RELATION_WORDS is SEED vocabulary: a closed set of common-English
+        # relation terms, RAVANA-expandable at runtime via _learn_relation()
+        # (the user can name any relation — e.g. "my godfather luis" extends
+        # the set). It is DATA (not an if/elif answer path), and removing an
+        # entry degrades gracefully (one fewer relation class captured). A
+        # bare-capitalized-name test after it makes the miner fire on names
+        # RAVANA has not seen, so it never needs the list to be exhaustive.
+        _RELATION_WORDS = (
+            "friend", "friends", "sister", "brother", "cousin", "siblings",
+            "aunt", "auntie", "uncle", "nephew", "niece", "mother", "mom",
+            "father", "dad", "parent", "parents", "grandmother", "grandfather",
+            "grandma", "grandpa", "son", "daughter", "child", "children",
+            "kid", "kids", "wife", "husband", "spouse", "partner", "fiance",
+            "fiancee", "boyfriend", "girlfriend", "colleague", "coworker",
+            "boss", "manager", "mentor", "student", "teacher", "neighbour",
+            "neighbor", "roommate", "flatmate", "landlord", "tenant",
+            "godfather", "godmother", "godparent", "stepfather", "stepmother",
+            "stepsister", "stepbrother", "halfsister", "halfbrother",
+            "grandson", "granddaughter", "pet", "cat", "dog", "horse", "pony",
+            "companion", "bestie", "pal", "buddy", "acquaintance",
+        )
+        # mutable per-instance learned-relation set so RAVANA grows it online
+        _rel_known = set(getattr(self, "_learned_relations", set())) | set(_RELATION_WORDS)
+        # single-match form: "my <rel> <Name> <rest>" at end of clause or
+        # anywhere; iterate so conjoined "my cat mochi ... and my dog pip ..."
+        # captures BOTH entities (one match per "my <rel> <Name>" segment).
+        _REL_RE = re.compile(
+            r"\bmy\s+([a-z][a-z]+)\s+([A-Za-z][A-Za-z'-]+)"
+            r"(?:\s+([^.?!]+?))?(?=\s+(?:and|but|,|&)|[.!?]|$)",
+            re.IGNORECASE)
+        for _m_rel in _REL_RE.finditer(q_clean):
+            _rel = _m_rel.group(1).lower().strip()
+            _ent = (_m_rel.group(2) or "").strip().strip(".,!?")
+            _rest = (_m_rel.group(3) or "").strip().strip(".,!?")
+            _looks_relation = (_rel in _rel_known) or (
+                _rel.endswith("friend") or _rel.endswith("mate")
+                or _rel in ("partner", "spouse", "sibling"))
+            # Pet species (cat/dog/horse/...) are owned by the pet-slot system
+            # (pet_slots.py) which keys them as (i, species) / (i, species_N);
+            # never route them through the entity-keyed relationship store, or
+            # "my cat is pixel" would be lost from the pet slot and break the
+            # species-coexistence / cued-recall tests. Kinship + people
+            # relations still flow through the relational miner.
+            _is_pet = _pet_slots.species_of(_rel) is not None
+            _name_shape = bool(re.match(r"^[A-Za-z][A-Za-z'-]+$", _ent)) \
+                and _ent.lower() not in _VALUE_STOP
+            if _looks_relation and _name_shape and len(_ent) >= 2 and not _is_pet:
+                _put_fact_ent(_ent, "relationship", _rel, 0.65)
+                if _rest:
+                    _r = re.sub(r"^[\s,]+", "", _rest).strip()
+                    # drop a leading copula + optional article ("is a X") OR a
+                    # bare leading article ("a X") — the copula may already be
+                    # consumed by the capture, leaving "a glaciologist ...".
+                    _r = re.sub(r"^(?:is|are|was|were|'s)\s+(?: of)?\s+(?:a|an|the)\s+",
+                                "", _r, flags=re.IGNORECASE).strip()
+                    _r = re.sub(r"^(?:is|are|was|were)\s+", "", _r,
+                                flags=re.IGNORECASE).strip()
+                    _r = re.sub(r"^(?:a|an|the)\s+", "", _r,
+                                flags=re.IGNORECASE).strip()
+                    _r = re.split(r"(?<=[.!?])\s+|[.!?]\s*$", _r)[0].strip()
+                    if _r and len(_r.split()) <= 10:
+                        _put_fact_ent(_ent, "role", _r, 0.6)
+                if _rel not in _RELATION_WORDS:
+                    _rel_known.add(_rel)
+                    self._learned_relations = _rel_known
+
         for _pat in (
             # D2 (round v2): tolerate an optional "name" word between the
             # relation and "is" so "my daughter name is ingrid" stores
@@ -1102,7 +1252,47 @@ class UserModel:
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
                 _attr, _val = None, None
-                # FIX (round v-aug06b): the conjoined-pet pattern captures a
+                # Round 2026-08-13T2059Z: skip the generic "my <attr> is
+                # <val>" / "my <attr> <val>" capture when the attr is a
+                # RELATIONSHIP word followed by a NAME — that is the
+                # "my <rel> <name> <rest>" shape already handled by the
+                # relational miner above (stored under the ENTITY key, not
+                # the user's 'i' subject). Without this guard the loop
+                # ALSO stored ('i', 'cousin nora', ...) alongside the
+                # correct ('nora', 'relationship', 'cousin'), polluting the
+                # self-profile with a relationship dressed as a self-attr.
+                # Structural: a relation-set membership test, not a
+                # per-relation branch. _rel_known covers the seed set +
+                # runtime-learned relations so it stays in sync with the
+                # relational miner.
+                _raw_attr = (_m.group(1).strip().lower()
+                             if _m.lastindex is not None and _m.lastindex >= 1
+                             else "")
+                # attr may be multi-word ("cousin nora"); a relation-led attr
+                # starts with a relation word followed by a proper-noun name.
+                # Pet species (cat/dog/...) are excluded — they are owned by
+                # the pet-slot system (pet_slots.py) and must NOT be skipped,
+                # or "my cat is pixel" falls through to nothing.
+                # Only skip the genuine "my <rel> <Name>" shape where the word
+                # right after the relation is a NAME (not a copula/article):
+                # "my cousin nora is ..." skips (nora is the named entity), but
+                # "my child is a curious kid" does NOT (the word after "child"
+                # is the copula "is", so it is a normal self-attribute).
+                if _raw_attr:
+                    _raw_head = _raw_attr.split()[0] if _raw_attr.split() else ""
+                    _after = re.search(
+                        r"\b" + re.escape(_raw_head)
+                        + r"\s+([A-Za-z][A-Za-z'-]*)\b", q_clean, re.IGNORECASE)
+                    _COPULA_ART = ("is", "are", "was", "were", "am", "a", "an",
+                                   "the", "i", "my", "of", "to", "for", "on",
+                                   "in", "at", "by", "with", "and", "that")
+                    if (_raw_head in _rel_known
+                            and _pet_slots.species_of(_raw_head) is None
+                            and _after is not None
+                            and _after.group(1).lower() not in _COPULA_ART
+                            and re.match(r"^[A-Za-z][A-Za-z'-]+$",
+                                         _after.group(1))):
+                        continue
                 # chain like "ferret named pim and a parrot called coco".
                 # Expand it into individual "species named name" pairs and
                 # store each via the same slot logic below. Identified by object
@@ -1388,11 +1578,45 @@ class UserModel:
         #    can reconstruct "you dropped <x>" / "you lost <y>" grammatically
         #    (see engine_memory._reconstruct_entity + engine_reasoning
         #    ._derive_ack_from_store which now render the 'event' attr).
+        # Round 2026-08-13T2059Z: PRINCIPLED VERB PRUNE. The activity/event
+        # verb seeds below mix genuine activity/experience verbs with
+        # ACHIEVEMENT / COMMUNICATION verbs (got, said, made, gave, told,
+        # came, went, did, saw, met, sold, paid, sent, spent, bought, caught,
+        # brought, ate, drank, knew, wore, led, read, flew, swam, rode, drove,
+        # broke, spoke, woke, froze, chose, slept, felt, held, found, lost,
+        # kept, took, set, put, cut, hit, fed, bled, built, taught, wrote,
+        # drew, sang, grew, threw). Those fire on OUTCOME / UTTERANCE
+        # disclosures whose object is a bare noun naming a result
+        # ("i got the artist residency" -> does=got artist residency;
+        # "i said open-plan offices help" -> does=said open), and they echo
+        # verbatim in the self-summary as garbage. SEED set (RAVANA-
+        # expandable): these are communication/achievement verbs, not
+        # sustained activities or physical-world experiences; removing them
+        # degrades gracefully (one fewer outcome-class captured, which is
+        # correct — outcomes are not recurring activities). The genuine
+        # activity verbs (keep/grow/start/lost/found/build/throw/play/...)
+        # and experience verbs (drop/lose/find/break/heal/...) are kept,
+        # so the prior fact-mining tests (throw pots, grow air plants,
+        # repot juniper, lost favia coral, reef tank) stay GREEN.
+        _ACHIEVE_COMM_VERBS = frozenset({
+            "got", "get", "said", "say", "made", "make", "gave", "give",
+            "told", "tell", "came", "come", "went", "go", "did", "do",
+            "saw", "see", "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy", "caught",
+            "catch", "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "know", "wore", "wear", "led", "lead", "read", "fly",
+            "flew", "swam", "swim", "rode", "ride", "drove", "drive",
+            "broke", "break", "spoke", "speak", "woke", "wake", "froze",
+            "freeze", "chose", "choose", "slept", "sleep", "felt", "feel",
+            "held", "hold", "took", "take", "set", "put", "cut", "hit",
+            "fed", "feed", "bled", "bleed",
+        })
         # Closed VERB SEED vocabulary (RAVANA-expandable; feeds the same
+
         # PersonalFactStore the user can correct — NOT per-topic answers, NOT
         # authored prose). Covers everyday disclosure verbs + common irregular
         # past forms so first-person activities/experiences actually land.
-        _ACTIVITY_VERBS = (
+        _ACTIVITY_VERBS = tuple(v for v in (
             "run", "own", "operate", "play", "teach", "study", "manage",
             "drive", "build", "make", "sell", "restore", "grow", "watch",
             "raise", "tend", "brew", "bake", "write", "read", "learn",
@@ -1414,8 +1638,8 @@ class UserModel:
             "paid", "said", "gave", "came", "went", "did", "saw", "got",
             "made", "took", "set", "put", "cut", "hit", "read", "led",
             "fed", "bled", "fed",
-        )
-        _EVENT_VERBS = (
+        ) if v not in _ACHIEVE_COMM_VERBS)
+        _EVENT_VERBS = tuple(v for v in (
             "drop", "lose", "find", "remove", "break", "discover", "notice",
             "repot", "prune", "harvest", "spill", "melt", "crack", "kill",
             "ruin", "save", "nurse", "revive", "miss", "spot",
@@ -1426,7 +1650,7 @@ class UserModel:
             "broke", "felt", "cut", "hit", "met", "told", "saw", "got",
             "made", "took", "gave", "came", "went", "did", "ate", "drank",
             "grew", "knew", "threw", "froze", "bled", "fed", "died",
-        )
+        ) if v not in _ACHIEVE_COMM_VERBS)
         # Match "i [aux?] <verb>(s|ed|ing)? <object> <clause-boundary>".
         # The object stops at a clause boundary (., !, ?, ",", " and ",
         # " but ", " because ", " so ", " which ", " that ", " when ",
@@ -1609,71 +1833,74 @@ class UserModel:
             if _activity_obj_is_real(_obj, _raw_obj):
                 _put_fact("event", f"{_verb} {_obj}", 0.5)
 
-        # Quantitative possession / activity capture (round 2026-08-11T0521Z):
-        # "i keep twelve racing pigeons", "i have three cats", "i bake two
-        # sourdough loaves", "i lost five hens" — extract the LEADING count +
-        # the noun phrase and store it as a structured (subject, kind, count,
-        # noun) record in self.quantity_memory. This decouples the NUMBER from
-        # the gist sentence so a later "how many racing pigeons do i keep" can
-        # be answered with a clean count and "how many pets in total" can be
-        # AGGREGATED across the store. The 'does'/'event' text fact (which
-        # already preserves the number) is still written above; this adds the
-        # structured count on top. Seed + online: the number-word lexicon and
-        # verb->category map live in QuantityMemory (extendable at runtime), so
-        # a new quantity phrasing is captured without retraining or a per-topic
-        # table. Structural: any "i <verb> <count> <noun>" lands here.
-        # Skip interrogatives — a count QUESTION ("how many cats do i have")
-        # must never be stored as if RAVANA had asserted a quantity. The
-        # mine runs for both declarative disclosures and (later) the opinion
-        # miner, which has its own _is_question guard; this one mirrors it so a
-        # first-person count question is never seeded as a fact.
-        _qty_is_question = (q_clean.rstrip().endswith("?")
-                             or bool(re.match(
-                                 r"^(what|who|when|where|why|how|which|is|are|"
-                                 r"do|does|did|can|could|would|should|will|may|"
-                                 r"might|am|have|has|had)\b", q_clean)))
-        _qty_pat = re.compile(
-            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+        # OPEN-CLASS activity/event capture (round 2026-08-13T2059Z). The two
+        # frozen-verb blocks above (ACTIVITY_VERBS / EVENT_VERBS) only cover a
+        # seeded whitelist, so first-person disclosures using a NOVEL or
+        # HYPHENATED-COMPOUND verb ("i count meteor showers", "i tide-pool at
+        # low water", "i astrophotograph the milky way") captured NO personal
+        # fact and were even misrouted as knowledge queries. This block makes
+        # capture GENERAL: any first-person "i <verb> <object>" whose verb is
+        # NOT a stative/copula/achieve-comm verb is mined as a 'does' fact. The
+        # verb vocabulary is now OPEN-CLASS (a closed deny-list), so RAVANA
+        # learns the verb from experience instead of requiring the whitelist to
+        # enumerate every possible activity. This is SEED structure (deny-list
+        # + the learnable PersonalFactStore), NOT a per-verb answer dictionary
+        # and NOT authored reply prose. Removing the deny-list degrades to
+        # "capture everything" (still not a regression of capability), so it is
+        # seed knowledge, not hardcoding.
+        _STATIVE_DENY = frozenset({
+            # copula / existence
+            "am", "are", "is", "was", "were", "be", "been", "being",
+            "become", "seem", "appear", "remain",
+            # affect / cognition / volition (handled by opinion/benign paths)
+            "feel", "feels", "love", "like", "hate", "dislike", "prefer",
+            "think", "believe", "know", "understand", "want", "need", "wish",
+            "hope", "guess", "suppose", "mean", "wonder", "agree", "disagree",
+            "doubt", "fear", "regret", "suspect", "realize", "realise",
+            "remember", "recall", "imagine", "mind", "care",
+            # possession (handled by 'my X is Y' / have patterns)
+            "have", "has", "had", "own", "possess",
+            # communication / achievement utterances (echo verbatim as garbage;
+            # seeded out just like _ACHIEVE_COMM_VERBS above)
+            "got", "get", "said", "say", "made", "make", "gave", "give",
+            "told", "tell", "came", "come", "went", "go", "did", "do",
+            "saw", "see", "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy", "caught",
+            "catch", "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "know", "wore", "wear", "led", "lead", "read", "fly",
+            "flew", "swam", "swim", "rode", "ride", "drove", "drive",
+            "broke", "break", "spoke", "speak", "woke", "wake", "froze",
+            "freeze", "chose", "choose", "slept", "sleep", "felt", "feel",
+            "held", "hold", "took", "take", "set", "put", "cut", "hit",
+            "fed", "feed", "bled", "bleed",
+        })
+        _gen_verb_pat = re.compile(
+            r"\bi\s+"
+            r"(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
             r"often\s+|sometimes\s+|usually\s+)?"
-            r"(" + "|".join(QuantityMemory.VERB_KIND.keys()) + r")"
-            r"(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
-            r"\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
-            r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
-            r"eighteen|nineteen|twenty|\d+)\s+"
+            r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
+            r"(?:been\s+)?"
+            # verb: lowercase token, optionally hyphenated compound; excludes
+            # 'ing/ed' inflections so we don't double-capture verbs already
+            # handled by the seeded ACTIVITY_VERBS/EVENT_VERBS blocks above
+            # (those keep their higher-confidence 0.55/0.5 paths). Only the
+            # base form + 's/es' is captured here as the open-class fallback.
+            r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es)?)"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
             r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
             r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
-            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|"
-            r"\s+from\s+))",
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
             re.IGNORECASE)
-        if not _qty_is_question:
-            for _qm in _qty_pat.finditer(q_clean):
-                _v = _qm.group(1).lower()
-                _num_tok = _qm.group(2).lower()
-                _noun_raw = _qm.group(3).strip().lower()
-                _vk = QuantityMemory.VERB_KIND.get(_v)
-                if _vk is None:
-                    continue
-                _kind, _cat = _vk
-                _cnt = number_to_int(_num_tok)
-                if _cnt is None or _cnt <= 0:
-                    continue
-                # Resolve a canonical noun: an animal word -> its species (so
-                # "racing pigeons" aggregates with "homing pigeons" under
-                # "pigeon"); otherwise the last content noun, singularized.
-                _toks = [t for t in re.findall(r"[a-z']+", _noun_raw)
-                         if t not in self._OPINION_STOP]
-                if not _toks:
-                    continue
-                _spec = _pet_slots.species_of(_toks[-1]) or _pet_slots.species_of(
-                    _toks[0])
-                _canon = _spec if _spec else (
-                    _toks[-1][:-1] if len(_toks[-1]) > 3 and _toks[-1].endswith("s")
-                    else _toks[-1])
-                self.quantity_memory.assert_quantity(
-                    "i", _kind, _cnt, _noun_raw, _canon, category=_cat,
-                    confidence=0.6, source="seed_regex")
+        for _gm in _gen_verb_pat.finditer(q_clean):
+            _verb = _gm.group(1).lower()
+            if _verb in _STATIVE_DENY:
+                continue
+            _obj = self._opinion_topic(_gm.group(2).strip().lower())
+            if _obj and 1 <= len(_obj.split()) <= 5:
+                _put_fact("does", f"{_verb} {_obj}", 0.5)
 
+        # Opinion mining (C2): capture the user's value judgments alongside
         # facts. Runs in the miner (not only observe_user_query) so opinions are
         # captured even when process_turn early-returns before Step 5b (e.g. a
         # bare "i really like cats" hits a preference handler). Polarity from

@@ -2554,68 +2554,58 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if _eattr == "is":
                         return f"your {_ent} is {_v}."
                     return f"your {_ent}'s {_eattr} is {_v}."
-        # ── (1c-i) Entity-keyed LOCATION recall (round 2026-08-10T0813Z) ──
-        # Limitation #1 from the round report: a named possession's whereabouts
-        # is now stored as an ENTITY-KEYED location fact (fix D, commit
-        # ac4e2c7 — subject = the entity, e.g. "slow coal", not "i"), but
-        # "where's the slow coal moored?" still fell through to the episodic
-        # echo because the recall router only resolved location for the USER
-        # ("where do i live") or a possessive "my X" (_ENT_ATTR block above) —
-        # never a determiner-led / bare named entity. Surface the structured
-        # fact here. General: ANY entity with a stored location fact answers;
-        # no per-place / per-entity table, no authored reply pools. Fail-closed:
-        # when no stored entity location matches, return None so the honest
-        # web / uncertainty path handles genuinely unknown places ("where is
-        # paris"). Reads the LIVE PersonalFactStore, which the user can correct
-        # (contradict) at runtime — so the capability is learnable, not frozen.
-        _ent_loc_a = re.search(
-            r"\bwhere(?:'s|'re|s)?\s+"
-            r"(?:is|are|was|were\s+)?"
-            r"(?:the|my|our|their|his|her|a|an|this|that|these|those)?\s*"
-            r"([a-z][a-z'\- ]{1,40}?)\s*"
-            r"(?:moored|berthed|anchored|docked|based|parked|stationed|"
-            r"kept|stored|housed|tied\s+up|wintered|located|situated)?\s*"
-            r"(?:at|in|on)?\s*\??\s*$", q)
-        _ent_loc_b = re.search(
-            r"\bwhat\s+is\s+(?:the|my|our|their|a|an|this|that)?\s*"
-            r"([a-z][a-z'\- ]{1,40}?)'s\s+location\s*\??\s*$", q)
-        _ent_loc_phrase = None
-        if _ent_loc_a:
-            _ent_loc_phrase = _ent_loc_a.group(1).strip()
-        elif _ent_loc_b:
-            _ent_loc_phrase = _ent_loc_b.group(1).strip()
-        if _ent_loc_phrase and pf is not None:
-            # Collect entity-keyed (subject != "i") location facts. Exclude the
-            # USER's own location so "where do i live" (handled above) is never
-            # double-answered here, and so a city name with no stored fact
-            # cannot be mistaken for an entity whereabouts.
-            _ent_loc_facts = [
-                (k[0], f.value) for (k, f) in pf.facts.items()
-                if isinstance(k, tuple) and len(k) == 3
-                and k[1] == "location" and k[0] != "i"
-                and not getattr(f, "superseded", False)]
-            if _ent_loc_facts:
-                _elw = _ent_loc_phrase.split()
-                _best = None
-                # Suffix-window match: the entity phrase (or any trailing part
-                # of it) contains the stored subject as a whole word. Lets a
-                # user say "where's the slow coal narrowboat moored" and still
-                # resolve to the stored subject "slow coal". Longest stored
-                # subject wins so "coal" doesn't beat "slow coal".
-                for _i in range(len(_elw)):
-                    _c = " ".join(_elw[_i:])
-                    for _subj, _place in _ent_loc_facts:
-                        if re.search(r"\b" + re.escape(_subj) + r"\b", _c):
-                            if _best is None or len(_subj) > len(_best[0]):
-                                _best = (_subj, _place)
-                            break
-                if _best is not None:
-                    _subj, _place = _best
-                    _ans = f"the {_subj} is at {_place}."
-                    # B4 confirmation wiring: a follow-up "yes / that's right"
-                    # confirms this fact (closes the learning loop).
-                    self._last_pf_recall = (_subj, "location", _place)
-                    return _ans
+        # Round 2026-08-13T2059Z: type-agnostic reverse name-to-relationship
+        # resolver (the 6f generalization). who is X to me / what is X to me
+        # must answer from the durable store for ANY named entity (friend,
+        # cousin, partner, neighbour, auntie, cat, dog, or runtime-learned).
+        # Reverse-indexes PersonalFactStore by entity name and renders the
+        # relationship label plus role/does from stored facts. No per-entity
+        # table, no pet grammar, no authored answer dict. Content from the
+        # store. Fails closed to None for an unknown name.
+        _WHO = re.search(
+            r"\b(?:who|what)\s+is\s+([a-z][a-z']+)\s+(?:to|for)\s+me\b", q)
+        if _WHO and pf is not None:
+            _ent = _WHO.group(1).lower().strip()
+            _rel_fact = None
+            _role_fact = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[0] != _ent or getattr(_f, "superseded", False):
+                    continue
+                if _k[1] == "relationship":
+                    _rel_fact = _f
+                elif _k[1] == "role":
+                    _role_fact = _f
+            if _rel_fact is not None:
+                _bits = [f"{_ent} is your {_rel_fact.value}."]
+                if _role_fact is not None:
+                    _bits.append(f"{_ent} {_role_fact.value}.")
+                return " ".join(_bits)
+        # Round 2026-08-13T2059Z: what does my REL do / study / work / job.
+        # Resolve the relationship word to the named entity via the same
+        # reverse index, then render the entity role/does. Generalizes the
+        # prior narrow sibling path to every stored relation type.
+        _REL_WORK = re.search(
+            r"\bwhat\s+(?:does|is)\s+my\s+([a-z][a-z]+)\s+"
+            r"(do|does|study|studies|work|works|job|role|for\s+work)\b", q)
+        if _REL_WORK and pf is not None:
+            _rel = _REL_WORK.group(1).lower().strip()
+            _ent_hit = None
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if _k[1] == "relationship" and _f.value == _rel \
+                        and not getattr(_f, "superseded", False):
+                    _ent_hit = _k[0]
+                    break
+            if _ent_hit is not None:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _k[0] == _ent_hit and not getattr(_f, "superseded", False) \
+                            and _k[1] in ("role", "does", "work"):
+                        return f"your {_rel} {_ent_hit} {_f.value}."
         # Count / quantity recall: "how many X do i have / keep / raise" ->
         # scan 'does' facts whose value contains a leading cardinal number
         # and the cue noun; or a dedicated count attribute. Honest fallback
