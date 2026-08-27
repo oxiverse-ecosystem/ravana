@@ -26,6 +26,19 @@ silently overwriting it.
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, Set
 import re
+from .constants import STOP_WORDS
+
+# Filler / temporal / discourse tokens that must never count as a topic overlap
+# when resolving a held stance from an utterance (see user_model._FILLER_TOKENS
+# for the rationale — a held "thunderstorms now" key must not bind an unrelated
+# utterance merely because both contain the temporal filler "now"). Kept in sync
+# with the copy in user_model.py; both exclude temporal adverbs STOP_WORDS omits.
+_FILLER_TOKENS = frozenset({
+    "now", "still", "today", "tonight", "yesterday", "tomorrow", "already",
+    "yet", "again", "lately", "recently", "currently", "actually", "really",
+    "just", "though", "anyway", "anymore", "here", "there", "then", "soon",
+    "usually", "sometimes", "often", "always", "never", "ever",
+})
 
 
 @dataclass
@@ -380,10 +393,10 @@ class UserStanceStore:
         for k in stances:
             if head and (head in k or k in head):
                 return k
-        hw = set(re.findall(r"[a-z']+", head))
+        hw = set(re.findall(r"[a-z']+", head)) - STOP_WORDS - _FILLER_TOKENS
         best, best_j = None, 0.0
         for k in stances:
-            kw = set(re.findall(r"[a-z']+", k))
+            kw = set(re.findall(r"[a-z']+", k)) - STOP_WORDS - _FILLER_TOKENS
             if not hw or not kw:
                 continue
             j = len(hw & kw) / len(hw | kw)

@@ -8,6 +8,22 @@ from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss
+from .constants import STOP_WORDS
+
+# Filler / temporal / discourse tokens that must NEVER count as a topic overlap
+# when resolving a held stance from an utterance. constants.STOP_WORDS omits
+# temporal adverbs ("now", "still", "today") and a few discourse markers that
+# otherwise cause cross-topic misbinding: a held stance keyed "thunderstorms
+# now" would otherwise match ANY later utterance containing "now" (the
+# 2026-08-21T0843Z misattribution where a grass contradiction acked "you've
+# changed your mind about thunderstorms"). These are function words, not topic
+# content; dropping them from the overlap score leaves only real content tokens.
+_FILLER_TOKENS = frozenset({
+    "now", "still", "today", "tonight", "yesterday", "tomorrow", "already",
+    "yet", "again", "lately", "recently", "currently", "actually", "really",
+    "just", "though", "anyway", "anymore", "here", "there", "then", "soon",
+    "usually", "sometimes", "often", "always", "never", "ever",
+})
 
 # ── Dedicated user-model store ───────────────────────────────────────────────
 # The per-user model used to be pickled *inside* the engine weight snapshot,
@@ -154,15 +170,50 @@ def is_relation_verb(word: str) -> bool:
     return False
 
 
+# Auxiliary-verb seed lexicon (round 2026-08-21T0843Z feature card
+# t_16b15684). A relationship disclosure often states an activity through an
+# AUXILIARY verb instead of a bare activity/relation verb: "my cousin Jin DOES
+# competitive speedcubing", "my sister DID competitive debate", "my brother DOES
+# parkour". The earlier two verb classes (activity verbs, relation verbs) both
+# MISSED this shape — "does" is neither an activity verb nor a relation verb —
+# so the whole disclosure fell through to the name-only path and was dropped by
+# the degenerate-fact guard (the residual "cousin Jin's activity not recalled"
+# logged at the end of round 2026-08-21T0843Z). The auxiliary opens the SAME
+# capture path as the other two verb classes (name = tokens before it, value =
+# aux + activity noun-phrase resolved through _opinion_topic), so the disclosure
+# mines + recalls like any other. This is SEED vocabulary (a data set, not an
+# answer table) — RAVANA-expandable by the same PersonalFactStore the user can
+# correct; removing entries degrades gracefully (one fewer aux shape recognized).
+# NOT a per-relationship table and NOT authored prose.
+_AUX_VERB_LEXICON = {"do", "does", "did", "doing", "done"}
+
+
+def is_aux_verb(word: str) -> bool:
+    """True when `word` is an auxiliary verb that introduces an activity
+    noun-phrase in a relationship disclosure ("does"/"did"/"doing" + activity).
+    Recognized as a verb-phrase head for both mining and copula-free recall
+    rendering. Pure vocabulary lookup — no content."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _AUX_VERB_LEXICON:
+        return True
+    # inflected forms not pre-listed
+    for suf in ("ing", "ed", "s", "es"):
+        if w.endswith(suf) and w[: -len(suf)] in _AUX_VERB_LEXICON:
+            return True
+    return False
+
+
 def is_verb_phrase(word: str) -> bool:
     """True when `word` heads a VERB-PHRASE personal fact (activity OR relation
-    verb). The single source of truth for the recall/ack grammar rule that drops
-    the copula for verb-phrase values (so "your grandmother yaya speaks three
-    languages" is grammatical, not "is speaks"). Superset of is_activity_verb;
-    callers that previously used is_activity_verb for the copula decision should
-    use this so relation-verb facts render correctly too. Pure vocabulary
-    lookup — no content."""
-    return is_activity_verb(word) or is_relation_verb(word)
+    OR auxiliary verb). The single source of truth for the recall/ack grammar
+    rule that drops the copula for verb-phrase values (so "your cousin jin does
+    competitive speedcubing" is grammatical, not "is does"). Superset of
+    is_activity_verb + is_relation_verb + is_aux_verb; callers that previously
+    used is_activity_verb for the copula decision should use this so every verb
+    class renders correctly. Pure vocabulary lookup — no content."""
+    return is_activity_verb(word) or is_relation_verb(word) or is_aux_verb(word)
 
 
 # real affect categories in brain_regions._CAUSE_SEEDS and
@@ -2509,6 +2560,29 @@ class UserModel:
                         _vidx = _i
                         _v_is_rel = True
                         break
+                    # GENERALIZE (feature t_16b15684, round 2026-08-21T0843Z
+                    # residual): also recognize an AUXILIARY verb (does/did/doing
+                    # + activity noun-phrase) as a verb-phrase head. The canonical
+                    # missed case was "my cousin Jin DOES competitive speedcubing"
+                    # — "does" is neither an activity verb nor a relation verb, so
+                    # the verb-scan found nothing, fell to the name-only path, and
+                    # the degenerate-fact guard dropped the whole disclosure. Now
+                    # the auxiliary opens the SAME capture path as the other two
+                    # verb classes; the value is mined as "aux + activity
+                    # noun-phrase" via the activity value-extraction branch below
+                    # (the object is resolved through _opinion_topic so it stays a
+                    # real concept, not a filler). Seed lexicon (is_aux_verb),
+                    # RAVANA-expandable; not a per-relationship table. The aux is
+                    # allowed to fire on its own token as long as a following
+                    # content token exists (the activity noun-phrase) — we do NOT
+                    # require a following activity VERB, because the disclosure is
+                    # "does competitive speedcubing", not "does climb".
+                    if is_aux_verb(_tw):
+                        _rest_toks = [t for t in _toks[_i + 1:]
+                                      if t.strip(".,!?")]
+                        if _rest_toks:
+                            _vidx = _i
+                            break
                 # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
                 # establishes the RELATIONSHIP + NAME regardless of whether an
                 # activity verb is recognised. When NO activity/relation verb is
@@ -4011,6 +4085,19 @@ class UserModel:
         if not text:
             return None
         _words = set(re.findall(r"[a-z']+", text.lower()))
+        # Filler-token guard: a held stance key may contain a function/filler
+        # word (e.g. "thunderstorms now" — "now" is a temporal filler). Without
+        # this, ANY utterance containing that filler token ("...the way i used
+        # to now") would bind the WRONG stance (the 2026-08-21T0843Z misattrib:
+        # a grass contradiction acked "you've changed your mind about
+        # thunderstorms" because both contained "now"). Score only on CONTENT
+        # tokens; stopwords + temporal/discourse fillers never count as an
+        # overlap. STOPS is broader than constants.STOP_WORDS (which omits
+        # temporal adverbs like "now") so the misbind is fully closed. Preserves
+        # the multiword match (a partial recant "letterpress" still binds
+        # "letterpress printing") — the set difference only drops filler words.
+        STOPS = STOP_WORDS | _FILLER_TOKENS
+        _words = {w for w in _words if w not in STOPS}
         if not _words:
             return None
         _best = None
@@ -4018,13 +4105,13 @@ class UserModel:
         for _k in self.opinions.stances:
             if not _k:
                 continue
-            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if t]
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if t and t not in STOPS]
             if not _ktoks:
                 continue
             # A partial recant names only part of a multiword key (e.g.
             # "letterpress" for the stored "letterpress printing"); match when
-            # ANY key token appears as a whole word, and prefer the key with
-            # the most tokens present (most specific match wins).
+            # ANY content key token appears as a whole word, and prefer the key
+            # with the most content tokens present (most specific match wins).
             _matched = sum(1 for t in _ktoks if t in _words)
             if _matched == 0:
                 continue
@@ -4047,7 +4134,8 @@ class UserModel:
         """
         if not text:
             return None
-        _words = [t for t in re.findall(r"[a-z']+", text.lower()) if len(t) >= 3]
+        _words = [t for t in re.findall(r"[a-z']+", text.lower())
+                  if len(t) >= 3 and t not in STOP_WORDS and t not in _FILLER_TOKENS]
         if not _words:
             return None
 
@@ -4069,7 +4157,13 @@ class UserModel:
         for _k in self.opinions.stances:
             if not _k:
                 continue
-            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower()) if len(t) >= 3]
+            # Score only CONTENT tokens of the key — drop filler words so a key
+            # like "thunderstorms now" cannot bind an utterance that merely
+            # shares the temporal filler "now" (the 2026-08-21T0843Z
+            # misattribution defect). Stem matching below still binds verb-stem
+            # variants ("hike"/"hiking"); only stopwords + fillers are excluded.
+            _ktoks = [t for t in re.findall(r"[a-z']+", _k.lower())
+                      if len(t) >= 3 and t not in STOP_WORDS and t not in _FILLER_TOKENS]
             if not _ktoks:
                 continue
             _score = 0

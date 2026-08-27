@@ -259,6 +259,7 @@ on this codebase:
   authored prose. A legitimate world-state conditional (*"when you turn on the
   lamp, it lights up"*) still binds and answers. No LLM, no per-topic reply table,
   no retraining. See `docs/CAPABILITY_SOURCE_MONITORING_AFFECTIVE_ECHO.md`.
+- **Recalls relationship disclosures made with an auxiliary verb (does/did + activity).** Told *"my cousin Jin does competitive speedcubing"* — where *"does"* is neither an activity verb nor a relation verb — it no longer drops the disclosure and later answers *"what does my cousin jin do"* with *"your cousin jin does competitive speedcubing."* (copula-free, not *"is does"*, and not the prior *"cousin is a bit outside what i know right now"*). The auxiliary is now a **third** verb class in the relationship miner (after activity verbs and relation verbs, both already generalized), opening the same capture path (name = tokens before it, value = aux + activity noun-phrase). The recall grammar rule that drops the copula for verb-phrase values (`is_verb_phrase`) now covers all three classes. The aux vocabulary is seed data that grows at runtime — no code change, no retraining, no LLM, no per-relationship reply table. See `docs/CAPABILITY_AUX_VERB_RELATIONSHIP_RECALL.md`.
 
 These capabilities are backed by four durable stores
 (`IdentityEngine`), **stances** (`UserStanceStore`), **personal facts**
