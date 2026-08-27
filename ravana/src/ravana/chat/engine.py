@@ -4713,24 +4713,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if not re.search(r"\b(i|me|my|mine|we|our)\b", q):
             return None
 
-        # EPISODIC-RECALL routing (round 2026-08-14T0103Z): a query that
-        # explicitly asks to REPLAY a prior episode ("remember when i told you
-        # about X", "what did i tell you about X", "what did i say about X")
-        # is episodic recall, not a self-disclosure confirmation — it must fall
-        # through to the episodic recall path (_try_memory_query /
-        # _retrieve_episodic), not be answered here as a salience/confirmation.
-        # Scope is narrow: only the replay-request phrasings (leading "what did
-        # i tell you about" / "what did i say about" / "remember when ... told
-        # you about"). Genuine yes/no confirmations ("have i told you about my
-        # brother") are NOT matched (they start with "have", not "what"/
-        # "remember when") and are left to the salience/confirmation branches
-        # below — so the family-mention confirmation test still resolves.
-        if re.search(
-            r"\b(remember when .* (?:told|said) you about"
-            r"|what did i (?:tell you|say) about)\b", q
-        ):
-            return None
-
         # ── (A) SALIENCE: what RAVANA will remember MOST / about the user ──
         _A = re.search(
             r"\b(what will you remember most about me"
@@ -4802,6 +4784,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _fact is not None:
                 return ("yes — i remember: " +
                         self._render_fact_line(_fact[0], _fact[1]) + ".")
+            # No matching fact/stance. For a "tell you ABOUT <X>" replay
+            # phrasing (the clause after the tell-verb leads with a recall
+            # preposition), this is a request to REPLAY the episode, not a
+            # yes/no confirmation — fall through to the episodic recall path
+            # (_try_memory_query / _retrieve_episodic) so a stored episode about
+            # X is replayed, and an undisclosed X fails closed (no sibling
+            # echo). A genuine confirmation with a real matched fact above is
+            # answered normally. Round 2026-08-14T0103Z (Defect C): without
+            # this, "what did i tell you about the commission" returned "not
+            # that i recall" and the adjacent-turn episode was never reached.
+            if re.match(r"^(?:about|regarding|on|of)\b", _rem):
+                return None
             return ("not that i recall — you haven't told me about that yet. "
                     "what did you want me to know?")
 
