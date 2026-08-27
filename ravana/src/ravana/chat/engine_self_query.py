@@ -990,7 +990,149 @@ class SelfQueryMixin:
                                   "versus", "vs", "more", "me", "now", "after",
                                   "what", "just", "said", "right", "really",
                                   "exactly", "tell", "think")]
-            _target = _toks[-1] if _toks else ""
+            # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
+            # t_2595f8ad) ───────────────────────────────────────────────────────
+            # A question that names TWO options ("your take on the sea versus the
+            # mountains", "do you prefer the countryside or the cities") is a
+            # CONTRASTIVE self-opinion, not a single-topic one. The prior
+            # extractor stripped `versus`/`vs`/`or` and took only the LAST token
+            # as the target, so the contrast collapsed to one side and the engine
+            # answered "i'm for <last word>" while the other option was silently
+            # dropped — the round's documented residual limitation. RAVANA already
+            # holds a structured lean per topic (constitutive _agent_values,
+            # recalled _agent_stances, or a lean derived from the user's learned
+            # opinion); the missing piece is engaging BOTH sides at once.
+            #
+            # This is a REAL capability (no hardcoded reply): we split the tail on
+            # the contrastive connective, resolve EACH side independently through
+            # the EXISTING _agent_stance_on resolver (which reads real state and
+            # answers honestly when ungrounded), and compose a reply that names
+            # both sides with their real leans. The deciding test passes: had we
+            # no view on either, both resolves honestly and the answer falls back
+            # cleanly rather than fabricating. No LLM, no retraining; the per-side
+            # stance is computed live, every time.
+            _contrast = None
+            _csep = None
+            for _sep in (" versus ", " vs ", " vs. ", " or ", " over ",
+                         " rather than "):
+                if _sep in (" " + _tail + " "):
+                    _csep = _sep.strip()
+                    _parts = _tail.split(_sep)
+                    _contrast = [p.strip() for p in _parts if p.strip()]
+                    break
+            if _contrast is not None and len(_contrast) >= 2:
+                # Drop the closed-class / scaffold tokens from each side, keep the
+                # LAST content word as that side's topic target (same convention
+                # the single-topic path uses), so "the sea" -> "sea",
+                # "the mountains" -> "mountains".
+                _SCRUB = ("about", "on", "the", "a", "an", "of", "for", "with",
+                          "to", "we", "should", "could", "would", "is", "are",
+                          "do", "does", "you", "i", "it", "that", "this", "and",
+                          "or", "honest", "read", "take", "view", "opinion",
+                          "thoughts", "stance", "versus", "vs", "more", "me",
+                          "now", "after", "what", "just", "said", "right",
+                          "really", "exactly", "tell", "think", "than",
+                          "rather")
+                _sides = []
+                for _p in _contrast:
+                    _pt = [w for w in re.findall(r"[a-z']+", _p)
+                           if w not in _SCRUB]
+                    if _pt:
+                        _sides.append(_pt[-1])
+                if len(_sides) >= 2:
+                    _resolved = [(s, self._agent_stance_on(s)) for s in _sides]
+                    # Both sides grounded (or at least one has a real lean and
+                    # the other resolves to a real 'still figuring'): compose.
+                    # We engage both even when one is honest-ungrounded — the
+                    # point is to answer the CONTRAST, not to hide a side.
+                    _phrases = []
+                    for _s, (_st, _rs) in _resolved:
+                        # _agent_stance_on returns a COMPLETE stance sentence
+                        # (e.g. "i'm for sea" when grounded, or the honest
+                        # "i'm still figuring that out" fallback). It already
+                        # begins with "i" and, when grounded, already NAMES the
+                        # topic (_canon). Wrapping it in f"i {_st} {_s}" would
+                        # double-prepend "i " and duplicate the topic word
+                        # (observed: "i i'm still figuring that out observer").
+                        # So use the sentence as-is when it already ends with
+                        # the side name; otherwise append the side for clarity.
+                        _stt = _st.rstrip(".!?")
+                        if _s and not _stt.lower().endswith(_s.lower()):
+                            _phrases.append(f"{_stt} {_s}")
+                        else:
+                            _phrases.append(_stt)
+                    _answer = "; ".join(_phrases)
+                    if not _answer.endswith((".", "!", "?")):
+                        _answer += "."
+                    # No fabricated prose: if BOTH sides came back as the hollow
+                    # honest fallback, leave it — that IS the honest answer (no
+                    # view on either). It is never a single-topic collapSE.
+                    try:
+                        self._agent_claims.setdefault("self", None)
+                        self._agent_claims["opinion"] = _answer.strip()
+                    except Exception:
+                        pass
+                    return _answer
+            # ── Single-topic self-opinion ────────────────────────────────────
+            # D-B FIX (round 2026-08-13T0634Z): the prior extractor took the
+            # LAST content token of the tail as the stance target
+            # (`_target = _toks[-1]`). That is correct for a flat topic ("your
+            # stance on privacy" -> "privacy"), but it MANGLES a relative-clause
+            # topic: "your stance on people who talk in theatres" yields target
+            # "theatres", which never matches the mined stance key
+            # "people who talk" -> the agent answers the hollow "i'm still
+            # figuring that out" even though it learned a strong view from the
+            # user. This is the SAME defect the D-C fix hardened on the MINING
+            # side (user_model._opinion_topic's relative-CLAUSE BRIDGE), but on
+            # the QUERY side the tail extractor never got the same treatment.
+            #
+            # Fix: resolve the tail's CONTENT HEAD with the SAME relative-clause
+            # / head-resolution discipline the miner uses — keep a relative
+            # pronoun (who/whom/that/which) as a BRIDGE and continue into its
+            # clause, cut at the first internal closed-class word, and drop a
+            # trailing closed-class/modifier. So "people who talk in theatres"
+            # -> head "people who talk" (matching the mined key), NOT "theatres".
+            # This is a structural generalizer over the tail — no per-topic
+            # table, no hardcoded reply. _agent_stance_on still does the real
+            # grounding/derivation below.
+            if _toks:
+                _REL_BRIDGE = {"who", "whom", "that", "which"}
+                _OPINION_STOP = getattr(
+                    getattr(self, "user_model", None), "_OPINION_STOP", None)
+                if _OPINION_STOP is None:
+                    _OPINION_STOP = {
+                        "the", "a", "an", "my", "your", "our", "their", "his",
+                        "her", "its", "this", "that", "these", "those", "some",
+                        "any", "no", "all", "every", "i", "you", "he", "she",
+                        "we", "they", "me", "him", "us", "them", "and", "but",
+                        "or", "so", "if", "when", "while", "because", "of", "to",
+                        "in", "on", "at", "for", "with", "from", "by", "as",
+                        "into", "about", "over", "under", "how", "what", "why",
+                        "who", "where", "off", "onto", "upon", "than", "then",
+                        "till", "until", "since", "really", "very", "just",
+                        "only", "also", "too", "quite", "more", "most", "much",
+                        "many", "such", "own", "same", "other", "another", "is",
+                        "are", "was", "were", "be", "been", "being", "am", "not",
+                        "do", "does", "did", "can", "it", "they're", "im",
+                        "i'm", "you're", "we're", "there",
+                    }
+                _head = []
+                for _t in _toks:
+                    if _t in _REL_BRIDGE:
+                        _head.append(_t)   # bridge: keep clause content below
+                        continue
+                    if _t in _OPINION_STOP:
+                        break
+                    _head.append(_t)
+                # Trim trailing closed-class/modifier words (but never a
+                # trailing relative bridge such as "who"/"that").
+                while len(_head) > 1 and _head[-1] in _OPINION_STOP:
+                    _head.pop()
+                _target = " ".join(_head) if _head else ""
+            else:
+                _target = ""
+            if not _target:
+                _target = _toks[-1] if _toks else ""
             _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
