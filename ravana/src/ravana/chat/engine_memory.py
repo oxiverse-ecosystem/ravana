@@ -972,11 +972,11 @@ class MemoryMixin:
                     "my", "we", "our", "me", "about", "before", "earlier",
                 }
                 _match_text = (_best_cue.get("text", "") or "").lower()
+                _match_stems = {_stem(w) for w in re.findall(r"[a-z']+", _match_text)}
                 _real_cue = [
                     c for c in _cue_tokens
                     if c not in _GENERIC_CUE
-                    and re.search(r"(?<![a-z])" + re.escape(c) + r"(?![a-z])",
-                                  _match_text)
+                    and _stem(c) in _match_stems
                 ]
                 if not _real_cue:
                     # only generic-filler overlapped -> do NOT echo an
