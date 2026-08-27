@@ -4063,12 +4063,168 @@ class UserModel:
                                             valence=_v, arousal=_a,
                                             provenance=_prov)
 
+        # Affect-verb attitude construction mining (feature round
+        # 2026-08-21T1653Z residual #1): "X creeps me out" / "X grosses me out"
+        # / "X freaks me out" / "X gets to me" were NOT mined as stances even
+        # though the affect verb already lives in the shared VAD lexicon, so a
+        # later reversal ("i changed my mind about X") had nothing to act on.
+        # This is a GRAMMATICAL pattern (<subject> <affect-verb> <me>), not a
+        # per-topic list; polarity is derived from the shared VAD affect lexicon
+        # (the same matrix the empathy gate grows online), so a verb RAVANA has
+        # not seen yet simply scores 0.0 and is skipped — fail-closed, no
+        # confabulation. Each observed verb is registered into the VAD matrix so
+        # coverage GROWS by experience (see _mine_affect_verb_stance).
+        self._mine_affect_verb_stance(text)
+
         # Stance-reversal mining: "i take back X" / "i changed my mind about X" /
         # "i retract my stance on X" recodes the user's valuation of the topic to
         # the opposite pole (vmPFC re-evaluation), LINKED to the PRIOR stance the
         # store already holds — this is an attitude-change operator, not a fresh
         # opinion. Runs last so it can see (and reverse) any stance just mined.
         self.mine_stance_reversal(text)
+
+    def _mine_affect_verb_stance(self, text: str) -> None:
+        """Mine first-person affect-verb attitude constructions as stances.
+
+        Pattern: "<subject> <affect-verb> <me/us>" where the verb is an
+        affect term drawn from the SHARED VAD affect lexicon (e.g. "creeps",
+        "grosses", "freaks", "creepy", "wary"). Examples:
+            "lab-grown meat creeps me out"   -> negative stance on "lab-grown meat"
+            "that flickering light freaks me out" -> negative stance on the light
+            "his constant humming gets to me" -> negative stance on the humming
+
+        Design (seed-vs-hardcoding + no-retraining):
+          * Polarity comes from the SAME VAD association matrix the empathy /
+            support classifier already uses and GROWS online via Hebbian
+            learning (`UserEmotionDetector`). We do NOT introduce a second
+            affect-word list. A verb absent from the matrix scores 0.0 and is
+            skipped (fail-closed). Every verb we DO see is registered into the
+            matrix (`learn_association`) so the next encounter is scored even
+            without a seed entry — the capability compounds with use.
+          * Morphological variants ("creeps"->"creep", "grosses"->"gross",
+            "freaked"->"freak") are resolved through the SAME
+            `_morphological_normalize` the matrix lookup uses, so no parallel
+            stemmer.
+          * Subject resolution reuses the shared `_opinion_topic` chokepoint,
+            so a stance lands on the real content head ("lab-grown meat"), never
+            a closed-class word. Generic: any subject the user rotates in.
+          * Reversals remain fully operable: the stance is stored in the same
+            `opinions` store, so `mine_stance_reversal` (run next) can later
+            recode it. Nothing is frozen; no retraining, no per-topic table.
+        """
+        if not text:
+            return
+        q = text.lower()
+        # First-person only: the attitude must be the user's own self-report,
+        # never a question ("does clowns creep you out?" is not a stance).
+        if q.rstrip().endswith("?") or re.match(
+                r"^(what|who|when|where|why|how|which|is|are|do|does|did|"
+                r"can|could|would|should|will|may|might|am|have|has|had)\b", q):
+            return
+        # An affect-verb must be SOMEWHERE in the utterance; cheap pre-filter so
+        # the regex only runs when relevant. The verb itself is validated
+        # against the shared VAD matrix below, so this is just a content gate.
+        _tok = set(re.findall(r"[a-z']+", q))
+        if not (_tok & {"me", "us", "myself"}):
+            return  # no first-person object -> not this construction
+        # The affect-verb LEMMA set is SEED vocabulary (the same allowed class
+        # as the dismissive-metaphor noun set and the sentiment adjectives): a
+        # small bootstrapping list of aversive-reaction verbs. It is
+        # RAVANA-extendable — an unseen verb in this class bootstraps its own
+        # VAD entry on first encounter (see the valence logic below) and grows
+        # online; removing an entry only loses one verb shape. NOT a per-topic
+        # answer table. Every verb here denotes an aversive reaction to its
+        # subject, which is what licenses the structural default-polarity below.
+        for _m in re.finditer(
+                r"\b([a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+){0,5})\s+"
+                r"(creeps?|gross(?:es)?|freaks?|weirds?|unnerves?|disgusts?|"
+                r"repulses?|scares?|terrifies?|bothers?|annoys?|rattles?|"
+                r"spooks?|unsettles?|creep|gross|freak|weird|unnerve|disgust|"
+                r"repulse|scare|terrify|bother|annoy|rattle|spook|unsettle|"
+                r"gets\s+to)\b"
+                r"\s+(?:me|us|myself)\b", q):
+            _raw_subj = _m.group(1).strip()
+            if not _raw_subj:
+                continue
+            # Resolve the salient content head via the shared chokepoint.
+            _topic = self._opinion_topic(_raw_subj)
+            if not _topic:
+                continue
+            # Validate the affect verb against the shared VAD matrix and read
+            # its valence. Morphological normalization reuses the matrix's own
+            # routine so "creeps"->"creep" etc. resolve without a second list.
+            _verb_raw = _m.group(2).replace(" ", "")  # "gets to" -> "getsto"
+            _vad = self._vad_for_affect_verb(_verb_raw)
+            if _vad is not None:
+                _valence = float(_vad[0])
+            else:
+                # The verb is in the seed affect-verb class but has no VAD
+                # entry yet. The "<subject> <affect-verb> me" construction
+                # STRUCTURALLY encodes an aversive reaction (like the
+                # comparative "X is better than Y" is structurally positive),
+                # so seed a default negative valence and register it into the
+                # matrix so future scoring — in ANY construction — recognizes
+                # it. Online growth, no retraining, no second list.
+                _vad = (-0.6, 0.55, -0.35)
+                _valence = -0.6
+            if abs(_valence) < 0.05:
+                continue  # neutral / unknown valence -> never seed a stance
+            # GROW the matrix: register the exact surface verb so future
+            # mentions (in any construction) are scored. Online, no retraining.
+            self._learn_affect_verb(_verb_raw, _vad)
+            # Sign-preserving affect blend (same discipline as the lexical
+            # miner above): the lexical VAD valence is the ground-truth
+            # attitude signal; the turn-affect buffer only reinforces, never
+            # reverses.
+            _p = _valence
+            _v, _a, _d = self._infer_user_emotion(text)
+            if _p < -0.05 and _v < -0.1:
+                _p = min(_p, _p - 0.15)
+            elif _p > 0.05 and _v > 0.1:
+                _p = max(_p, _p + 0.15)
+            _p = max(-1.0, min(1.0, _p))
+            _prov = self._opinion_provenance(_raw_subj)
+            self.opinions.express_stance(_topic, polarity=_p, confidence=0.6,
+                                        valence=_v, arousal=_a,
+                                        provenance=_prov)
+
+    def _vad_for_affect_verb(self, verb: str):
+        """Return the VAD triple for an affect verb from the SHARED VAD matrix.
+
+        Reuses `UserEmotionDetector._lookup_word` (which applies the same
+        `_morphological_normalize` the rest of the system uses) so we never
+        maintain a second affect lexicon. Returns None when the verb has no
+        seeded/learned VAD entry (fail-closed: we do not invent a polarity).
+        """
+        self._ensure_emotion_detector()
+        det = self._emotion_detector
+        # _lookup_word is the matrix's own morphological resolver.
+        entry = det._lookup_word(verb) if hasattr(det, "_lookup_word") else None
+        if entry is None:
+            # Fall back to the seed dictionary directly for stem forms the
+            # detector may not have normalized (e.g. "creep" without seed).
+            from ravana.core.mirror import _VAD_SEED, _morphological_normalize
+            for cand in (verb,) + tuple(_morphological_normalize(verb)):
+                if cand in _VAD_SEED:
+                    v, a, d = _VAD_SEED[cand]
+                    return (float(v), float(a), float(d))
+            return None
+        return (float(entry[0]), float(entry[1]), float(entry[2]))
+
+    def _learn_affect_verb(self, verb: str, vad) -> None:
+        """Register an observed affect verb into the SHARED VAD matrix.
+
+        Online growth: the first time the user utters "X creeps me out", the
+        surface verb "creeps" is added to the matrix (seeded from its VAD
+        lookup) so later affect scoring — in ANY construction — recognizes it.
+        No retraining, no second list; the matrix is the single source of
+        truth and it compounds with conversation.
+        """
+        self._ensure_emotion_detector()
+        det = self._emotion_detector
+        if hasattr(det, "learn_association"):
+            det.learn_association(verb, (float(vad[0]), float(vad[1]),
+                                         float(vad[2])), confidence=0.5)
 
     def _stance_key_in_text(self, text: str):
         """Return the held stance key whose TOPIC appears in `text`, else None.
@@ -4338,7 +4494,19 @@ class UserModel:
             # (honest — we never guess a reversal from neutral wording).
             _new_pol = _assess_reversal_polarity(text)
             if _new_pol is not None:
-                _target = self.opinions.resolve_topic(text)
+                # Resolve against the LIVE stance store, but the free-form
+                # recode only ever acts on a stance the user ALREADY HELD in a
+                # PRIOR turn. The opinion miner in the SAME turn may have just
+                # created a fresh stance from a co-mentioned concept (e.g.
+                # "the cold gets to me now" -> a new "cold" stance), and
+                # `resolve_topic` can bind to that fresh stance via substring
+                # precedence, leaving the genuinely-held stance (bridged through
+                # provenance, e.g. "silence" co-mentioned with "winter") never
+                # reached. Restrict resolution to PRIOR-turn stances so the
+                # recode targets the held valuation, never a coincidental
+                # same-turn co-mention. (Honest: a topic with no PRIOR stance is
+                # left alone — we never walk back a brand-new attitude.)
+                _target = self.opinions._resolve_prior_stance(text)
                 if _target is not None:
                     _held = self.opinions.stances.get(_target)
                     # Guard: only RECODE a stance the user ALREADY HELD in a PRIOR
@@ -4355,6 +4523,7 @@ class UserModel:
                             # leave it — no double-write.
                             and (_new_pol * _held.polarity) < 0.0):
                         try:
+                            self.opinions._soft_reversal = True
                             self.opinions.recode_stance_toward(
                                 _target, new_polarity=_new_pol,
                                 blend=0.7, utterance=text)
@@ -4451,6 +4620,28 @@ class UserModel:
         # remainder is a strict subset of the held "acoustic music" topic.
         _scope_markers = {"only", "just", "really", "truly", "merely", "simply"}
         _topic_tokens = _raw_topic_tokens - _scope_markers
+        # A recant is a genuine SCOPE-NARROWING (the "acoustic-ONLY" corruption
+        # case: the user still likes the held attitude, just restricts its
+        # scope) ONLY when the recant phrase carries an explicit scope marker.
+        # A subset recant WITHOUT a scope marker ("i take it back about the
+        # cold", where "cold" is the salient head of the held "cold weather
+        # give" stance) is a WHOLE-ATTITUDE reversal — the user is inverting the
+        # evaluation of the object, not narrowing it. Treating the no-marker
+        # subset case as narrowing (the prior behavior) silently dropped real
+        # reversals (round 2026-08-21T1653Z: "i take it back about the cold"
+        # left the stance pinned at +0.95). So the narrowing guards below only
+        # fire when a scope marker is present. Generalizable: the marker is a
+        # structural scope signal, not a per-topic rule, so it separates the two
+        # operations for ANY topic (per opencode cognitive review: narrowing
+        # re-segments the object while keeping valence; reversal negates the
+        # object evaluation).
+        # NOTE: the scope marker must be read from the RAW tail text, NOT the
+        # extracted `topic` — _opinion_topic drops the "-only" qualifier (it
+        # returns the bare head "acoustic"), so testing `topic` would never see
+        # the marker and the narrowing guard would never fire. `tail` still
+        # contains "acoustic-only", so scan it for a scope marker token.
+        _recant_has_scope = bool(_scope_markers & set(
+            re.findall(r"[a-z']+", (tail or "").lower())))
         for _k in self.opinions.stances:
             _kt = set(re.findall(r"[a-z']+", _k.lower()))
             if not _kt:
@@ -4460,12 +4651,14 @@ class UserModel:
             if _topic_tokens and (_topic_tokens <= _kt
                                   or len(_topic_tokens & _kt) / max(1, len(_topic_tokens)) >= 0.5):
                 # REJECT a narrowing recant: when the recant's meaningful
-                # content is a STRICT subset of the held topic, the user is
+                # content is a STRICT subset of the held topic AND the recant
+                # carries a scope marker (e.g. "acoustic-ONLY"), the user is
                 # restricting scope (still likes acoustic, just not *only*
                 # acoustic), not reversing their attitude. Flipping the held
                 # stance would corrupt the store. Scope-widening is not a
-                # reversal. Detected generically from token containment.
-                if _topic_tokens and _topic_tokens < _kt:
+                # reversal. Without a scope marker the subset is a whole-attitude
+                # reversal (see _recant_has_scope above), so it is NOT rejected.
+                if _recant_has_scope and _topic_tokens and _topic_tokens < _kt:
                     continue
                 _target_candidates.append(_k)
         # Only honor a loose substring match when it is NOT a broad-held-topic
@@ -4490,7 +4683,8 @@ class UserModel:
                 _scope_markers = {"only", "just", "really", "truly", "merely", "simply"}
                 _recant_meaningful = _topic_tokens - _scope_markers
                 _is_narrowing = (
-                    _recant_meaningful
+                    _recant_has_scope
+                    and _recant_meaningful
                     and _recant_meaningful <= _loose_tokens
                     and _recant_meaningful != _loose_tokens)
                 if not _is_narrowing:
@@ -4514,7 +4708,10 @@ class UserModel:
         _recant_meaningful = set(re.findall(r"[a-z']+", (topic or "").lower()))
         _recant_meaningful = {t for tok in _recant_meaningful
                               for t in tok.split("-") if t} - _scope_markers
-        if _recant_meaningful and _recant_meaningful < _tgt_tokens:
+        # Only block as scope-widening when the recant actually carries a scope
+        # marker (see _recant_has_scope). A no-marker subset recant is a whole-
+        # attitude reversal and must NOT be dropped.
+        if _recant_has_scope and _recant_meaningful and _recant_meaningful < _tgt_tokens:
             return
         try:
             self.opinions._soft_reversal = _soft
