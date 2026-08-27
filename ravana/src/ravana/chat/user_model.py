@@ -2221,7 +2221,7 @@ class UserModel:
                 # correct ('nora', 'relationship', 'cousin'), polluting the
                 # self-profile with a relationship dressed as a self-attr.
                 # Structural: a relation-set membership test, not a
-                # per-relation branch. _rel_known covers the seed set +
+                # per-relation branch. relation_of() covers the seed set +
                 # runtime-learned relations so it stays in sync with the
                 # relational miner.
                 _raw_attr = (_m.group(1).strip().lower()
@@ -2245,7 +2245,19 @@ class UserModel:
                     _COPULA_ART = ("is", "are", "was", "were", "am", "a", "an",
                                    "the", "i", "my", "of", "to", "for", "on",
                                    "in", "at", "by", "with", "and", "that")
-                    if (_raw_head in _rel_known
+                    # Round 2026-08-24T1134Z FIX (carried from t_7a449a6f 79dfb0a):
+                    # the relationship-membership guard referenced a `_rel_known`
+                    # set that was defined in an ancestor commit (5f43fec) but
+                    # DROPPED from main by a later merge that clobbered the
+                    # region — leaving a dangling NameError on the first
+                    # personal-fact mine. Restore the exact original semantics
+                    # ("_rel_known covers the seed set + runtime-learned
+                    # relations") via the modern runtime-extendable relation_of()
+                    # (seed set + learned relations via learn_relation). No
+                    # frozen table, RAVANA-extendable, just like the relational
+                    # miner itself uses elsewhere below.
+                    from .relation_attrs import relation_of as _rel_of
+                    if (_rel_of(_raw_head) is not None
                             and _pet_slots.species_of(_raw_head) is None
                             and _after is not None
                             and _after.group(1).lower() not in _COPULA_ART
