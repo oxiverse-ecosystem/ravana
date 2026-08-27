@@ -224,6 +224,77 @@ class DateGrounder:
 
         return None
 
+    # ── first-person temporal START anchor: a bare 4-digit year ────────────
+    # LoCoMo / LongMemEval gold answers include first-person duration disclosures
+    # that name ONLY a year — "firing since 2017", "i started in 2019",
+    # "since 2019 i have lived here", "in 2018 we moved". The generic
+    # ground_utterance path requires BOTH a year AND a month name before it
+    # trusts an assembled date (to avoid stitching bogus dates from scattered
+    # fragments), so a standalone-year anchor fell through to the session-date
+    # default and date-grounded recall ("when did i start firing") returned
+    # EMPTY. This is the Q59 class of the 2026-08-14 chat round.
+    #
+    # Capability (NOT a hardcoded reply): when the utterance carries a temporal
+    # START cue word immediately preceding a plausible year and that year is not
+    # a quantity (followed by a unit like "dollars"/"points"), we resolve the
+    # anchor to Jan 1 of that year at 'year' granularity. Pure date arithmetic
+    # against the supplied session anchor — no LLM, no per-fact table. The cue
+    # set is SEED knowledge: RAVANA-expandable, and removing an entry degrades
+    # gracefully (the year simply won't anchor). A year without a temporal cue
+    # (e.g. "i scored 2015 points") is correctly left un-anchored.
+    # Seed cue set — the single source of truth for which connective words
+    # signal a temporal START anchor. RAVANA-expandable: adding a cue here
+    # (and rebuilding the regex via _year_start_pattern()) bootstraps a new
+    # anchor form online; removing one degrades gracefully (that cue simply
+    # won't bind a year). This is seed STRUCTURE, not authored answers.
+    _YEAR_START_CUES = (
+        "since", "starting", "started", "back in", "from", "in",
+    )
+    _YEAR_UNIT_DENY = (
+        "dollar", "dollars", "cent", "cents", "rupee", "rupees", "euro",
+        "euros", "pound", "pounds", "yen", "rs", "%", "₹", "$",
+    )
+
+    def _year_start_pattern(self) -> "re.Pattern":
+        """Compile the START-anchor regex from the seed cue set (cached)."""
+        if getattr(self, "_year_start_re", None) is None:
+            _alts = "|".join(re.escape(c) for c in self._YEAR_START_CUES)
+            self._year_start_re = re.compile(
+                r"\b(?:" + _alts + r")\s+(?P<yr>(?:19|20)\d{2})\b")
+        return self._year_start_re
+
+    def resolve_year_start_anchor(self, text: str,
+                                  session_date: Optional[datetime]
+                                  ) -> Optional[GroundedDate]:
+        """Resolve a first-person temporal start anchor carrying only a year.
+
+        Returns None (fail-open) when no temporal cue + year is found, when the
+        year is actually a quantity unit, when no first-person marker is present,
+        or when no session anchor is given.
+        """
+        if not text or session_date is None:
+            return None
+        tl = text.lower()
+        m = self._year_start_pattern().search(tl)
+        if not m:
+            return None
+        year = int(m.group("yr"))
+        if not (1900 <= year <= 2099):
+            return None
+        # First-person guard: require a nearby first-person marker
+        # (I, we, my, our) to ensure this is a personal disclosure, not
+        # a third-person or general statement about an entity/event.
+        if not re.search(r"\b(i|we|my|our)\b", tl):
+            return None
+        # Quantity guard: a year that is really a scalar (e.g. "in 2015
+        # dollars", "scored 2015 points") must not anchor a date. Peek the
+        # first token AFTER the matched year.
+        _after = tl[m.end():].lstrip()
+        _first_after = re.split(r"\s+", _after)[0].strip(".,;:)\"'")
+        if _first_after in self._YEAR_UNIT_DENY:
+            return None
+        return GroundedDate(datetime(year, 1, 1), "year", text)
+
     # ── relative-date BEFORE/AFTER an explicit anchor ──────────────────────
     # LoCoMo / LongMemEval gold answers are phrased RELATIVELY against a stated
     # absolute date, e.g. "the Sunday before 25 May 2023", "two weekends
@@ -386,6 +457,18 @@ class DateGrounder:
         _rel_anchor = self.resolve_relative_to_anchor(text, session_date)
         if _rel_anchor is not None:
             return _rel_anchor
+        # First-person temporal START anchor: a bare 4-digit year cued by
+        # since/started/back in/in/from (e.g. "firing since 2017"). This runs
+        # AFTER the month-day + relative resolvers so a more-precise date wins
+        # ("in May 2019" still resolves to the month via the block above, which
+        # short-circuits before here). It is the terminal fallthrough: if no
+        # other date resolved AND a temporal cue binds a year, anchor to that
+        # year — the Q59 class of date-grounded recall. Returns None when the
+        # utterance has no cue-year, so a session lacking such disclosure keeps
+        # the session-date default downstream.
+        _year_anchor = self.resolve_year_start_anchor(text, session_date)
+        if _year_anchor is not None:
+            return _year_anchor
         return self.resolve_relative(text, session_date)
 
     # ── interval math ───────────────────────────────────────────────────────

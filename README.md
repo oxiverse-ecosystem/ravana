@@ -60,6 +60,13 @@ on this codebase:
   whitelist. The same turn is recognised as a self-disclosure and acknowledged,
   instead of leaking into a "i don't know that" knowledge query. See
   `docs/OPEN_CLASS_VERB_CAPTURE.md`.
+- **Dates a year-only temporal start.** Told *"i have been firing my kiln since
+  2017"* (with a session date set) it anchors the disclosure to **1 January 2017**
+  and later answers *"when did i start firing"* with the grounded date —
+   `you mentioned that around 1 January 2017.` — instead of returning empty.
+  The anchor is pure date arithmetic over a seed cue set (no LLM, no hardcoded
+  reply), gated behind a session date like every temporal-grounding feature. See
+  `docs/DATE_GROUNDED_RECALL_YEAR_ANCHOR.md`.
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
 - **Surfaces a named thing's whereabouts from a stored location fact.** Told

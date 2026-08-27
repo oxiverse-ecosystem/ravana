@@ -2591,6 +2591,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"(do|does|study|studies|work|works|job|role|for\s+work)\b", q)
         if _REL_WORK and pf is not None:
             _rel = _REL_WORK.group(1).lower().strip()
+            _verb_group = _REL_WORK.group(2).lower().strip()
+            # Map the captured verb group to the preferred fact attribute:
+            # study/work queries -> "does" or "work"
+            # role/job queries -> "role"
+            if _verb_group in ("job", "role"):
+                _preferred_attrs = ("role",)
+            else:
+                _preferred_attrs = ("does", "work")
             _ent_hit = None
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
@@ -2600,12 +2608,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _ent_hit = _k[0]
                     break
             if _ent_hit is not None:
-                for _k, _f in pf.facts.items():
-                    if not (isinstance(_k, tuple) and len(_k) == 3):
-                        continue
-                    if _k[0] == _ent_hit and not getattr(_f, "superseded", False) \
-                            and _k[1] in ("role", "does", "work"):
-                        return f"your {_rel} {_ent_hit} {_f.value}."
+                for _attr in _preferred_attrs:
+                    for _k, _f in pf.facts.items():
+                        if not (isinstance(_k, tuple) and len(_k) == 3):
+                            continue
+                        if _k[0] == _ent_hit and _k[1] == _attr \
+                                and not getattr(_f, "superseded", False):
+                            return f"your {_rel} {_ent_hit} {_f.value}."
         # Count / quantity recall: "how many X do i have / keep / raise" ->
         # scan 'does' facts whose value contains a leading cardinal number
         # and the cue noun; or a dedicated count attribute. Honest fallback
