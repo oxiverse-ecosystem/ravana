@@ -186,8 +186,17 @@ def _verb_phrase_to_gerund(phrase: str) -> str:
     _parts = _p.split()
     _head = _parts[0].lower()
     _base = _head[:-1] if (_head.endswith("s") and len(_head) > 3) else _head
-    _ger = _gerund_of(_base)
     _rest = _parts[1:]
+    # Already-gerund head: the stored activity may come from a `does`/`event`
+    # fact whose leading verb is ALREADY a gerund ("building frames", "studying
+    # volcanoes"). Re-gerunding it would produce a broken double-gerund
+    # ("buildinging frames"). Detect a regular gerund head (its -ing form is
+    # exactly the head itself) and pass the phrase through unchanged — this is
+    # the natural realization a date-recall reply needs ("you started building
+    # frames in 2019"), no morphology needed.
+    if _head.endswith("ing") and len(_head) >= 5 and _gerund_of(_base) == _head:
+        return _p
+    _ger = _gerund_of(_base)
     # Detect a redundant inceptive leading verb ("start/begin/began") in front
     # of a gerund — keep only the gerund as the activity head.
     _INCEPTIVE = {"start", "started", "begin", "began", "begins", "beginning"}
@@ -6525,109 +6534,38 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if re.search(r"\bi\s+(love|like)\s+(you|u|ur)\b", user_input.lower()):
                     pass
                 else:
-                    # W-loss-homograph guard (round 2026-08-10T1401Z): the VAD
-                    # lexicon marks "lost" as negative affect, so a first-person
-                    # OBJECT loss ("i lost a lobster pot", "i lost my keys") is
-                    # mis-detected as a distress disclosure and met with "feeling
-                    # lost is hard" empathy — discarding the factual event (it IS
-                    # stored as an `event` fact, but the reply is nonsensical and
-                    # the user's real disclosure is lost in the empathy frame).
-                    # A death/grief of a BEING (my dog died, my gran passed) is
-                    # genuine bereavement and stays empathic. So: drop empathy
-                    # ONLY for first-person "i lost <object>" where the lost
-                    # thing is NOT a person/animal/relationship noun and there is
-                    # no grief word — let it fall through to the grounded
-                    # event-ack. Structural (object-vs-being via a stable
-                    # bereavement set + absence of grief words), NOT a per-thing
-                    # table. Fail-closed: presences of any grief/death word keep
-                    # empathy intact.
-                    _low_loss = (user_input or "").lower().strip()
-                    _first_person_lost = bool(re.search(
-                        r"\b(i|we)\s+(lost|lost\s+my|lost\s+a|lost\s+an|"
-                        r"losing)\b", _low_loss))
-                    _grief_word = bool(re.search(
-                        r"\b(grief|grieving|mourn|mourning|died|dies|dead|"
-                        r"passed|funeral|suicide|devastated|heartbroken)\b",
-                        _low_loss))
-                    _being_loss = bool(re.search(
-                        r"\b(my|our|his|her|their)\s+\w*\s*\b"
-                        r"(dog|cat|pet|bird|child|son|daughter|mum|mom|mother|"
-                        r"dad|father|grandma|grandpa|grandmother|grandfather|"
-                        r"wife|husband|partner|friend|brother|sister|sibling|"
-                        r"grandchild|baby|horse|cow|sheep|goat|pig|rabbit|"
-                        r"hamster|turtle|fish|plant|tree)\b", _low_loss))
-                    if _first_person_lost and not _grief_word and not _being_loss:
-                        _disc = None
-                    if _disc is not None:
-                        # §3 Empathy selector: (VAD_label x cause) -> response frame.
-                        _vad_label = self.emotion.get_emotional_label()
-                        _cause = classify_cause(user_input, self._glove_vector).label
-                        _frame = select_empathy_frame(_vad_label, _cause)
-                        _resp, _strat = self._emotional_response(None, _disc)
-                        # Tag the chosen frame for instrumentation / BOS conditioning.
-                        self._last_empathy_frame = _frame
-                        self._last_strategy = _strat
-                        self._last_responses.append(_resp)
-                        if len(self._last_responses) > 10:
-                            self._last_responses = self._last_responses[-10:]
-                        self.notify_user_idle()
-                        return _resp
-            # R1 fix (round 2026-08-11T0521Z): the reaction gate below matches
-            # bare lead-in cues like "so"/"that" (is_reaction /^\\s*(that'?s|so|...)/).
-            # That is correct for a reaction to the prior turn ("so, glad that
-            # landed"), but it ALSO swallows a genuine SELF-BIOGRAPHY question
-            # that opens with "so" — e.g. "so after everything, am i a
-            # pigeon-keeper or a baker at heart?" / "so, who am i to you?".
-            # Those are NOT reactions; they ask RAVANA to integrate what it
-            # learned about the user into a stance. Route them past the
-            # affiliation frame so the real self-model / user-profile pipeline
-            # answers. Detection is structural: a self-biography question
-            # contains an identity / self-reflective verb-phrase ("am i",
-            # "who am i", "what am i", "do you make of me", "at heart") OR an
-            # "or" disjunction of roles (a forced-choice self-labeling). This
-            # is a deictic-intent guard, not a per-topic table; it generalizes
-            # across every persona. Fail-open: a real reaction with no
-            # self-biography cue still hits the affiliation frame below.
-            _low_react = (user_input or "").lower().strip()
-            # A self-biography question asks RAVANA to integrate what it learned
-            # about the USER into a stance/summary. Two structural shapes:
-            #  (a) an explicit identity verb-phrase ("am i", "who am i", "do you
-            #      make of me", "at heart"), or
-            #  (b) a forced-choice self-labeling ("am i a baker or a keeper",
-            #      "more of a X or a Y") — an "or"/"versus" disjunction that also
-            #      names the user's self ("i'm", "me", "my"). A plain reaction
-            #      like "so, cats or dogs?" is NOT exempted (no self cue), so it
-            #      still routes to the affiliation frame. Structural, not a
-            #      per-topic table; generalizes across every persona.
-            _self_bio_phrase = bool(re.search(
-                r"\b(am i|are i|who am i|what am i|do you (?:make|think) of me|"
-                r"at heart|who do you (?:think|say) i am|more me|more of a)\b",
-                _low_react))
-            _self_bio_choice = bool(re.search(
-                r"\b(or|versus|vs\\.?|rather than)\b", _low_react)) and (
-                "i'm" in _low_react or " i " in _low_react or "me" in _low_react
-                or "my " in _low_react or "am i" in _low_react)
-            _self_bio_intent = _self_bio_phrase or _self_bio_choice
-            # D1 fix (round 2026-08-11T1328Z): the reaction/affiliation gate is
-            # keyed only on a lead-in cue ("so"/"that"/"wow"...), but a
-            # genuine QUESTION frequently opens with "so" — "so what's your
-            # real read on the cave versus the radio" / "so, whose dog is it
-            # now" / "so after all of this, what do you actually make of me".
-            # The gate swallowed these and returned a hollow affiliation ack
-            # ("glad you felt that — i'm listening") instead of answering the
-            # question. A reaction is a RESPONSE to the prior turn; a question
-            # is a REQUEST for content. Exempt any interrogative-shaped input
-            # from the affiliation frame so it falls through to the real
-            # reasoning/recall pipeline. Structural: a leading '?' or an
-            # interrogative opener — no per-question list; generalizes across
-            # every persona. Fail-open: a real reaction (no '?', no opener)
-            # still hits the affiliation frame below.
-            _is_question = (
-                "?" in (user_input or "") or re.match(
-                    r"^\s*(who|what|when|where|which|why|how|did|do|does|"
-                    r"is|are|was|were|would|will|could|can|should|am|have|"
-                    r"has|had|may|might|shall)\b", (user_input or "").lower()))
-            if is_reaction(user_input) and not _self_bio_intent and not _is_question:
+                    # §3 Empathy selector: (VAD_label x cause) -> response frame.
+                    # GROW the name guard from the user's ACTUAL felt word the
+                    # moment empathy genuinely fires (round 2026-08-15T0326Z):
+                    # the prior round's register_name_reject was DEAD CODE —
+                    # nothing ever called it, so a ROTATED predicate word slipped
+                    # through as a name. Here we register the word the empathy
+                    # path itself confirmed is a feeling, so the next "i'm <that
+                    # word>" in a bare-copula name slot is rejected structurally
+                    # (the helper also re-confirms it is a predicate, never a
+                    # real name). Online, no retrain, no code change.
+                    try:
+                        from .user_model import register_name_reject
+                        _aff = _extract_user_affect_word(user_input)
+                        if _aff:
+                            register_name_reject(_aff)
+                    except Exception:
+                        pass
+                    _vad_label = self.emotion.get_emotional_label()
+                    _cause = classify_cause(user_input, self._glove_vector).label
+                    _frame = select_empathy_frame(_vad_label, _cause)
+                    _resp, _strat = self._emotional_response(None, _disc)
+                    # Tag the chosen frame for instrumentation / BOS conditioning.
+                    self._last_empathy_frame = _frame
+                    self._last_strategy = _strat
+                    self._last_responses.append(_resp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _resp
+            # §7 Reaction to the prior turn ("that's hilarious", "aww") routes
+            # to the affiliation/empathy frame, not concept lookup.
+            if is_reaction(user_input):
                 _last = self._last_responses[-1] if self._last_responses else ""
                 _low = user_input.lower()
                 if "hilarious" in _low or "funny" in _low or "haha" in _low:
