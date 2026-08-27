@@ -4712,6 +4712,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # self questions (\"what did YOU say about X\") lack this and fall through.
         if not re.search(r"\b(i|me|my|mine|we|our)\b", q):
             return None
+        # EPISODIC-RECALL guard (regression fix vs cued recall, round
+        # 2026-08-14T0103Z): a query that explicitly asks to REPLAY a prior
+        # episode ("remember when i told you about X", "what did i tell you
+        # about X", "what did i say about X") is episodic recall, not a
+        # confirmation of a disclosed fact. It must fall through to the
+        # episodic recall path (_try_memory_query / _retrieve_episodic), not be
+        # answered here with "not that i recall". A genuine confirmation
+        # ("did i tell you i liked X" / "have i told you about my brother") is
+        # phrased as a yes/no and is LEFT to the (B) branch below. Structural
+        # (phrasing regex), not a per-topic table.
+        if re.search(
+            r"\b(remember when .* (?:told|said) you about"
+            r"|what did i (?:tell you|say) about)\b", q
+        ):
+            return None
 
         # ── (A) SALIENCE: what RAVANA will remember MOST / about the user ──
         _A = re.search(
@@ -4765,6 +4780,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"^.*?(?:did|have|had)\s+(?:i|you)\s+(?:tell|told|say|said|"
                 r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
                 "", q).strip()
+            # EPISODIC-RECALL guard (regression fix vs cued recall, round
+            # 2026-08-14T0103Z): "what did i tell you ABOUT the commission" is a
+            # request to REPLAY the episode, not a yes/no confirmation of a
+            # disclosed fact. Such phrasing carries the topic after a recall
+            # preposition ("about/regarding/on") and must fall through to the
+            # episodic recall path (_try_memory_query / _retrieve_episodic),
+            # NOT be swallowed as a confirmation that returns "not that i
+            # recall". A genuine confirmation ("did i tell you i liked X") has
+            # the clause AFTER the tell-verb with no such preposition. Structural
+            # (preposition check), not a per-topic guard.
+            if re.match(r"^(?:about|regarding|on|of)\b", _rem):
+                return None
             _topic = self._extract_disclosure_topic(_rem)
             if not _topic:
                 _topic = _rem

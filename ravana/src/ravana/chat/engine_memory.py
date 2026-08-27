@@ -972,11 +972,11 @@ class MemoryMixin:
                     "my", "we", "our", "me", "about", "before", "earlier",
                 }
                 _match_text = (_best_cue.get("text", "") or "").lower()
+                _match_stems = {_stem(w) for w in re.findall(r"[a-z']+", _match_text)}
                 _real_cue = [
                     c for c in _cue_tokens
                     if c not in _GENERIC_CUE
-                    and re.search(r"(?<![a-z])" + re.escape(c) + r"(?![a-z])",
-                                  _match_text)
+                    and _stem(c) in _match_stems
                 ]
                 if not _real_cue:
                     # only generic-filler overlapped -> do NOT echo an
@@ -2458,7 +2458,9 @@ class MemoryMixin:
             # matching episode. This is structural (possessive/referent regex),
             # not a per-topic table.
             _m = re.search(
-                r"\b(?:about|that|regarding|on|my|the)\s+([a-z']+)"
+                r"\b(?:about|that|regarding|on)\s+"
+                r"(?:(?:the|that|this|these|those|a|an|my|your|our|"
+                r"their|his|her)\s+)?([a-z']+)"
                 r"|([a-z']+)'s\b", t)
             if _m:
                 _cue = (_m.group(1) or _m.group(2) or "").lower().strip(".,!?")
