@@ -1280,7 +1280,10 @@ class ReasoningMixin:
         if _decl:
             facts = _decl
         else:
-            # All-non-declarative pool: return None regardless of count.
+            # No declarative candidates remain — return None regardless of original count.
+            return None
+        # A lone surviving question-shaped fact is better left un-echoed.
+        if len(facts) == 1 and _is_non_declarative(getattr(facts[0], "object", "")):
             return None
         # Attribute words = content words of the question, minus the subject and
         # generic interrogative/stop tokens. These identify WHICH stored fact the
@@ -2191,9 +2194,10 @@ class ReasoningMixin:
             else:
                 # like/love
                 ml = re.search(
-                    r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$)"
-                    r"|\s+-{1,3}\s+|\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-                    r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)",
+                    r"\bi\s+(like|love|hate)\s+(.+?)(?:\s*(?:\.|!|\?|,|$|"
+                    r"\s+-{1,3}\s+|"
+                    r"\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+                    r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
                     q, re.IGNORECASE)
                 if ml:
                     # D3 (round v2): carry the ACTUAL verb so the
@@ -2404,7 +2408,7 @@ class ReasoningMixin:
             # authored. General: no per-entity table.
             cands = [f for (s, a, v), f in store.facts.items()
                      if not f.superseded
-                     and (s in _subjects or (s not in ("i",) and s))
+                     and s in _subjects
                      and (_cur_turn is None
                            or getattr(f, "turn_number", -1) == _cur_turn)]
             if not cands:
@@ -2422,8 +2426,8 @@ class ReasoningMixin:
             # pell" — NOT "your name is pell", which would mis-attribute the
             # partner's name to the user. Mirrors
             # engine_memory._reconstruct_entity so acks and recall agree.
-            _subj = (getattr(best, "subject", "") or "").lower().strip()
-            _is_self = _subj in ("i", "me", "user", "")
+            _fact_subj = (getattr(best, "subject", "") or "").lower().strip()
+            _is_self = _fact_subj in ("i", "me", "user", "")
             # Common relation keys. Self-subject renders in second person
             # ("your name is"); other-subject is possessive ("your partner's
             # name is"). The only split is the subject — no per-entity table.
@@ -2445,7 +2449,7 @@ class ReasoningMixin:
                 if _phrase is None:
                     _phrase = f"your {attr} is {val}"
             else:
-                _ent = _subj
+                _ent = _fact_subj
                 _phrase = {
                     "name": f"your {_ent}'s name is {val}",
                     "location": f"your {_ent} is located at {val}",

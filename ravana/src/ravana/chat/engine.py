@@ -1056,6 +1056,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # (superseding the user's record) — never during ordinary disclosure.
         self.user_model._episodic_index = self._episodic_index
         self.user_model._episodic_transcript = self._episodic_transcript
+        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
+        # vocabulary to the user-model so stance mining can REJECT single-word
+        # topics that are not real concepts (comparative/handle artifacts like
+        # "anything"/"standing" that pollute the stance store). The vocabulary
+        # is the engine's OWN learned concept set, not a per-topic deny-list.
+        self.user_model._concept_vocab = self._concept_keywords
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -3422,175 +3428,55 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     break
             if _best is not None:
                 return f"you told me: {_best}"
-        # ── (1f) DATE-GROUNDED temporal recall (round 2026-08-14T0608Z) ──
-        # "when did i start building frames" / "since what year have i kept
-        # quail" / "how long have i been fixing tube amps" -> answer from the
-        # 'since' / 'since_age' facts mined by mine_personal_facts. Precise
-        # reverse-lookup on the activity content head; no per-topic table, no
-        # authored prose. Every slot read live from the PersonalFactStore.
-        # Fail-closed: returns None when no dated fact maps (honest fallback).
-        _DATEQ = re.search(
-            r"\b(?:when\s+did\s+i|since\s+what\s+year|what\s+year|how\s+long\s+"
-            r"have\s+i|how\s+long\s+since|since\s+when|when\s+did\s+i\s+start|"
-            r"when\s+did\s+i\s+begin)\b", q, re.IGNORECASE)
-        if _DATEQ and pf is not None:
-            # GENERALIZE (round 2026-08-14T1110Z): the old resolver matched the
-            # query against a FROZEN allowlist of activity verbs
-            # (building/keep/repair/cello/quail/...). A rotated probe
-            # ("what year did i start all this volcano stuff again") contained
-            # NONE of those verbs, so the resolver failed closed and the turn
-            # fell through to a verbatim episodic echo. That is phrase-tuning.
-            # Fix A (round 2026-08-14T1110Z feature): the resolver derives the
-            # queried activity from RAVANA's OWN mined `since`/`since_age` facts
-            # (the live store it grew from conversation), not a hardcoded verb
-            # list. The remaining gap: a `does`/`event` fact that DESCRIBES the
-            # same activity as a `since` fact but with a DIFFERENT leading verb
-            # was not linked in, so its activity words never joined the match
-            # context. Example from the probe: the since-fact is "study 2015"
-            # but the user also mined "start studying volcanoes back" — that
-            # `does` fact CONTAINS "volcanoes", yet the prior code linked `does`
-            # facts to the since activity ONLY by identical leading verb
-            # ("study" != "start"), so "volcanoes" never entered the context and
-            # "what year did i start all this volcano stuff" scored 0 and fell
-            # through to a verbatim echo. Fix: link a `does`/`event` fact to the
-            # since activity when they SHARE a salient token (data-driven,
-            # generalizes to any phrasing, fails closed — no shared token means
-            # no link). Now "volcanoes" reaches the match context and the
-            # paraphrase recalls the right dated fact.
-            import datetime as _dtmod
-            _q_tokens = {t for t in re.findall(r"[a-z']+", q.lower())}
-            _q_tokens.discard("")
-            # Build a per-activity context: each `since` activity key (`_act`,
-            # the bare verb, e.g. "study") gathers the value of EVERY `does`/
-            # `event` fact that shares a salient token with it. This lets an
-            # activity described under a different leading verb (e.g. "start
-            # studying volcanoes") still contribute its distinctive words
-            # ("volcanoes") to the match context for the "study" dated fact.
-            # Token sharing is tested on MORPHOLOGICAL STEMS (e.g. "studying"
-            # == "study", "volcanoes" == "volcano"), so the linkage is robust
-            # to tense/aspect variation, not a brittle exact-string match.
-            _verb_ctx = {}
-            _since_acts = set()
-            for _k, _f in pf.facts.items():
-                if not (isinstance(_k, tuple) and len(_k) == 3):
-                    continue
-                if getattr(_f, "superseded", False):
-                    continue
-                if _k[1] == "since":
-                    _p = _f.value.lower().rsplit(" ", 1)
-                    if len(_p) == 2 and _p[0]:
-                        _since_acts.add(_p[0])
-            for _k, _f in pf.facts.items():
-                if not (isinstance(_k, tuple) and len(_k) == 3):
-                    continue
-                if getattr(_f, "superseded", False):
-                    continue
-                if _k[1] in ("does", "event") and _f.value:
-                    _val = _f.value.lower()
-                    _stems = {_stem(t) for t in re.findall(r"[a-z']+", _val)}
-                    # attach this `does`/`event` value to every since activity
-                    # it shares a salient stem with (or an exact leading-verb
-                    # match on the bare verb).
-                    for _act in _since_acts:
-                        if _stem(_act) in _stems or _act == _val.split()[0]:
-                            _verb_ctx.setdefault(_act, []).append(_val)
-            # Extract query object (if any) for object-disambiguated matching.
-            # When the query explicitly names an object ("building widgets"),
-            # require the stored activity to match that object, not just the verb.
-            _query_obj = None
-            _ACTIVITY_VERBS = {
-                "building", "build", "builds", "built",
-                "keeping", "keep", "keeps", "kept",
-                "restoring", "restore", "restores", "restored",
-                "fixing", "fix", "fixes", "fixed",
-                "studying", "study", "studies", "studied",
-                "making", "make", "makes", "made",
-                "working", "work", "works", "worked",
-                "teaching", "teach", "teaches", "taught",
-                "learning", "learn", "learns", "learned",
-                "playing", "play", "plays", "played",
-            }
-            _qtoks_list = [t for t in re.findall(r"[a-z']+", q.lower())]
-            for _i, _qt in enumerate(_qtoks_list):
-                if _qt in _ACTIVITY_VERBS and _i + 1 < len(_qtoks_list):
-                    _next = _qtoks_list[_i + 1]
-                    _STOP_QUERY_OBJ = {"the", "a", "an", "my", "this", "that"}
-                    if _next not in _STOP_QUERY_OBJ:
-                        _query_obj = _stem(_next)
-                        break
-            _best_year = None
-            _best_age = None
-            _best_score = 0
-            _best_act = None
-            for _k, _f in pf.facts.items():
-                if not (isinstance(_k, tuple) and len(_k) == 3):
-                    continue
-                if getattr(_f, "superseded", False):
-                    continue
-                _v = _f.value.lower()
-                if _k[1] == "since":
-                    _parts = _v.rsplit(" ", 1)
-                    if len(_parts) != 2:
-                        continue
-                    _act = _parts[0]
-                    try:
-                        _yr = int(_parts[1])
-                    except ValueError:
-                        continue
-                    # Object-disambiguated matching: if query has an explicit object,
-                    # require the stored activity to contain that object (stem match).
-                    if _query_obj is not None:
-                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
-                        if _query_obj not in _act_stems:
+        # ── (2c) Reverse pet lookup by NAME ─────────────────────────────
+        # Limitation T40 (round 2026-08-12T0613Z): a possession disclosed as
+        # a NAME ("my dog's a retriever called wren", "my cat is ember") was
+        # only recallable via the SPECIES noun ("what is my dog's name").
+        # A query that names the pet by its NAME ("who is wren to me?",
+        # "what relation is ember to me") had no retrieval path: it fell
+        # through to the generic self-blurb. Real cognition resolves a
+        # name -> the entity it belongs to, then answers about that entity.
+        # This branch reverse-indexes the pet store by VALUE (the name) and
+        # answers the RELATIONSHIP ("your dog is wren"), so the user can ask
+        # about a companion by the name they actually use. It is the inverse
+        # of the existing species-keyed recall (1c / engine_memory entity
+        # scan) and shares pet_slots for the species resolution, so the two
+        # directions agree on the keys by construction. No per-animal answer
+        # table, no authored reply — every answer slot is read live from the
+        # PersonalFactStore, which the user can correct at runtime (a renamed
+        # pet supersedes the old slot and this lookup tracks the active one).
+        _NAMEQ = re.search(
+            r"\b(?:who|what)\s+(?:is|was|are|were)\s+([a-z][a-z'\-]{1,20})\s*"
+            r"(?:to|with|for)\s+(?:me|you|us|myself)\b", q)
+        if _NAMEQ and pf is not None:
+            _qnm = _NAMEQ.group(1).strip().lower().strip(".,!?")
+            if len(_qnm) >= 2:
+                try:
+                    from . import pet_slots as _psl
+                    _matched = None
+                    for _k, _f in pf.facts.items():
+                        if not (isinstance(_k, tuple) and len(_k) == 3):
                             continue
-                    _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
-                    _score = _activity_query_overlap(_ctx, q, _q_tokens)
-                    if _score > _best_score:
-                        _best_score = _score
-                        _best_year = _yr
-                        _best_age = None  # clear the other candidate
-                        _best_act = _act
-                elif _k[1] == "since_age":
-                    _parts = _v.rsplit(" ", 1)
-                    if len(_parts) != 2:
-                        continue
-                    _act = _parts[0]
-                    try:
-                        _age = int(_parts[1])
-                    except ValueError:
-                        continue
-                    # Object-disambiguated matching: if query has an explicit object,
-                    # require the stored activity to contain that object (stem match).
-                    if _query_obj is not None:
-                        _act_stems = {_stem(t) for t in re.findall(r"[a-z']+", _act)}
-                        if _query_obj not in _act_stems:
+                        if getattr(_f, "superseded", False):
                             continue
-                    _ctx = _v + " " + " ".join(_verb_ctx.get(_act, ""))
-                    _score = _activity_query_overlap(_ctx, q, _q_tokens)
-                    if _score > _best_score:
-                        _best_score = _score
-                        _best_year = None  # clear the other candidate
-                        _best_age = _age
-                        _best_act = _act
-            # Require at least one meaningful token overlap so an unrelated
-            # "when did i...?" query (no dated activity in it) fails closed
-            # rather than echoing the first stored fact.
-            if _best_score == 0:
-                return None
-            # Display phrasing: the richer `does`/`event` value when available
-            # ("studying volcanoes"), else the bare `since` activity verb. Realize
-            # it as a natural gerund ("studying ...") for grammatical replies
-            # (Fix B, round 2026-08-14T1110Z feature) — previously the bare verb
-            # produced broken English ("you started study basaltic eruptions").
-            _qact = (_verb_ctx.get(_best_act) or [_best_act])[0] or _best_act
-            _qact = _verb_phrase_to_gerund(_qact)
-            if _best_year is not None:
-                if re.search(r"\bhow\s+long\b", q):
-                    _dur = _dtmod.datetime.now().year - _best_year
-                    return f"you've been {_qact} since {_best_year} — about {_dur} years."
-                return f"you started {_qact} in {_best_year}."
-            if _best_age is not None:
-                return f"you've been {_qact} since you were about {_best_age}."
+                        # pets are stored under subject "i" (the user's own
+                        # companion) keyed by a pet_slots attribute; the VALUE
+                        # is the pet's name. A third-party pet (subject != "i")
+                        # is out of scope for "to me" — resolved at the source
+                        # so the self/other boundary holds (a sister's cat is
+                        # not "to me").
+                        if _k[0] != "i":
+                            continue
+                        if not _psl.is_pet_attribute(_k[1]):
+                            continue
+                        if getattr(_f, "value", "").strip().lower().strip(".,!?") == _qnm:
+                            _matched = (_k[1], getattr(_f, "value", _f))
+                            break
+                    if _matched is not None:
+                        _sp = _psl.base_species(_matched[0])
+                        return f"your {_sp} is {_matched[1]}."
+                except Exception:
+                    pass
         return None
 
     def _meta_identity_reply(self) -> str:
@@ -5140,10 +5026,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
         try:
-            self._episodic_transcript = []
-            # Synchronize user_model reference after rebind
-            if hasattr(self, "user_model"):
-                self.user_model._episodic_transcript = self._episodic_transcript
+            self._episodic_transcript.clear()
+            self.user_model._episodic_transcript = self._episodic_transcript
         except Exception:
             pass
         try:
@@ -8849,13 +8733,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # values RAVANA forms/revises at runtime SURVIVE reload — the
                 # "can change this by itself through experience" guarantee.
                 'agent_values': dict(getattr(self, '_agent_values', {}) or {}),
-                # RAVANA's own RECORDED stances (round 2026-08-19T0625Z): the
-                # opinions it has expressed about topics it was asked, so a
-                # later "do you still feel that way about X?" is answered from a
-                # real recorded stance across sessions. Persisted because a
-                # reload that wiped this would make the agent "forget" its own
-                # prior opinions (limitation #2).
-                'agent_own_stances': dict(getattr(self, '_agent_own_stances', {}) or {}),
+                # Agent Self-Stance Formation & Recall (round 2026-08-11T1328Z):
+                # RAVANA's OWN derived stances on topics it has discussed with
+                # the user. Persisted so the agent REMEMBERS its own formed
+                # opinions across sessions (genuine personality continuity) — a
+                # self-opinion question ("what's your read on X") recalls a real
+                # stance it derived from the conversation, instead of recomputing
+                # a hollow transient answer each boot. topic -> (topic, polarity,
+                # confidence, valence, arousal, turn_number, rehearsal_count).
+                'agent_stances': self._serialize_agent_stances(self),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -9184,13 +9070,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     for _k, _v in _aos.items():
                         if not isinstance(_k, str):
                             continue
-                        # Accept (word, conf, reason, turn) only; drop bad rows.
-                        if (isinstance(_v, (list, tuple)) and len(_v) == 4
-                                and isinstance(_v[0], str)
-                                and isinstance(_v[1], (int, float))):
-                            _restored[_k.lower().strip()] = (str(_v[0]), float(_v[1]),
-                                                             str(_v[2]), int(_v[3]))
-                    self._agent_own_stances = _restored
+                        _st = self._agent_stance_from_tuple(_k, _v)
+                        if _st is not None:
+                            _restored[_k.strip().lower()] = _st
+                self._agent_stances = _restored
             except Exception:
                 pass
             self._free_energy = state['free_energy']

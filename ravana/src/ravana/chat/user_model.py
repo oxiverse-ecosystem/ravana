@@ -533,8 +533,6 @@ class UserModel:
                 _sp_word = _pet_corr.group(1).strip().lower()
                 _new_name = _pet_corr.group(2).strip().strip(".,!?")
                 _species = _pet_slots.species_of(_sp_word)
-                if _species is None and _sp_word.isalpha():
-                    _species = _pet_slots.learn_species(_sp_word)
                 if _species is not None and _new_name:
                     _slot = _pet_slots.slot_for(_species, 1)
                     _prior = self.personal_facts.get("i", _slot)
@@ -576,13 +574,21 @@ class UserModel:
             _sp_word = _pr.group("sp").strip().lower()
             if _sp_word in ("the",):
                 continue
-            _species = _pet_slots.species_of(_sp_word)
-            if _species is None and _sp_word.isalpha():
-                _species = _pet_slots.learn_species(_sp_word)
-            if _species is None:
-                continue
-            _slot = _pet_slots.slot_for(_species, 1)
             _nm = (_pr.group("nm") or "").strip().strip(".,!?")
+            _species = _pet_slots.species_of(_sp_word)
+            if _species is None:
+                # "the owl is mine and she's called wren" for a species the
+                # forward miner never got a chance to learn (e.g. the prior
+                # disclosure was a bare possession like "i keep an owl in the
+                # loft", which mints no pet slot). The attached name is
+                # itself evidence of a real pet, so learn the species here
+                # too — same gate (a name/"called"/"named" is present) the
+                # forward miner uses when it learns an unknown species.
+                if _nm and _sp_word.isalpha():
+                    _species = _pet_slots.learn_species(_sp_word)
+                if _species is None:
+                    continue
+            _slot = _pet_slots.slot_for(_species, 1)
             _mine = _pr.group("mine")
             # Locate any prior slot for this species under the USER — the
             # first disclosure stored it there (subject "i").
@@ -1390,39 +1396,30 @@ class UserModel:
             r"([\w'-]+)\s+(?:named|called|named\s+called)\s+"
             r"([\w'-]+(?:\s+(?:and|,|&)\s*[\w'-]+)*)",
             r"\bmy\s+([\w'-]+)\s+(?:named|called)\s+([\w'-]+)",
-            # APPOSITIVE PET DISCLOSURE (round 2026-08-17T1730Z, 6f generalization):
-            # "my pet raccoon Pip steals...", "my dog Rex barks", "my cat Mochi
-            # sleeps on the router". The existing pet patterns only fire on an
-            # EXPLICIT "named"/"called" keyword, so this appositive form
-            # ("my <species> <ProperNoun>") was DROPPED and a later "who is Pip
-            # to me?" had nothing to recall (measured T49 -> identity blurb).
-            # Capture the species + the Capitalized proper-noun name and store it
-            # through the SAME shared pet_slots path (slot_for / learn_species /
-            # is_pet_attribute) the "named"/"called" branch and the recaller
-            # already use, so the miner, the cued-recall renderers, and the
-            # reverse-name resolver agree on the key by construction. Generic
-            # across EVERY species (no per-animal table); species learned at
-            # runtime via learn_species; name is a proper noun (capitalized),
-            # so common-noun objects ("my pet rock collection") never match.
-            # Handled below in the pet-mining block (object-identity check).
-            _APPOSITIVE_PET_PAT,
-            # GENERAL 'species named/called Name' CATCH-ALL (round
-            # 2026-08-20T1229Z, FIX C). Prior patterns only captured a pet when a
-            # possession verb ('have'/'keep'/'my') preceded the species, so
-            # "i got a dog last year, a border collie named Biscuit" MISSED the
-            # animal entirely — the appositive "border collie named Biscuit" sat
-            # after a different verb ('got') and no pattern reached it (confirmed:
-            # only a weak 'got dog last year' fact stored, no pet slot). This
-            # catches ANY "<species> named/called <Name>" / "<species>
-            # named/called <Name> and <Name2>" span regardless of which verb
-            # preceded it, and routes through the SAME pet_slots path
-            # (species_of / learn_species / slot_for) the other pet branches and
-            # the recaller use, so miner + recall agree on the key by construction.
-            # The species word is resolved through pet_slots (seed + runtime
-            # learned), so a dog/cat/border collie/axolotl all work; no
-            # per-animal table, no authored reply, no retraining. Multi-name spans
-            # (joined by 'and'/',') are expanded so each name gets its own slot.
-            _PET_NAMED_CATCHALL_PAT,
+            # B-fix (round 2026-08-12T0613Z): a forward possession disclosure
+            # with an INTERSTITIAL breed/adjective phrase between the species
+            # and the name was never captured: "my dog is a nova scotia duck
+            # tolling retriever called wren" / "my cat is a maine coon called
+            # ember". The existing forward pattern requires the name
+            # immediately after the species ("my dog called wren"), so the
+            # breed phrase ("is a ... retriever") broke the match and the pet
+            # fact was dropped — measured this round: T11 "my dog's a nova
+            # scotia duck tolling retriever called wren" stored NOTHING, so a
+            # later "what's my dog's name" fell through to "outside what i
+            # know". This allows an optional copula (is/are/was/were OR the
+            # spoken contraction 's, since users say "my dog's a retriever
+            # called wren") + article + up-to-6-word breed/adjective span
+            # before named/called, then routes through the SAME _pet_slots slot
+            # logic the bare pattern uses (no per-animal table; species
+            # resolved live). The species capture is LETTERS-ONLY ([\w-]+) so
+            # the trailing 's is consumed as the copula, not folded into the
+            # species token. Generic across any breed phrase length; the breed
+            # words are discarded (only the species + name matter for the
+            # slot). Fires only when the head word is a real species (resolved
+            # by pet_slots), so non-pet "my brother is a tall guy called bob"
+            # is handled by the existing guard, not learned as a pet.
+            r"\bmy\s+([\w-]+)(?:\s+(?:is|are|was|were)|'s)\s+(?:a|an)\s+"
+            r"(?:[\w'-]+\s+){0,6}?(?:named|called)\s+([\w'-]+)",
             # D2: "i am a/an <noun>" self-descriptions (vegetarian, pilot,
             # teacher, ...) captured as a durable identity/role fact. Generic
             # structural capture — the noun becomes the attribute value, no
@@ -4974,73 +4971,28 @@ class UserModel:
         "it", "they're", "im", "i'm", "you're", "we're", "there",
     }
 
-    def _opinion_provenance(self, phrase: str) -> List[str]:
-        """Return the salient content nouns of an opinion-object phrase.
-
-        Companion to `_opinion_topic`: where that method returns the single
-        content HEAD the stance is keyed on, this returns ALL salient content
-        nouns of the phrase (the head plus any modifiers that survived the
-        closed-class strip). Used to seed a stance's PROVENANCE so the
-        resolver + reversal miner can bridge a later co-mention of a broader
-        concept (e.g. "winter", "street art") back to a stance keyed on a
-        subordinate word ("silence", "vandalism"). Generic and store-driven:
-        the nouns come from the user's actual words, nothing is hardwired, and
-        the set is merged online across encounters. Seed vocabulary = the
-        shared closed-class stop set already used by the opinion miners.
-        """
-        toks = [t for t in re.findall(r"[a-z'][a-z']*", (phrase or "").lower())]
-        if not toks:
-            return []
-        # Drop leading closed-class framers (determiners/prepositions/particles)
-        # and trailing modifiers using the SAME stop set the miner routes through,
-        # but keep INTERNAL content nouns (the salient concepts co-named with the
-        # head). We keep every token that is NOT a stop word — that yields the
-        # full salient concept set rather than only the head.
-        out = [t for t in toks if t not in self._OPINION_STOP]
-        # Also drop pure particles (so "up"/"down" never enter provenance).
-        _PARTICLES = {
-            "up", "down", "off", "out", "in", "on", "away", "back", "over",
-            "under", "around", "through", "along", "by", "past", "upon",
-        }
-        out = [t for t in out if t not in _PARTICLES]
-        return out
-
-    def _mine_pet_activity(self, tail: str, name: str, species: str) -> Optional[str]:
-        """Extract a pet's verb-phrase ACTIVITY from the tail after the name.
-
-        Round 2026-08-22T0703Z, DEFECT D1: pet disclosures like "my ferret
-        Pip hides my car keys under the couch" were mined as NAME ONLY, dropping
-        the activity, so later cued/pet recall ("which of my pets hides things
-        in the couch") had nothing to surface. Kin disclosures already capture
-        verb+object activity; pets now do too so recall is symmetric.
-
-        Returns the verb+object head (e.g. "hides car keys"), or None when the
-        tail has no recognized verb. Verbs come from the SHARED verb lexicons
-        (is_activity_verb / is_relation_verb / is_aux_verb — RAVANA-extensible,
-        no per-animal table, no authored reply, no retraining). The object is a
-        real concept resolved through _opinion_topic; bounded to <=5 tokens so a
-        runaway clause cannot swallow the sentence. Content is the user's own
-        words.
-        """
-        if not tail:
-            return None
-        _toks = re.findall(r"[a-z'][a-z']*", tail.lower())
-        _vidx = None
-        for _i, _t in enumerate(_toks):
-            if is_activity_verb(_t) or is_relation_verb(_t) or is_aux_verb(_t):
-                _vidx = _i
-                break
-        if _vidx is None:
-            return None
-        _verb = _toks[_vidx]
-        _obj_rest = " ".join(_toks[_vidx + 1:])
-        # Reuse the same object-head extraction the kin/opinion paths use so the
-        # activity value is a real concept, not a filler/preposition tail.
-        _obj = self._opinion_topic(_obj_rest) or ""
-        _obj = _strip_obj_framers(_obj).strip()
-        if _obj and len(_obj.split()) <= 5:
-            return f"{_verb} {_obj}"
-        return None
+    # C-fix (round 2026-08-12T0613Z): universal ghost topics that can NEVER
+    # own a stance. Comparative / superlative patterns occasionally capture a
+    # non-attitude head (an indefinite pronoun like "anything", or a grammatical
+    # gerund like "standing"/"being" stripped from a longer phrase). These are
+    # rejected as single-word stance topics. This is a tiny UNIVERSAL seed set
+    # (indefinite pronouns + grammatical gerunds), NOT a per-topic deny-list —
+    # it generalizes to any topic the user names and RAVANA cannot learn
+    # attitude objects from these ghosts.
+    _STANCE_GHOST_TOPICS = {
+        # indefinite pronouns / quantifiers
+        "anything", "something", "everything", "nothing", "whatever",
+        "whoever", "whichever", "anyone", "everyone", "someone", "noone",
+        "nobody", "everybody", "somebody", "anybody",
+        # grammatical gerunds that pattern-matchers emit as a head but can
+        # never be an attitude object
+        "standing", "being", "doing", "having", "going", "coming", "feeling",
+        "thinking", "knowing", "wanting", "making", "taking", "getting",
+        "being", "saying", "talking", "looking", "feeling", "seeming",
+        "open", "single", "moment", "sense", "breath", "note", "held",
+        "restless", "quietest", "quiet", "outside", "inside", "away",
+        "around", "through", "across", "behind", "before", "after",
+    }
 
     def _opinion_topic(self, phrase: str) -> Optional[str]:
         """Resolve the salient CONTENT HEAD of an opinion-object phrase.

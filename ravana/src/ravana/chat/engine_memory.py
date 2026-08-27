@@ -231,7 +231,7 @@ class MemoryMixin:
         }
         self._episodic_transcript.append(rec)
         if len(self._episodic_transcript) > 100:
-            # Mutate in place to keep user_model reference synchronized
+            # Keep last 100 entries in place to preserve shared object identity
             del self._episodic_transcript[:-100]
         # Mirror into the temporal indexer (hippocampal time cells).
         try:
@@ -823,9 +823,6 @@ class MemoryMixin:
         _specific_entity = None
         for tok in re.findall(r"[a-z']+", q):
             _tok = tok[:-2] if tok.endswith("'s") else tok
-            if _tok in _entity_idx and _tok in ("i", "you", "my", "your"):
-                _ent_hit = _tok
-                break
             # species map (e.g. "cats" -> "cat" entity) — a specific owned
             # thing the user named; resolve it from the full store below.
             _sp = _pet_slots.species_of(_tok)
