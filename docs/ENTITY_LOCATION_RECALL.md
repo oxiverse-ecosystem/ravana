@@ -74,13 +74,13 @@ entity and resolves them against the live `PersonalFactStore`:
 _ent_loc_a = re.search(
     r"\bwhere(?:'s|'re|s)?\s+(?:is|are|was|were\s+)?"
     r"(?:the|my|our|their|his|her|a|an|this|that|these|those)?\s*"
-    r"([a-z][a-z'\- ]{1,40}?)\s*"
+    r"([a-z][a-z'\\- ]{1,40}?)\s*"
     r"(?:moored|berthed|anchored|docked|based|parked|stationed|"
     r"kept|stored|housed|tied\s+up|wintered|located|situated)?\s*"
     r"(?:at|in|on)?\s*\??\s*$", q)
 _ent_loc_b = re.search(
     r"\bwhat\s+is\s+(?:the|my|our|their|a|an|this|that)?\s*"
-    r"([a-z][a-z'\- ]{1,40}?)'s\s+location\s*\??\s*$", q)
+    r"([a-z][a-z'\\- ]{1,40}?)'s\s+location\s*\??\s*$", q)
 ```
 
 Resolution is **generic across entities/places** via a suffix-window match:

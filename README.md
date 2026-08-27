@@ -43,43 +43,11 @@ on this codebase:
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
-- **Records its own opinions and answers "do you still feel that way?" from the
-  record.** Asked its own view — *"what do you think about open source"* — it
-  replies *"i strongly value open source. knowledge should be shared, not locked
-  away."* and **records that stance durably** (survives save/load). A later
-  *"do you still feel that way about open source?"* is answered **from that
-  recorded stance** — *"yeah, i still strongly value open source — that hasn't
-  shifted for me. knowledge should be shared, not locked away"* — not recomputed
-  fresh. A revisit on a topic it never stated a view on is answered honestly
-  (*"i don't actually have a recorded view on … from before"*) instead of
-  fabricated. No LLM, no per-topic reply table. See
-  `docs/CAPABILITY_AGENT_OWN_STANCE_PERSISTENCE.md`.
 - **Reverses a held stance.** If you later change your mind — *"i flipped, the
   reef tank is more work than joy"* — it **recodes** the stance you already held
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
   stale one or stacking a contradiction. A flip on a topic you never stated an
   attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
-- **Recodes a held stance on a FREE-FORM contradiction (no retraction keyword).**
-  You don't have to say *"i flipped"* — an opposed restatement with no retraction
-  cue still recodes the stance you hold: *"not all street art is good"* after
-  *"i love street art"* moves `street art` from +0.95 to −0.275; *"actually i've
-  gone off winter"* recodes the `silence` stance it already holds (the broader
-  co-mention bridges via provenance). Detection is a seed reassessment-affect
-  lexicon + `recode_stance_toward` (decisive blend toward the new value); a
-  same-sign reassessment or a neutral utterance leaves the stance untouched, and
-  there is no guessed reversal. No LLM, no retraining. See
-  `docs/CAPABILITY_FREE_FORM_CONTRADICTION_RECODE.md`.
-- **Links a broader-concept co-mention back to a held stance (provenance
-  bridge).** Told *"i love the silence of deep winter"* it records the stance
-  keyed on the subordinate head *silence* **and** keeps the salient broader
-  concept *winter* it co-named as provenance. A later *"am i for or against
-  winter?"* then resolves through that provenance to the held stance and answers
-  *"from what you've told me, you're strongly for silence"* — instead of falling
-  to the *"i don't have a read"* hedge it used before. Provenance is grown online
-  from the real utterance and merged across encounters; there is no per-topic
-  table and no retraining. The same bridge fixes the street-art reversal class
-  (a reversal naming *street art* links to a stance keyed *murals*). See
-  `docs/CAPABILITY_STANCE_PROVENANCE.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
@@ -101,42 +69,13 @@ on this codebase:
   `docs/DATE_GROUNDED_RECALL_YEAR_ANCHOR.md`.
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
-- **Mines activity durations into dated facts.** Told *"i've been brewing beer
-  for a decade"* (or *"a few years"*, *"two decades"*, *"several years"*, *"many
-  years"*) it resolves the fuzzy span to a start year (`now − n`) and stores a
-  `since` fact — then answers date queries through the **same** resolver as
-  explicit years: `when did i start brewing beer` → `you started brew in 2016.`
-  No per-phrase code; the resolver already knows how to read a `since` fact.
-  See `docs/CAPABILITY_DURATION_MINING.md`.
-- **Recalls the right dated fact even when you paraphrase.** A rotated query that
-  shares no word with the stored activity still recalls it — *"what year did i
-  start all this volcano stuff again"* → *"you started studying volcanoes back in
-  2015."* — because the resolver links each `does`/`event` fact to the dated
-  `since` activity by **morphological stem** (so *volcano* in a separate
-  `start studying volcanoes` fact reaches the `study 2015` fact). The reply is
-  also grammatical: the stored verb is realized as a **gerund** ("started
-  **studying** volcanoes", not "started **study**"), and a redundant inceptive
-  ("started studying…") is collapsed to the gerund. No LLM, no per-topic reply
-  table. See `docs/CAPABILITY_DATE_RECALL_PARAPHRASE.md`.
-- **Tells two activities apart when they share a verb but differ by object.**
-  Told *"i've been building frames since 2019"* and *"i started building cabinets
-  in 2021"*, it mines the object (`frames` / `cabinets`) into each dated fact and
-  recalls the right one: *"when did i start building frames"* → *"you started
-  building frames in 2019."*, and *"since what year have i been building
-  cabinets"* → *"you started building cabinets in 2021."* Previously both returned
-  the same (wrong) year because only the verb head was stored. No LLM, no
-  per-topic reply table. See `docs/CAPABILITY_OBJECT_DISAMBIGUATED_DATE_RECALL.md`.
-- **Mines possession-attribute disclosures into structured, correctable facts.**
-  Told *"the cabin is a hand-hewn pine lodge with a sod roof"* it stores the
-  material under the **entity** (`cabin.madeof = pine`), not a whole-sentence
-  echo of you — so a later *"what's my cabin made of"* returns the clean
-  structured answer *"your cabin is made of pine."* A feature noun after the
-  material scopes the fact (*"my desk is oak frame"* → `desk.frame = oak`,
-  recalled as *"your desk's frame is oak."*). A possession with no recognised
-  material (*"the river is a fast mountain stream"*) is correctly **not** mined
-  (fail-closed, no echo). The material/kind vocabulary is seed data that grows
-  at runtime (`learn_material`) — no code change, no retraining, no LLM. See
-  `docs/CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md`.
+- **Surfaces a named thing's whereabouts from a stored location fact.** Told
+  *"the slow coal is moored at bingley"* it stores `('slow coal','location','bingley')`,
+  and later answers *"where's the slow coal moored?"* with
+  *"the slow coal is at bingley."* — even after a correction (*"actually the slow
+  coal is moored at saltaire now"* → *"the slow coal is at saltaire."*). Unknown
+  places (e.g. *"where is paris?"*) return honest uncertainty, never a fabricated
+  location. See `docs/ENTITY_LOCATION_RECALL.md`.
 - **Abstains when it has no settled view.** Asked *"what do you think about
   coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
@@ -394,9 +333,6 @@ See [`docs/`](docs/README.md):
 - [Benchmarks](docs/BENCHMARKS.md) — every benchmark/diagnostic script and what it measures.
 - [Development](docs/DEVELOPMENT.md) — layout, path shims, test commands, conventions.
 - [Entity-Location Recall](docs/ENTITY_LOCATION_RECALL.md) — capturing + surfacing a named thing's whereabouts.
-- [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
-- [Reverse Pet Lookup by Name](docs/PET_NAME_RECALL.md) — answering "who is wren to me?" by reverse-indexing the pet store by the name value.
-- [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
 
 ## Benchmark results
 

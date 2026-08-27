@@ -957,8 +957,7 @@ class MemoryMixin:
                     r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
                     _t) or re.search(
                     r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
-                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t) or \
-                    self._is_question(_t):
+                    r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t):
                     continue  # skip prior recall queries (no content)
                 # Count how many cue tokens' STEMS appear in this episode's
                 # stemmed token stream (morphology-invariant match).
@@ -1043,7 +1042,7 @@ class MemoryMixin:
                 text.lower()) or re.search(
                 r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
                 r"\b(told|said|mentioned|asked|tell|remember|recall)\b",
-                text.lower()) or self._is_question(text):
+                text.lower()):
                 continue
             score = 0.0
             _strong_link = False

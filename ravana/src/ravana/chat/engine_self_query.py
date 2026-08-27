@@ -862,18 +862,6 @@ class SelfQueryMixin:
         t = (user_input or "").lower().strip()
         if not t:
             return None
-        # USER-IDENTITY GUARD (round 2026-08-17T1730Z regression fix): a
-        # user-identity recall question ("do you remember my name?", "who am
-        # i?") must NOT be swallowed by the agent-self introspection gate
-        # below. The _self_introspect regex matches "you remember"/"you
-        # recall", so without this guard an identity-recall query routes to
-        # self_model and preempts the dedicated user_identity detector in
-        # process_turn (test_identity_questions_detected expected
-        # user_identity but got self_model). Fail-open: return None so the
-        # query flows to the user_identity handler. Structural — mirrors that
-        # handler's is_identity_query shape exactly (no per-topic table).
-        if _is_user_identity_query(t):
-            return None
         # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
         #     asks RAVANA about ITS OWN prior statement / opinion / mind /
         #     thinking / line ("what was your read on whether you're really
@@ -893,69 +881,31 @@ class SelfQueryMixin:
         _self_introspect = re.search(
             r"\b(your|you)\b.*\b(read|line|take|view|mind|thinking|thought|"
             r"opinion|stance|self|who you are|what you (?:are|were)|how you "
-            r"(?:see|feel|think)|want|wants|wanted|desire|desires|aim|aims|"
-            r"goal|goals|hope|hopes|said|told|spoke|mentioned|recall|remember"
-            r")\b", t)
-        # GUARD (round 2026-08-18T1340Z): a TOPIC-OPINION frame ("what's your
-        # take/view/opinion/stance ON <topic>", "your thoughts about X") is NOT
-        # self-introspection — it asks RAVANA's view on a subject, which must
-        # reach the opinion handler (_agent_stance_on), not the identity
-        # coherence blurb. Without this, "what's your take on eating insects"
-        # matched `your ... take` and answered with "i'm still quite unsettled
-        # about who i am" (a self/other boundary error + incoherent reply).
-        # Genuine identity questions ("who are you", "what are you") have no
-        # "on/about/of <topic>" object, so they still route to the self-model.
-        if _self_introspect and re.search(
-                r"\b(your|you)\s+(take|view|opinion|stance|read|thoughts?)\s+"
-                r"(on|about|of|regarding|toward)\b", t):
-            _self_introspect = None
+            r"(?:see|feel|think))\b", t)
         if _self_introspect:
-            # R2 (round 2026-08-18T0937Z): do NOT deflect a genuine USER-recall
-            # query into RAVANA's self-coherence frame. A question like "what
-            # do you remember about my family" / "what have you learned about
-            # me" matches the broad `you.*remember` introspect regex but is
-            # actually asking RAVANA to report its MODEL OF THE USER — that is
-            # answered downstream by the self-recall / _aggregate_user_model
-            # path, not by RAVANA narrating its own identity crisis. If the
-            # query references the user's own biography (possessive + a
-            # self/relation noun), this is a user-recall, not self-introspection;
-            # fall through so the real store-driven summary runs. Structural:
-            # one possessive+relation-noun test, no per-topic table.
-            _user_recall = re.search(
-                r"\b(my|me|myself|i|we|us|our)\b.*\b("
-                r"family|relative|relation|kin|brother|sister|mother|father|"
-                r"mom|dad|grandmother|grandfather|grandma|grandpa|son|daughter|"
-                r"kid|child|wife|husband|partner|pet|cat|dog|crow|friend|"
-                r"name|childhood|hometown|home|live|grew up|told|said|"
-                r"shared|mentioned|about me|about my)\b", t)
-            if _user_recall:
-                # Not a self-introspection question — let the user-recall /
-                # aggregation resolver answer it from the personal-fact store.
-                pass
-            else:
-                # This is a question about RAVANA itself. Answer from the
-                # self-model's identity state (real, growing state — strength,
-                # momentum, stability) so the reply is grounded, not authored.
-                try:
-                    _id = self.identity.get_status()
-                    _strength = _id.get("strength", 0.0)
-                    # No keyword→prose table: every introspection question is
-                    # answered from the SAME live identity state (strength band +
-                    # measured value), so the content comes from cognition.
-                    if _strength >= 0.5:
-                        _coh = "i have a fairly settled sense of myself"
-                    elif _strength >= 0.35:
-                        _coh = "my sense of myself is still taking shape"
-                    else:
-                        _coh = "i'm still quite unsettled about who i am"
-                    return (f"that's about me, not you — {_coh}, and it's been "
-                            f"growing as we talk. i don't always keep the exact "
-                            f"words of what i said earlier, but the shape of it "
-                            f"holds.")
-                except Exception:
-                    return ("that's a question about me rather than you — i'm "
-                            "still forming a sense of myself, and i'd rather be "
-                            "honest about that than guess.")
+            # This is a question about RAVANA itself. Answer from the
+            # self-model's identity state (real, growing state — strength,
+            # momentum, stability) so the reply is grounded, not authored.
+            try:
+                _id = self.identity.get_status()
+                _strength = _id.get("strength", 0.0)
+                # No keyword→prose table: every introspection question is
+                # answered from the SAME live identity state (strength band +
+                # measured value), so the content comes from cognition.
+                if _strength >= 0.5:
+                    _coh = "i have a fairly settled sense of myself"
+                elif _strength >= 0.35:
+                    _coh = "my sense of myself is still taking shape"
+                else:
+                    _coh = "i'm still quite unsettled about who i am"
+                return (f"that's about me, not you — {_coh}, and it's been "
+                        f"growing as we talk. i don't always keep the exact "
+                        f"words of what i said earlier, but the shape of it "
+                        f"holds.")
+            except Exception:
+                return ("that's a question about me rather than you — i'm "
+                        "still forming a sense of myself, and i'd rather be "
+                        "honest about that than guess.")
         sm = self._ensure_self_model()
         # 0) Epistemic-humility / self-knowledge questions. A question about
         #    the AGENT's *knowledge limits* ("do you know everything?",
