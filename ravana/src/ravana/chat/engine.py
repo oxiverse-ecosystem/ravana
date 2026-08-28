@@ -2659,7 +2659,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
-
         Root cause it fixes: biographical and self-stance recall queries
         ("what's my name", "what did you tell me about the cafeteria smell",
         "you mentioned a stance on medical data", "did you take a position on
@@ -2781,6 +2780,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # store-driven, no authored reply, no per-topic table, no retraining.
         # Fail-closed: returns None when no user-autobiography intent matches,
         # so genuine agent-self questions still reach the self-model path.
+        # ── (0a) USER-MODEL AGGREGATION — checked BEFORE autobiographical recall
+        # so a "what have you told me about me" / "what do you make of me" style
+        # profile-summary query is rendered from the live user-model stores, not
+        # replayed as a single episodic echo (which loses the biographical
+        # sketch and surfaces raw fact noise). Mirrors the (0b) aggregation gate
+        # below; kept here so it preempts the replay path at _autobiographical_recall.
+        _agg_early = re.search(
+            r"\b("
+            r"what have you (?:told|said|shared|mentioned) (?:me )?about me|"
+            r"what have you picked up about me|"
+            r"what(?:'s| is| do| did) your (?:read|take) on me|"
+            r"what do you (?:make|think) of me|"
+            r"tell me about myself|"
+            r"tell me (?:everything|all|what) you (?:know|remember|learned|"
+            r"picked up|gathered) about me|"
+            r"summ?ar?y? (?:up )?(?:what you(?:'ve| have) (?:learned|picked up|"
+            r"gathered) about me|your (?:read|take) on me)|"
+            r"describe me|"
+            r"how would you describe me|"
+            r"what do you remember me (?:telling|saying|sharing)|"
+            r"everything you know about me|"
+            r"what stands out (?:about|to you)? ?(?:me|about me)|"
+            r"who do you think i am|"
+            r"give me your (?:read|take|impression) (?:of|on) me"
+            r")\b", q)
+        if _agg_early:
+            return self._aggregate_user_model()
         _ab = self._autobiographical_recall(user_input)
         if _ab is not None:
             return _ab
@@ -2904,6 +2930,45 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"you live in {_v.value}."
             return None
+        # Named-possession WHEREABOUTS (round 2026-08-10T0813Z, fix D). A "where
+        # is <entity> [moored/parked/...]?" OR bare "where is <entity>?" / "what is
+        # <entity>'s location?" query must surface the stored entity-keyed location
+        # fact, not fall through to an episodic echo of the raw utterance. Entity =
+        # noun phrase before the location verb (long form) or the noun phrase
+        # itself (bare "where is X?" / "X's location?").
+        _ENT_LOC = (
+            re.search(
+                r"\bwhere(?:'s| is| are| was| were)?\s+(?:the|my|your|our|their|his|her)?\s*"
+                r"([\w'-]+(?:\s+[\w'-]+){0,3})\s+"
+                r"(?:is|are|was|were|sits|lies|stays|remains|moored|berthed|anchored|"
+                r"docked|based|parked|stationed|kept|stored|housed|tied up|wintered)\b",
+                q)
+            or re.search(
+                r"\bwhere(?:'s| is| are| was| were)?\s+(?:the|my|your|our|their|his|her)?\s*"
+                r"(?!is\b|are\b|was\b|were\b|she\b|he\b|it\b|they\b|them\b|him\b|her\b|me\b|you\b|we\b|us\b|who\b|what\b|which\b|this\b|that\b|these\b|those\b)"
+                r"([\w'-]+(?:\s+[\w'-]+){0,3})\??\s*$",
+                q)
+            or re.search(
+                r"\bwhat(?:'s| is)?\s+(?:the|my|your|our|their|his|her)?\s*"
+                r"([\w'-]+(?:\s+[\w'-]+){0,3})'s?\s+location\b",
+                q))
+        if _ENT_LOC:
+            _ent = _ENT_LOC.group(1).strip().strip(" .,!?").lower()
+            # try the exact entity key, then a leading-word match (since the miner
+            # may store a longer descriptor as the key)
+            _val = None
+            if pf is not None:
+                _direct = pf.get(_ent, "location")
+                if _direct is not None and not getattr(_direct, "superseded", False):
+                    _val = _direct.value
+                else:
+                    for (_k, _a), _fv in pf.facts.items():
+                        if _a == "location" and not getattr(_fv, "superseded", False) \
+                                and _ent in str(_k).lower():
+                            _val = _fv.value
+                            break
+            if _val is not None:
+                return f"{_ent} is at {_val}."
         if re.search(r"\b(where do i keep|where do i have|where do i store)\b", q):
             # "where do i keep the light" / "where do i keep my pigeons" —
             # answer from the 'does' fact whose value overlaps the query noun,
@@ -3676,7 +3741,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     #     name of a combined-attr fact, or appears in the value.
                     if not _matched and _qr_name is not None:
                         _at = _attr.split()
-                        if _at and _at[-1] == _qr_name:
+                        if len(_at) >= 2 and _at[-1] == _qr_name:
+                            _vv = _val.lower().strip().split()
+                            # Combined-attr "<rel> <name>" (e.g. 'brother cal'):
+                            # when the stored value is a DESCRIPTION (not an
+                            # activity verb-phrase) AND the query is NOT also
+                            # asking what the person does, answer with just the
+                            # relationship identity — "your brother is cal" — so a
+                            # biographical query doesn't echo the whole stored
+                            # description verbatim. If the value IS an activity, or
+                            # the query asks "what does X do", fall through to the
+                            # normal aggregation / the reverse-name resolver
+                            # (later in this method) which appends the activity
+                            # correctly ("your brother theo fixes bicycles." /
+                            # "your friend wren is ceramicist.").
+                            _asks_activity = bool(re.search(
+                                r"\b(do|does|did|work|live|for a living|"
+                                r"hobby|like to)\b", q.lower()))
+                            if (not _vv or not _or_is_act(_vv[0])) and not _asks_activity:
+                                return f"your {_at[0]} is {' '.join(_at[1:])}."
                             _matched = True
                         elif _qr_name in _val.lower().split():
                             _matched = True
@@ -3724,6 +3807,68 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "whom", "tell", "know", "say", "said", "recall",
                     "remember", "mention", "name", "relation",
                 }
+                # (2c-WHOSE) "whose <species> is it" possessor lookup.
+                # Reverse-index stored pets/possessions by SPECIES and answer the
+                # possessor. Tolerates head-token overlap ("hawk" vs "goshawk").
+                # A user-owned pet ("my goshawk's name is vesper" ->
+                # ('goshawk','name','vesper')) answers "it's yours". A third
+                # party's pet answers "it's your <owner>'s". Store-driven: no
+                # authored prose, no per-species table.
+                try:
+                    from . import pet_slots as _psl2
+                    try:
+                        from .relation_attrs import relation_of as _rel_of2
+                    except Exception:
+                        def _rel_of2(w):
+                            return None
+                    _whose = re.search(
+                        r"\bwhose\s+([a-z][a-z'-]+)\s+(?:is|was|are|were)\s+"
+                        r"(?:it|he|she|they)(?:\s+now)?\b", q.lower())
+                    if _whose is None:
+                        _whose = re.search(
+                            r"\bwhose\s+([a-z][a-z'-]+)\s*\?$", q.lower())
+                    if _whose is not None:
+                        _spq = _whose.group(1).strip().lower()
+                        _spq_canon = _psl2.species_of(_spq)
+                        _best = None  # (priority, owner, label)
+                        for _k, _f in pf.facts.items():
+                            if not (isinstance(_k, tuple) and len(_k) == 3):
+                                continue
+                            if getattr(_f, "superseded", False):
+                                continue
+                            _subj, _attr, _val = _k
+                            _val = (getattr(_f, "value", _val) or "").strip()
+                            if not _val:
+                                continue
+                            _attr_l = str(_attr).lower().strip()
+                            _label = None
+                            _owner = "i"
+                            if _subj == "i" and _psl2.is_pet_attribute(_attr):
+                                _label = _psl2.base_species(_attr)
+                            elif _attr_l == "name" and _rel_of2(str(_subj).lower()) is None:
+                                _label = str(_subj).lower()
+                                _owner = "i"
+                            elif _subj != "i" and _psl2.is_pet_attribute(_attr):
+                                _label = _psl2.base_species(_attr)
+                                _owner = str(_subj).lower()
+                            if _label is None:
+                                continue
+                            _match = (_spq_canon is not None and
+                                      _psl2.species_of(_label) == _spq_canon)
+                            if not _match:
+                                _match = (_spq in _label or _label in _spq
+                                          or _spq.rstrip("s") == _label.rstrip("s"))
+                            if not _match:
+                                continue
+                            _pri = 0 if _owner == "i" else 1
+                            if _best is None or _pri < _best[0]:
+                                _best = (_pri, _owner, _label)
+                        if _best is not None:
+                            if _best[1] == "i":
+                                return f"it's yours \u2014 your {_best[2]}."
+                            return f"it's your {_best[1]}'s {_best[2]}."
+                except Exception:
+                    pass
                 if _qcn:
                     # relation_of is the runtime-extensible relationship-word test
                     # from relation_attrs (same vocabulary the miner uses), so the
@@ -3811,7 +3956,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             # person: "your neighbor mr. sato." / "your neighbor
                             # mr. sato keeps bees." Content is the stored attr;
                             # no authored prose, no per-name table.
-                            _rel = _attr
+                            _rel_head = _attr_toks[0]
+                            _rel_name = " ".join(_attr_toks[1:])
+                            _rel = f"{_rel_head} is {_rel_name}"
                             _act = _val
                         # (2) attr is a relationship word, name is the value
                         elif _relation_of(_attr) is not None and _val in _qcn:
@@ -4059,7 +4206,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # honestly so the contrast is answered, not hidden.
                         _replies.append(
                             _r if _r else f"i'm still figuring out {_st}.")
-                    return "; ".join(_replies) + "."
             # ── Single-topic self-stance (unchanged path) ──────────────────
             # ROUND 2026-08-09i FIX: reject DEICTIC / GENERIC topic phrases.
             # A loosely-matched self-stance query ("do you have anything like
@@ -4657,6 +4803,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return _t
 
     def _autobiographical_recall(self, user_input: str) -> Optional[str]:
+        
         """AUTO-BIOGRAPHICAL RECALL of the USER (feature t_a41f7e29,
         round 2026-08-18T0937Z).
 
@@ -4761,8 +4908,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"mentioned|share|shared|let you know)\b", q)
         if _B:
             # Recover the disclosure content after the tell-clause.
+            # The helper verb (did/have/had) is OPTIONAL: "remember when I
+            # TOLD you about X" has no helper verb, only "i told you". The
+            # previous pattern required did/have/had + i/you + tell-verb, so
+            # for "remember when i told you about the commission -- what did i
+            # say it was for?" it skipped the FIRST tell-clause ("i told you")
+            # and matched the LATER "what did i say", stripping everything up
+            # to "it was for?" and dropping the real topic ("commission").
+            # Making the helper verb optional lets the FIRST tell-clause match,
+            # so _rem keeps the genuine topic.
             _rem = re.sub(
-                r"^.*?(?:did|have|had)\s+(?:i|you)\s+(?:tell|told|say|said|"
+                r"^.*?(?:(?:did|have|had)\s+)?(?:i|you)\s+(?:tell|told|say|said|"
                 r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
                 "", q).strip()
             _topic = self._extract_disclosure_topic(_rem)
@@ -4784,6 +4940,56 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _fact is not None:
                 return ("yes — i remember: " +
                         self._render_fact_line(_fact[0], _fact[1]) + ".")
+            # No matching fact/stance. For a "tell you ABOUT <X>" replay
+            # phrasing (the clause after the tell-verb leads with a recall
+            # preposition), this is a request to REPLAY the episode, not a
+            # yes/no confirmation — fall through to the episodic recall path
+            # (_try_memory_query / _retrieve_episodic) so a stored episode about
+            # X is replayed, and an undisclosed X fails closed (no sibling
+            # echo). A genuine confirmation with a real matched fact above is
+            # answered normally. Round 2026-08-14T0103Z (Defect C): without
+            # this, "what did i tell you about the commission" returned "not
+            # that i recall" and the adjacent-turn episode was never reached.
+            if re.match(r"^(?:about|regarding|on|of)\b", _rem):
+                # Fall through to the episodic recall path ONLY when a stored
+                # episode literally contains the topic — so the targeted
+                # episode is replayed, and an undisclosed topic fails closed
+                # (no sibling echo). This must be a LITERAL episode lookup
+                # (verbatim substring + Porter stem), NOT the semantic matcher
+                # in _retrieve_episodic: the semantic pass is GloVe-dependent
+                # and can miss a morphology-variant cue ("commission" vs the
+                # stored "commissioned") under a different embedding cache,
+                # which is exactly Defect C (the adjacent-turn episode was
+                # never reached). A literal scan is embedding-independent.
+                # Topic = first content word after the recall preposition
+                # (strip an optional leading determiner, then take word 0).
+                _rem_clean = re.sub(r"^(?:about|regarding|on|of)\s+", "", _rem)
+                _rem_clean = re.sub(
+                    r"^(?:the|that|this|these|those|a|an|my|your|our|their|his|her)\s+",
+                    "", _rem_clean).strip(" .,!?")
+                _topic = _rem_clean.split()[0] if _rem_clean.split() else _rem_clean
+                _topic_stem = None
+                try:
+                    from nltk.stem import PorterStemmer as _PS
+                    _topic_stem = _PS().stem(_topic)
+                except Exception:
+                    _topic_stem = _topic
+                _qnorm = (q or "").lower().strip()
+                _hit_rec = None
+                for _rec in (self._episodic_transcript or []):
+                    _rt = (_rec.get("text", "") or "").lower()
+                    if _rt == _qnorm:
+                        continue  # skip the current query turn itself
+                    if _topic in _rt or (
+                        _topic_stem is not None
+                        and _topic_stem in {_stem(w) for w in re.findall(r"[a-z']+", _rt)}
+                    ):
+                        _hit_rec = _rec
+                        break
+                if _hit_rec is not None:
+                    # Replay the targeted episode directly (embedding-independent
+                    # content-addressable recall — exactly the asked-for turn).
+                    return f"you mentioned: \"{_hit_rec.get('text', '')}\""
             return ("not that i recall — you haven't told me about that yet. "
                     "what did you want me to know?")
 
@@ -5386,6 +5592,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
 
     def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
+        
         """Answer a cued recall about RAVANA's OWN prior speech from the
         AgentReplyStore (_own_replies), never from the user transcript.
 
@@ -6076,6 +6283,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
             return _meta_res
+
+        # Temporal-recall pre-check (round 2026-08-14T0103Z, Q59). A "when did
+        # i start X" / "since what year have i kept X" query must route to the
+        # temporal_recall path (grounded dated fact) BEFORE the since-block in
+        # _structured_recall answers with an ungrounded "you started X in {year}"
+        # (wrong strategy + loses the 1 January 2017 grounding). Checked here,
+        # before the TOP structured_recall guard, so the temporal answer wins.
+        _ql_t = (user_input or "").strip().lower()
+        _is_temporal_q = (
+            bool(re.match(r"^\s*(when|what year|what date|how long)\b", _ql_t))
+            or "how long" in _ql_t
+            or bool(re.search(r"how many (day|week|month|year)s?\b", _ql_t))
+        )
+        if _is_temporal_q:
+            _t_subj = None
+            try:
+                _t_subj = self._extract_topic(user_input, None)
+                if not _t_subj:
+                    _t_subj = self._clean_scenario_subject(user_input)
+            except Exception:
+                _t_subj = None
+            if _t_subj:
+                _tresp = self._answer_temporal_recall(user_input, _t_subj)
+                if _tresp:
+                    self._last_strategy = "temporal_recall"
+                    self._last_responses.append(_tresp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _tresp
 
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
         # Answers user-fact / user-stance queries ("what's my name", "where do
@@ -7355,6 +7592,51 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
                 if _possessive_attr and not _suffering:
                     _disc = None
+                # W-loss-homograph guard (round 2026-08-10T1401Z F2): the VAD
+                # lexicon marks "lost" as negative affect, so a first-person
+                # OBJECT loss ("i lost a lobster pot", "i lost my keys") is
+                # mis-detected as a distress disclosure and met with "feeling
+                # lost is hard" empathy — discarding the factual event (it IS
+                # stored as an `event` fact, but the reply is nonsensical and
+                # the user's real disclosure is lost in the empathy frame).
+                # A death/grief of a BEING (my dog died, my gran passed) is
+                # genuine bereavement and stays empathic. So: drop empathy
+                # ONLY for first-person "i lost <object>" where the lost thing
+                # is NOT a person/animal/relationship noun and there is no
+                # grief word — let it fall through to the grounded event-ack.
+                # Structural (object-vs-being via a stable bereavement set +
+                # absence of grief words), NOT a per-thing table. Fail-closed:
+                # presence of any grief/death word keeps empathy intact.
+                _first_person_lost = bool(re.search(
+                    r"\b(i|we)\s+(lost|lost\s+my|lost\s+a|lost\s+an|"
+                    r"losing)\b", _low_d))
+                _grief_word = bool(re.search(
+                    r"\b(grief|grieving|mourn|mourning|died|dies|dead|"
+                    r"passed|funeral|suicide|devastated|heartbroken)\b",
+                    _low_d))
+                _being_loss = bool(re.search(
+                    r"\b(my|our|his|her|their)\s+\w*\s*\b"
+                    r"(dog|cat|pet|bird|child|son|daughter|mum|mom|mother|"
+                    r"dad|father|grandma|grandpa|grandmother|grandfather|"
+                    r"wife|husband|partner|friend|brother|sister|sibling|"
+                    r"grandchild|baby|horse|cow|sheep|goat|pig|rabbit|"
+                    r"hamster|turtle|fish|plant|tree)\b", _low_d))
+                if _first_person_lost and not _grief_word and not _being_loss:
+                    # Fail-closed exception: a POSSESSIVE loss ("i lost my
+                    # wallet", "i lost my grandmother") is read as a genuine
+                    # bereavement / attachment loss and stays empathic (round
+                    # 2026-08-19T1026Z, test_loss_verb_first pins this). Only
+                    # INDEFINITE / non-possessive object loss ("i lost a lobster
+                    # pot", "i lost some keys") is the F2 object-loss case that
+                    # must fall through to the grounded event-ack. So: drop
+                    # empathy ONLY when the lost thing is NOT introduced by a
+                    # possessive determiner.
+                    _possessive_loss = bool(re.search(
+                        r"\b(i|we)\s+(lost|lost\s+my|lost\s+a|lost\s+an|"
+                        r"losing)\s+(my|our|your|his|her|their|its)\b",
+                        _low_d))
+                    if not _possessive_loss:
+                        _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
                 # relationship declaration addressed to the AGENT, not a generic

@@ -35,8 +35,8 @@ def test_summary_skips_event_noise():
     eng = _seed("summ_b1")
     out = eng.process_turn("what have you told me about me?")
     assert "your event is" not in out, out
-    # biographical facts present
-    assert "Caspar" in out, out
+    # biographical facts present (case-insensitive: name stored verbatim)
+    assert "caspar" in out.lower(), out
     assert "dog is a lurcher named wren" in out, out
 
 

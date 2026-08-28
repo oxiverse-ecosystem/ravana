@@ -145,7 +145,7 @@ def relation_of(word: str) -> Optional[str]:
     # Normalize multi-word kin modifiers to a single canonical head.
     _norm = w.replace("-", " ").strip()
     _norm = re.sub(r"\s+", " ", _norm)
-    if _norm != w:
+    if _norm != w and _norm:
         _head = _norm.split()[-1]  # "great aunt" -> "aunt", "step brother" -> "brother"
         _canon = _RELATION_SEED.get(_head) or _RELATION_LEARNED.get(_head)
         if _canon is not None:

@@ -972,11 +972,11 @@ class MemoryMixin:
                     "my", "we", "our", "me", "about", "before", "earlier",
                 }
                 _match_text = (_best_cue.get("text", "") or "").lower()
+                _match_stems = {_stem(w) for w in re.findall(r"[a-z']+", _match_text)}
                 _real_cue = [
                     c for c in _cue_tokens
                     if c not in _GENERIC_CUE
-                    and re.search(r"(?<![a-z])" + re.escape(c) + r"(?![a-z])",
-                                  _match_text)
+                    and _stem(c) in _match_stems
                 ]
                 if not _real_cue:
                     # only generic-filler overlapped -> do NOT echo an
@@ -1918,6 +1918,29 @@ class MemoryMixin:
         # self-recall (strategy=memory_recall) and never reach the stored name.
         if re.search(r"\b(?:my name|who am i)\b", t):
             return None
+        # POSSESSION-ATTRIBUTE RECALL (round 2026-08-10T1401Z / lim3 control). A
+        # question about the user's OWN disclosed entity — "what is wrong with my
+        # car", "what's the matter with my laptop", "what happened to my bike" —
+        # must recall the stored possession-attribute fact (e.g. ('car','gps',
+        # 'broken...')), not fall through to reflective uncertainty. The episodic
+        # retriever (_retrieve_episodic) already builds the entity index from the
+        # durable PersonalFactStore and renders the attribute cleanly ("your car's
+        # gps is broken..."), so delegate rather than re-implement. Fail-closed:
+        # when the retriever finds nothing for the named entity, return None so the
+        # turn proceeds honestly (never confabulate). process_turn labels a
+        # non-None return here as memory_recall, which matches the lim3 echo
+        # expectation.
+        if re.search(
+                r"\bwhat(?:'s| is| was)?\s+(?:wrong|the matter|happened|broken|up)\b"
+                r"\s+(?:with|to)\s+(?:my|our|the|your)?\s*[\w'-]+", t) or \
+                re.search(
+                r"\bwhat\s+(?:happened|is wrong)\s+to\s+(?:my|our|the)?\s*[\w'-]+", t):
+            try:
+                _pa = self._retrieve_episodic(user_input)
+            except Exception:
+                _pa = None
+            if _pa:
+                return _pa
         # D-fix (round 2026-08-08b): the agent-claim recall below must fire ONLY
         # when the user is asking about RAVANA's OWN self-description ("what did
         # you say about who you are", "earlier you described yourself"). It must
@@ -2000,6 +2023,15 @@ class MemoryMixin:
         # grammatical-aspect signal, not a topic keyword list, so it stays
         # brain-faithful (Tulving autonoetic recollection is past-displaced;
         # source-monitoring tags a retrieved memory vs a present feeling).
+        # Round 2026-08-14T0103Z (Defect C): "remember when i told you about X" /
+        # "remember when i said you about X" is a cued recall of a specific prior
+        # episode (the adjacent-turn replay contract). It lacks a "me/my" pronoun
+        # but is unambiguously autobiographical recall, so recognize it as a
+        # distinct-topic recall. Narrow: requires "remember when" + a tell/say
+        # verb + "about".
+        _remember_when_about = bool(re.search(
+            r"\bremember when\b.{0,60}?\b(?:told|said|mentioned|shared)\b"
+            r".{0,20}?\babout\b", t))
         _self_recall_struct = bool(re.search(
             r"\b(?:what|anything|tell me)\b.*\b(?:do )?you\b.*\b(?:remember|know|recall|told|tell|learned?|found out|discovered|figured out)\b"
             r".*\b(?:about me|me|my|myself)\b", t)) or \
@@ -2008,7 +2040,8 @@ class MemoryMixin:
                 r"\b(?:i|we|you)\b\s+(?:remember|recall|felt|felt like|was feeling|"
                 r"experienced|went through|lived through|thought about)\b"
                 r"(?:.*\b(?:last year|last week|yesterday|ago|back then|when i|"
-                r"when we|that time)\b)?", t))
+                r"when we|that time)\b)?", t)) or \
+            _remember_when_about
         _self_recall_intent = False
         _clf = getattr(self, "_social_intent", None)
         if _clf is not None:
@@ -2046,10 +2079,24 @@ class MemoryMixin:
             if self._is_distinct_topic_recall(user_input):
                 _scope = self._scoped_topic_transcript(user_input)
                 if _scope is not None:
-                    _topic_ep = self._retrieve_episodic(user_input,
-                                                       transcript=_scope)
-                    if _topic_ep is not None:
-                        return _topic_ep
+                    # Exclude the CURRENT query turn from the scope. By the time
+                    # this runs inside process_turn, the query may already have
+                    # been appended to the episodic transcript (mined as a turn),
+                    # and the query text contains the topic word ("...about the
+                    # commission...") — so an unscoped match could resolve to the
+                    # query turn itself instead of the prior disclosure episode.
+                    # Drop any scope turn whose text is a near-match for the
+                    # query so the retriever targets the genuine prior episode.
+                    _qnorm = (user_input or "").lower().strip()
+                    _scope = [
+                        t for t in _scope
+                        if (t.get("text", "") or "").lower().strip() != _qnorm
+                    ]
+                    if _scope:
+                        _topic_ep = self._retrieve_episodic(user_input,
+                                                           transcript=_scope)
+                        if _topic_ep is not None:
+                            return _topic_ep
             _idx = getattr(self, "_episodic_index", None) or {}
             _LOC_WORDS = ("live", "lives", "from", "city", "town", "country",
                           "born", "grew", "located", "location", "origin")
@@ -2086,7 +2133,19 @@ class MemoryMixin:
                 if _named_key not in _idx:
                     _cue = False
             if _cue:
-                _ep = self._retrieve_episodic(user_input)
+                # Exclude the CURRENT query turn from the retrieval transcript.
+                # Inside process_turn the query may already have been mined into
+                # the episodic transcript, and its text contains the topic word
+                # ("...about the commission..."), so a verbatim match would
+                # resolve to the query turn itself instead of the prior
+                # disclosure episode (Defect C — adjacent-turn echo). Drop any
+                # transcript turn whose text equals the query before retrieving.
+                _qnorm = (user_input or "").lower().strip()
+                _store = [
+                    t for t in self._episodic_transcript
+                    if (t.get("text", "") or "").lower().strip() != _qnorm
+                ] or None
+                _ep = self._retrieve_episodic(user_input, transcript=_store)
                 if _ep is not None:
                     return _ep
             # D-fix (round 2026-08-22T0058Z): a SPECIFIC-ENTITY cued recall whose
@@ -2458,7 +2517,8 @@ class MemoryMixin:
             # matching episode. This is structural (possessive/referent regex),
             # not a per-topic table.
             _m = re.search(
-                r"\b(?:about|that|regarding|on|my|the)\s+([a-z']+)"
+                r"\b(?:about|that|regarding|on|my|the)\s+"
+                r"(?:the\s+)?([a-z']+)"
                 r"|([a-z']+)'s\b", t)
             if _m:
                 _cue = (_m.group(1) or _m.group(2) or "").lower().strip(".,!?")
