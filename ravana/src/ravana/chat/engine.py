@@ -2919,6 +2919,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 q)
             or re.search(
                 r"\bwhere(?:'s| is| are| was| were)?\s+(?:the|my|your|our|their|his|her)?\s*"
+                r"(?!is\b|are\b|was\b|were\b|she\b|he\b|it\b|they\b|them\b|him\b|her\b|me\b|you\b|we\b|us\b|who\b|what\b|which\b|this\b|that\b|these\b|those\b)"
                 r"([\w'-]+(?:\s+[\w'-]+){0,3})\??\s*$",
                 q)
             or re.search(
