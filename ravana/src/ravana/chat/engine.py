@@ -4828,7 +4828,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 except Exception:
                     _topic_stem = _topic
                 _qnorm = (q or "").lower().strip()
-                _hit = False
+                _hit_rec = None
                 for _rec in (self._episodic_transcript or []):
                     _rt = (_rec.get("text", "") or "").lower()
                     if _rt == _qnorm:
@@ -4837,10 +4837,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _topic_stem is not None
                         and _topic_stem in {_stem(w) for w in re.findall(r"[a-z']+", _rt)}
                     ):
-                        _hit = True
+                        _hit_rec = _rec
                         break
-                if _hit:
-                    return None
+                if _hit_rec is not None:
+                    # Replay the targeted episode directly (embedding-independent
+                    # content-addressable recall — exactly the asked-for turn).
+                    return f"you mentioned: \"{_hit_rec.get('text', '')}\""
             return ("not that i recall — you haven't told me about that yet. "
                     "what did you want me to know?")
 
