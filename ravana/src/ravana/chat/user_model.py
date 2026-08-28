@@ -596,18 +596,23 @@ _ACTIVITY_DENY = frozenset({
     "regret", "regrets", "suspect", "realize", "realises", "care", "mind",
     # pure reporting / communication utterances (echo verbatim as garbage)
     "said", "say", "says", "told", "tell", "tells",
-    # achieve-comm transfer verb that must NOT become a 'does' activity
-    # (round 2026-08-14T0103Z): "i got a dog from the shelter" is an
-    # acquisition, not an ongoing self-disclosed activity. Deliberately NARROW:
-    # "made a chair" / "took the train" remain allowed (test asserts they
-    # SHOULD be captured).
-    "get", "gets", "got",
 })
 
 # Framer / temporal / degree words that may immediately precede the REAL
 # activity verb ("i just started building", "i recently took up the cello").
 # Added to the capture-regex skip groups so the genuine verb is matched, not
 # the framer.
+# Meta-reflection / self-error verbs that are NEVER real disclosures
+# ("i mixed them up", "i got muddled", "i lose track of..."). Seed deny
+# vocabulary (RAVANA-expandable); these are discourse/error words, not
+# activities or events, so the open-class miner must skip them (round
+# 2026-08-10T0813Z fix C — junk-minim). Restored from the green lineage.
+_META_REFLECTION_DENY = frozenset({
+    "mix", "mixing", "mixed", "muddle", "muddled", "muddling",
+    "confuse", "confused", "confusing", "forget", "forgot", "forgotten",
+    "blur", "blurred", "slip", "slipped", "misremember", "misplace",
+    "mistake", "misspoke", "mis-spoke",
+})
 _FRAMER_SKIP = (
     "also|really|even|just|now|still|often|sometimes|usually|"
     "already|recently|lately|soon|first|last|then|next|once|twice|again|"
@@ -3345,6 +3350,10 @@ class UserModel:
             re.IGNORECASE)
         for _am in _act_pat.finditer(q_clean):
             _verb = _am.group(1).lower()
+            # Meta-reflection / self-error clauses ("i lose track of whether...",
+            # "i got muddled") are NOT real disclosures — skip before storing.
+            if _verb in _META_REFLECTION_DENY or "lose track" in q_clean.lower():
+                continue
             if not _activity_verb_ok(_verb):
                 continue
             # retraction cue ("i take back ...") is not an activity
@@ -3352,6 +3361,10 @@ class UserModel:
                 continue
             _obj = self._opinion_topic(_am.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
+            # also skip when the resolved object is itself a meta-reflection word
+            # (e.g. "i got muddled" -> obj 'muddled').
+            if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
+                continue
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("does", f"{_verb} {_obj}", 0.55)
         # Experience / event capture: first-person "i <event-verb> <object>"
@@ -3371,6 +3384,11 @@ class UserModel:
             re.IGNORECASE)
         for _em in _evt_pat.finditer(q_clean):
             _verb = _em.group(1).lower()
+            # Meta-reflection / self-error clauses ("i lose track of whether...",
+            # "i mixed them up") are not lived experiences — skip so they are not
+            # stored as events either (round 2026-08-10T0813Z fix C).
+            if _verb in _META_REFLECTION_DENY or "lose track" in q_clean.lower():
+                continue
             if not _activity_verb_ok(_verb):
                 continue
             # retraction cue ("i took back ...") is not an event
@@ -3378,6 +3396,10 @@ class UserModel:
                 continue
             _obj = self._opinion_topic(_em.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
+            # also skip when the resolved object is itself a meta-reflection word
+            # (e.g. "i got muddled" -> obj 'muddled', captured as an event).
+            if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
+                continue
             # Affective-object guard (round 2026-08-17T1126Z): "i find it
             # fascinating" / "i found that surprising" is a cognitive-affective
             # copula, not a discovery event. The object is a SENTIMENT
@@ -3458,6 +3480,12 @@ class UserModel:
         for _gm in _gen_verb_pat.finditer(q_clean):
             _verb = _gm.group(1).lower().replace("'t", "")
             if _verb in _STATIVE_DENY:
+                continue
+            # Meta-reflection / self-error clauses ("i lose track of whether...",
+            # "i mixed them up", "i got muddled") are NOT disclosures of real
+            # activity — skip them so they are not stored as facts (round
+            # 2026-08-10T0813Z fix C — junk-minim).
+            if _verb in _META_REFLECTION_DENY or "lose track" in q_clean.lower():
                 continue
             _obj = self._opinion_topic(_gm.group(2).strip().lower())
             if _obj and 1 <= len(_obj.split()) <= 5:

@@ -3717,15 +3717,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     #     name of a combined-attr fact, or appears in the value.
                     if not _matched and _qr_name is not None:
                         _at = _attr.split()
-                        # Combined-attr fact "<rel> <name>" (e.g. 'brother cal'):
-                        # queried by NAME -> the relationship is the head word and
-                        # the name is the trailing attr token, so render
-                        # "your <rel> is <name>" (closing the gap between the
-                        # stored attr and the human-readable relationship). Do NOT
-                        # render the generic "your <rel> <name> is <val>." form,
-                        # which would echo the whole stored value verbatim.
                         if len(_at) >= 2 and _at[-1] == _qr_name:
-                            return f"your {_at[0]} is {' '.join(_at[1:])}."
+                            _vv = _val.lower().strip().split()
+                            # Combined-attr "<rel> <name>" (e.g. 'brother cal'):
+                            # when the stored value is a DESCRIPTION (not an
+                            # activity verb-phrase) AND the query is NOT also
+                            # asking what the person does, answer with just the
+                            # relationship identity — "your brother is cal" — so a
+                            # biographical query doesn't echo the whole stored
+                            # description verbatim. If the value IS an activity, or
+                            # the query asks "what does X do", fall through to the
+                            # normal aggregation / the reverse-name resolver
+                            # (later in this method) which appends the activity
+                            # correctly ("your brother theo fixes bicycles." /
+                            # "your friend wren is ceramicist.").
+                            _asks_activity = bool(re.search(
+                                r"\b(do|does|did|work|live|for a living|"
+                                r"hobby|like to)\b", q.lower()))
+                            if (not _vv or not _or_is_act(_vv[0])) and not _asks_activity:
+                                return f"your {_at[0]} is {' '.join(_at[1:])}."
+                            _matched = True
                         elif _qr_name in _val.lower().split():
                             _matched = True
                     # (c) pet match.
