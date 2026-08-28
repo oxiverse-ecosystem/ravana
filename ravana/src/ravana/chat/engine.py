@@ -6136,6 +6136,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.notify_user_idle()
             return _meta_res
 
+        # Temporal-recall pre-check (round 2026-08-14T0103Z, Q59). A "when did
+        # i start X" / "since what year have i kept X" query must route to the
+        # temporal_recall path (grounded dated fact) BEFORE the since-block in
+        # _structured_recall answers with an ungrounded "you started X in {year}"
+        # (wrong strategy + loses the 1 January 2017 grounding). Checked here,
+        # before the TOP structured_recall guard, so the temporal answer wins.
+        _ql_t = (user_input or "").strip().lower()
+        _is_temporal_q = (
+            bool(re.match(r"^\s*(when|what year|what date|how long)\b", _ql_t))
+            or "how long" in _ql_t
+            or bool(re.search(r"how many (day|week|month|year)s?\b", _ql_t))
+        )
+        if _is_temporal_q:
+            _t_subj = None
+            try:
+                _t_subj = self._extract_topic(user_input, None)
+                if not _t_subj:
+                    _t_subj = self._clean_scenario_subject(user_input)
+            except Exception:
+                _t_subj = None
+            if _t_subj:
+                _tresp = self._answer_temporal_recall(user_input, _t_subj)
+                if _tresp:
+                    self._last_strategy = "temporal_recall"
+                    self._last_responses.append(_tresp)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _tresp
+
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
         # Answers user-fact / user-stance queries ("what's my name", "where do
         # i work", "what did i tell you about my favorite time of day", "you
