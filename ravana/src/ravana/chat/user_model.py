@@ -1412,6 +1412,33 @@ class UserModel:
             r"(?:in|near|at|from|to|onto)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
             q_clean, re.IGNORECASE)
+        # Round 2026-08-13T2059Z location-capture fix: also capture "based in X"
+        # / "located in X" / "stationed at X" / "situated on X" forms, including
+        # the interrupted phrasing "i'm a lighthouse keeper based in skye" where a
+        # multi-word noun phrase sits between the subject and the location verb.
+        # Allow an OPTIONAL determiner + up to 6 words of NP before the verb, so
+        # both "i'm based in skye" and "she is stationed at diego garcia" capture
+        # the place head. Third-person subjects must NOT create a self-location
+        # fact (the test asserts loc=="" for "she is stationed at diego garcia").
+        m_loc_based = re.search(
+            r"\b(?:i|i'm|i\s+am)\b\s+(?:a|an|the|my|our|their|his|her)?\s*"
+            r"(?:[A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,6}\s+)?"
+            r"(?:based|located|stationed|situated)\s+"
+            r"(?:in|at|on|near|from)\s+"
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,5})",
+            q_clean, re.IGNORECASE)
+        # Round 2026-08-13T2059Z: also capture a bare natural-feature fragment
+        # ("on the isle of skye") where the place is the noun after "of" and the
+        # feature (isle/island/coast/...) precedes it. No subject required; the
+        # fragment is a location disclosure in context. Generic feature lexicon,
+        # not a per-toponym table.
+        m_loc_feat = re.search(
+            r"\b(?:on|in|at|near|from)\s+the\s+"
+            r"(?:isle|island|coast|shore|bank|edge|outskirts|valley|dale|glen|"
+            r"cove|bay|fjord|peninsula|canyon|hollow|estuary|inlet|harbor|harbour|"
+            r"beach|river|lake|sea|ocean)\s+of\s+"
+            r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,3})",
+            q_clean, re.IGNORECASE)
         # Round 2026-08-15T0326Z: also capture "i keep <thing> on <place>" /
         # "i have my studio on <place>" — a common way users state WHERE they
         # are (lighthouse keeper, boat restorer, ...). The main m_loc verb set
@@ -1458,6 +1485,27 @@ class UserModel:
             # -> capture the place head after "on". Trim a trailing clause at a
             # comma/period so "hollis rock, it's tiny" -> "hollis rock".
             _loc = m_loc_on.group(1).strip().strip(" .,!")
+            _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            if _loc and len(_loc.split()) <= 4:
+                self.user_location = _loc
+                _put_fact("location", _loc, 0.6)
+        elif m_loc_based and not m_loc and not m_loc_on:
+            # Round 2026-08-13T2059Z: "i'm a lighthouse keeper based in skye" /
+            # "i'm based in skye" -> capture the place head after the location
+            # verb. Only fires for first-person subjects (regex requires i/i'm/
+            # i am), so third-person "she is stationed at diego garcia" correctly
+            # creates NO self-location fact. Trim a trailing clause at a
+            # comma/period so a multi-word NP is stored cleanly.
+            _loc = m_loc_based.group(1).strip().strip(" .,!")
+            _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            if _loc and len(_loc.split()) <= 5:
+                self.user_location = _loc
+                _put_fact("location", _loc, 0.6)
+        elif m_loc_feat and not m_loc and not m_loc_on and not m_loc_based:
+            # Round 2026-08-13T2059Z: "on the isle of skye" -> capture "skye".
+            # Bare fragment (no subject) is accepted as a location disclosure in
+            # context. Trim trailing clause, cap length.
+            _loc = m_loc_feat.group(1).strip().strip(" .,!")
             _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
             if _loc and len(_loc.split()) <= 4:
                 self.user_location = _loc
@@ -1671,7 +1719,59 @@ class UserModel:
                          "confused", "scared", "afraid", "excited",
                          "nervous", "calm", "what", "who", "why", "how",
                          "where", "when", "not", "no", "yes", "maybe")
-            if name_cand and name_cand.lower() not in _NON_NAME:
+            # Round 2026-08-14T0103Z (Defect A): a bare copula self-description
+            # ("i'm vegetarian", "i'm a ceramicist", "i'm an atheist", "i'm
+            # scottish") must NOT be stored as the user NAME. Extend the guard
+            # with a seed deny set covering the broad CATEGORIES of self-
+            # descriptor nouns (diet, belief, occupation, nationality, family
+            # role, affiliation). Seed vocabulary, not a per-name allowlist, so it
+            # generalizes to any descriptor the user might self-apply. Real proper
+            # names ("mira", "wren", "tobias") are never in this set.
+            _NAME_REJECT_DESCRIPTOR = {
+                # diet / lifestyle
+                "vegetarian", "vegan", "omnivore", "pescatarian", "flexitarian",
+                "carnivore", "meat-eater", "teetotaler", "teetotaller",
+                # religion / belief / identity
+                "atheist", "agnostic", "christian", "muslim", "islamist",
+                "hindu", "buddhist", "jew", "jewish", "sikh", "pagan",
+                "catholic", "protestant", "mormon", "spiritual", "humanist",
+                "skeptic", "sceptic", "nihilist", "stoic", "optimist",
+                "pessimist", "realist", "idealist", "pragmatist",
+                # occupation / role
+                "ceramicist", "ceramist", "artist", "painter", "sculptor",
+                "writer", "author", "poet", "musician", "teacher", "student",
+                "engineer", "doctor", "nurse", "lawyer", "chef", "baker",
+                "programmer", "developer", "designer", "architect", "scientist",
+                "researcher", "farmer", "fisherman", "sailor", "soldier",
+                "officer", "clerk", "cashier", "waiter", "waitress", "barista",
+                "driver", "pilot", "carpenter", "plumber", "electrician",
+                "mechanic", "gardener", "librarian", "journalist", "editor",
+                "actor", "singer", "dancer", "photographer", "printmaker",
+                "potter", "weaver", "smith", "tailor", "cook", "builder",
+                # nationality / origin
+                "indian", "american", "british", "english", "scottish",
+                "welsh", "irish", "french", "german", "spanish", "italian",
+                "canadian", "australian", "chinese", "japanese", "korean",
+                "russian", "mexican", "brazilian", "dutch", "swiss", "swede",
+                "norwegian", "dane", "fin", "polish", "greek", "turk",
+                # orientation / identity
+                "straight", "gay", "lesbian", "bisexual", "transgender",
+                "queer", "cisgender", "pansexual", "asexual", "demisexual",
+                # family role (relative nouns can follow "i'm", e.g. "i'm a
+                # father") — these are roles, never names
+                "father", "mother", "parent", "son", "daughter", "brother",
+                "sister", "uncle", "aunt", "auntie", "cousin", "grandfather",
+                "grandmother", "grandparent", "nephew", "niece",
+                # political / affiliation
+                "democrat", "republican", "socialist", "communist", "liberal",
+                "conservative", "anarchist", "centrist", "libertarian",
+                # general descriptors
+                "introvert", "extrovert", "ambivert", "minimalist",
+                "maximalist", "environmentalist", "feminist", "activist",
+            }
+            _nc_low = name_cand.lower()
+            if (name_cand and _nc_low not in _NON_NAME
+                    and _nc_low not in _NAME_REJECT_DESCRIPTOR):
                 name_cap = " ".join(w.capitalize() for w in name_cand.split())
                 self.user_name = name_cap
                 _put_fact("name", name_cap, 0.6)
@@ -3433,6 +3533,32 @@ class UserModel:
         # store already holds — this is an attitude-change operator, not a fresh
         # opinion. Runs last so it can see (and reverse) any stance just mined.
         self.mine_stance_reversal(text)
+
+        # Mirror any count correction into the structured QuantityMemory store
+        # (round 2026-08-11T0521Z). Runs at the END of mine so detected_correction_fact
+        # (set by the correction circuit above) is available. correct() supersedes
+        # the prior record by subject+noun so a stale count is retired, not echoed.
+        try:
+            _cf = self.detected_correction_fact
+            if (_cf and str(_cf[0]).lower() in ("i", "me", "my")
+                    and _cf[1] in ("does", "count", "number", "qty")):
+                _cfv = (_cf[2] or "").lower().strip()
+                _qc = None
+                _qent = None
+                _ctoks = _cfv.split()
+                for _i, _tok in enumerate(_ctoks):
+                    _n = number_to_int(_tok)
+                    if _n is not None and _i + 1 < len(_ctoks):
+                        _qc = _n
+                        _qent = " ".join(
+                            t for t in _ctoks[_i + 1:_i + 4]
+                            if re.match(r"^[a-z]+$", t))
+                        break
+                if _qc is not None and _qent:
+                    self.quantity_memory.correct(
+                        subject="i", noun=_qent, count=_qc)
+        except Exception:
+            pass
 
     def _mine_affect_verb_stance(self, text: str) -> None:
         """Mine first-person affect-verb attitude constructions as stances.
