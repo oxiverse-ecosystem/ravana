@@ -4761,8 +4761,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"mentioned|share|shared|let you know)\b", q)
         if _B:
             # Recover the disclosure content after the tell-clause.
+            # The helper verb (did/have/had) is OPTIONAL: "remember when I
+            # TOLD you about X" has no helper verb, only "i told you". The
+            # previous pattern required did/have/had + i/you + tell-verb, so
+            # for "remember when i told you about the commission -- what did i
+            # say it was for?" it skipped the FIRST tell-clause ("i told you")
+            # and matched the LATER "what did i say", stripping everything up
+            # to "it was for?" and dropping the real topic ("commission").
+            # Making the helper verb optional lets the FIRST tell-clause match,
+            # so _rem keeps the genuine topic.
             _rem = re.sub(
-                r"^.*?(?:did|have|had)\s+(?:i|you)\s+(?:tell|told|say|said|"
+                r"^.*?(?:(?:did|have|had)\s+)?(?:i|you)\s+(?:tell|told|say|said|"
                 r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
                 "", q).strip()
             _topic = self._extract_disclosure_topic(_rem)
@@ -4795,13 +4804,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # this, "what did i tell you about the commission" returned "not
             # that i recall" and the adjacent-turn episode was never reached.
             if re.match(r"^(?:about|regarding|on|of)\b", _rem):
-                # Only fall through to episodic replay when a stored episode
-                # about the topic actually exists — otherwise fail closed with
-                # the honest "not that i recall" (an undisclosed topic must not
-                # echo a sibling episode). This keeps topic_recall green while
-                # letting "what did i tell you about the commission" replay the
-                # real commission episode.
-                if self._retrieve_episodic(q) is not None:
+                _qnorm = (q or "").lower().strip()
+                _store = [
+                    t for t in self._episodic_transcript
+                    if (t.get("text", "") or "").lower().strip() != _qnorm
+                ] or None
+                if self._retrieve_episodic(q, transcript=_store) is not None:
                     return None
             return ("not that i recall — you haven't told me about that yet. "
                     "what did you want me to know?")

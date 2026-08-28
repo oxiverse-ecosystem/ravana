@@ -2110,7 +2110,19 @@ class MemoryMixin:
                 if _named_key not in _idx:
                     _cue = False
             if _cue:
-                _ep = self._retrieve_episodic(user_input)
+                # Exclude the CURRENT query turn from the retrieval transcript.
+                # Inside process_turn the query may already have been mined into
+                # the episodic transcript, and its text contains the topic word
+                # ("...about the commission..."), so a verbatim match would
+                # resolve to the query turn itself instead of the prior
+                # disclosure episode (Defect C — adjacent-turn echo). Drop any
+                # transcript turn whose text equals the query before retrieving.
+                _qnorm = (user_input or "").lower().strip()
+                _store = [
+                    t for t in self._episodic_transcript
+                    if (t.get("text", "") or "").lower().strip() != _qnorm
+                ] or None
+                _ep = self._retrieve_episodic(user_input, transcript=_store)
                 if _ep is not None:
                     return _ep
             # D-fix (round 2026-08-22T0058Z): a SPECIFIC-ENTITY cued recall whose
