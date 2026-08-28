@@ -42,6 +42,7 @@ _SPECIES_SEED: Dict[str, str] = {
     "rabbit": "rabbit", "rabbits": "rabbit", "bunny": "rabbit",
     "hamster": "hamster", "hamsters": "hamster",
     "horse": "horse", "horses": "horse", "pony": "horse",
+    "owl": "owl", "owls": "owl",
     "pet": "pet", "pets": "pet",
 }
 
