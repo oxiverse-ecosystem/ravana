@@ -1918,6 +1918,29 @@ class MemoryMixin:
         # self-recall (strategy=memory_recall) and never reach the stored name.
         if re.search(r"\b(?:my name|who am i)\b", t):
             return None
+        # POSSESSION-ATTRIBUTE RECALL (round 2026-08-10T1401Z / lim3 control). A
+        # question about the user's OWN disclosed entity — "what is wrong with my
+        # car", "what's the matter with my laptop", "what happened to my bike" —
+        # must recall the stored possession-attribute fact (e.g. ('car','gps',
+        # 'broken...')), not fall through to reflective uncertainty. The episodic
+        # retriever (_retrieve_episodic) already builds the entity index from the
+        # durable PersonalFactStore and renders the attribute cleanly ("your car's
+        # gps is broken..."), so delegate rather than re-implement. Fail-closed:
+        # when the retriever finds nothing for the named entity, return None so the
+        # turn proceeds honestly (never confabulate). process_turn labels a
+        # non-None return here as memory_recall, which matches the lim3 echo
+        # expectation.
+        if re.search(
+                r"\bwhat(?:'s| is| was)?\s+(?:wrong|the matter|happened|broken|up)\b"
+                r"\s+(?:with|to)\s+(?:my|our|the|your)?\s*[\w'-]+", t) or \
+                re.search(
+                r"\bwhat\s+(?:happened|is wrong)\s+to\s+(?:my|our|the)?\s*[\w'-]+", t):
+            try:
+                _pa = self._retrieve_episodic(user_input)
+            except Exception:
+                _pa = None
+            if _pa:
+                return _pa
         # D-fix (round 2026-08-08b): the agent-claim recall below must fire ONLY
         # when the user is asking about RAVANA's OWN self-description ("what did
         # you say about who you are", "earlier you described yourself"). It must
