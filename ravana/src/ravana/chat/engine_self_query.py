@@ -863,8 +863,8 @@ class SelfQueryMixin:
         # Genuine identity questions ("who are you", "what are you") have no
         # "on/about/of <topic>" object, so they still route to the self-model.
         if _self_introspect and re.search(
-                r"\b(your|you)\s+(take|view|opinion|stance|read|thoughts?)\s+"
-                r"(on|about|of|regarding|toward)\b", t):
+                r"\b(your|you)\s+(?:honest\s+)?(take|view|opinion|stance|"
+                r"read|thoughts?)\s+(on|about|of|regarding|toward)\b", t):
             _self_introspect = None
         if _self_introspect:
             # R2 (round 2026-08-18T0937Z): do NOT deflect a genuine USER-recall
@@ -1130,12 +1130,27 @@ class SelfQueryMixin:
                 # Accumulate the topic noun phrase: first content token, then
                 # keep adjacent content tokens (handles "street art", "public
                 # transit") but stop at the first closed-class/polarity boundary.
+                # Relative pronouns (who/whom/whose/which/that) BRIDGE the topic
+                # head into its modifying clause ("people who talk", "friends who
+                # keep") — they must NOT terminate the phrase; the following
+                # verb/object is included up to the next closed-class boundary
+                # (round 2026-08-13T0634Z t_4297f732 D-B fix: the resolved head
+                # is the multi-token relative clause, not the trailing last
+                # token "theatres"/"promises"). Structural (closed-class
+                # vocabulary), no per-topic table.
+                _REL_PRON = ("who", "whom", "whose", "which", "that")
                 _target_toks = [_toks[_i]]
                 _j = _i + 1
-                while _j < len(_toks) and _toks[_j] not in _PRON_OR_CLOSED \
-                        and _toks[_j] not in _VERB_SCAFFOLD \
-                        and not _toks[_j].isdigit():
-                    _target_toks.append(_toks[_j])
+                while _j < len(_toks):
+                    _w = _toks[_j]
+                    if _w in _REL_PRON:
+                        _target_toks.append(_w)
+                        _j += 1
+                        continue
+                    if (_w in _PRON_OR_CLOSED or _w in _VERB_SCAFFOLD
+                            or _w.isdigit()):
+                        break
+                    _target_toks.append(_w)
                     _j += 1
                 _target = " ".join(_target_toks)
                 _stance, _reason = self._agent_stance_on(_target)
