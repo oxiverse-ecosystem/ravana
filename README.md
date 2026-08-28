@@ -470,4 +470,22 @@ and how to reproduce.
 
 ## License
 
-Oxiverse Community License (OCL) v1.0 — see [LICENSE](LICENSE).
+RAVANA is licensed under the **Oxiverse Community License (OCL)**.
+
+The full, always-current license text — including the current version, the commercial-licensing
+terms (closed-source self-hosting and open-source self-hosting paths), and the privacy-by-design
+requirements — is published at:
+
+    https://oxiverse.com/license
+
+That page is the single source of truth (it renders the canonical LICENSE directly), so read it
+there rather than relying on a copied snapshot.
+
+Quick summary:
+- Non-Commercial community use (student projects, portfolios, research, internal evaluation) is permitted.
+- Modifications to the core codebase must remain under OCL.
+- Commercial use — SaaS, paid products, hosted offerings, or closed-source self-hosting — requires a separate Commercial License from Oxiverse (inquire at likhith@oxiverse.com).
+- Independently developed apps that merely consume the hosted API/platform are NOT derivative works and may be licensed under your choice of OSI-approved license or OCL.
+- Privacy-by-Design is a non-negotiable baseline for all use.
+
+This repository does not embed its own copy of the license to avoid drift.

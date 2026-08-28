@@ -1,142 +1,27 @@
-Oxiverse Community License (OCL) v1.0
+Oxiverse Community License (OCL)
+Copyright © 2026 Likhith Sai Seemala (Oxiverse)
 
-Copyright (c) 2026 Likhith Sai Seemala
-Source-Available | Non-Commercial Community Use | Commercial Licensing Available | Privacy-by-Design Required
+RAVANA is licensed under the Oxiverse Community License (OCL).
 
+The full, authoritative, and always-current license text — including the current
+version number, the commercial-licensing terms (closed-source self-hosting and
+open-source self-hosting paths), and the privacy-by-design requirements — lives at:
 
-1. Grant of License
+    https://oxiverse.com/license
 
-Subject to the terms of this License, Likhith Sai Seemala ("Licensor") grants you a worldwide, non-exclusive, non-transferable, non-sublicensable license to:
+That page renders the canonical LICENSE file directly, so it is always up to date.
+Read it there. Do not rely on this short note as the license terms.
 
-  (a) use, copy, modify, and run the Software;
-  (b) create derivative works of the Software;
-  (c) share the Software and derivative works, for Non-Commercial Purposes only.
+Summary:
+  - Non-Commercial community use (student projects, portfolios, research, internal
+    evaluation) is permitted.
+  - Modifications to the core codebase must remain under OCL.
+  - Commercial use (SaaS, paid products, hosted offerings, or closed-source
+    self-hosting) requires a separate Commercial License from Oxiverse — inquire at
+    likhith@oxiverse.com.
+  - Independently developed apps that merely consume the hosted API/platform are NOT
+    derivative works and may be licensed under your choice of OSI-approved license or OCL.
+  - Privacy-by-Design is a non-negotiable baseline for all use.
 
-Derivative works created under this License must also be distributed under OCL v1.0 and may not be relicensed under more permissive terms.
-
-For the avoidance of doubt, this Section 1 distinguishes between two scenarios:
-
-  (i) Core Modifications. Modifying, forking, extending, or creating derivative works of the Software's source code (including its cognitive architecture, components, and any part of the codebase) constitutes a derivative work and must remain under OCL v1.0. Such modifications may not be relicensed, sublicensed, or distributed under different terms.
-
-  (ii) Service Consumption. Independently developed applications, products, or services that merely consume, interact with, or depend on the Software through its hosted services, APIs, or platform interfaces—without copying, modifying, or incorporating the Software's source code—are not considered derivative works of the Software. Such independent projects may be licensed under your choice of:
-      - An OSI-approved open source license (e.g., MIT, Apache 2.0, GPL, etc.); or
-      - This License (OCL v1.0).
-
-
-2. Non-Commercial Use Definition
-
-"Non-Commercial Purpose" means use that is:
-
-  - Personal, non-monetized experimentation
-  - Educational or academic instruction
-  - Academic or non-profit research
-  - Internal evaluation within a non-revenue-generating organization
-  - Open research or community learning projects
-
-Non-Commercial Purpose expressly excludes:
-
-  - Selling, licensing, or monetizing the Software or derivatives
-  - Offering the Software as a hosted service (SaaS, API-as-a-Service, etc.)
-  - Integrating the Software into a paid product, platform, or commercial offering
-  - Using the Software for commercial consulting, client work, or agency deliverables
-  - Any activity that generates revenue, directly or indirectly, using the Software
-
-
-3. Commercial Use Restriction
-
-Any use of the Software for Commercial Purposes requires a separate, written Commercial License agreement with Licensor.
-To inquire about Commercial Licensing, contact: likhith@oxiverse.com
-
-Commercial Licenses may include terms for:
-
-  - Self-hosted deployment in revenue-generating environments
-  - White-labeling or redistribution rights
-  - Support, updates, and SLA options
-  - Custom feature development or integration
-
-
-4. Redistribution & Source Availability
-
-If you distribute the Software or derivative works (even for Non-Commercial Purposes):
-
-  (a) You must include this License in full, unmodified, with all copyright notices intact;
-  (b) You must make the complete corresponding source code available under the same OCL v1.0 terms;
-  (c) You may not sublicense, relicense, or distribute under different terms.
-
-
-5. Privacy-by-Design Requirement
-
-All derivative works, modifications, or redistributions of the Software must uphold privacy-by-design as a non-negotiable baseline:
-
-  (a) No Unauthorized Data Collection: You may not add tracking, telemetry, analytics, or user data collection mechanisms without explicit, informed, opt-in user consent.
-  (b) Data Minimization: Any data processing must be limited to what is strictly necessary for the Software's core functionality.
-  (c) User Control: Users must retain the ability to view, export, and delete any data generated or stored by the Software.
-  (d) Enhancements Encouraged: You are free—and encouraged—to enhance privacy protections beyond this baseline (e.g., end-to-end encryption, local-first architecture, zero-knowledge proofs).
-  (e) Transparency: Any data handling practices must be clearly documented in a human-readable privacy notice bundled with the Software.
-
-Violation of this Privacy Requirement constitutes a material breach of this License and triggers automatic termination under Section 9.
-
-
-6. Contributions
-
-Any contribution submitted to Licensor for inclusion in the Software shall be under the terms and conditions of this License. Contributions become part of the Software licensed under OCL v1.0 and may not be relicensed by any party outside the terms of this License. By submitting a contribution, you represent that:
-
-  (a) You have the right to license it under OCL v1.0;
-  (b) You grant Licensor a perpetual, worldwide, non-exclusive license to use, modify, and distribute your contribution under this License.
-
-
-7. Patent Grant
-
-Subject to the terms of this License, Licensor grants Licensee a non-exclusive, worldwide, royalty-free license under any patent claims licensable by Licensor that are necessarily infringed by the Software alone, solely for Non-Commercial Purposes.
-This patent grant terminates automatically upon any commercial use without a valid Commercial License.
-
-
-8. No Warranty
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-9. Termination
-
-This License automatically terminates if you violate any of its terms. Upon termination:
-
-  (a) All rights granted to you cease immediately;
-  (b) You must cease all use, distribution, and development of the Software;
-  (c) Licensor reserves the right to pursue legal remedies for unauthorized commercial use or privacy violations.
-
-
-10. License Versions
-
-Licensor may publish updated versions of this License. Existing projects may continue under the version they adopted at the time of first use. New projects should use the latest published version. Commercial License terms are negotiated separately and are not affected by public License updates.
-
-
-11. Governing Law & Jurisdiction
-
-This License shall be governed by and construed in accordance with the laws of the Republic of India, without regard to its conflict of law principles. Any disputes arising under or in connection with this License shall be subject to the exclusive jurisdiction of the courts located in Visakhapatnam, Andhra Pradesh, India.
-
-
-Quick FAQ
-
-Q: Can I use OCL software for my student project or portfolio?
-Yes. That's a Non-Commercial Purpose. Just keep the license intact, share source, and uphold privacy-by-design.
-
-Q: Can I add analytics to a modified version?
-Not without explicit, opt-in user consent. It must also comply with the Privacy Requirement, including minimization, transparency, and user control.
-
-Q: What if I enhance privacy (for example, end-to-end encryption)?
-Encouraged. You can go beyond the baseline. Just document your changes and keep the license.
-
-Q: What's the difference between "modifying the core" and "building on top of services"?
-Modifying the core means changing the actual Oxiverse source code (forking, patching, extending components). Those changes must stay OCL. Building on top of services means creating your own independent application that uses Oxiverse's APIs or platform—your app is separate and can be relicensed however you choose.
-
-Q: If I build a commercial app that uses the Oxiverse API, does my app need to be OCL?
-No. Your app is an independent project that merely consumes Oxiverse services. It is not a derivative work of the Oxiverse codebase (see Section 1(ii)). You can license it under any OSI-approved open source license (MIT, Apache 2.0, GPL, etc.) or OCL — whichever fits your project best.
-
-Q: If I fork Oxiverse and add features, what license applies to my fork?
-OCL v1.0. Modifications to the core codebase must remain under OCL (see Section 1(i)). You cannot relicense a fork under different terms.
-
-Q: If I contribute code to Oxiverse, can I later relicense my contribution?
-No. Contributions become part of the Software and are licensed under OCL v1.0 (see Section 6). They may not be relicensed by you or others outside the terms of this License.
-
-Q: How do I get a Commercial License?
-Email likhith@oxiverse.com with your use case, deployment scale, expected timeline, and how you'll uphold privacy-by-design.
+This repository does not embed its own copy of the license to avoid drift. The single
+source of truth is https://oxiverse.com/license.
