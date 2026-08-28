@@ -4804,12 +4804,42 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # this, "what did i tell you about the commission" returned "not
             # that i recall" and the adjacent-turn episode was never reached.
             if re.match(r"^(?:about|regarding|on|of)\b", _rem):
+                # Fall through to the episodic recall path ONLY when a stored
+                # episode literally contains the topic — so the targeted
+                # episode is replayed, and an undisclosed topic fails closed
+                # (no sibling echo). This must be a LITERAL episode lookup
+                # (verbatim substring + Porter stem), NOT the semantic matcher
+                # in _retrieve_episodic: the semantic pass is GloVe-dependent
+                # and can miss a morphology-variant cue ("commission" vs the
+                # stored "commissioned") under a different embedding cache,
+                # which is exactly Defect C (the adjacent-turn episode was
+                # never reached). A literal scan is embedding-independent.
+                # Topic = first content word after the recall preposition
+                # (strip an optional leading determiner, then take word 0).
+                _rem_clean = re.sub(r"^(?:about|regarding|on|of)\s+", "", _rem)
+                _rem_clean = re.sub(
+                    r"^(?:the|that|this|these|those|a|an|my|your|our|their|his|her)\s+",
+                    "", _rem_clean).strip(" .,!?")
+                _topic = _rem_clean.split()[0] if _rem_clean.split() else _rem_clean
+                _topic_stem = None
+                try:
+                    from nltk.stem import PorterStemmer as _PS
+                    _topic_stem = _PS().stem(_topic)
+                except Exception:
+                    _topic_stem = _topic
                 _qnorm = (q or "").lower().strip()
-                _store = [
-                    t for t in self._episodic_transcript
-                    if (t.get("text", "") or "").lower().strip() != _qnorm
-                ] or None
-                if self._retrieve_episodic(q, transcript=_store) is not None:
+                _hit = False
+                for _rec in (self._episodic_transcript or []):
+                    _rt = (_rec.get("text", "") or "").lower()
+                    if _rt == _qnorm:
+                        continue  # skip the current query turn itself
+                    if _topic in _rt or (
+                        _topic_stem is not None
+                        and _topic_stem in {_stem(w) for w in re.findall(r"[a-z']+", _rt)}
+                    ):
+                        _hit = True
+                        break
+                if _hit:
                     return None
             return ("not that i recall — you haven't told me about that yet. "
                     "what did you want me to know?")
