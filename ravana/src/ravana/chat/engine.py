@@ -2659,6 +2659,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
+        import sys as _dbs
+        _dbs.stderr.write("DBG-STRUCT-ENTER q=%r\n" % user_input)
 
         Root cause it fixes: biographical and self-stance recall queries
         ("what's my name", "what did you tell me about the cafeteria smell",
@@ -3715,8 +3717,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     #     name of a combined-attr fact, or appears in the value.
                     if not _matched and _qr_name is not None:
                         _at = _attr.split()
-                        if _at and _at[-1] == _qr_name:
-                            _matched = True
+                        # Combined-attr fact "<rel> <name>" (e.g. 'brother cal'):
+                        # queried by NAME -> the relationship is the head word and
+                        # the name is the trailing attr token, so render
+                        # "your <rel> is <name>" (closing the gap between the
+                        # stored attr and the human-readable relationship). Do NOT
+                        # render the generic "your <rel> <name> is <val>." form,
+                        # which would echo the whole stored value verbatim.
+                        if len(_at) >= 2 and _at[-1] == _qr_name:
+                            return f"your {_at[0]} is {' '.join(_at[1:])}."
                         elif _qr_name in _val.lower().split():
                             _matched = True
                     # (c) pet match.
@@ -3763,6 +3772,68 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     "whom", "tell", "know", "say", "said", "recall",
                     "remember", "mention", "name", "relation",
                 }
+                # (2c-WHOSE) "whose <species> is it" possessor lookup.
+                # Reverse-index stored pets/possessions by SPECIES and answer the
+                # possessor. Tolerates head-token overlap ("hawk" vs "goshawk").
+                # A user-owned pet ("my goshawk's name is vesper" ->
+                # ('goshawk','name','vesper')) answers "it's yours". A third
+                # party's pet answers "it's your <owner>'s". Store-driven: no
+                # authored prose, no per-species table.
+                try:
+                    from . import pet_slots as _psl2
+                    try:
+                        from .relation_attrs import relation_of as _rel_of2
+                    except Exception:
+                        def _rel_of2(w):
+                            return None
+                    _whose = re.search(
+                        r"\bwhose\s+([a-z][a-z'-]+)\s+(?:is|was|are|were)\s+"
+                        r"(?:it|he|she|they)(?:\s+now)?\b", q.lower())
+                    if _whose is None:
+                        _whose = re.search(
+                            r"\bwhose\s+([a-z][a-z'-]+)\s*\?$", q.lower())
+                    if _whose is not None:
+                        _spq = _whose.group(1).strip().lower()
+                        _spq_canon = _psl2.species_of(_spq)
+                        _best = None  # (priority, owner, label)
+                        for _k, _f in pf.facts.items():
+                            if not (isinstance(_k, tuple) and len(_k) == 3):
+                                continue
+                            if getattr(_f, "superseded", False):
+                                continue
+                            _subj, _attr, _val = _k
+                            _val = (getattr(_f, "value", _val) or "").strip()
+                            if not _val:
+                                continue
+                            _attr_l = str(_attr).lower().strip()
+                            _label = None
+                            _owner = "i"
+                            if _subj == "i" and _psl2.is_pet_attribute(_attr):
+                                _label = _psl2.base_species(_attr)
+                            elif _attr_l == "name" and _rel_of2(str(_subj).lower()) is None:
+                                _label = str(_subj).lower()
+                                _owner = "i"
+                            elif _subj != "i" and _psl2.is_pet_attribute(_attr):
+                                _label = _psl2.base_species(_attr)
+                                _owner = str(_subj).lower()
+                            if _label is None:
+                                continue
+                            _match = (_spq_canon is not None and
+                                      _psl2.species_of(_label) == _spq_canon)
+                            if not _match:
+                                _match = (_spq in _label or _label in _spq
+                                          or _spq.rstrip("s") == _label.rstrip("s"))
+                            if not _match:
+                                continue
+                            _pri = 0 if _owner == "i" else 1
+                            if _best is None or _pri < _best[0]:
+                                _best = (_pri, _owner, _label)
+                        if _best is not None:
+                            if _best[1] == "i":
+                                return f"it's yours \u2014 your {_best[2]}."
+                            return f"it's your {_best[1]}'s {_best[2]}."
+                except Exception:
+                    pass
                 if _qcn:
                     # relation_of is the runtime-extensible relationship-word test
                     # from relation_attrs (same vocabulary the miner uses), so the
@@ -3850,7 +3921,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             # person: "your neighbor mr. sato." / "your neighbor
                             # mr. sato keeps bees." Content is the stored attr;
                             # no authored prose, no per-name table.
-                            _rel = _attr
+                            _rel_head = _attr_toks[0]
+                            _rel_name = " ".join(_attr_toks[1:])
+                            _rel = f"{_rel_head} is {_rel_name}"
                             _act = _val
                         # (2) attr is a relationship word, name is the value
                         elif _relation_of(_attr) is not None and _val in _qcn:
@@ -4098,7 +4171,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # honestly so the contrast is answered, not hidden.
                         _replies.append(
                             _r if _r else f"i'm still figuring out {_st}.")
-                    return "; ".join(_replies) + "."
             # ── Single-topic self-stance (unchanged path) ──────────────────
             # ROUND 2026-08-09i FIX: reject DEICTIC / GENERIC topic phrases.
             # A loosely-matched self-stance query ("do you have anything like
@@ -4696,6 +4768,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return _t
 
     def _autobiographical_recall(self, user_input: str) -> Optional[str]:
+        
         """AUTO-BIOGRAPHICAL RECALL of the USER (feature t_a41f7e29,
         round 2026-08-18T0937Z).
 
@@ -5484,6 +5557,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
 
     def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
+        
         """Answer a cued recall about RAVANA's OWN prior speech from the
         AgentReplyStore (_own_replies), never from the user transcript.
 
