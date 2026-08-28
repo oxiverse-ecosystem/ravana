@@ -980,8 +980,10 @@ class SelfQueryMixin:
             r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
             r"|how\s+do\s+you\s+(feel|think)\s+about\b"
             r"|what's\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
-            r"|your\s+(opinion|thoughts|take|read|view|stance)\s+(on|of)\b"
+            r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
             r"|what\s+is\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
+            r"|give\s+me\s+your\s+(honest\s+)?(read|take|view|opinion)\s+(on|about)\b"
+            r"|your\s+(honest\s+)?(read|take|view)\s+(now|these\s+days)?\s*(on|about)\b"
             r"|what\s+do\s+you\s+make\s+of\b)",
             t)
         # Self-opinion RECALL: a follow-up that asks whether the agent STILL

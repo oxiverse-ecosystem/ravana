@@ -7568,6 +7568,37 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
                 if _possessive_attr and not _suffering:
                     _disc = None
+                # W-loss-homograph guard (round 2026-08-10T1401Z F2): the VAD
+                # lexicon marks "lost" as negative affect, so a first-person
+                # OBJECT loss ("i lost a lobster pot", "i lost my keys") is
+                # mis-detected as a distress disclosure and met with "feeling
+                # lost is hard" empathy — discarding the factual event (it IS
+                # stored as an `event` fact, but the reply is nonsensical and
+                # the user's real disclosure is lost in the empathy frame).
+                # A death/grief of a BEING (my dog died, my gran passed) is
+                # genuine bereavement and stays empathic. So: drop empathy
+                # ONLY for first-person "i lost <object>" where the lost thing
+                # is NOT a person/animal/relationship noun and there is no
+                # grief word — let it fall through to the grounded event-ack.
+                # Structural (object-vs-being via a stable bereavement set +
+                # absence of grief words), NOT a per-thing table. Fail-closed:
+                # presence of any grief/death word keeps empathy intact.
+                _first_person_lost = bool(re.search(
+                    r"\b(i|we)\s+(lost|lost\s+my|lost\s+a|lost\s+an|"
+                    r"losing)\b", _low_d))
+                _grief_word = bool(re.search(
+                    r"\b(grief|grieving|mourn|mourning|died|dies|dead|"
+                    r"passed|funeral|suicide|devastated|heartbroken)\b",
+                    _low_d))
+                _being_loss = bool(re.search(
+                    r"\b(my|our|his|her|their)\s+\w*\s*\b"
+                    r"(dog|cat|pet|bird|child|son|daughter|mum|mom|mother|"
+                    r"dad|father|grandma|grandpa|grandmother|grandfather|"
+                    r"wife|husband|partner|friend|brother|sister|sibling|"
+                    r"grandchild|baby|horse|cow|sheep|goat|pig|rabbit|"
+                    r"hamster|turtle|fish|plant|tree)\b", _low_d))
+                if _first_person_lost and not _grief_word and not _being_loss:
+                    _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
                 # relationship declaration addressed to the AGENT, not a generic
