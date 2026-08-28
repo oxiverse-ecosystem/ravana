@@ -7598,7 +7598,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"grandchild|baby|horse|cow|sheep|goat|pig|rabbit|"
                     r"hamster|turtle|fish|plant|tree)\b", _low_d))
                 if _first_person_lost and not _grief_word and not _being_loss:
-                    _disc = None
+                    # Fail-closed exception: a POSSESSIVE loss ("i lost my
+                    # wallet", "i lost my grandmother") is read as a genuine
+                    # bereavement / attachment loss and stays empathic (round
+                    # 2026-08-19T1026Z, test_loss_verb_first pins this). Only
+                    # INDEFINITE / non-possessive object loss ("i lost a lobster
+                    # pot", "i lost some keys") is the F2 object-loss case that
+                    # must fall through to the grounded event-ack. So: drop
+                    # empathy ONLY when the lost thing is NOT introduced by a
+                    # possessive determiner.
+                    _possessive_loss = bool(re.search(
+                        r"\b(i|we)\s+(lost|lost\s+my|lost\s+a|lost\s+an|"
+                        r"losing)\s+(my|our|your|his|her|their|its)\b",
+                        _low_d))
+                    if not _possessive_loss:
+                        _disc = None
             if _disc is not None:
                 # §7 deictic special-case: "i love you" / "i like you" is a
                 # relationship declaration addressed to the AGENT, not a generic
