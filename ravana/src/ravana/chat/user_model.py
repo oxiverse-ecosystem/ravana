@@ -1104,6 +1104,52 @@ class UserModel:
             r"|\bi\s+(?:said|told\s+you)\b|\bnot\s+[\w'-]+\s*,?\s*(?:it'?s|it\s+is)\b",
             q_clean, re.IGNORECASE))
 
+        # Structured quantity memory (round 2026-08-11T0521Z): capture a count
+        # bearing first-person disclosure ("i keep twelve racing pigeons") into
+        # the QuantityMemory store, decoupled from the 'does'/'event' text fact.
+        # A count QUESTION is never seeded as a fact. VERB_KIND maps the verb to
+        # (kind, category) so "how many pets" aggregates across keep/have/raise.
+        _qty_is_question = (q_clean.rstrip().endswith("?")
+                             or bool(re.match(
+                                 r"^(what|who|when|where|why|how|which|is|are|"
+                                 r"do|does|did|can|could|would|should|will|may|"
+                                 r"might|am|have|has|had)\b", q_clean)))
+        _qty_pat = re.compile(
+            r"\bi\s+(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(" + "|".join(QuantityMemory.VERB_KIND.keys()) + r")"
+            r"(?:s|es|ing|ed|[a-z]ed|[a-z]d)?"
+            r"\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|"
+            r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+            r"eighteen|nineteen|twenty|\d+)\s+"
+            r"(.+?)(?:\s*(\.|!|\?|,|-{1,3}|$|\s+and\s+|\s+but\s+|\s+because\s+|"
+            r"\s+so\s+|\s+which\s+|\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+|"
+            r"\s+in\s+|\s+on\s+|\s+at\s+|\s+with\s+|\s+for\s+|\s+of\s+|\s+from\s+))",
+            re.IGNORECASE)
+        if not _qty_is_question:
+            for _qm in _qty_pat.finditer(q_clean):
+                _v = _qm.group(1).lower()
+                _num_tok = _qm.group(2).lower()
+                _noun_raw = _qm.group(3).strip().lower()
+                _vk = QuantityMemory.VERB_KIND.get(_v)
+                if _vk is None:
+                    continue
+                _kind, _cat = _vk
+                _cnt = number_to_int(_num_tok)
+                if _cnt is None or _cnt <= 0:
+                    continue
+                _toks = [t for t in re.findall(r"[a-z']+", _noun_raw)
+                         if t not in self._OPINION_STOP]
+                if not _toks:
+                    continue
+                _spec = _pet_slots.species_of(_toks[-1]) or _pet_slots.species_of(
+                    _toks[0])
+                _canon = _spec if _spec else (
+                    _toks[-1][:-1] if len(_toks[-1]) > 3 and _toks[-1].endswith("s")
+                    else _toks[-1])
+                self.quantity_memory.assert_quantity(
+                    "i", _kind, _cnt, _noun_raw, _canon, category=_cat,
+                    confidence=0.6, source="seed_regex")
 
         _NEG_WORDS = {"not", "no", "never", "none", "nil", "n't", "dont",
                        "don't", "false", "wrong", "incorrect"}
