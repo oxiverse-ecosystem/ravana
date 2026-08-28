@@ -596,6 +596,26 @@ _ACTIVITY_DENY = frozenset({
     "regret", "regrets", "suspect", "realize", "realises", "care", "mind",
     # pure reporting / communication utterances (echo verbatim as garbage)
     "said", "say", "says", "told", "tell", "tells",
+    # achieve-comm / transfer verbs: these are acts of acquiring, giving, moving,
+    # or consuming an object, NOT an ongoing self-disclosed activity RAVANA should
+    # store as a 'does' fact. Round 2026-08-14T0103Z stop them polluting the
+    # activity/event store (they echo verbatim as garbage, e.g. "got dog").
+    # Deliberately EXCLUDED here: keep/drive/fly/swim/ride/lead/read/hold — those
+    # are genuine ongoing activities asserted by other tests.
+    "get", "gets", "got", "make", "makes", "made",
+    "give", "gives", "gave", "come", "comes", "came",
+    "go", "goes", "went", "do", "does", "did",
+    "see", "sees", "saw", "buy", "buys", "bought",
+    "sell", "sells", "sold", "pay", "pays", "paid",
+    "send", "sends", "sent", "spend", "spends", "spent",
+    "meet", "meets", "met", "bring", "brings", "brought",
+    "catch", "catches", "caught", "take", "takes", "took",
+    "put", "cut", "hit", "feed", "feeds", "fed", "bleed", "bled",
+    "eat", "eats", "ate", "drink", "drinks", "drank",
+    "wear", "wears", "wore", "speak", "speaks", "spoke",
+    "wake", "wakes", "woke", "freeze", "freezes", "froze",
+    "choose", "chooses", "chose", "sleep", "sleeps", "slept",
+    "leave", "leaves", "left", "lose", "loses", "lost", "find", "finds", "found",
 })
 
 # Framer / temporal / degree words that may immediately precede the REAL
@@ -2996,6 +3016,12 @@ class UserModel:
             "freeze", "chose", "choose", "slept", "sleep", "felt", "feel",
             "held", "hold", "took", "take", "set", "put", "cut", "hit",
             "fed", "feed", "bled", "bleed",
+            # modality / auxiliary / framer words (round 2026-08-14T0103Z):
+            # these must NEVER become a 'does' activity — they are framer,
+            # temporal, or negation scaffolding around the REAL verb.
+            "will", "would", "shall", "should", "can", "could", "may",
+            "might", "must", "ought", "won", "used", "use", "probably",
+            "first", "mis", "mis-spoke", "spoke", "used to",
         })
         _gen_verb_pat = re.compile(
             r"\bi\s+"
@@ -3016,7 +3042,7 @@ class UserModel:
             r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
             re.IGNORECASE)
         for _gm in _gen_verb_pat.finditer(q_clean):
-            _verb = _gm.group(1).lower()
+            _verb = _gm.group(1).lower().replace("'t", "")
             if _verb in _STATIVE_DENY:
                 continue
             _obj = self._opinion_topic(_gm.group(2).strip().lower())
