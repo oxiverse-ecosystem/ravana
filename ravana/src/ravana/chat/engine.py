@@ -2659,9 +2659,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
-        import sys as _dbs
-        _dbs.stderr.write("DBG-STRUCT-ENTER q=%r\n" % user_input)
-
         Root cause it fixes: biographical and self-stance recall queries
         ("what's my name", "what did you tell me about the cafeteria smell",
         "you mentioned a stance on medical data", "did you take a position on
@@ -2783,6 +2780,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # store-driven, no authored reply, no per-topic table, no retraining.
         # Fail-closed: returns None when no user-autobiography intent matches,
         # so genuine agent-self questions still reach the self-model path.
+        # ── (0a) USER-MODEL AGGREGATION — checked BEFORE autobiographical recall
+        # so a "what have you told me about me" / "what do you make of me" style
+        # profile-summary query is rendered from the live user-model stores, not
+        # replayed as a single episodic echo (which loses the biographical
+        # sketch and surfaces raw fact noise). Mirrors the (0b) aggregation gate
+        # below; kept here so it preempts the replay path at _autobiographical_recall.
+        _agg_early = re.search(
+            r"\b("
+            r"what have you (?:told|said|shared|mentioned) (?:me )?about me|"
+            r"what have you picked up about me|"
+            r"what(?:'s| is| do| did) your (?:read|take) on me|"
+            r"what do you (?:make|think) of me|"
+            r"tell me about myself|"
+            r"tell me (?:everything|all|what) you (?:know|remember|learned|"
+            r"picked up|gathered) about me|"
+            r"summ?ar?y? (?:up )?(?:what you(?:'ve| have) (?:learned|picked up|"
+            r"gathered) about me|your (?:read|take) on me)|"
+            r"describe me|"
+            r"how would you describe me|"
+            r"what do you remember me (?:telling|saying|sharing)|"
+            r"everything you know about me|"
+            r"what stands out (?:about|to you)? ?(?:me|about me)|"
+            r"who do you think i am|"
+            r"give me your (?:read|take|impression) (?:of|on) me"
+            r")\b", q)
+        if _agg_early:
+            return self._aggregate_user_model()
         _ab = self._autobiographical_recall(user_input)
         if _ab is not None:
             return _ab
