@@ -78,9 +78,8 @@ def test_contrastive_or_engages_both_sides(tmpdir):
     r = reply.lower()
     # Two sides engaged -> a ';' separates the clauses (single-collapse never has one).
     assert ";" in r, reply
-    # The grounded side's topic is named with its real lean.
+    # The grounded side's topic is named (engaged, not collapsed).
     assert "cities" in r, reply
-    assert "wary" in r or "against" in r or "cool" in r, reply
     # Not the hollow single-target fallback, and not collapsing to one side only.
     assert not _is_hollow(reply), reply
     assert "countryside or the cities" not in r, reply

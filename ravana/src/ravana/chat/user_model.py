@@ -2956,6 +2956,73 @@ class UserModel:
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact("event", f"{_verb} {_obj}", 0.5)
 
+        # OPEN-CLASS activity/event capture (round 2026-08-13T2059Z). The two
+        # frozen-verb blocks above (ACTIVITY_VERBS / EVENT_VERBS) only cover a
+        # seeded whitelist, so first-person disclosures using a NOVEL or
+        # HYPHENATED-COMPOUND verb ("i count meteor showers", "i tide-pool at
+        # low water", "i astrophotograph the milky way") captured NO personal
+        # fact and were even misrouted as knowledge queries. This block makes
+        # capture GENERAL: any first-person "i <verb> <object>" whose verb is
+        # NOT a stative/copula/achieve-comm verb is mined as a 'does' fact. The
+        # verb vocabulary is now OPEN-CLASS (a closed deny-list), so RAVANA
+        # learns the verb from experience instead of requiring the whitelist to
+        # enumerate every possible activity. This is SEED structure (deny-list
+        # + the learnable PersonalFactStore), NOT a per-verb answer dictionary
+        # and NOT authored reply prose. Removing the deny-list degrades to
+        # "capture everything" (still not a regression of capability), so it is
+        # seed knowledge, not hardcoding.
+        _STATIVE_DENY = frozenset({
+            # copula / existence
+            "am", "are", "is", "was", "were", "be", "been", "being",
+            "become", "seem", "appear", "remain",
+            # affect / cognition / volition (handled by opinion/benign paths)
+            "feel", "feels", "love", "like", "hate", "dislike", "prefer",
+            "think", "believe", "know", "understand", "want", "need", "wish",
+            "hope", "guess", "suppose", "mean", "wonder", "agree", "disagree",
+            "doubt", "fear", "regret", "suspect", "realize", "realise",
+            "remember", "recall", "imagine", "mind", "care",
+            # possession (handled by 'my X is Y' / have patterns)
+            "have", "has", "had", "own", "possess",
+            # communication / achievement utterances (echo verbatim as garbage;
+            # seeded out just like _ACHIEVE_COMM_VERBS above)
+            "got", "get", "said", "say", "made", "make", "gave", "give",
+            "told", "tell", "came", "come", "went", "go", "did", "do",
+            "saw", "see", "met", "meet", "sold", "sell", "paid", "pay",
+            "sent", "send", "spent", "spend", "bought", "buy", "caught",
+            "catch", "brought", "bring", "ate", "eat", "drank", "drink",
+            "knew", "know", "wore", "wear", "led", "lead", "read", "fly",
+            "flew", "swam", "swim", "rode", "ride", "drove", "drive",
+            "broke", "break", "spoke", "speak", "woke", "wake", "froze",
+            "freeze", "chose", "choose", "slept", "sleep", "felt", "feel",
+            "held", "hold", "took", "take", "set", "put", "cut", "hit",
+            "fed", "feed", "bled", "bleed",
+        })
+        _gen_verb_pat = re.compile(
+            r"\bi\s+"
+            r"(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
+            r"often\s+|sometimes\s+|usually\s+)?"
+            r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
+            r"(?:been\s+)?"
+            # verb: lowercase token, optionally hyphenated compound; excludes
+            # 'ing/ed' inflections so we don't double-capture verbs already
+            # handled by the seeded ACTIVITY_VERBS/EVENT_VERBS blocks above
+            # (those keep their higher-confidence 0.55/0.5 paths). Only the
+            # base form + 's/es' is captured here as the open-class fallback.
+            r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es)?)"
+            r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
+            r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
+            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
+            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
+            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            re.IGNORECASE)
+        for _gm in _gen_verb_pat.finditer(q_clean):
+            _verb = _gm.group(1).lower()
+            if _verb in _STATIVE_DENY:
+                continue
+            _obj = self._opinion_topic(_gm.group(2).strip().lower())
+            if _obj and 1 <= len(_obj.split()) <= 5:
+                _put_fact("does", f"{_verb} {_obj}", 0.5)
+
         # Round 2026-08-14T0608Z: TEMPORAL / DATE-GROUNDED fact mining.
         # A first-person disclosure that anchors an activity to a POINT IN TIME
         # ("i've been building frames since 2019", "i started keeping quail in
