@@ -2904,6 +2904,44 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"you live in {_v.value}."
             return None
+        # Named-possession WHEREABOUTS (round 2026-08-10T0813Z, fix D). A "where
+        # is <entity> [moored/parked/...]?" OR bare "where is <entity>?" / "what is
+        # <entity>'s location?" query must surface the stored entity-keyed location
+        # fact, not fall through to an episodic echo of the raw utterance. Entity =
+        # noun phrase before the location verb (long form) or the noun phrase
+        # itself (bare "where is X?" / "X's location?").
+        _ENT_LOC = (
+            re.search(
+                r"\bwhere(?:'s| is| are| was| were)?\s+(?:the|my|your|our|their|his|her)?\s*"
+                r"([\w'-]+(?:\s+[\w'-]+){0,3})\s+"
+                r"(?:is|are|was|were|sits|lies|stays|remains|moored|berthed|anchored|"
+                r"docked|based|parked|stationed|kept|stored|housed|tied up|wintered)\b",
+                q)
+            or re.search(
+                r"\bwhere(?:'s| is| are| was| were)?\s+(?:the|my|your|our|their|his|her)?\s*"
+                r"([\w'-]+(?:\s+[\w'-]+){0,3})\??\s*$",
+                q)
+            or re.search(
+                r"\bwhat(?:'s| is)?\s+(?:the|my|your|our|their|his|her)?\s*"
+                r"([\w'-]+(?:\s+[\w'-]+){0,3})'s?\s+location\b",
+                q))
+        if _ENT_LOC:
+            _ent = _ENT_LOC.group(1).strip().strip(" .,!?").lower()
+            # try the exact entity key, then a leading-word match (since the miner
+            # may store a longer descriptor as the key)
+            _val = None
+            if pf is not None:
+                _direct = pf.get(_ent, "location")
+                if _direct is not None and not getattr(_direct, "superseded", False):
+                    _val = _direct.value
+                else:
+                    for (_k, _a), _fv in pf.facts.items():
+                        if _a == "location" and not getattr(_fv, "superseded", False) \
+                                and _ent in str(_k).lower():
+                            _val = _fv.value
+                            break
+            if _val is not None:
+                return f"{_ent} is at {_val}."
         if re.search(r"\b(where do i keep|where do i have|where do i store)\b", q):
             # "where do i keep the light" / "where do i keep my pigeons" —
             # answer from the 'does' fact whose value overlaps the query noun,
