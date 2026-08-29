@@ -3908,6 +3908,26 @@ class UserModel:
             # real concept, never on "the"/"how"/"small".
             (r"\bi\s+(?:really\s+)?(?:like|love|enjoy|prefer|adore|care\s+for)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", 0.8, 0.6),
             (r"\bi\s+(?:really\s+)?(?:hate|dislike|detest|can't\s+stand)\s+(.+?)(?:\.|\band\b|\bbut\b|$|,)", -0.8, 0.6),
+            # GENERALIZE (round 2026-08-29T0659Z, L3): copula-preposition and
+            # desire-frame attitudes were NOT mined as stances — only the
+            # like/love/hate subset + comparatives were. So "i'm against
+            # putting cameras in squares" / "i want all the power lines buried"
+            # were stored only as facts (or dropped), never as UPDATABLE
+            # stances, so a later reversal ("i changed my mind, overhead lines
+            # are fine") had nothing to target and the stale view persisted
+            # (measured: "do you still think i want all the power lines buried?"
+            # answered from a stale fact, and the prior D2 gate tried to paper
+            # over it). Mine these as stances too — the SAME loop resolves the
+            # topic via _opinion_topic and the EXISTING retraction/reassessment
+            # reversal machinery then recodes them on contradiction. This is a
+            # grammatical generalization (preposition / desire verb), no
+            # per-topic table, no retraining; RAVANA revises any stance by
+            # talking. Polarity: against=-0.8 (opposition), for/with=+0.8
+            # (support), want/need/wish=+0.7 (desire is a positive disposition
+            # toward the object).
+            (r"\bi\s*(?:am|'m)\s+(?:really\s+)?against\s+(.+?)(?:\.|$|,|\bbut\b|\band\b)", -0.8, 0.6),
+            (r"\bi\s*(?:am|'m)\s+(?:really\s+)?(?:for|with)\s+(.+?)(?:\.|$|,|\bbut\b|\band\b)", 0.8, 0.6),
+            (r"\bi\s+(?:really\s+)?(?:want|need|wish)\s+(.+?)(?:\.|$|,|\bbut\b|\band\b)", 0.7, 0.6),
             # FIX (round v-aug06b): word-boundary-guarded sentiment adjectives.
             # Without \b, "bad" matched the prefix of "badly" ("is badly
             # underrated" -> parsed as "is bad"), inverting a POSITIVE
