@@ -2546,13 +2546,22 @@ class ReasoningMixin:
             return None
 
     def _ensure_self_model(self) -> "SelfModel":
-        """Lazily derive the self-model from the seeded graph (vmPFC content)."""
+        """Lazily derive the self-model from the seeded graph (vmPFC content),
+        then keep its developmental persona refreshed from LIVE engine state
+        (fix 'b') so 'who are you' reflects what RAVANA has actually learned."""
         from .brain_regions import SelfModel
         if self.self_model is None:
             try:
                 self.self_model = SelfModel.from_graph(self.graph_engine)
             except Exception:
                 self.self_model = SelfModel()
+        # Refresh the developmental persona from real current state every call
+        # (cheap; reads stances/VAD/turn_count). Preserves taught `extra` content.
+        try:
+            from .brain_regions import PersonaState
+            self.self_model.persona = PersonaState.from_engine(self)
+        except Exception:
+            pass
         return self.self_model
 
     def _affect_is_relevant(self, target: str, tvec) -> bool:
