@@ -5238,20 +5238,44 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        self._us_obj_hold = None
         # Same-subject attitude frame (the user is the attitude holder). The
         # object clause after the attitude verb carries the topic.
+        # Two surface shapes for the SAME user-stance question:
+        #   Shape 1: "<i> think <you> <like/dislike-verb> <topic>"  (topic after
+        #            the attitude verb)
+        #   Shape 2: "<i> think <i> <want/need/wish/hope> <topic>"  (topic after
+        #            the desire verb; no second like/dislike verb). Both ask
+        #   RAVANA to read back the USER's own stance on <topic>.
         _m = re.search(
             r"\b(i|we|you)\b\s+(?:still\s+)?"
             r"(?:think|feel|believe|figure|reckon|guess|"
-            r"suppose)\s+(?:i|we|you|he|she|they)\s+"
+            r"suppose|want|need|wish|hope)\s+(?:i|we|you|he|she|they)\s+"
             r"(?:still\s+)?"
             r"(like|love|hate|dislike|prefer|enjoy|adore|care\s+for|"
             r"loathe|detest|can'?t\s+stand|cant\s+stand)\b\s+(.+)", q)
-        _obj = None
-        _fm_match = False
+        if not _m:
+            # Shape 2: the SECOND verb is a desire verb (want/need/wish/hope),
+            # which itself carries the topic (e.g. "do you still think i want
+            # all the power lines buried"). Generalizes the user-stance recall
+            # to desire frames, not just like/dislike — the user is still
+            # asking RAVANA to read back their OWN attitude. No per-topic table.
+            _m2 = re.search(
+                r"\b(i|we|you)\b\s+(?:still\s+)?"
+                r"(?:think|feel|believe|figure|reckon|guess|suppose)\s+"
+                r"(?:i|we|you|he|she|they)\s+(?:still\s+)?"
+                r"(want|need|wish|hope)\b\s+(.+)", q)
+            if _m2:
+                self._us_obj_hold = _m2.group(3).strip(" .!?")
+                _obj = self._us_obj_hold
+                _fm_match = False
+            else:
+                _m = None
         if _m:
             _obj = _m.group(3).strip(" .!?")
         else:
+            _obj = getattr(self, "_us_obj_hold", None)
+            _fm_match = False
             # GENERALIZE (round 2026-08-20T0701Z): the "am i for or against X" /
             # "do you think i'm for or against X" / "are you for or against X"
             # frame is the SAME user-stance question in a different surface

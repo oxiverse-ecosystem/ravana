@@ -5046,6 +5046,30 @@ class ResponseGenMixin(ChainWalkerMixin):
                 affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
+        # ROUND 2026-08-29 D1 (fix): an empathy frame must only fire when the
+        # user actually EXPRESSED a felt affect. `kind` is derived from
+        # event/context words in the disclosure detector, so a plain FACTUAL
+        # disclosure ("my brother is a trauma nurse") or a PRIDE/ACHIEVEMENT
+        # statement ("i felt proud watching the bees...") with no recognized
+        # affect term was being answered with "feeling rough is hard, and i'm
+        # here for it" — a wrong, hollow empathy frame on a non-affective
+        # turn. Gate: when no genuine affect term was surfaced (affect_term is
+        # empty AND the kind came from context words rather than a felt word),
+        # do NOT emit an affect-specific empathy reply. Returning None lets the
+        # turn fall through to the normal factual acknowledgment / ingestion
+        # path, which is the honest behavior for a statement that is not a
+        # feeling report. This is a gate on real state (presence of a felt
+        # affect word), not an authored branch — generalizes to any
+        # non-affective disclosure. No retraining, no per-topic table.
+        _has_affect_word = bool(affect_term)
+        if not _has_affect_word:
+            # No felt-state word was named by the user. The disclosure is a
+            # factual / achievement / narrative statement, not an emotion
+            # report — empathy is the wrong frame. Abstain so the engine
+            # acknowledges the content instead of forcing a "feeling X is hard"
+            # template onto it.
+            return None
+
         if kind == "negative":
             if has_stored_detail:
                 return (f"that sounds {val_word}. you've shared some of this "
