@@ -6386,9 +6386,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return resp
 
         # ── Agentic pre-check (fix 'c'): if this is a knowledge gap RAVANA cannot
-        # answer from memory, USE ITS HANDS before falling back to honest
-        # uncertainty. State-driven (curiosity/recall-query/metacog), no keyword
-        # table. Tool result is grounded evidence, not authoritative fact.
+        # answer from memory, USE ITS HANDS. State-driven (curiosity/recall-query/
+        # metacog), no keyword table. The tool result is stored as grounded
+        # evidence and APPENDED at the end of the turn — it does NOT early-return,
+        # so the normal learning pipeline (incl. N2 proposition mining) still runs.
+        # Early-returning here regressed the integration suite (novel utterance must
+        # spawn N2); we keep the pipeline intact and surface the evidence downstream.
         try:
             from ..agent.decision_gate import decide_tool_use
             from ..agent.tool_registry import ToolRegistry
@@ -6401,14 +6404,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._record_agent_action(_call.tool, _call.arg, _tool_out)
                 except Exception:
                     pass
-                # Grounded reply: lead with the evidence, framed honestly.
-                _reply = (f"i looked that up — {_tool_out}")
+                # Stash evidence; appended to the reply at the end-of-turn block.
+                self._pending_web_evidence = f"[agentic:{_call.tool}] {_tool_out}"
                 self._last_strategy = f"agentic_{_call.tool}"
-                self._last_responses.append(_reply)
-                if len(self._last_responses) > 10:
-                    self._last_responses = self._last_responses[-10:]
-                self.notify_user_idle()
-                return _reply
         except Exception as _e:
             if getattr(self, "_trace_enabled", False):
                 print(f"  [agentic pre-check] skipped: {_e}")
@@ -9719,29 +9717,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass  # Never break the pipeline for a greeting
 
         self._pending_quantity_result = None
-        # ── Agentic layer (fix 'c'): let RAVANA use its "hands" when its own
-        # cognition justifies it. State-driven via decision_gate (no keyword
-        # table). Tool execution is sandboxed + hard-guarded (see tool_registry).
-        # Tool output is folded in as GROUNDED evidence, not authoritative fact.
-        try:
-            from ..agent.decision_gate import decide_tool_use
-            from ..agent.tool_registry import ToolRegistry
-            _registry = getattr(self, "_tool_registry", None) or ToolRegistry()
-            self._tool_registry = _registry
-            _call = decide_tool_use(self, user_input, _registry)
-            if _call is not None:
-                _tool_out = _registry.execute(_call)
-                # Learn from the action: record as a grounded experience so the
-                # self-model/persona can reference it later (no-hardcoding: the
-                # fact is experience-derived, not authored).
-                try:
-                    self._record_agent_action(_call.tool, _call.arg, _tool_out)
-                except Exception:
-                    pass
-                response = f"{response}\n[{_call.tool}] {_tool_out}"
-        except Exception as _e:
-            if getattr(self, "_trace_enabled", False):
-                print(f"  [agentic] skipped: {_e}")
+        # ── Agentic layer (fix 'c'): surface the tool evidence the pre-check
+        # stashed, so RAVANA's "hands" appear on the final reply. The decision +
+        # execution already happened at the top of process_turn (so the normal
+        # learning pipeline — incl. N2 proposition mining — ran first). Here we
+        # only append the grounded evidence; no re-decision, no double execution.
+        _ev = getattr(self, "_pending_web_evidence", None)
+        if _ev:
+            response = f"{response}\n{_ev}"
+            self._pending_web_evidence = None
         # NOTE: previously this returned ``response.lower()``. That destroyed
         # proper-noun casing in the final output (e.g. "France" -> "france",
         # "NASA" -> "nasa"), making RAVANA look broken. All generators already
