@@ -78,6 +78,19 @@ paper/*.out
 skills-lock.json
 AGENTS.md
 
+# ── WORKER SCRATCH (founder convention: 2026-08-29) ──
+# Autonomous loop workers (Hermes kanban) MUST dump all dirty/temp/throwaway
+# artifacts here — NEVER in the repo root. Files here are gitignored so they
+# can NEVER be committed, even by `git add -A`. If a worker needs a scratch
+# file, it goes in scratch/ (or tmp/). Root-level _*.py / verify_*.sh are
+# banned from the tracked tree.
+scratch/
+tmp/
+_*.py
+verify_*.sh
+*.tmp
+*_tmp.py
+
 # ── Temporary & Scratch ──
 scratch/
 fix_*.py
