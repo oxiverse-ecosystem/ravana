@@ -6385,6 +6385,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses = self._last_responses[-10:]
             return resp
 
+        # ── Agentic pre-check (fix 'c'): if this is a knowledge gap RAVANA cannot
+        # answer from memory, USE ITS HANDS before falling back to honest
+        # uncertainty. State-driven (curiosity/recall-query/metacog), no keyword
+        # table. Tool result is grounded evidence, not authoritative fact.
+        try:
+            from ..agent.decision_gate import decide_tool_use
+            from ..agent.tool_registry import ToolRegistry
+            _registry = getattr(self, "_tool_registry", None) or ToolRegistry()
+            self._tool_registry = _registry
+            _call = decide_tool_use(self, user_input, _registry)
+            if _call is not None:
+                _tool_out = _registry.execute(_call)
+                try:
+                    self._record_agent_action(_call.tool, _call.arg, _tool_out)
+                except Exception:
+                    pass
+                # Grounded reply: lead with the evidence, framed honestly.
+                _reply = (f"i looked that up — {_tool_out}")
+                self._last_strategy = f"agentic_{_call.tool}"
+                self._last_responses.append(_reply)
+                if len(self._last_responses) > 10:
+                    self._last_responses = self._last_responses[-10:]
+                self.notify_user_idle()
+                return _reply
+        except Exception as _e:
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [agentic pre-check] skipped: {_e}")
+
 
         # Fold observed user language into the learned frequency models (Plan B)
         # so the high-frequency lexicon tail is discovered from exposure. Placed
@@ -9696,8 +9724,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # table). Tool execution is sandboxed + hard-guarded (see tool_registry).
         # Tool output is folded in as GROUNDED evidence, not authoritative fact.
         try:
-            from .agent.decision_gate import decide_tool_use
-            from .agent.tool_registry import ToolRegistry
+            from ..agent.decision_gate import decide_tool_use
+            from ..agent.tool_registry import ToolRegistry
             _registry = getattr(self, "_tool_registry", None) or ToolRegistry()
             self._tool_registry = _registry
             _call = decide_tool_use(self, user_input, _registry)
