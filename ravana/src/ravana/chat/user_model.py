@@ -397,6 +397,78 @@ def is_activity_attr(attr: str) -> bool:
     return a == "does" or a == "event" or a.startswith("does:") or a.startswith("event:")
 
 
+# ── activity object-category bridge (round 2026-08-29T0659Z feature follow-up) ──
+# RESIDUAL DEFECT it closes: slot-key collapse is now fixed so distinct activities
+# live in DISTINCT verb-keyed slots (does:learn / does:keep / ...). But activity
+# RECALL only linked a query to a stored fact when the QUERY VERB equals the STORED
+# verb ("what do i play" -> stored "does:learn"), OR when a bare query noun appeared
+# verbatim in the value ("keep garden" -> "garden"). A query that names the OBJECT
+# CATEGORY ("what instrument do i play") never matched "learning cello" because
+# neither the verb (play != learn) nor the noun (instrument) is in the value. So the
+# answer fell through to "outside what i know" even though the activity WAS stored.
+#
+# FIX: a SEED object-category lexicon. A query noun that is a known ACTIVITY ROLE
+# ("instrument", "pet", "sport", ...) expands to its seed OBJECT vocabulary, and the
+# recall loop matches a stored does:VERB fact whose value contains ANY of those
+# objects. The bridge is SEED DATA (a small role->objects map), NOT a question->answer
+# table: it contains no RAVANA reply, only generic category vocabulary RAVANA can GROW
+# at runtime (see UserModel.learn_activity_role + _activity_roles). Removing it degrades
+# to "exact-verb / exact-noun only" recall — the pre-fix behavior — so it is seed
+# structure, not hardcoding. The recall loop still reads the live PersonalFactStore for
+# the actual value; nothing is authored.
+_ACTIVITY_ROLES = {
+    # role phrase (as it may appear in a query) -> seed object vocabulary
+    "instrument": {"cello", "guitar", "piano", "violin", "flute", "drums",
+                   "trumpet", "saxophone", "harp", "bass", "banjo", "clarinet",
+                   "oboe", "trombone", "ukulele", "mandolin", "fiddle",
+                   "synthesizer", "organ", "horn"},
+    "pet": {"dog", "cat", "ferret", "hamster", "rabbit", "bird", "parrot",
+            "fish", "turtle", "horse", "goat", "sheep", "pig", "mouse",
+            "rat", "gerbil", "guinea", "pigeon", "chicken", "duck", "cow"},
+    "animal": {"dog", "cat", "ferret", "hamster", "rabbit", "bird", "parrot",
+               "fish", "turtle", "horse", "goat", "sheep", "pig", "cow",
+               "lion", "tiger", "bear", "wolf", "fox"},
+    "sport": {"marathon", "half marathon", "ultramarathon", "sprint",
+              "swim", "cycling", "climb", "rock climb", "tennis", "soccer",
+              "football", "basketball", "rugby", "boxing", "karate",
+              "judo", "yoga", "triathlon"},
+    "plant": {"cactus", "orchid", "fern", "bonsai", "succulent", "tree",
+              "rose", "tulip", "garden", "herb", "basil", "mint", "tomato",
+              "pepper", "vine", "shrub"},
+    "vehicle": {"car", "motorcycle", "bike", "bicycle", "truck", "boat",
+                "sailboat", "canoe", "kayak", "van", "bus", "plane",
+                "drone", "scooter"},
+    "craft": {"pot", "mug", "bowl", "blanket", "scarf", "sweater",
+              "quilt", "table", "chair", "shelf", "ring", "jewelry",
+              "photograph", "painting", "sculpture", "book", "zine"},
+}
+
+
+def activity_role_objects(role_phrase: str,
+                          learned: Optional[set] = None) -> Optional[set]:
+    """Return the seed object words for an activity ROLE phrase used in a recall
+    query (e.g. "instrument" -> {cello, guitar, ...}), merged with any RUNTIME-learned
+    objects (`learned`). Returns None when the phrase is not a known role, so the
+    caller keeps its exact-match path. Seed map is generic category vocabulary; the
+    live fact value is what actually answers the query — no authored reply."""
+    if not role_phrase:
+        return None
+    _rp = role_phrase.strip().lower().strip("?.!")
+    _seed = _ACTIVITY_ROLES.get(_rp)
+    if _seed is None:
+        return None
+    _out = set(_seed)
+    if learned:
+        _out |= set(learned)
+    return _out
+
+
+def _activity_role_phrases() -> frozenset:
+    """All seed role phrases for the recall regex to scan. A function (not a
+    constant) so runtime-extended roles can be consulted without touching callers."""
+    return frozenset(_ACTIVITY_ROLES.keys())
+
+
 # First-person contraction expansion (round 2026-08-29T0659Z).
 # The activity/location/opinion miners key on the token boundary `\bi\s+`,
 # so an unexpanded "i'm"/"i've" never matches ("i'm training" -> nothing
@@ -1225,6 +1297,14 @@ class UserModel:
     # NUMBER, decoupling it from the gist. Seed + online; durable via
     # get/set_state so it survives engine reload.
     quantity_memory: QuantityMemory = field(default_factory=QuantityMemory)
+    # RUNTIME-EXPANDED activity object-category vocabulary (round 2026-08-29T0659Z
+    # feature follow-up). Seed object vocabulary lives in the module-level
+    # _ACTIVITY_ROLES map (consulted by the recall bridge); THIS set holds objects
+    # RAVANA learns ONLINE (e.g. a user says "what do i forge" and the activity
+    # value names an object not in the seed set). It is merged into the bridge at
+    # recall time so the category link keeps growing without code edits. Seed is
+    # data, not a frozen table — RAVANA adds to it; nothing here is an authored reply.
+    _activity_roles: Set[str] = field(default_factory=set)
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -5565,6 +5645,16 @@ class UserModel:
                 boost[to_c] = 1.0 + (count / (count + 1.0)) * 0.3
         return boost
 
+    def learn_activity_role(self, object_word: str) -> None:
+        """Online-grow the activity object-category vocabulary (round 2026-08-29T0659Z
+        feature follow-up). When RAVANA mines an activity whose object is not yet in
+        any seed role set, record the object word so a LATER category query ("what do i
+        <verb>") can bridge to it without a code edit. Pure data growth — no reply, no
+        retraining. The bridge in _structured_recall merges this set with the seed map.
+        """
+        if object_word:
+            self._activity_roles.add(object_word.strip().lower())
+
     def get_state(self) -> Dict:
         return {
             'edge_reactivations': {str(k): v for k, v in self.edge_reactivations.items()},
@@ -5594,6 +5684,7 @@ class UserModel:
             'belief_state': self.belief_state,
             'interaction_history': self.interaction_history,
             '_learned_relations': list(getattr(self, '_learned_relations', set())),
+            '_activity_roles': list(getattr(self, '_activity_roles', set())),
         }
 
     def set_state(self, state: Dict):
@@ -5618,6 +5709,7 @@ class UserModel:
         self.user_background = state.get('user_background', '')
         self.preferences = state.get('preferences', {})
         self._learned_relations = set(state.get('_learned_relations', []))
+        self._activity_roles = set(state.get('_activity_roles', []))
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)
