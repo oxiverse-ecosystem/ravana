@@ -401,6 +401,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
+from .user_model import is_activity_attr as _is_activity_attr
 from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
@@ -2996,7 +2997,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
-                if _k[1] != "does" or getattr(_f, "superseded", False):
+                if (not _is_activity_attr(_k[1]) or _k[1].startswith("event")) \
+                        or getattr(_f, "superseded", False):
                     continue
                 _val = _f.value.lower()
                 _fverb = _val.split()[0] if _val.split() else ""
@@ -3113,7 +3115,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return f"your name is {_v}."
                     if _attr == "work":
                         return f"you work as {_v}."
-                    if _attr == "does":
+                    if _is_activity_attr(_attr) and not _attr.startswith("event"):
                         return f"you {_v}."
                     # D7 (round 2026-08-16T1745Z): verb-phrase values (from the
                     # relationship-activity miner) render without a copula.
@@ -3133,7 +3135,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return f"your name is {_v}."
                     if _attr == "work":
                         return f"you work as {_v}."
-                    if _attr == "does":
+                    if _is_activity_attr(_attr) and not _attr.startswith("event"):
                         return f"you {_v}."
                     _vvw = (_v or "").strip()
                     if _vvw and _vvw.split() and _is_act(_vvw.split()[0]):
@@ -3314,7 +3316,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
                         continue
-                    if _k[0] == _ent and _k[1] == _eattr \
+                    _k1 = _k[1]
+                    _matches_attr = (_k1 == _eattr) or (
+                        _eattr == "does" and _is_activity_attr(_k1)
+                        and not _k1.startswith("event"))
+                    if _k[0] == _ent and _matches_attr \
                             and not getattr(_f, "superseded", False):
                         _v = _f.value
                         if _eattr == "name":
@@ -3918,7 +3924,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # activity/date facts that are NOT pet-bearing, keyed on
                         # the shared pet lexicon (a pet `does` value names a
                         # species or uses "named <name>"); no authored table.
-                        if _attr in ("does", "event", "since", "since_age"):
+                        if _is_activity_attr(_attr) or _attr in ("since", "since_age"):
                             # A PET `does`/`event` fact carries a real named
                             # entity ("keep pet parrot named mango" / "i have a
                             # cat named pixel") — the reverse-name path below
@@ -3965,7 +3971,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _rel = _attr
                         # (3) attr='does', name is inside the value
                         #     (e.g. 'keep pet parrot named mango')
-                        elif _attr == "does" and _val.split() and _val.split()[-1] in _qcn:
+                        elif _is_activity_attr(_attr) and not _attr.startswith("event") \
+                                and _val.split() and _val.split()[-1] in _qcn:
                             # entity = value with the trailing 'named <name>'
                             # (or bare name) stripped, then the leading
                             # possession verb/article removed.
@@ -4047,7 +4054,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
-                if _k[1] == "does" and not getattr(_f, "superseded", False):
+                if _is_activity_attr(_k[1]) and not _k[1].startswith("event") \
+                        and not getattr(_f, "superseded", False):
                     _v = _f.value.lower()
                     # Match on the cue noun OR on the leading verb (the
                     # miner may drop the object noun, e.g. 'i keep six
@@ -4103,7 +4111,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         continue
                     if getattr(_f, "superseded", False):
                         continue
-                    if _k[1] == "does":
+                    if _is_activity_attr(_k[1]) and not _k[1].startswith("event"):
                         _v = _f.value.lower()
                         _m = re.match(
                             r"^(?:keep|have|keep on|have on|raise|own|"
@@ -4126,7 +4134,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
-                if _k[1] == "does" and not getattr(_f, "superseded", False):
+                if _is_activity_attr(_k[1]) and not _k[1].startswith("event") \
+                        and not getattr(_f, "superseded", False):
                     _val = _f.value.lower()
                     if _verb in _val or any(n in _val for n in _qnouns):
                         return f"you {_val}."
@@ -4473,7 +4482,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     continue
                 if getattr(_f, "superseded", False):
                     continue
-                if _k[1] in ("does", "event") and _f.value:
+                if _is_activity_attr(_k[1]) and _f.value:
                     _val = _f.value.lower()
                     _stems = {_stem(t) for t in re.findall(r"[a-z']+", _val)}
                     # attach this `does`/`event` value to every since activity
@@ -4629,9 +4638,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return f"your {_attr_d.replace('favorite ', '')} is {val}"
         if _attr_d == "name":
             return f"your name is {val}"
-        if _attr_d == "does":
+        if _is_activity_attr(_attr_d) and not _attr_d.startswith("event"):
             return f"you {val}"
-        if _attr_d == "event":
+        if _attr_d.startswith("event"):
             return f"you mentioned {val}"
         try:
             from .user_model import is_verb_phrase as _is_act
@@ -4682,7 +4691,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _scalar_seen = set()
         _facts_out = []
         for _attr, _val, _conf in _all:
-            if _attr in ("does", "event"):
+            if _is_activity_attr(_attr):
                 _facts_out.append((_attr, _val, _conf))
                 continue
             _n = _val.lower().strip()
@@ -4770,7 +4779,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # attribute 'does' is excluded from this containment test so it
             # cannot bridge unrelated entities (round 2026-08-19T1628Z D1).
             _contain = _val_l if _val_l and _val_l != _attr_l else ""
-            if _attr_l not in ("does", "event", "name"):
+            if not (_attr_l in ("name",) or _is_activity_attr(_attr_l)):
                 _contain = (_contain + " " + _attr_l).strip()
             if _contain and (_contain in _p or _p in _contain):
                 _best = (_attr, _val, _conf)
@@ -5146,7 +5155,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 parts.append(f"your {_attr_d.replace('favorite ', '')} is {_val}")
             elif _attr_d == "name":
                 parts.append(f"your name is {_val}")
-            elif _attr_d == "does":
+            elif _is_activity_attr(_attr_d) and not _attr_d.startswith("event"):
                 # Self-disclosed ACTIVITY stored as a verb-phrase clause
                 # (e.g. "spent whole childhood", "got promoted last month").
                 # The miner keeps the user's own words verbatim, so render as a
@@ -5156,7 +5165,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # self-profile render fix.
                 _sv = (_val or "").strip()
                 parts.append(f"you {_sv}")
-            elif _attr_d == "event":
+            elif _attr_d.startswith("event"):
                 # Self-disclosed EVENT (mined as event=<verb phrase>, e.g.
                 # "lose appetite"). Render as an honest "you mentioned <clause>"
                 # — the prior fall-through produced "your event is lose
@@ -7574,7 +7583,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _cf_phrase = {
                         "name": f"your {_cf_attr} is {_cf_val}",
                         "is": f"you are {_cf_val}",
-                        "does": f"you do {_cf_val}",
+                        "does": (f"you {_cf_val}"
+                                 if _cf_attr.startswith("does:")
+                                 else f"you do {_cf_val}"),
                         "likes": f"you like {_cf_val}",
                         "location": f"you live in {_cf_val}",
                         "favorite": f"your favorite {_cf_val}",
@@ -7808,7 +7819,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _rel_phrase = {
                             "name": f"your {_cf_attr} is {_cf_val}",
                             "is": f"you are {_cf_val}",
-                            "does": f"you do {_cf_val}",
+                            "does": (f"you {_cf_val}"
+                                 if _cf_attr.startswith("does:")
+                                 else f"you do {_cf_val}"),
                             "likes": f"you like {_cf_val}",
                             "location": f"you live in {_cf_val}",
                             "favorite": f"your favorite {_cf_val}",
@@ -7921,7 +7934,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _cf_phrase = {
                     "name": f"your {_cf_attr} is {_cf_val}",
                     "is": f"you are {_cf_val}",
-                    "does": f"you do {_cf_val}",
+                    "does": (f"you {_cf_val}"
+                             if _cf_attr.startswith("does:")
+                             else f"you do {_cf_val}"),
                     "likes": f"you like {_cf_val}",
                     "location": f"you live in {_cf_val}",
                     "favorite": f"your favorite {_cf_val}",

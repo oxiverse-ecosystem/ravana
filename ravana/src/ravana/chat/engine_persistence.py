@@ -517,7 +517,9 @@ If a concept has been corrected 3+ times, mark for priority web learning.
             _rel_phrase = {
                 "name": f"your {fact_rel} is {fact_val}",
                 "is": f"you are {fact_val}",
-                "does": f"you do {fact_val}",
+                "does": (f"you {fact_val}"
+                         if fact_rel.startswith("does:")
+                         else f"you do {fact_val}"),
                 "likes": f"you like {fact_val}",
                 "location": f"you live in {fact_val}",
                 "favorite": f"your favorite {fact_val}",

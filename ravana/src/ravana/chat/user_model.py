@@ -265,8 +265,158 @@ def is_verb_phrase(word: str) -> bool:
     competitive speedcubing" is grammatical, not "is does"). Superset of
     is_activity_verb + is_relation_verb + is_aux_verb; callers that previously
     used is_activity_verb for the copula decision should use this so every verb
-    class renders correctly. Pure vocabulary lookup — no content."""
+    class renders correctly. Pure vocabulary lookup — no content.""" 
     return is_activity_verb(word) or is_relation_verb(word) or is_aux_verb(word)
+
+
+# ── canonical activity-attribute helper (round 2026-08-29T0659Z, GENERALIZE) ──
+# DEFECT (slot-key collapse, classic class): every first-person activity was
+# stored under ONE shared attribute ("does"), and every lived experience under
+# "event". The PersonalFactStore treats (subject, attribute) as a single
+# mutually-exclusive slot, so two DIFFERENT activities ("learn cello" vs "keep
+# garden") became "contradictions" of each other and reconcile() superseded all
+# but the last — only one activity was ever recallable, and unrelated activities
+# clobbered each other's correction flags. Measured this round: "learn cello"
+# and "train half marathon" got superseded=True, so "what instrument do i play"
+# failed closed.
+#
+# FIX: key each activity by its CANONICAL VERB (attribute "does:<verb>" /
+# "event:<verb>"), so distinct activities occupy DISTINCT slots and never
+# collide. This is the SAME generalization pattern pet_slots.py uses (per-entity
+# slots keyed by species+index, never one flat bucket). The verb is the
+# discriminating term the user actually said, so it stays in the key; the
+# store grows from experience (the user can correct any activity fact). Removing
+# the helper degrades to "store everything under does:" (still not a regression
+# of capability), so it is seed structure, not hardcoding.
+#
+# Reused by BOTH the miner (write) and the recall renderers (read) so they agree
+# by construction — no duplicated per-path verb table.
+_VERB_LEMMAS = {
+    "learns": "learn", "learned": "learn", "learnt": "learn", "learning": "learn",
+    "keeps": "keep", "kept": "keep", "keeping": "keep",
+    "trains": "train", "trained": "train", "training": "train",
+    "runs": "run", "ran": "run", "running": "run",
+    "grows": "grow", "grew": "grow", "growing": "grow",
+    "raises": "raise", "raised": "raise", "raising": "raise",
+    "plays": "play", "played": "play", "playing": "play",
+    "writes": "write", "wrote": "write", "writing": "write",
+    "reads": "read", "reading": "read",
+    "builds": "build", "built": "build", "building": "build",
+    "makes": "make", "made": "make", "making": "make",
+    "teaches": "teach", "taught": "teach", "teaching": "teach",
+    "studies": "study", "studied": "study", "studying": "study",
+    "works": "work", "worked": "work", "working": "work",
+    "got": "got", "get": "get", "gets": "get", "getting": "get",
+    "collects": "collect", "collected": "collect", "collecting": "collect",
+    "paints": "paint", "painted": "paint", "painting": "paint",
+    "codes": "code", "coded": "code", "coding": "code",
+    "cooks": "cook", "cooked": "cook", "cooking": "cook",
+    "brews": "brew", "brewed": "brew", "brewing": "brew",
+    "bakes": "bake", "baked": "bake", "baking": "bake",
+    "gardens": "garden", "gardened": "garden", "gardening": "garden",
+    "hikes": "hike", "hiked": "hike", "hiking": "hike",
+    "fishes": "fish", "fished": "fish", "fishing": "fish",
+    "swims": "swim", "swam": "swim", "swimming": "swim",
+    "drives": "drive", "drove": "drive", "driving": "drive",
+    "sails": "sail", "sailed": "sail", "sailing": "sail",
+    "weaves": "weave", "wove": "weave", "woven": "weave", "weaving": "weave",
+    "knits": "knit", "knitted": "knit", "knitting": "knit",
+    "sews": "sew", "sewed": "sew", "sewn": "sew", "sewing": "sew",
+    "races": "race", "raced": "race", "racing": "race",
+    "competes": "compete", "competed": "compete", "competing": "compete",
+    "volunteers": "volunteer", "volunteered": "volunteer",
+    "performs": "perform", "performed": "perform", "performing": "perform",
+    "composes": "compose", "composed": "compose", "composing": "compose",
+    "records": "record", "recorded": "record", "recording": "record",
+    "hosts": "host", "hosted": "host", "hosting": "host",
+    "guides": "guide", "guided": "guide", "guiding": "guide",
+    "coaches": "coach", "coached": "coach", "coaching": "coach",
+    "crafts": "craft", "crafted": "craft", "crafting": "craft",
+    "forges": "forge", "forged": "forge", "forging": "forge",
+    "carves": "carve", "carved": "carve", "carving": "carve",
+    "welds": "weld", "welded": "weld", "welding": "weld",
+    "spins": "spin", "spun": "spin", "spinning": "spin",
+    "mounts": "mount", "mounted": "mount", "mounting": "mount",
+    "trades": "trade", "traded": "trade", "trading": "trade",
+    "restores": "restore", "restored": "restore", "restoring": "restore",
+    "fixes": "fix", "fixed": "fix", "fixing": "fix",
+    "designs": "design", "designed": "design", "designing": "design",
+    "organizes": "organize", "organized": "organize", "organising": "organise",
+    "organizes": "organize", "organized": "organize",
+    "leads": "lead", "led": "lead", "leading": "lead",
+    "operates": "operate", "operated": "operate", "operating": "operate",
+    "manages": "manage", "managed": "manage", "managing": "manage",
+    "sells": "sell", "sold": "sell", "selling": "sell",
+    "farm": "farm", "farms": "farm", "farmed": "farm", "farming": "farm",
+    "watch": "watch", "watches": "watch", "watched": "watch", "watching": "watch",
+    "practice": "practice", "practices": "practice", "practised": "practise",
+    "practiced": "practice", "practising": "practise",
+    "throws": "throw", "threw": "throw", "thrown": "throw", "throwing": "throw",
+    "shoots": "shoot", "shot": "shoot", "shooting": "shoot",
+    "develops": "develop", "developed": "develop", "developing": "develop",
+    "cleans": "clean", "cleaned": "clean", "cleaning": "clean",
+    "repots": "repot", "repotted": "repot", "repotting": "repot",
+    "removes": "remove", "removed": "remove", "removing": "remove",
+}
+
+
+def canonical_activity_attr(kind: str, verb: str) -> str:
+    """Return the store attribute for an activity/event fact, keyed by the
+    CANONICAL (lemma) verb so distinct activities occupy DISTINCT slots.
+
+    kind: "does" (ongoing activity) or "event" (lived experience).
+    verb: the raw first-person verb as mined (e.g. "learning", "kept").
+
+    Returns e.g. "does:learn", "does:keep", "event:got". The leading verb is
+    the discriminating term the user actually said, so it stays in the key and
+    two different activities never collide. Pure vocabulary lookup — the lemma
+    map is SEED data RAVANA-expandable; an unknown verb falls back to its own
+    lowercased base so capture still works (just no lemma merge).
+    """
+    w = (verb or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return kind  # degenerate fallback: flat slot (legacy shape)
+    _lem = _VERB_LEMMAS.get(w, w)
+    # strip a trailing inflection if the stem is a known lemma
+    if _lem == w and len(w) > 3:
+        for suf in ("ing", "ed", "s", "es"):
+            if w.endswith(suf):
+                _stem = w[:-len(suf)]
+                if _stem in _VERB_LEMMAS.values():
+                    _lem = _stem
+                    break
+    return f"{kind}:{_lem}"
+
+
+def is_activity_attr(attr: str) -> bool:
+    """True for any activity/event attribute, flat ('does'/'event') or
+    verb-keyed ('does:learn'/'event:got'). Single source of truth so every
+    recall/enumeration/summary site agrees on what counts as an activity fact
+    without re-listing the two base kinds. No content."""
+    a = (attr or "").lower()
+    return a == "does" or a == "event" or a.startswith("does:") or a.startswith("event:")
+
+
+# First-person contraction expansion (round 2026-08-29T0659Z).
+# The activity/location/opinion miners key on the token boundary `\bi\s+`,
+# so an unexpanded "i'm"/"i've" never matches ("i'm training" -> nothing
+# mined). Expand ONLY the two contractions that gate those patterns:
+#   i'm  -> i am        (so "i am <verb>-ing" hits the open-class activity miner)
+#   i've -> i have      (so "i have been <verb>-ing" hits the seeded block)
+# We deliberately do NOT expand "i'd" -> "i had"/"i would": "i'd rather /
+# i'd love" is a PREFERENCE shape the opinion miners must keep intact, and
+# "i'd been" is rare enough to leave to the "i had been" form in the wild.
+# Seed-style, general (no per-topic/per-user content); applied copy-local to
+# the miner so it never mutates stored text elsewhere.
+_CONTRACTION_EXPAND = re.compile(r"\b(?:i'm|i\u2019m)\b", re.IGNORECASE)
+_CONTRACTION_EXPAND_VE = re.compile(r"\b(?:i've|i\u2019ve)\b", re.IGNORECASE)
+
+
+def _expand_fp_contractions(text: str) -> str:
+    s = _CONTRACTION_EXPAND.sub("i am", text)
+    s = _CONTRACTION_EXPAND_VE.sub("i have", s)
+    return s
+
 
 
 # real affect categories in brain_regions._CAUSE_SEEDS and
@@ -773,8 +923,24 @@ _RETRACTION_CUES = (
     # so "i take it back" (the most common spoken form) failed to match and the
     # contradiction was silently dropped, leaving the stale positive stance.
     r"\bi\s+take\s+(?:it|this|that|things|them|what\s+i\s+said)?\s*back",
+    # GENERALIZE (round 2026-08-29T0659Z, L3): the imperative \"take that back\" /
+    # \"take it back\" form drops the subject pronoun (\"actually, take that
+    # back\"), so the first-person-anchored cue above misses it and the
+    # contradiction is silently dropped (measured: [15] left the cameras stance
+    # pinned at -0.8 and [32] then answered from the stale view). Allow the
+    # bare imperative too. Grammatical, no per-topic table; resolution still
+    # requires a held stance so false positives are bounded.
+    r"\btake\s+(?:it|this|that|things|them|what\s+i\s+said)\s*back\b",
     r"\bi\s+retract",
     r"\bi\s+(?:have|'ve)?\s*changed\s+my\s+mind",
+    # GENERALIZE (round 2026-08-29T0659Z, L3): the bare \"i've changed\" /
+    # \"i changed\" recant (without the \"my mind\" object, e.g. \"actually now
+    # it makes me lonely, i've changed\") was missed, so a love->lonely flip
+    # stayed as a fresh +0.4 stance instead of recoding the held +0.4 'rain'
+    # stance (measured: [29]). Allow the bare recant; resolution still requires
+    # a held prior stance (the reversal paths guard on turn_number < now), so a
+    # brand-new topic is never walked back. Grammatical, no per-topic table.
+    r"\bi\s*(?:'ve\s+|have\s+|am\s+)?changed\b",
     r"\bi\s+(?:am|'m)?\s*changing\s+my\s+mind",
     r"\bi\s+no\s+longer\s+(?:think|believe|feel|support|care)\b",
     r"\bi\s+was\s+wrong\s+(?:about|on|there)\b",
@@ -1117,6 +1283,10 @@ class UserModel:
         regex buckets — the store learns the rest from confirm/contradict.
         """
         q_clean = re.sub(r"\s+", " ", text).strip()
+        # First-person contraction expansion (round 2026-08-29T0659Z): the
+        # activity/location/opinion miners key on `\bi\s+`, so "i'm"/"i've"
+        # never match. Expand only those two (NOT "i'd") before mining.
+        q_clean = _expand_fp_contractions(q_clean)
         # INTERROGATIVE GUARD (round 2026-08-21T2156Z, defect D3): a question is
         # never a self-disclosure, so do not mine it. Without this, query
         # substrings ("remind me what my brother Theo DOES for work") reached the
@@ -3224,7 +3394,8 @@ class UserModel:
                     # verb and return a complete, grammatical answer instead
                     # of a bare noun. The verb is part of the mined disclosure,
                     # not an authored label.
-                    _put_fact("does", f"{_verb} {_obj}", 0.55)
+                    _put_fact(canonical_activity_attr("does", _verb),
+                              f"{_verb} {_obj}", 0.55)
                     # NAME-BRIDGE (round 2026-08-18T1340Z): when the captured
                     # activity object contains "named/called <Name>" (e.g. "i
                     # keep a sourdough starter i named doris"), ALSO store the
@@ -3251,7 +3422,8 @@ class UserModel:
                 _obj = self._opinion_topic(_cont.group(2).strip().lower())
                 _obj = _strip_obj_framers(_obj)
                 if _obj and len(_obj.split()) <= 5:
-                    _put_fact("does", f"{_cverb} {_obj}", 0.55)
+                    _put_fact(canonical_activity_attr("does", _cverb),
+                              f"{_cverb} {_obj}", 0.55)
 
         # FIX (round 2026-08-09T1953Z): general first-person activity +
         # experience capture. The D3 activity loop above only matches BARE
@@ -3366,7 +3538,8 @@ class UserModel:
             if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
                 continue
             if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact("does", f"{_verb} {_obj}", 0.55)
+                _put_fact(canonical_activity_attr("does", _verb),
+                          f"{_verb} {_obj}", 0.55)
         # Experience / event capture: first-person "i <event-verb> <object>"
         # describing something that happened to the user's world. Captured
         # under attr "event" so it is recallable as a lived experience (not
@@ -3410,7 +3583,8 @@ class UserModel:
             if _obj and _obj.split()[0] in _AFFECTIVE_OBJECT_ADJ:
                 continue
             if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact("event", f"{_verb} {_obj}", 0.5)
+                _put_fact(canonical_activity_attr("event", _verb),
+                          f"{_verb} {_obj}", 0.5)
 
         # OPEN-CLASS activity/event capture (round 2026-08-13T2059Z). The two
         # frozen-verb blocks above (ACTIVITY_VERBS / EVENT_VERBS) only cover a
@@ -3470,7 +3644,7 @@ class UserModel:
             # handled by the seeded ACTIVITY_VERBS/EVENT_VERBS blocks above
             # (those keep their higher-confidence 0.55/0.5 paths). Only the
             # base form + 's/es' is captured here as the open-class fallback.
-            r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es)?)"
+            r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es|ing|ed|[a-z]ed|[a-z]d)?)"
             r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
             r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
             r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
@@ -3489,7 +3663,8 @@ class UserModel:
                 continue
             _obj = self._opinion_topic(_gm.group(2).strip().lower())
             if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact("does", f"{_verb} {_obj}", 0.5)
+                _put_fact(canonical_activity_attr("does", _verb),
+                          f"{_verb} {_obj}", 0.5)
 
         # Round 2026-08-14T0608Z: TEMPORAL / DATE-GROUNDED fact mining.
         # A first-person disclosure that anchors an activity to a POINT IN TIME
