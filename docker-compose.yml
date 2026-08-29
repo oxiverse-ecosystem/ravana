@@ -1,0 +1,25 @@
+# RAVANA runtime — set-and-forget loop gives it a repo per round via /work.
+# Root inside container (founder: loop can reset/fix). Host mounts are scoped:
+#   ./weights -> canonical self (persists across runs)
+#   ./_agent_work -> the loop-assigned repo (RAVANA's only writable host path)
+# No credentials mounted. Tool guards block destructive ops even as root.
+services:
+  ravana:
+    build: .
+    container_name: ravana-runtime
+    restart: unless-stopped
+    environment:
+      - RAVANA_OFFLINE=0
+      - RAVANA_WORK_VOLUME=/work
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./weights:/app/ravana/weights
+      - ./_agent_work:/work
+    # Healthcheck: the agent service answers on :4001/health
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:4001/health', timeout=3); sys.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
