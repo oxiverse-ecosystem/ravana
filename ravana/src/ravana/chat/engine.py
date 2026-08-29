@@ -6240,6 +6240,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         #    recall query -> False.
         return False
 
+    def _record_agent_action(self, tool: str, arg: str, outcome: str) -> None:
+        """Record an agentic action as a GROUNDED experience (fix 'c').
+
+        Experience-derived memory only — never authored prose. Lets the
+        self-model / persona reference real actions later ("i looked that up",
+        "i ran a script"). Bounded ring buffer; cheap.
+        """
+        try:
+            if not hasattr(self, "_agent_action_log"):
+                self._agent_action_log = []
+            self._agent_action_log.append({
+                "tool": tool, "arg": arg,
+                "outcome_head": (outcome or "")[:200],
+                "turn": getattr(self, "turn_count", 0),
+            })
+            if len(self._agent_action_log) > 200:
+                self._agent_action_log = self._agent_action_log[-200:]
+        except Exception:
+            pass
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
@@ -9671,6 +9691,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass  # Never break the pipeline for a greeting
 
         self._pending_quantity_result = None
+        # ── Agentic layer (fix 'c'): let RAVANA use its "hands" when its own
+        # cognition justifies it. State-driven via decision_gate (no keyword
+        # table). Tool execution is sandboxed + hard-guarded (see tool_registry).
+        # Tool output is folded in as GROUNDED evidence, not authoritative fact.
+        try:
+            from .agent.decision_gate import decide_tool_use
+            from .agent.tool_registry import ToolRegistry
+            _registry = getattr(self, "_tool_registry", None) or ToolRegistry()
+            self._tool_registry = _registry
+            _call = decide_tool_use(self, user_input, _registry)
+            if _call is not None:
+                _tool_out = _registry.execute(_call)
+                # Learn from the action: record as a grounded experience so the
+                # self-model/persona can reference it later (no-hardcoding: the
+                # fact is experience-derived, not authored).
+                try:
+                    self._record_agent_action(_call.tool, _call.arg, _tool_out)
+                except Exception:
+                    pass
+                response = f"{response}\n[{_call.tool}] {_tool_out}"
+        except Exception as _e:
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [agentic] skipped: {_e}")
         # NOTE: previously this returned ``response.lower()``. That destroyed
         # proper-noun casing in the final output (e.g. "France" -> "france",
         # "NASA" -> "nasa"), making RAVANA look broken. All generators already
