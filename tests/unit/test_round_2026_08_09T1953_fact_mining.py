@@ -33,39 +33,39 @@ def _capture(text):
 
 def test_gerund_activity_captured():
     caps = _capture("i throw pots at a community studio on thursdays")
-    assert ("i", "does") in caps, caps
-    assert "throw pots" in caps[("i", "does")], caps
+    assert ("i", "does:throw") in caps, caps
+    assert "throw pots" in caps[("i", "does:throw")], caps
 
 
 def test_continuous_tense_activity_captured():
     caps = _capture("i've been training a juniper bonsai for six years")
-    assert ("i", "does") in caps, caps
-    assert "juniper bonsai" in caps[("i", "does")], caps
+    assert ("i", "does:train") in caps, caps
+    assert "juniper bonsai" in caps[("i", "does:train")], caps
 
 
 def test_irregular_past_activity_captured():
     caps = _capture("i keep a saltwater reef tank in the living room")
-    assert ("i", "does") in caps, caps
-    assert "reef tank" in caps[("i", "does")], caps
+    assert ("i", "does:keep") in caps, caps
+    assert "reef tank" in caps[("i", "does:keep")], caps
 
 
 def test_event_past_doubled_consonant_captured():
     # "repotted" = repot + ted (doubled-consonant irregular past)
     caps = _capture("i repotted the juniper this spring and found a root")
-    assert ("i", "event") in caps, caps
-    assert "repot juniper" in caps[("i", "event")], caps
+    assert ("i", "event:repot") in caps, caps
+    assert "repot juniper" in caps[("i", "event:repot")], caps
 
 
 def test_event_irregular_past_captured():
     caps = _capture("the power went out and i lost a favia coral to heat")
-    assert ("i", "event") in caps, caps
-    assert "lost favia coral" in caps[("i", "event")], caps
+    assert ("i", "event:lost") in caps, caps
+    assert "lost favia coral" in caps[("i", "event:lost")], caps
 
 
 def test_wrapper_verb_captured():
     caps = _capture("i started growing air plants on the studio windowsill")
-    assert ("i", "does") in caps, caps
-    assert "growing air plants" in caps[("i", "does")], caps
+    assert ("i", "does:start") in caps, caps
+    assert "growing air plants" in caps[("i", "does:start")], caps
 
 
 def test_clause_boundary_stops_object():

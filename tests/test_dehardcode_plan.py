@@ -493,7 +493,7 @@ def test_D4_activity_miner_skips_meta_discourse(engine):
     eng.process_turn("i forage chanterelles up past the quarry, the western slope after rain.")
     facts = eng.user_model.personal_facts.facts
     real = [k for k in facts if isinstance(k, tuple) and len(k) >= 3
-            and k[1] in ("does", "event")
+            and (k[1].startswith("does") or k[1].startswith("event"))
             and "chanterelles" in str(facts[k].value).lower()]
     assert real, "D4 regression: genuine activity 'i forage chanterelles' not captured"
 

@@ -98,6 +98,6 @@ def test_does_event_fact_path_unaffected():
         um.personal_facts.facts.clear()
         um.mine_personal_facts(s, run_correction=True)
         vals = [f.value for (a, b, c), f in um.personal_facts.facts.items()
-                if b in ("does", "event") and not getattr(f, "superseded", False)]
+                if (b.startswith("does") or b.startswith("event")) and not getattr(f, "superseded", False)]
         assert any(want_substr in v for v in vals), (
             f"{s!r} lost activity fact; got {vals!r}")

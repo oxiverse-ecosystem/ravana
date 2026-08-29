@@ -57,6 +57,6 @@ def test_d1_does_facts_all_retrievable():
     eng.process_turn("i built a tiny garden on my roof")
     eng.process_turn("i found ren's birthday would've been this week")
     facts, _, _ = eng._collect_user_model_state()
-    does_vals = [v for a, v, c in facts if a == "does"]
+    does_vals = [v for a, v, c in facts if a.startswith("does")]
     # three distinct predicate facts, not collapsed to one longest value
     assert len(does_vals) == 3, f"expected 3 distinct 'does' facts, got {len(does_vals)}: {does_vals}"

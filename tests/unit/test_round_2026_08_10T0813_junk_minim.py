@@ -21,8 +21,9 @@ def _mine_and_facts(cases):
         um.mine_personal_facts(c)
     out = {}
     for k, v in um.personal_facts.facts.items():
-        if k[0] == "i" and k[1] in ("does", "event") and not getattr(v, "superseded", False):
-            out.setdefault(k[1], []).append(v.value)
+        if k[0] == "i" and (k[1].startswith("does") or k[1].startswith("event")) and not getattr(v, "superseded", False):
+            _bucket = "does" if k[1].startswith("does") else "event"
+            out.setdefault(_bucket, []).append(v.value)
     return out
 
 
