@@ -402,6 +402,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .user_model import is_activity_attr as _is_activity_attr
+from .user_model import activity_role_objects, _activity_role_phrases
 from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
@@ -4144,6 +4145,55 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _w is not None and not getattr(_w, "superseded", False) \
                     and _verb in _w.value.lower():
                 return f"you {_w.value}."
+
+        # ── (1a-bis) ACTIVITY OBJECT-CATEGORY BRIDGE (round 2026-08-29T0659Z
+        # feature follow-up, residual #4 from the round report) ──────────────
+        # The _ACT block above only links a query to a stored activity when the
+        # QUERY VERB equals the STORED verb, OR a bare query noun appears verbatim
+        # in the value. A query that names the OBJECT CATEGORY ("what instrument
+        # do i play", "what pet do i keep") must still resolve to a stored
+        # activity whose value names a member of that category ("i learn cello"
+        # -> instrument) even though the verb (play != learn) and the category
+        # word (instrument) are both absent from the value. The _ACT regex also
+        # requires "what do i <verb>" with nothing between, so "what instrument
+        # do i play" never even enters the _ACT block — hence this is a STANDALONE
+        # branch, not nested in it.
+        #
+        # Seed-based: expand the query's role word to its seed object vocabulary
+        # (_ACTIVITY_ROLES) merged with any RUNTIME-learned objects
+        # (UserModel._activity_roles, grown via learn_activity_role — online, no
+        # retraining). Match a stored does:VERB fact whose value contains any of
+        # those objects (word-boundary, so "cat" never false-matches "category").
+        # The reply content is the LIVE fact value — no authored sentence.
+        # Fail-closed: when no role word is present or no stored activity matches,
+        # falls through to section (2) below (honest "outside what i know").
+        if pf is not None:
+            # Detect the activity ROLE word the user named (instrument / pet /
+            # craft / ...). Use a GENERIC stopword set that deliberately does NOT
+            # include the role phrases themselves (a role phrase like "craft" can
+            # also be an activity verb, so excluding it would hide the role). The
+            # bridge matches via the role's OBJECT vocabulary, not via these query
+            # nouns, so we only need the role word to be present and not a filler.
+            _role_qnouns = set(re.findall(r"[a-z']+", q)) - {
+                "what", "do", "i", "my", "on", "the", "a", "an", "to", "you",
+                "of", "in", "for", "with", "and", "that", "this", "is", "are",
+                "me", "your", "our", "their", "which", "who"}
+            _act_role_objs = None
+            for _role in _activity_role_phrases():
+                if _role in _role_qnouns:
+                    _learned = getattr(um, "_activity_roles", None) if um else None
+                    _act_role_objs = activity_role_objects(_role, _learned)
+                    break
+            if _act_role_objs:
+                for _k, _f in pf.facts.items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if _is_activity_attr(_k[1]) and not _k[1].startswith("event") \
+                            and not getattr(_f, "superseded", False):
+                        _val = _f.value.lower()
+                        if any(re.search(r"\b" + re.escape(_o) + r"\b", _val)
+                               for _o in _act_role_objs):
+                            return f"you {_val}."
 
         # ── (2) Self-stance / self-belief recall ──────────────────────────
         # "you mentioned a stance on X" / "did you take a position on X" /
