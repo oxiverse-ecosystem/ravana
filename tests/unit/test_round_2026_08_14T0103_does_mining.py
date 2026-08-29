@@ -30,7 +30,7 @@ def _does(t):
     um = _um()
     um.mine_personal_facts(t)
     return [v.value for k, v in um.personal_facts.facts.items()
-            if isinstance(k, tuple) and k[1] == "does"]
+            if isinstance(k, tuple) and k[1].startswith("does")]
 
 
 def test_framer_words_not_stored_as_activity():

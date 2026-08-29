@@ -58,19 +58,19 @@ def _is_disclosure(text):
 def test_novel_verb_activity_mined():
     # Known activity verbs already pass; this asserts NOVEL verbs also land.
     caps = _capture("i count meteor showers from the lighthouse gallery every august")
-    assert ("i", "does") in caps, caps
+    assert ("i", "does:count") in caps, caps
     # The object stops at the preposition "from" (closed-class gate), so the
     # stored value is the resolved content head "meteor showers".
-    assert "meteor showers" in caps[("i", "does")], caps
+    assert "meteor showers" in caps[("i", "does:count")], caps
 
 
 def test_hyphenated_compound_verb_mined():
     # `tide-pool` is a hyphenated compound verb not in any whitelist.
     caps = _capture("i tide-pool at low water and catalogue the anemones and limpets")
-    assert ("i", "does") in caps, caps
+    assert ("i", "does:tide-pool") in caps, caps
     # Either verb's object should be captured (open-class: both are activity
     # disclosures, neither is stative).
-    joined = caps[("i", "does")]
+    joined = caps[("i", "does:tide-pool")]
     assert ("tide-pool" in joined or "catalogue" in joined or "anemones" in joined
             or "limpets" in joined), caps
 
@@ -91,7 +91,7 @@ def test_stative_verb_not_mined_as_activity():
     # `i love the ocean` is affect (stance), NOT an activity fact. The
     # open-class miner must NOT pollute the 'does' store with stative verbs.
     caps = _capture("i love the ocean and the sound of rain")
-    assert ("i", "does") not in caps, caps
+    assert not any(k[1].startswith("does") for k in caps), caps
 
 
 def test_achieve_comm_verb_excluded_from_activity():
@@ -107,8 +107,8 @@ def test_achieve_comm_verb_excluded_from_activity():
     # open-class capture runs (and that pure reporting verbs like "said" stay
     # out of 'does').
     caps_said = _capture("i said hello")
-    assert ("i", "does") not in caps_said, ("said hello leaked into does", caps_said)
+    assert not any(k[1].startswith("does") for k in caps_said), ("said hello leaked into does", caps_said)
     caps_got = _capture("i got a dog from the shelter")
-    # open-class mining captured the acquisition as an activity fact
-    assert ("i", "does") in caps_got and "dog" in caps_got[("i", "does")], (
+    # open-class mining captured the acquisition as a verb-keyed activity fact
+    assert ("i", "does:got") in caps_got and "dog" in caps_got[("i", "does:got")], (
         "open-class miner failed to capture 'got a dog'", caps_got)
