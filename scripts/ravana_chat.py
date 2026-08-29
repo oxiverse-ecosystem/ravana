@@ -202,6 +202,27 @@ def main():
     data_dir = args.data_dir
     user_suffix = args.user or ""
     engine = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True, data_dir=data_dir, user_suffix=user_suffix)
+
+    # ── Cross-round persistence (fix 'a'): resume the CANONICAL self so personality
+    # accumulates across rounds instead of rebooting a blank baby every run.
+    # The engine's load()/save() take NO path arg; they use self._save_path, which is
+    # built from user_suffix. We redirect _save_path to the shared canonical file so a
+    # round-specific --user suffix still persists into ONE growing self. load() restores
+    # identity/stances/facts/beliefs/turn_count (the durable personality signals); the
+    # grown ConceptGraph is rebuilt from seed on reload by design (per ravana-cognitive-engine
+    # skill) — acceptable. Respect --reset (already deleted CANONICAL above).
+    CANONICAL_PATH = os.path.join(_proj_root, "weights", "ravana_weights.pkl")
+    engine._save_path = CANONICAL_PATH
+    if not args.reset and os.path.exists(CANONICAL_PATH):
+        try:
+            engine.load()
+            print(f"  [Resume] Loaded canonical self from {os.path.basename(CANONICAL_PATH)} "
+                  f"(turns={engine.turn_count})")
+        except Exception as e:
+            print(f"  [Resume] Could not load canonical self ({e}); starting fresh baby.")
+    else:
+        print("  [Resume] No canonical self found; starting fresh baby.")
+
     engine.start_background_learning()
     if args.trace:
         engine._trace_enabled = True
@@ -435,7 +456,8 @@ def main():
     finally:
         # Stop background learning before saving
         engine.stop_background_learning()
-        # Auto-save on any exit
+        # Auto-save on any exit. _save_path was redirected to the canonical self
+        # at boot (fix 'a'), so this persists accumulated personality for the next run.
         result = engine.save()
         print(f"  [{result}]")
 
