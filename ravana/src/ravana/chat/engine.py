@@ -3739,6 +3739,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         return _ans
                     if _attr in ("does", "event", "since", "since_age"):
                         continue
+                    # Also skip verb-keyed activity facts (does:start, event:got,
+                    # ...). The miner now keys activities by CANONICAL verb to
+                    # prevent slot-collapse supersession (commit db271049), so the
+                    # bare-kind test above no longer catches them. Without this,
+                    # "when did i start X" latched the activity verb as a person's
+                    # NAME and returned e.g. "your does:start is start studying
+                    # volcanoes back." — hijacking the date/stance resolvers that
+                    # run later in _structured_recall. Generic via
+                    # is_activity_attr; never re-lists verbs.
+                    if _is_activity_attr(_attr):
+                        continue
                     _matched = False
                     # (a) relationship attribute whose base relation matches.
                     if not _matched and _qr_rel is not None and _or_is_rel(_attr):
@@ -4682,6 +4693,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         fact-rendering branch in _aggregate_user_model (L3701-3740) so the two
         paths render identically — no divergent special-casing."""
         _attr_d = (attr or "").replace("_", " ").strip()
+        # Normalize verb-keyed activity attrs (does:start, event:got) back to
+        # their human-facing slot names (does, event) via the single-source
+        # normalizer in user_model. The miner keys activities by CANONICAL verb
+        # to prevent slot-collapse supersession (commit db271049), so the store
+        # key is does:VERB — but the surface slot the user sees is `does`.
+        try:
+            from .user_model import activity_display_attr as _display
+        except Exception:
+            _display = lambda a: a
+        _attr_d = _display(_attr_d)
         if _attr_d in ("location", "live in", "grew"):
             return f"you're from {val}"
         if _attr_d.startswith("favorite"):
@@ -5199,6 +5220,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # ── Facts: render each as a clean statement. ──
         for _attr, _val, _conf in facts:
             _attr_d = _attr.replace("_", " ").strip()
+            # Normalize verb-keyed activity attrs (does:start, event:got) back to
+            # their human-facing slot names (does, event) via the single-source
+            # normalizer — same as _render_fact_line, so the two render paths
+            # agree by construction rather than via a copied branch.
+            try:
+                from .user_model import activity_display_attr as _display
+            except Exception:
+                _display = lambda a: a
+            _attr_d = _display(_attr_d)
             if _attr_d in ("location", "live in", "grew"):
                 parts.append(f"you're from {_val}")
             elif _attr_d.startswith("favorite"):

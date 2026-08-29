@@ -397,6 +397,21 @@ def is_activity_attr(attr: str) -> bool:
     return a == "does" or a == "event" or a.startswith("does:") or a.startswith("event:")
 
 
+def activity_display_attr(attr: str) -> str:
+    """Map a verb-keyed activity attribute back to its human-facing slot name.
+
+    `does:start` -> `does`, `event:got` -> `event`. The verb-keyed form is the
+    internal STORE key (so distinct activities occupy DISTINCT slots and never
+    supersede each other); the bare `does`/`event` is the surface slot name the
+    recall/enumeration renderers should show. Generic: strips the `:<verb>`
+    suffix for ANY activity attr, never enumerates verbs (a verb list would be a
+    frozen table — banned). Falls back to the input when the attr is not an
+    activity attr, so a non-activity attr passes through untouched."""
+    if not is_activity_attr(attr):
+        return attr
+    return attr.split(":", 1)[0]
+
+
 # ── activity object-category bridge (round 2026-08-29T0659Z feature follow-up) ──
 # RESIDUAL DEFECT it closes: slot-key collapse is now fixed so distinct activities
 # live in DISTINCT verb-keyed slots (does:learn / does:keep / ...). But activity
@@ -1795,7 +1810,8 @@ class UserModel:
                     # this entity (e.g. "keep six hives" -> entity "hives").
                     _prior = None
                     for (s, a, v), f in self.personal_facts.facts.items():
-                        if s == "i" and a in ("does", "count", "number", "qty") \
+                        if s == "i" and (a in ("does", "count", "number", "qty")
+                                         or is_activity_attr(a)) \
                                 and not getattr(f, "superseded", False) \
                                 and _ent in v.lower():
                             _prior = (a, v)
@@ -1858,7 +1874,8 @@ class UserModel:
                     # this entity (e.g. "keep six hives" -> entity "hives").
                     _prior = None
                     for (s, a, v), f in self.personal_facts.facts.items():
-                        if s == "i" and a in ("does", "count", "number", "qty") \
+                        if s == "i" and (a in ("does", "count", "number", "qty")
+                                         or is_activity_attr(a)) \
                                 and not getattr(f, "superseded", False) \
                                 and _ent in v.lower():
                             _prior = (a, v)
