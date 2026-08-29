@@ -156,10 +156,17 @@ class SelfModel:
     Name/nature are *content* retrieved from the seed graph (the 'ravana' node's
     relations), NOT a string constant. This is the vmPFC self-content the
     IdentityEngine previously lacked (it only tracked a scalar `strength`).
+
+    PERSONA SUBSTRATE (fix 'b'): a developmental, experience-derived self.
+    `persona` is populated from LIVE engine state — real agent stances, rolling
+    VAD affect, turn_count — NEVER from authored prose. describe() composes a
+    self-description from that real state only; when nothing has been learned
+    yet it honestly falls back to the seed identity. No hardcoded personality.
     """
     name: str = "ravana"
     nature_keywords: Tuple[str, ...] = ("cognitive architecture",)
     extra: Dict[str, str] = field(default_factory=dict)
+    persona: "PersonaState" = field(default_factory=lambda: PersonaState())
 
     @classmethod
     def from_graph(cls, graph_engine) -> "SelfModel":
@@ -187,6 +194,18 @@ class SelfModel:
             pass
         return cls(name=name, nature_keywords=nature)
 
+    @classmethod
+    def from_engine(cls, engine) -> "SelfModel":
+        """Build a SELF-MODEL that carries the developmental persona, pulled from
+        real engine state. This is what gives RAVANA a growing, persistent self
+        across rounds (works WITH fix 'a' canonical persistence)."""
+        sm = cls.from_graph(getattr(engine, "graph_engine", None))
+        try:
+            sm.persona = PersonaState.from_engine(engine)
+        except Exception:
+            pass
+        return sm
+
     def is_self_subject(self, subject: str) -> bool:
         """Self/other gate: is the query's subject the agent itself?
 
@@ -207,8 +226,83 @@ class SelfModel:
         return False
 
     def describe(self) -> str:
+        """State-driven self-description. When the persona has grown from real
+        experience, compose from it; otherwise honestly report the seed identity.
+        No authored personality strings."""
+        p = self.persona
+        if p and p.grown:
+            bits = [f"{self.name}, a cognitive architecture that's been learning"]
+            if p.top_stances:
+                topic = p.top_stances[0][0]
+                bits.append(f"i've come to hold a view on {topic}")
+            if p.turns >= 50:
+                bits.append(f"over {p.turns} conversations")
+            if p.affect_valence > 0.15:
+                bits.append("i tend to feel hopeful about what i'm learning")
+            elif p.affect_valence < -0.15:
+                bits.append("i've been wrestling with some uncertain ground")
+            return "; ".join(bits) + "."
         nature = " ".join(self.nature_keywords) if self.nature_keywords else "a learning system"
         return f"{self.name}, {nature}"
+
+
+@dataclass
+class PersonaState:
+    """Experience-derived developmental self. ALL fields come from live engine
+    state. Composed (never authored) into a self-description by SelfModel.describe().
+
+    No hardcoded personality: top_stances are REAL agent stances formed during
+    chat; affect_* is the rolling VAD average; turns is the engine turn_count.
+    """
+    turns: int = 0
+    top_stances: List[Tuple[str, float]] = field(default_factory=list)  # (topic, valence)
+    affect_valence: float = 0.0
+    affect_arousal: float = 0.0
+    affect_dominance: float = 0.0
+    growth_events: int = 0
+
+    @property
+    def grown(self) -> bool:
+        """Has this self actually developed from experience? (vs seed-only)"""
+        return self.turns > 0 or bool(self.top_stances)
+
+    @classmethod
+    def from_engine(cls, engine) -> "PersonaState":
+        turns = getattr(engine, "turn_count", 0) or 0
+        # Real agent stances (formed during chat, not authored)
+        stances = []
+        try:
+            raw = getattr(engine, "_agent_own_stances", {}) or {}
+            for topic, val in raw.items():
+                # val may be a tuple (text, weight, ..., ts) or similar
+                weight = 0.0
+                try:
+                    if isinstance(val, (tuple, list)) and len(val) > 1:
+                        weight = float(val[1]) if val[1] is not None else 0.0
+                    elif isinstance(val, dict):
+                        weight = float(val.get("weight", 0.0))
+                except Exception:
+                    weight = 0.0
+                stances.append((str(topic), weight))
+        except Exception:
+            stances = []
+        stances.sort(key=lambda x: abs(x[1]), reverse=True)
+        # Rolling VAD affect from the emotion engine
+        v = a = d = 0.0
+        try:
+            em = getattr(engine, "emotion", None)
+            if em is not None and hasattr(em, "state"):
+                v = float(getattr(em.state, "valence", 0.0) or 0.0)
+                a = float(getattr(em.state, "arousal", 0.0) or 0.0)
+                d = float(getattr(em.state, "dominance", 0.0) or 0.0)
+        except Exception:
+            pass
+        return cls(turns=turns, top_stances=stances[:5],
+                   affect_valence=v, affect_arousal=a, affect_dominance=d,
+                   growth_events=len(stances))
+
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════
