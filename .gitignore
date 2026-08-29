@@ -87,6 +87,7 @@ AGENTS.md
 scratch/
 tmp/
 _*.py
+!__init__.py
 verify_*.sh
 *.tmp
 *_tmp.py
