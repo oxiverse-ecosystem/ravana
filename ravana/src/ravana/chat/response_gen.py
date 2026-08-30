@@ -5046,7 +5046,74 @@ class ResponseGenMixin(ChainWalkerMixin):
                 affect_term = _ft
         felt = f"feeling {affect_term}" if affect_term else f"feeling {val_word}"
 
-        if kind == "negative":
+        # ROUND 2026-08-29 D1b (fix): COARSE-BAND COLLAPSE. The dispatcher's
+        # `kind` is noisy — positive/neutral felt words ("calm" +0.5, "proud"
+        # +0.75, "thrilled" +0.85) were mis-classified negative/neutral, so the
+        # negative empathy frame emitted "feeling calm is hard" on a settled
+        # mood and "feeling proud is hard" on a joy. When the user NAMED a felt
+        # word, drive frame selection from THAT word's own VAD valence (ground
+        # truth the appraisal already computed), not the coarse `kind`. This is
+        # the documented remedy for the coarse-band collapse defect: the state
+        # was there and simply unused. When no felt word is present (affect_term
+        # empty) we fall back to `kind` exactly as before. Affects no authored
+        # prose — only which state-driven branch runs. No retraining, no
+        # per-topic table; generalizes to any felt word the lexicon knows.
+        _felt_v = None
+        if affect_term:
+            try:
+                from ravana.core.mirror import UserEmotionDetector as _UED
+                _ued = getattr(self, "_affect_detector", None) or _UED()
+                _fv = _ued._lookup_word(affect_term)
+                if _fv is not None:
+                    _felt_v = float(_fv[0])
+            except Exception:
+                _felt_v = None
+        _is_neg = (_felt_v is not None and _felt_v <= -0.2) or (
+            _felt_v is None and kind == "negative")
+        _is_pos = (_felt_v is not None and _felt_v >= 0.2) or (
+            _felt_v is None and kind == "positive")
+
+        # ROUND 2026-08-29 D1 (fix): an empathy frame must only fire when the
+        # user actually EXPRESSED a felt affect. `kind` is derived from
+        # event/context words in the disclosure detector, so a plain FACTUAL
+        # disclosure ("my brother is a trauma nurse") or a PRIDE/ACHIEVEMENT
+        # statement ("i felt proud watching the bees...") with no recognized
+        # affect term was being answered with "feeling rough is hard, and i'm
+        # here for it" — a wrong, hollow empathy frame on a non-affective
+        # turn. Gate: when no genuine affect term was surfaced (affect_term is
+        # empty AND the kind came from context words rather than a felt word),
+        # do NOT emit an affect-specific empathy reply. Returning None lets the
+        # turn fall through to the normal factual acknowledgment / ingestion
+        # path, which is the honest behavior for a statement that is not a
+        # feeling report. This is a gate on real state (presence of a felt
+        # affect word), not an authored branch — generalizes to any
+        # non-affective disclosure. No retraining, no per-topic table.
+        _has_affect_word = bool(affect_term)
+        # ROUND 2026-08-29 D1-fix (audit t_05545ea6): a negative-affective
+        # disclosure may carry NO single lexical affect WORD yet still be
+        # genuine distress — e.g. "my mom is sick" is a NEGATIVE CAUSE, not a
+        # valence lexeme, so `affect_term` is empty here. The disclosure
+        # detector ALREADY validated this as distress at the route level: it
+        # set `kind == "negative"` via the §3 cause-fallback (a 'loss' /
+        # 'other_suffering' / 'fear' cause, or a recognized affect word), and
+        # the benign-cause guard KEPT it (a suffering word was present). We
+        # REUSE that existing classification (the `kind` flag the disclosure
+        # detector produced) instead of inventing a new keyword table. So:
+        # suppress empathy only when there is NEITHER a felt word NOR a
+        # distress classification. A genuine distress disclosure (kind ==
+        # "negative") falls through to the negative-empathy branch below,
+        # which already handles an empty `affect_term` (it falls back to
+        # `val_word` / `felt`). No authored prose, no per-topic table;
+        # generalizes to any cause-based distress. No retraining.
+        _is_distress_disclosure = (kind == "negative")
+        if not _has_affect_word and not _is_distress_disclosure:
+            # No felt-state word was named AND the disclosure is not a
+            # validated distress report — it is a factual / achievement /
+            # narrative statement. Empathy is the wrong frame; abstain so the
+            # engine acknowledges the content instead.
+            return None
+
+        if _is_neg:
             if has_stored_detail:
                 return (f"that sounds {val_word}. you've shared some of this "
                         f"before — what's been the hardest part lately?",
@@ -5054,7 +5121,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             return (f"i hear you — {felt} is hard, and i'm here for "
                     f"it. {probe}", "emotional_empathy")
 
-        if kind == "positive":
+        if _is_pos:
             # C-fix (round 2026-08-08b): name the REAL felt term the user
             # expressed (from the copula label if present, else val_word) — do
             # NOT emit the canned exclamation "that's awesome!", which dropped

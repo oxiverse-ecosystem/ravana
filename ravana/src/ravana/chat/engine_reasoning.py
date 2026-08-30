@@ -2300,7 +2300,9 @@ class ReasoningMixin:
                 _rel_phrase = {
                     "name": f"your {_c_attr} is {_c_val}",
                     "is": f"you are {_c_val}",
-                    "does": f"you do {_c_val}",
+                    "does": (f"you {_c_val}"
+                             if _c_attr.startswith("does:")
+                             else f"you do {_c_val}"),
                     "likes": f"you like {_c_val}",
                     "location": f"you live in {_c_val}",
                     "favorite": f"your favorite {_c_val}",
@@ -2464,6 +2466,12 @@ class ReasoningMixin:
                     "event": f"you {val}",
                     "is": f"you are {val}",
                 }.get(attr, None)
+                if _phrase is None and (attr == "does" or attr.startswith("does:")):
+                    # verb-keyed activity fact ("does:learn"); the value already
+                    # carries the verb, so render as a first-person predicate.
+                    _phrase = f"you {val}"
+                if _phrase is None and attr.startswith("event"):
+                    _phrase = f"you {val}"
                 if _phrase is None and _pet_slots.is_pet_attribute(attr):
                     # Pet possessions stored under a species-keyed slot
                     # ("cat", "cat_2"); render naturally ("your cat is gravy").
@@ -2522,6 +2530,10 @@ class ReasoningMixin:
                     "event": f"your {_ent} {val}",
                     "is": f"your {_ent} is {val}",
                 }.get(attr, None)
+                if _phrase is None and (attr == "does" or attr.startswith("does:")):
+                    _phrase = f"your {_ent} does {val}"
+                if _phrase is None and attr.startswith("event"):
+                    _phrase = f"your {_ent} {val}"
                 if _phrase is None:
                     # D7 (round 2026-08-16T1745Z): mirror the self-subject
                     # verb-phrase rule for entity-keyed facts so possessive /

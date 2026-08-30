@@ -72,7 +72,7 @@ def test_object_loss_not_empathy():
     assert "feeling lost is hard" not in (r or ""), r
     # The event fact must be stored (grounded acknowledgment).
     ev = [v.value for k, v in eng.user_model.personal_facts.facts.items()
-          if k[0] == "i" and k[1] == "event"]
+          if k[0] == "i" and k[1].startswith("event")]
     assert any("lobster pot" in e for e in ev), (r, ev)
 
 

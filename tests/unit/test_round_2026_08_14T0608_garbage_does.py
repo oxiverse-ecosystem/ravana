@@ -24,7 +24,7 @@ def _does_event(text):
     um.mine_personal_facts(text.lower(), run_correction=True)
     return {
         c for (a, b, c), f in um.personal_facts.facts.items()
-        if b in ("does", "event") and not getattr(f, "superseded", False)
+        if (b.startswith("does") or b.startswith("event")) and not getattr(f, "superseded", False)
     }
 
 

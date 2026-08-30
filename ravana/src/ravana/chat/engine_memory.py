@@ -692,9 +692,9 @@ class MemoryMixin:
                         bits.append(f"your favorite {val}")
                     elif attr == "likes":
                         bits.append(f"you like {val}")
-                    elif attr == "does":
+                    elif attr == "does" or attr.startswith("does:"):
                         bits.append(f"you {val}")
-                    elif attr == "event":
+                    elif attr.startswith("event"):
                         bits.append(f"you {val}")
                     elif attr == "is":
                         bits.append(f"you are {val}")
@@ -716,9 +716,9 @@ class MemoryMixin:
                     bits.append(f"your favorite {ent} is {val}")
                 elif attr == "likes":
                     bits.append(f"you mentioned you like {val}")
-                elif attr == "does":
-                    bits.append(f"you do {val}")
-                elif attr == "event":
+                elif attr == "does" or attr.startswith("does:"):
+                    bits.append(f"your {ent} does {val}")
+                elif attr.startswith("event"):
                     bits.append(f"you {val}")
                 elif attr == "is":
                     bits.append(f"your {ent} is {val}")
@@ -2279,9 +2279,9 @@ class MemoryMixin:
                 _DOES_CAP = 4
                 for _attr, _vals in _facts.items():
                     for _val in _vals:
-                        if _attr == "event":
+                        if _attr.startswith("event"):
                             continue
-                        if _attr == "does":
+                        if _attr == "does" or _attr.startswith("does:"):
                             if _does_shown >= _DOES_CAP:
                                 continue
                             _does_shown += 1
@@ -2292,7 +2292,7 @@ class MemoryMixin:
                         elif _attr == "is":
                             _bits.append(f"your {_ent} is {_val}" if not _is_user
                                          else f"your {_attr} is {_val}")
-                        elif _attr == "does":
+                        elif _attr == "does" or _attr.startswith("does:"):
                             # D3 (round v3): self-disclosed activity. The mined
                             # value is a full VERB-PHRASE clause ("spent whole
                             # childhood", "got promoted last month", "read fish",
@@ -2306,7 +2306,7 @@ class MemoryMixin:
                             # leads with a verb. Store-driven, no authored prose.
                             _sv = (str(_val) or "").strip()
                             _bits.append(f"you {_sv}")
-                        elif _attr == "event":
+                        elif _attr.startswith("event"):
                             # Self-disclosed EVENT the user experienced (mined
                             # as event=<verb phrase>, e.g. "lose appetite",
                             # "got promoted last month"). Render as an honest
@@ -2438,8 +2438,10 @@ class MemoryMixin:
                     if _matched:
                         _bits = []
                         for _attr, _val in _matched:
-                            if _attr == "does":
-                                _bits.append(f"you do {_val}")
+                            if _attr == "does" or _attr.startswith("does:"):
+                                # verb-keyed activity: value already carries the
+                                # verb, so render as a first-person predicate.
+                                _bits.append(f"you {_val}")
                             elif _attr == "name":
                                 _bits.append(f"your name is {_val}")
                             elif _attr == "is":

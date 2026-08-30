@@ -49,11 +49,11 @@ def _capture(text):
 def test_affective_copula_not_stored_as_event():
     # "i find it fascinating" is a cognitive-affective copula, not a discovery.
     caps = _capture("i used to think roman history was boring, but now i find it fascinating")
-    assert ("i", "event") not in caps, f"garbage event fact stored: {caps}"
+    assert not any(k[1].startswith("event") for k in caps), f"garbage event fact stored: {caps}"
     # the discovery sense still works
     caps2 = _capture("i found my lost keys under the couch")
-    assert ("i", "event") in caps2, caps2
-    assert "found lost keys" in caps2[("i", "event")], caps2
+    assert ("i", "event:found") in caps2, caps2
+    assert "found lost keys" in caps2[("i", "event:found")], caps2
 
 
 def test_self_profile_dump_drops_copula_for_verb_phrase():
@@ -179,7 +179,7 @@ def test_garbage_does_facts_rejected():
         um.mine_personal_facts(s, run_correction=True)
     junk = {
         f.value for (a, b, c), f in um.personal_facts.facts.items()
-        if b in ("does", "event") and not getattr(f, "superseded", False)
+        if (b.startswith("does") or b.startswith("event")) and not getattr(f, "superseded", False)
     }
     # the aspectual/particle/timeframe/generic residues must be gone
     for bad in ("keep coming back", "started keeping", "got burned",
@@ -195,7 +195,7 @@ def test_real_activity_still_captured_after_gate():
     um.mine_personal_facts("i build bicycle frames by hand.", run_correction=True)
     caps = {
         f.value for (a, b, c), f in um.personal_facts.facts.items()
-        if b == "does" and not getattr(f, "superseded", False)
+        if b.startswith("does") and not getattr(f, "superseded", False)
     }
     assert any("build" in c and "frame" in c for c in caps), f"real activity lost: {caps}"
     um2 = UserModel()
@@ -203,7 +203,7 @@ def test_real_activity_still_captured_after_gate():
     um2.mine_personal_facts("i keep homing pigeons.", run_correction=True)
     caps2 = {
         f.value for (a, b, c), f in um2.personal_facts.facts.items()
-        if b == "does" and not getattr(f, "superseded", False)
+        if b.startswith("does") and not getattr(f, "superseded", False)
     }
     assert any("pigeon" in c for c in caps2), f"real activity lost: {caps2}"
 
