@@ -5089,12 +5089,28 @@ class ResponseGenMixin(ChainWalkerMixin):
         # affect word), not an authored branch — generalizes to any
         # non-affective disclosure. No retraining, no per-topic table.
         _has_affect_word = bool(affect_term)
-        if not _has_affect_word:
-            # No felt-state word was named by the user. The disclosure is a
-            # factual / achievement / narrative statement, not an emotion
-            # report — empathy is the wrong frame. Abstain so the engine
-            # acknowledges the content instead of forcing a "feeling X is hard"
-            # template onto it.
+        # ROUND 2026-08-29 D1-fix (audit t_05545ea6): a negative-affective
+        # disclosure may carry NO single lexical affect WORD yet still be
+        # genuine distress — e.g. "my mom is sick" is a NEGATIVE CAUSE, not a
+        # valence lexeme, so `affect_term` is empty here. The disclosure
+        # detector ALREADY validated this as distress at the route level: it
+        # set `kind == "negative"` via the §3 cause-fallback (a 'loss' /
+        # 'other_suffering' / 'fear' cause, or a recognized affect word), and
+        # the benign-cause guard KEPT it (a suffering word was present). We
+        # REUSE that existing classification (the `kind` flag the disclosure
+        # detector produced) instead of inventing a new keyword table. So:
+        # suppress empathy only when there is NEITHER a felt word NOR a
+        # distress classification. A genuine distress disclosure (kind ==
+        # "negative") falls through to the negative-empathy branch below,
+        # which already handles an empty `affect_term` (it falls back to
+        # `val_word` / `felt`). No authored prose, no per-topic table;
+        # generalizes to any cause-based distress. No retraining.
+        _is_distress_disclosure = (kind == "negative")
+        if not _has_affect_word and not _is_distress_disclosure:
+            # No felt-state word was named AND the disclosure is not a
+            # validated distress report — it is a factual / achievement /
+            # narrative statement. Empathy is the wrong frame; abstain so the
+            # engine acknowledges the content instead.
             return None
 
         if _is_neg:
