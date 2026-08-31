@@ -11003,3 +11003,4 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
 
 # recovery-test edit
+# selftest edit
