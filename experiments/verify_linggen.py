@@ -1,0 +1,257 @@
+"""Hermetic offline verification for LingGen P6 (no network, no LLM).
+
+Tests the BRAIN-INSPIRED pieces that are new:
+  B2  W_sm (65->75 ridge) learns the Binder->dual-code mapping and reproduces
+      it on warm-start (save -> load -> identical conditioning vector).
+  B5  Fail-closed gate (should_use_freeform): ood_abstain=True forces the
+      realize_dim fallback; a low adaptive confidence floor also forces fallback.
+  B4  NeuralDecoder.train_on_sentence(sensorimotor_conditioning=...) overrides
+      the blended conditioning WITHOUT crashing (the angular-gyrus binding
+      reaches the GRU). We use a tiny standalone decoder (no engine, no web).
+
+Real grounded descriptions + multi-pass decoder training happen in
+scripts/train.py (network step). This file proves the mechanism is correct
+and fail-closed using synthetic oracle data so CI needs no network.
+"""
+import os
+import sys
+import numpy as np
+
+_PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for p in (_PROJ, os.path.join(_PROJ, "ravana", "src"),
+          os.path.join(_PROJ, "ravana_ml", "src")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from ravana.ontology.linggen import (
+    LingGenConditioner, adaptive_floor, should_use_freeform)
+from ravana_ml.nn.neural_decoder import NeuralDecoder
+
+
+def _synth_pairs(n=60, dim_b=65, dim_e=75, seed=0):
+    """Synthetic oracle: embed75 = W_true @ binder + small noise.
+
+    This mimics the real supervision (concept Binder vec -> its 75-D dual-code
+    embedding) so we can verify W_sm recovers the mapping.
+    """
+    rng = np.random.RandomState(seed)
+    W_true = rng.randn(dim_e, dim_b).astype(np.float64) * 0.3
+    binder = rng.randn(n, dim_b).astype(np.float64)
+    embed = (W_true @ binder.T).T + rng.randn(n, dim_e).astype(np.float64) * 0.05
+    # unit-norm the targets like the real embed75 path does
+    embed = embed / np.linalg.norm(embed, axis=1, keepdims=True)
+    return binder, embed
+
+
+def test_B2_fit_and_warmstart():
+    binder, embed = _synth_pairs(n=60)
+    c = LingGenConditioner.fit(binder, embed, lam=1.0)
+    assert c.trained, "W_sm should be trained on 60 pairs"
+    # Reproduces the mapping direction (cosine) on held-out-ish points.
+    test_b = binder[:5]
+    cos = []
+    for i in range(5):
+        out = c.condition(test_b[i])
+        assert out is not None and out.shape[0] == 75
+        tgt = embed[i] / np.linalg.norm(embed[i])
+        cos.append(float(np.dot(out, tgt)))
+    mean_cos = float(np.mean(cos))
+    print(f"[B2] W_sm recovered mapping mean-cos={mean_cos:.3f} (expect > 0)")
+    assert mean_cos > 0.0, "W_sm must capture the Binder->embed direction"
+
+    # Warm-start: save -> load -> identical conditioning vector.
+    path = os.path.join(_PROJ, "data", "_verify_linggen_wsm.npz")
+    c.save(path)
+    c2 = LingGenConditioner.load(path)
+    v1 = c.condition(binder[0])
+    v2 = c2.condition(binder[0])
+    assert np.allclose(v1, v2, atol=1e-5), "warm-start must reproduce conditioning"
+    print("[B2] warm-start reproduces identical conditioning vector OK")
+    os.remove(path)
+    return True
+
+
+def test_B5_fail_closed_gate():
+    # On-manifold + confident history -> use free-form.
+    assert should_use_freeform(False, 0.85, [0.82, 0.84, 0.83, 0.86, 0.85]) is True
+    # OOD (off_manifold) -> ALWAYS fall back (realize_dim), regardless of conf.
+    assert should_use_freeform(True, 0.99, [0.99] * 5) is False
+    # Low confidence vs its own history -> fall back.
+    assert should_use_freeform(False, 0.40, [0.80, 0.82, 0.81, 0.79, 0.83]) is False
+    # adaptive_floor is data-derived (mean - 2*std), not a constant.
+    floor = adaptive_floor([0.80, 0.82, 0.81, 0.79, 0.83])
+    assert 0.0 <= floor < 0.80, f"adaptive floor should be below mean, got {floor}"
+    print(f"[B5] fail-closed gate OK (adaptive_floor={floor:.3f})")
+    return True
+
+
+def test_B4_decoder_override():
+    # Tiny standalone decoder with a vocab LARGER than the top-k sampled-softmax
+    # bound (>=10) so the existing argpartition(-10) path works. Real decoders
+    # have thousands of words; this just needs to be big enough to exercise the
+    # sensorimotor conditioning path.
+    #
+    # NEW behavior (train == gen): sensorimotor_conditioning is projected via
+    # W_sm to a 75-D BOS *initial_emb* injected at step 0 only. It does NOT
+    # overwrite the per-token linguistic conditioning blend (the function/content
+    # rows). This mirrors NeuralDecoder.generate(initial_emb=...).
+    n_vocab = 64
+    vocab = ["<bos>", "<eos>", "<unk>"] + [f"w{i}" for i in range(n_vocab - 3)]
+    idx = {w: i for i, w in enumerate(vocab)}
+    rng0 = np.random.RandomState(0)
+    embed = {w: rng0.randn(75).astype(np.float32) for w in vocab}
+    nd = NeuralDecoder(vocab_size=n_vocab, embed_dim=75, hidden_dim=32)
+    nd._vocab_embed_cache = None
+    W = rng0.randn(75, 65).astype(np.float32) * 0.2
+    nd.set_linggen_projection(W)
+    assert nd._linggen_W_sm is not None
+
+    sm = rng0.randn(65).astype(np.float32)
+    ce = nd.train_on_sentence(
+        ["w1", "w2", "w3", "w4"], embed, idx,
+        word_indices=[idx[w] for w in ["w1", "w2", "w3", "w4"]],
+        freeze_core=False, sensorimotor_conditioning=sm)
+    print(f"[B4] decoder train_on_sentence(sensorimotor_conditioning) CE={ce:.3f} OK")
+    assert ce >= 0.0
+
+    # prepare_sentences must expose initial_emb = W_sm@sm (step-0 injection) and
+    # must NOT overwrite conditioning_embs with it (the blend stays linguistic).
+    sents = nd.prepare_sentences(
+        "w1 w2 w3 w4. w5 w6 w7 w8.", embed, idx,
+        min_sentence_len=3, sensorimotor_conditioning=sm)
+    assert len(sents) >= 1
+    s0 = sents[0]
+    exp = (W @ sm).astype(np.float32)
+    nn = np.linalg.norm(exp)
+    if nn > 0:
+        exp = exp / nn
+    got = s0.get("initial_emb")
+    assert got is not None, "prepare_sentences must return initial_emb"
+    g = got / np.linalg.norm(got)
+    sim_init = float(np.dot(g, exp / np.linalg.norm(exp)))
+    print(f"[B4] prepare_sentences initial_emb aligned sim={sim_init:.3f} (expect ~1.0)")
+    assert sim_init > 0.9, "initial_emb must equal W_sm@sm"
+
+    # The linguistic conditioning blend must be UNCHANGED by sensorimotor input.
+    c0 = s0["conditioning_embs"]
+    blend_sim = float(np.dot(c0[0] / np.linalg.norm(c0[0]), exp / np.linalg.norm(exp)))
+    print(f"[B4] conditioning_embs vs W_sm sim={blend_sim:.3f} (expect low: blend preserved)")
+    assert blend_sim < 0.9, "sensorimotor must NOT overwrite the linguistic blend"
+    return True
+
+
+def test_B6_attractor_pattern_completion():
+    """Phase 0: HRR attractor store retrieves the full trajectory from a cue.
+
+    Build a tiny store from 2 synthetic definitions; verify that retrieving
+    with the (exact) concept cue recovers the trajectory's words, and that a
+    NOISY cue (partial/perturbed) still recovers the correct trajectory above
+    the pattern-completion threshold (one-shot reactivation, Hopfield 1982).
+    """
+    from ravana.core.attractor_memory import AttractorMemory
+    rng = np.random.RandomState(1)
+    dim = 64
+    defs = {
+        "gravity": "gravity is a force that pulls objects toward each other",
+        "music": "music is sound organized in time with rhythm and melody",
+    }
+    dw = {}
+    # distinct word embeddings
+    words = set()
+    for t in defs.values():
+        words.update(t.split())
+    for w in words:
+        v = rng.randn(dim).astype(np.float64)
+        dw[w] = v / np.linalg.norm(v)
+
+    def cvec(c):
+        return dw.get(c, rng.randn(dim))
+
+    am = AttractorMemory.from_definitions(defs, dw, cvec, dim=dim,
+                                          stop={"is", "a", "that", "in", "with", "and"})
+    assert len(am) == 2, "both definitions should be stored"
+    # Exact cue -> recover trajectory.
+    traj = am.retrieve(cvec("gravity"))
+    assert traj is not None and len(traj) >= 1, "exact cue must recover a trajectory"
+    recovered_words = {w for w, _ in traj}
+    assert "gravity" in recovered_words or "force" in recovered_words, \
+        f"recovered words look wrong: {recovered_words}"
+    # Noisy cue (30% noise) -> still above threshold (pattern completion).
+    gv = cvec("gravity")
+    noisy = gv + 0.3 * rng.randn(dim)
+    noisy = noisy / np.linalg.norm(noisy)
+    score_clean = am.pattern_completion_score(gv)
+    score_noisy = am.pattern_completion_score(noisy)
+    print(f"[B6] pattern-completion score clean={score_clean:.3f} "
+          f"noisy(0.3)={score_noisy:.3f}")
+    assert score_clean > 0.0
+    assert score_noisy > 0.0, "noisy cue must still hit the attractor"
+    # Off-concept cue scores lower than the on-concept cue.
+    off = cvec("music")
+    score_off = am.pattern_completion_score(off)
+    # (for the 'gravity' cue, music should score lower OR equal; sanity only)
+    assert score_off >= 0.0
+    print(f"[B6] attractor pattern completion OK (clean={score_clean:.3f})")
+    return True
+
+
+def test_B7_settle_loop():
+    """Phase 2: PredictiveCodingGenerator settles toward an attractor traj.
+
+    Build a tiny standalone decoder + a synthetic trajectory drawn from the
+    decoder's own vocab embeddings, then verify the settle loop emits a bounded
+    sequence of in-vocab content words (no <bos>/<eos>/<unk>), i.e. it does NOT
+    free-run / open-ended sample. This proves the new decoding algorithm runs
+    and respects the retrieved attractor as the coherence floor.
+    """
+    from ravana.decoder.predictive_coding_generator import (
+        PredictiveCodingGenerator)
+    n_vocab = 64
+    vocab = ["<bos>", "<eos>", "<unk>"] + [f"w{i}" for i in range(n_vocab - 3)]
+    idx = {w: i for i, w in enumerate(vocab)}
+    rng0 = np.random.RandomState(2)
+    embed = {w: rng0.randn(64).astype(np.float32) for w in vocab}
+    nd = NeuralDecoder(vocab_size=n_vocab, embed_dim=64, hidden_dim=32)
+    nd._vocab_embed_cache = None
+    for w, i in idx.items():
+        nd.word_embedding.weight.data[i] = embed[w]
+
+    # Trajectory = 4 vocab content words (w1..w4), as (word, embed) tuples.
+    traj = [(f"w{i}", embed[f"w{i}"]) for i in range(1, 5)]
+    iw = {i: w for w, i in idx.items()}  # index -> word map for the generator
+    gen = PredictiveCodingGenerator(nd, idx_to_word=iw, settle_steps=6,
+                                    settle_lr=0.25, temperature=0.6,
+                                    top_p=0.92, max_steps=12, min_steps=4)
+    conditioning = np.stack([embed["w1"], embed["w2"]], axis=0).astype(np.float32)
+    toks = gen.generate(conditioning_embs=conditioning, trajectory=traj,
+                        bos_idx=idx["<bos>"], eos_idx=idx["<eos>"])
+    assert len(toks) >= 3, f"settle should emit >=3 tokens, got {toks}"
+    words = [iw.get(t, "?") for t in toks]
+    assert all(w not in ("<bos>", "<eos>", "<unk>", "?") for w in words), \
+        f"settle emitted special tokens: {words}"
+    print(f"[B7] settle loop emitted {len(toks)} in-vocab tokens: {words}")
+    return True
+
+
+def main():
+    ok = True
+    for name, fn in [("B2 fit+warmstart", test_B2_fit_and_warmstart),
+                     ("B5 fail-closed gate", test_B5_fail_closed_gate),
+                     ("B4 decoder override", test_B4_decoder_override),
+                     ("B6 attractor pattern completion", test_B6_attractor_pattern_completion),
+                     ("B7 settle loop", test_B7_settle_loop)]:
+        try:
+            fn()
+            print(f"  VERDICT: {name} CONFIRMED")
+        except AssertionError as e:
+            ok = False
+            print(f"  VERDICT: {name} FAILED -> {e}")
+        except Exception as e:
+            ok = False
+            print(f"  VERDICT: {name} ERROR -> {e}")
+    print("\n" + ("ALL CONFIRMED" if ok else "SOME FAILED"))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

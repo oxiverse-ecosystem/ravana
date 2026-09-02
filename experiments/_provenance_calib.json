@@ -1,0 +1,30 @@
+{
+  "convergence_fact_threshold": 2,
+  "per_class_conf_caps": {
+    "verified_web": 1.0,
+    "curated": 1.0,
+    "co_occurrence": 0.45,
+    "auto_expand": 0.35,
+    "boot": 0.25,
+    "inferred": 0.5,
+    "unknown": 0.3
+  },
+  "admission": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "tp": 4,
+    "fp": 0,
+    "tn": 7,
+    "fn": 0
+  },
+  "provenance_coverage": {
+    "graph_loaded": true,
+    "total_edges": 26844,
+    "verifiable_edges": 0,
+    "verifiable_fraction": 0.0,
+    "kind_counts": {
+      "unknown": 26844
+    }
+  }
+}

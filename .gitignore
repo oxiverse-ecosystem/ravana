@@ -67,12 +67,14 @@ experiment_results/*_output.txt
 
 # ── Experiment/run artifacts ──
 experiment_results/
-experiments/
+experiment_embedding_regimes.py
 results/
 scripts_split_engine/
 
-# ── One-off experiment scripts (not source) ──
-experiment_embedding_regimes.py
+# ── Individual experiment scripts (one-off, not source) ──
+experiments/_*.py
+experiments/_*.json
+experiments/__pycache__/
 
 # ── LaTeX Build Artifacts ──
 paper/*.pdf

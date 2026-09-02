@@ -1,0 +1,41 @@
+{
+  "item": "C",
+  "substrate": "self-address routing boundary",
+  "method": "logistic",
+  "tp": 15,
+  "fp": 0,
+  "tn": 17,
+  "fn": 0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "accuracy": 1.0,
+  "eer": 0.067,
+  "key_cases": [
+    {
+      "text": "do you feel lonely sometimes",
+      "gold": 1,
+      "pred": 1,
+      "conf": 0.933
+    },
+    {
+      "text": "are you real",
+      "gold": 1,
+      "pred": 1,
+      "conf": 0.933
+    },
+    {
+      "text": "do you think about me",
+      "gold": 1,
+      "pred": 1,
+      "conf": 0.933
+    },
+    {
+      "text": "why do people feel lonely in a crowd",
+      "gold": 0,
+      "pred": 0,
+      "conf": 0.08
+    }
+  ],
+  "verdict": "self-address boundary FIT to labeled transcripts (not a blind regex OR); answerable questions with predicate words are no longer swallowed by the self-model branch."
+}
