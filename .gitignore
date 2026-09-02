@@ -65,6 +65,15 @@ results/
 experiment_results/
 experiment_results/*_output.txt
 
+# ── Experiment/run artifacts ──
+experiment_results/
+experiments/
+results/
+scripts_split_engine/
+
+# ── One-off experiment scripts (not source) ──
+experiment_embedding_regimes.py
+
 # ── LaTeX Build Artifacts ──
 paper/*.pdf
 paper/*.aux
@@ -77,6 +86,21 @@ paper/*.out
 .antigravitycli/
 skills-lock.json
 AGENTS.md
+
+# ── Agent work volumes (RAVANA's "hands" output) ──
+# These are scratch directories RAVANA creates when using its agentic tools.
+# They are NEVER source code and must never be committed.
+_agent_work/
+_agent_work_intentforge/
+
+# ── Audit artifacts (one-off reports/scripts, never source) ──
+audit_msg_*.txt
+audit_report_*.md
+audit_run_*.sh
+probe_facts.py
+
+# ── Benchmark/run artifacts ──
+benchmark_results/
 
 # ── WORKER SCRATCH (founder convention: 2026-08-29) ──
 # Autonomous loop workers (Hermes kanban) MUST dump all dirty/temp/throwaway
