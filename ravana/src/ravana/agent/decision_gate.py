@@ -105,6 +105,16 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
     if not q:
         return None
 
+    # 0) URL pattern check — if the query contains a URL, route to read_website
+    # BEFORE the curiosity path. A URL is a concrete pointer to a specific
+    # resource, not a knowledge gap about a topic. This prevents the curiosity
+    # signal from shadowing read_website when the user says "look up <url>".
+    url_match = re.search(r'(https?://\S+|www\.\S+)', q)
+    if url_match and "read_website" in registry.tools:
+        url = url_match.group(1).rstrip(".,;:!?)")
+        return ToolCall(tool="read_website", arg=url,
+                        reason=f"url_pattern_detected url={url}")
+
     # 1) Uncertainty / curiosity: does RAVANA not know this topic?
     # Only act when it's a genuine KNOWLEDGE gap (recall query about the world),
     # not social chitchat ("how are you") or self/personal questions. Reuse the
