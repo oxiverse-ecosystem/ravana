@@ -1359,7 +1359,9 @@ class SelfQueryMixin:
         if re.search(r"\b(i|me|my|we|our|you)\b", t) and re.search(
                 r"\b(live|lives|from|born|named|called|name|location|"
                 r"city|town|country|age|height|weight|work|study|studied|"
-                r"grew up|went to school)\b", t):
+                r"grew up|went to school|car|car's|gps|phone|computer|"
+                r"laptop|dog|cat|pet|house|home|job|favorite|favourite|"
+                r"broken|happened|friend|reboot|turn|drive|ride)\b", t):
             return None
         # B1 (source monitoring / self-other boundary): self-knowledge RECALL
         # queries ("what do you remember about me", "what do you know about me",
