@@ -1116,6 +1116,60 @@ class SelfQueryMixin:
                                "loved", "hate", "hates", "hated", "prefer",
                                "prefers", "preferred", "dislike",
                                "dislikes", "disliked")
+            # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
+            # t_2595f8ad; mirror of process_turn's _contrast_sides path) ──
+            # "do you think you're more like a question or an answer" carries
+            # TWO options; a single target collapses to a degenerate fragment
+            # ("you're more") that hits the "still forming a view" fallback.
+            # Split on the contrastive connective and resolve EACH side
+            # through _agent_stance_on, composing a reply that names both.
+            _contrast_sides = None
+            _full_target_lower = _tail.lower().strip()
+            for _sep in (" versus ", " vs ", " vs. ", " or ", " over ",
+                         " rather than ", " more like "):
+                if _sep in _full_target_lower:
+                    _contrast_sides = [p.strip().strip("?.'")
+                                         for p in _full_target_lower.split(_sep)
+                                         if p.strip().strip("?.'")]
+                    break
+            if _contrast_sides and len(_contrast_sides) >= 2:
+                # Strip closed-class words from each side so "you're more"
+                # resolves to "more" -> but "more" is a comparison word,
+                # so also try splitting on the comparison word itself.
+                _SCRUB = {"about", "on", "the", "a", "an", "of", "for",
+                           "with", "to", "is", "are", "do", "does", "you",
+                           "i", "it", "that", "this", "and", "or", "honest",
+                           "read", "take", "view", "opinion", "thoughts",
+                           "stance", "versus", "vs", "more", "me", "now",
+                           "after", "what", "just", "said", "right",
+                           "really", "exactly", "tell", "think", "than",
+                           "rather"}
+                _side_topics = []
+                for _side in _contrast_sides:
+                    _toks = [w for w in re.findall(r"[a-z']+", _side)
+                             if w not in _SCRUB]
+                    if _toks:
+                        _side_topics.append(_toks[-1])
+                if len(_side_topics) >= 2:
+                    _phrases = []
+                    for _st in _side_topics:
+                        _stt, _st_r = self._agent_stance_on(_st)
+                        _phrases.append(_stt)
+                    stance = "; ".join(_phrases)
+                    reason = ""
+                    _reason = reason.rstrip()
+                    if _reason and not _reason.endswith((".", "!", "?")):
+                        _reason += "."
+                    response = f"{stance}{(' ' + _reason) if _reason else ''} what about you?".replace("  ", " ")
+                    return response.lower()
+                else:
+                    stance, reason = self._agent_stance_on(_target)
+                    back = " what about you?"
+                    _reason = reason.rstrip()
+                    if _reason and not _reason.endswith((".", "!", "?")):
+                        _reason += "."
+                    response = f"{stance} {_reason}{back}"
+                    return response.lower()
             _i = 0
             while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
                                        or _toks[_i] in _VERB_SCAFFOLD
@@ -1173,7 +1227,7 @@ class SelfQueryMixin:
             # with a clear separator so a value-grounded reply reads as
             # "i care deeply about privacy. that is a basic right..." rather
             # than running the words together.
-            _stance = _stance.rstrip(".!?")
+            _stance = _stance.rstrip(".?!")
             # The reason is a CONTINUATION of the stance sentence (joined after
             # ". "), so it must NOT be force-capitalized — doing so produced
             # "i care deeply about privacy. Is a basic right" (the seed reason
@@ -1376,6 +1430,12 @@ class SelfQueryMixin:
         from .brain_regions import consult_internal
         ans = consult_internal(subj, self)
         if ans is None:
+            # --- Analogical reasoning fallback ---
+            # Instead of flat uncertainty, try to find the closest known
+            # concept via GloVe similarity and reason analogically.
+            _analog = self._try_analogical_reasoning(subj, user_input)
+            if _analog is not None:
+                return _analog
             return None
 
         # the capital clause (Paris), not France's whole stored definition.
@@ -1415,6 +1475,83 @@ class SelfQueryMixin:
                           f"(coherence={_coherence:.2f}): {ans_text[:60]!r}")
                 return None
         return ans_text
+
+    def _try_analogical_reasoning(self, subj: str, user_input: str) -> Optional[str]:
+        """When internal knowledge returns MISS, attempt analogical reasoning.
+
+        Uses GloVe similarity to find the closest known concept in the graph,
+        then looks up that concept's internal knowledge and generates a reply
+        that relates the unknown concept to the known one.
+
+        E.g., for "exist", finds "live"/"be"/"happen" via GloVe cosine,
+        then answers analogically rather than with flat uncertainty.
+
+        Returns a reply string or None if no analogical path is available.
+        """
+        # Need GloVe and a graph to do analogical reasoning
+        if not hasattr(self, '_glove_vector') or not hasattr(self, 'graph'):
+            return None
+        if not subj:
+            return None
+
+        # Get the GloVe vector for the grounded subject
+        try:
+            subj_vec = self._glove_vector(subj.lower().strip())
+        except Exception:
+            subj_vec = None
+        if subj_vec is None:
+            return None
+
+        # Find the closest concept in the graph by GloVe cosine similarity
+        best_sim = 0.0
+        best_concept = None
+        _nodes = getattr(self.graph, 'nodes', {})
+        _min_cos = 0.30  # Only consider concepts with cosine >= 0.30
+        for _nid, _node in _nodes.items():
+            _label = getattr(_node, 'label', None)
+            if not _label or _label == subj:
+                continue
+            try:
+                _vec = self._glove_vector(_label.lower().strip())
+            except Exception:
+                continue
+            if _vec is None:
+                continue
+            try:
+                _cos = float(np.dot(subj_vec, _vec) / (np.linalg.norm(subj_vec) * np.linalg.norm(_vec)))
+            except Exception:
+                continue
+            if _cos > best_sim and _cos >= _min_cos:
+                best_sim = _cos
+                best_concept = _label
+
+        if best_concept is None:
+            return None
+
+        # Found a related known concept — try to get its internal knowledge
+        from .brain_regions import consult_internal
+        _ans = consult_internal(best_concept, self)
+        if _ans is None:
+            # Even the closest concept has no internal knowledge —
+            # just generate a generic analogical hedge
+            _rel = best_concept
+            _hedges = [
+                f"i'm not sure about {subj}, but it reminds me of {_rel} — they feel related somehow",
+                f"i can't quite grasp {subj}, though {_rel} comes to mind as something connected",
+                f"i'm fuzzy on {subj}, but {_rel} feels like it might point in the same direction",
+            ]
+            _idx = hash(subj) % len(_hedges)
+            return _hedges[_idx]
+
+        # We have a known concept with an internal definition —
+        # generate an analogical reply relating the unknown to the known
+        _known_text = _ans.text if hasattr(_ans, 'text') else str(_ans)
+        _reply = (
+            f"i'm not certain about {subj} exactly, but it's related to {best_concept} — "
+            f"which is connected to {_known_text[:80]}. what does it mean to you?"
+        )
+        print(f"  [analogy] subj={subj!r} best={best_concept!r} sim={best_sim:.2f}")
+        return _reply
 
     def _try_semantic_advice(self, user_input: str) -> Optional[str]:
         """Answer help/advice-seeking questions from the ATL semantic graph.
