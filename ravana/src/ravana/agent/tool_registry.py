@@ -16,11 +16,12 @@ This is the "hands" layer the founder requested (web via IntentForge, read site,
 run scripts, github cli on a loop-assigned repo).
 """
 from __future__ import annotations
+import ipaddress
+import json
 import os
 import re
 import shlex
 import subprocess
-import json
 import urllib.request
 import urllib.parse
 import socket
@@ -82,11 +83,45 @@ def _web_search_via_intentforge(query: str) -> str:
             return f"[web] search unavailable: {e} / {e2}"
 
 
+def _validate_public_url(url: str) -> None:
+    """Reject non-HTTP URLs and destinations that resolve off the public net."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("only http(s) urls with a hostname")
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError as exc:
+        raise ValueError("invalid URL port") from exc
+
+    try:
+        addresses = socket.getaddrinfo(
+            parsed.hostname, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError("URL hostname could not be resolved") from exc
+    if not addresses:
+        raise ValueError("URL hostname could not be resolved")
+
+    for address in addresses:
+        host = address[4][0].split("%", 1)[0]
+        ip = ipaddress.ip_address(host)
+        if (ip.is_loopback or ip.is_private or ip.is_link_local
+                or ip.is_reserved or ip.is_unspecified or ip.is_multicast):
+            raise PermissionError(f"website destination is not public: {ip}")
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Validate each redirect destination before urllib follows it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _read_website(url: str) -> str:
-    """Fetch and trim a web page for grounding."""
-    if not re.match(r"https?://", url):
-        raise ValueError("only http(s) urls")
-    with urllib.request.urlopen(url, timeout=8) as r:
+    """Fetch and trim a public web page for grounding."""
+    _validate_public_url(url)
+    opener = urllib.request.build_opener(_ValidatingRedirectHandler())
+    with opener.open(url, timeout=8) as r:
         return f"[site] {r.read().decode('utf-8','replace')[:1500]}"
 
 
