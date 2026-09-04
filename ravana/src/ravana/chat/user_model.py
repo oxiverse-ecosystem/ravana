@@ -3076,6 +3076,27 @@ class UserModel:
                     # capture it.
                     if _tk[:1].isupper():
                         break
+            # GENERALIZE (fix, round 2026-09-03): when the first word after
+            # "my" is NOT a relationship word (e.g. "my first mentor..."),
+            # _kin holds a MODIFIER and the block above never fires. Scan
+            # _rest0 for a known relationship word and shift _kin to it so
+            # the relationship mining block actually runs. Fall back to the
+            # full appositive phrase when the head-capture returns a title
+            # token (e.g. "mr." in "named mr. venkatesh").
+            if _mk_rel_of(_kin) is None and _rest0:
+                _rt2 = _rest0.split()
+                for _j2, _tk2 in enumerate(_rt2):
+                    _wt2 = _tk2.lower().strip(".,!?;:\"'" + "'")
+                    _r_of = _mk_rel_of(_wt2)
+                    if _r_of is not None:
+                        _kin = _r_of
+                        _rest0 = " ".join(_rt2[_j2 + 1:])
+                        break
+                    # a capitalized proper noun is the entity NAME, not a
+                    # modifier — stop scanning so the embedded-clause path
+                    # can capture it.
+                    if _tk2[:1].isupper():
+                        break
             _kin_norm = _mk_rel_of(_kin)
             if _kin_norm:
                 _kin = _kin_norm
