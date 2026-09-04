@@ -1136,20 +1136,19 @@ class SelfQueryMixin:
                 # Strip closed-class words from each side so "you're more"
                 # resolves to "more" -> but "more" is a comparison word,
                 # so also try splitting on the comparison word itself.
-                _SCRUB = {"about", "on", "the", "a", "an", "of", "for",
-                           "with", "to", "is", "are", "do", "does", "you",
-                           "i", "it", "that", "this", "and", "or", "honest",
-                           "read", "take", "view", "opinion", "thoughts",
-                           "stance", "versus", "vs", "more", "me", "now",
-                           "after", "what", "just", "said", "right",
-                           "really", "exactly", "tell", "think", "than",
-                           "rather"}
+                _SCRUB = (set(_PRON_OR_CLOSED) | set(_VERB_SCAFFOLD) |
+                          {"honest", "read", "take", "view", "opinion",
+                           "thoughts", "stance", "versus", "vs", "more",
+                           "less", "now", "after", "just", "said", "right",
+                           "really", "exactly", "tell", "than", "rather",
+                           "between", "you're", "you've", "you'd", "you'll",
+                           "choose", "choosing"})
                 _side_topics = []
                 for _side in _contrast_sides:
-                    _toks = [w for w in re.findall(r"[a-z']+", _side)
-                             if w not in _SCRUB]
-                    if _toks:
-                        _side_topics.append(_toks[-1])
+                    _side_toks = [w for w in re.findall(r"[a-z']+", _side)
+                                  if w not in _SCRUB]
+                    if _side_toks:
+                        _side_topics.append(" ".join(_side_toks))
                 if len(_side_topics) >= 2:
                     _phrases = []
                     for _st in _side_topics:
@@ -1161,14 +1160,6 @@ class SelfQueryMixin:
                     if _reason and not _reason.endswith((".", "!", "?")):
                         _reason += "."
                     response = f"{stance}{(' ' + _reason) if _reason else ''} what about you?".replace("  ", " ")
-                    return response.lower()
-                else:
-                    stance, reason = self._agent_stance_on(_target)
-                    back = " what about you?"
-                    _reason = reason.rstrip()
-                    if _reason and not _reason.endswith((".", "!", "?")):
-                        _reason += "."
-                    response = f"{stance} {_reason}{back}"
                     return response.lower()
             _i = 0
             while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED

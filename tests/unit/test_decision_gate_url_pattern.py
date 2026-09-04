@@ -103,3 +103,21 @@ class TestUrlPatternRouting:
         assert result is not None
         assert result.tool == "read_website"
         assert result.arg == "https://example.com"
+
+    def test_url_with_balanced_closing_parenthesis_preserves_it(self, registry):
+        """A balanced ')' belongs to the URL path, not the surrounding prose."""
+        engine = _make_engine()
+        result = decide_tool_use(
+            engine,
+            "read https://en.wikipedia.org/wiki/Function_(mathematics)",
+            registry,
+        )
+        assert result is not None
+        assert result.arg.endswith("/Function_(mathematics)")
+
+    def test_url_with_unmatched_wrapper_parenthesis_strips_it(self, registry):
+        engine = _make_engine()
+        result = decide_tool_use(
+            engine, "read (https://example.com/docs)", registry)
+        assert result is not None
+        assert result.arg == "https://example.com/docs"

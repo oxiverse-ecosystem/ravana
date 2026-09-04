@@ -95,6 +95,12 @@ def test_miner_stores_nonkin_role_with_irregular_verb():
     assert "taught astronomy" in caps[("i", "mentor dr. okonkwo")], caps
 
 
+def test_miner_finds_relation_after_leading_modifier():
+    caps = _capture("my first mentor Priya taught me astronomy")
+    assert ("i", "mentor priya") in caps, caps
+    assert "taught astronomy" in caps[("i", "mentor priya")], caps
+
+
 def test_open_ended_recall_nonkin_role():
     # The shared relationship vocabulary grows from the live disclosure
     # (learn_relation), so the open-ended recaller (engine.py 1c/1d) resolves
@@ -299,5 +305,4 @@ def test_combined_attr_role_recall_full_name_and_activity():
             f"truncated 'your mentor is dr' in {q!r} -> {r!r}"
         # no doubled output (two 'your mentor' clauses in one reply)
         assert r.count("your mentor") == 1, f"doubled output in {q!r} -> {r!r}"
-
 

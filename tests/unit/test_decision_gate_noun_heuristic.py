@@ -147,16 +147,18 @@ class TestNounHeuristicPath:
 
     def test_runtime_expandable_verbs(self, registry):
         """New verbs can be added at runtime via add_imperative_verbs."""
-        # "deploy the app" should NOT fire initially (no 'deploy' noun match)
+        verb = "transpile"
+        assert verb not in _IMPERATIVE_VERBS
         engine = _make_engine()
-        result = decide_tool_use(engine, "deploy the app", registry)
+        result = decide_tool_use(engine, f"{verb} the script", registry)
         assert result is None
 
-        # Add 'deploy' as an imperative verb
-        add_imperative_verbs({"deploy"})
-        assert "deploy" in _IMPERATIVE_VERBS
+        try:
+            add_imperative_verbs({verb})
+            assert verb in _IMPERATIVE_VERBS
 
-        # Now "deploy the script" should fire run_script
-        result = decide_tool_use(engine, "deploy the script", registry)
-        assert result is not None
-        assert result.tool == "run_script"
+            result = decide_tool_use(engine, f"{verb} the script", registry)
+            assert result is not None
+            assert result.tool == "run_script"
+        finally:
+            _IMPERATIVE_VERBS.discard(verb)

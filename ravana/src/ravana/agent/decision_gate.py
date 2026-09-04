@@ -95,6 +95,14 @@ def _extract_topic(query: str) -> str:
     return " ".join(toks[:4])
 
 
+def _trim_url_match(url: str) -> str:
+    """Trim sentence punctuation without dropping balanced URL parentheses."""
+    url = url.rstrip(".,;:!?")
+    while url.endswith(")") and url.count(")") > url.count("("):
+        url = url[:-1]
+    return url
+
+
 def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None) -> Optional[ToolCall]:
     """Return a ToolCall plan if RAVANA's cognition justifies acting, else None.
 
@@ -111,7 +119,7 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
     # signal from shadowing read_website when the user says "look up <url>".
     url_match = re.search(r'(https?://\S+|www\.\S+)', q)
     if url_match and "read_website" in registry.tools:
-        url = url_match.group(1).rstrip(".,;:!?)")
+        url = _trim_url_match(url_match.group(1))
         return ToolCall(tool="read_website", arg=url,
                         reason=f"url_pattern_detected url={url}")
 
