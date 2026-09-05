@@ -5798,7 +5798,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "something", "anything", "the", "a", "an", "is", "are", "was", "were",
             "have", "has", "had", "i", "my", "we", "our", "it", "this", "that",
             "form", "formed", "opinion", "think", "feel", "feel", "mention",
-            "mentioned", "remember", "recall", "answer", "answered", "reply",
+            "mentioned", "remember", "recall", "remind", "answer", "answered", "reply",
             "replied", "state", "stated", "still", "now", "then", "how", "why",
             "who", "when", "where", "which", "any", "some", "thing", "things",
             "yes", "no", "ask", "asked", "wonder", "wondering", "tellme",
@@ -5841,7 +5841,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _ov > _best_overlap:
                 _best_overlap = _ov
                 _best = _e
-        if _best is None or _best_overlap < 2:
+        # FIX (round 2026-09-05, self-reference failure): single-content-token
+        # queries (e.g. "season" in "remind me what you said about the season")
+        # can never reach the >=2 overlap threshold. Allow overlap=1 when the
+        # query is a narrow single-topic recall; the >=2 rule still protects
+        # against multi-token queries accidentally matching on incidental words.
+        _min_overlap = 1 if len(_cands) <= 1 else 2
+        if _best is None or _best_overlap < _min_overlap:
             return None
         _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()

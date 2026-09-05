@@ -51,11 +51,21 @@ def engine():
 def test_opinion_target_not_pronoun(engine, query, bad_tail):
     r = engine.process_turn(query)
     assert r is not None, f"empty reply for {query!r}"
-    # Only the TOPIC slot (the words after "view on") must not be the pronoun;
-    # the reply's opening "i'm" is fine.
-    _slot = r.lower().split("view on", 1)[-1]
-    assert bad_tail not in _slot, (
-        f"pronoun leaked into opinion topic for {query!r}: {r!r}")
+    # Check each "view on" clause: the TOPIC (first content word after
+    # "view on") must not be the pronoun. For contrast replies
+    # ("view on X; i'm still forming a view on Y what about you?") the
+    # second clause's "i'm" prefix is part of the reply format, not a
+    # pronoun leak — so we check each clause's topic word individually
+    # rather than substring-matching the whole tail.
+    _parts = r.lower().split("view on")[1:]
+    assert _parts, f"no 'view on' found in reply for {query!r}: {r!r}"
+    for _slot in _parts:
+        _words = _slot.strip().split()
+        if _words:
+            _topic = _words[0].rstrip(".,;:!?'\"")
+            assert bad_tail != _topic, (
+                f"pronoun {bad_tail!r} leaked as opinion topic for "
+                f"{query!r}: {r!r}")
 
 
 def test_opinion_target_resolves_real_topic(engine):
