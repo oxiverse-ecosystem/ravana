@@ -6270,6 +6270,18 @@ class ResponseGenMixin(ChainWalkerMixin):
             subj_cap = "that"
         if subj_cap.lower().strip(" .,!?") in _CLOSED:
             subj_cap = "that"
+        # Structural safety net: when the subject is a closed-class/personal
+        # word (e.g., "tired", "respond"), the uncertainty frame has no
+        # meaningful anchor. Try concept-graph traversal to find the nearest
+        # known concept — this routes evaluative/philosophical queries to
+        # reflection instead of a flat "I'm not sure" hedge.
+        if subj_cap == "that" and subject:
+            try:
+                _graph_neighbor = self.find_vector_neighbor(subject)
+                if _graph_neighbor and _graph_neighbor.lower() != subject.lower():
+                    subj_cap = _graph_neighbor
+            except Exception:
+                pass
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
         # Gentle, low-valence-aware phrasing.
         if valence < 0.4:

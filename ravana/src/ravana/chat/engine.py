@@ -8170,11 +8170,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction side-effects and runs later with the real subject).
         self.user_model.mine_personal_facts(user_input)
 
-        # Round 2026-08-19T0625Z limitation #2: a revisit query ("do you still
-        # feel that way about X?" / "have you changed your mind about X?") must be
-        # answered from RAVANA's RECORDED own stance, not recomputed fresh nor
-        # echoed. Check this BEFORE the opinion/identity gates so a recorded
-        # stance takes precedence over a re-derived provisional one.
+        # Round 2026-09-05: contradiction-revision / stance inversion.
+        # "argue the opposite", "flip your stance", "take the other
+        # side" — detect these BEFORE the revisit check so inversion
+        # takes precedence. The inversion method reads/writes
+        # _agent_own_stances and produces a genuinely inverted view
+        # from RAVANA's own recorded stance or its current valence.
+        _inversion_ans = self._route_own_stance_inversion(user_input)
+        if _inversion_ans is not None:
+            self._last_strategy = "own_stance_inversion"
+            self._last_responses.append(_inversion_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _inversion_ans.lower()
+
+        # Round 2026-08-19T0625Z limitation #2: a revisit query
+        # ("do you still feel that way about X?" / "have you changed
+        # your mind about X?" / "revisit your stance on X") must be
+        # answered from RAVANA's RECORDED own stance, not recomputed
+        # fresh nor echoed. Check this BEFORE the opinion/identity
+        # gates so a recorded stance takes precedence over a
+        # re-derived provisional one.
         _revisit_ans = self._route_own_stance_revisit(user_input)
         if _revisit_ans is not None:
             self._last_strategy = "own_stance_revisit"

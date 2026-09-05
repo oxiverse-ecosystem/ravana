@@ -555,6 +555,141 @@ class SelfQueryMixin:
             pass
         return (_stance, _reason)
 
+    def _route_own_stance_inversion(self, user_input: str) -> Optional[str]:
+        """Detect contradiction-revision intent and invert RAVANA's own stance.
+
+        Handles: "argue the opposite", "argue the opposite of what you just
+        said about X", "now argue the opposite", "flip your stance on X",
+        "take the other side of X", "what's the opposite view on X",
+        "rebuttal on X". When RAVANA has a recorded stance on the topic
+        (in _agent_own_stances), it inverts the polarity word and produces
+        a view from the same underlying values. If no recorded stance exists,
+        it derives an inverted stance from the current affective state
+        (valence) and the ConceptGraph proximity — still state-driven, not
+        fabricated.
+
+        Returns None if the query is not a contradiction-revision request,
+        or if RAVANA has no basis for any stance on the target topic.
+        """
+        t = (user_input or "").lower().strip()
+        # Inversion intent: ask RAVANA to argue the opposite / flip /
+        # rebuttal / take the other side of its own prior stance.
+        _inversion = re.search(
+            r"\b(argue\s+(?:the\s+)?opposite|flip\s+(?:your\s+)?stance|take\s+(?:the\s+)?other\s+side|opposite\s+view|rebuttal|argue\s+against|go\s+against)\b",
+            t)
+        if not _inversion:
+            return None
+        # Extract the topic target. Two surface shapes:
+        #   1) "...about X" / "...on X"  — the target follows the cue
+        #   2) "flip your stance on X"   — "on X" after the verb
+        _target = None
+        # Shape 1: "...argue the opposite of what you just said about X"
+        _about = re.search(
+            r"\b(?:about|on|regarding|regarding)\s+([a-z][a-z\s'-]{1,40})", t)
+        if _about:
+            _raw = _about.group(1).rstrip(" .!?'")
+            _target = _raw.strip().lower()
+        # Shape 2: "flip your stance on X" / "take the other side of X"
+        if not _target:
+            _on = re.search(
+                r"\b(?:stance|view|position)\s+(?:is|was|on|about)\s+"
+                r"([a-z][a-z\s'-]{1,40})", t)
+            if _on:
+                _target = _on.group(1).strip().lower()
+        if not _target:
+            # Last resort: last content word before "about"/"on" in the query
+            # or the whole thing after the inversion cue.
+            _cue_end = _inversion.end()
+            _rest = t[_cue_end:].strip()
+            _after = re.split(r"\b(?:about|on|regarding)\b", _rest)
+            if _after and _after[-1].strip():
+                _target = _after[-1].strip().lower()
+        if not _target:
+            return None
+        # Look up the durable recorded stance.
+        _rec = self._agent_own_stances.get(_target)
+        if _rec is None:
+            # Containment match: "nostalgia" vs "nostalgia changed"
+            for _k in self._agent_own_stances:
+                if _target and (_target in _k.split() or _k in _target.split()
+                                or _k == _target):
+                    _rec = self._agent_own_stances[_k]
+                    _target = _k
+                    break
+        if _rec is None:
+            # No recorded stance on this topic. Derive an inverted stance
+            # from RAVANA's CURRENT affective state (valence). If valence is
+            # positive, invert to cautious/negative; if negative, invert to
+            # positive. This is still state-driven — the polarity comes from
+            # the vmPFC value signal, not a per-topic table.
+            valence = 0.5
+            if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+                try:
+                    valence = float(getattr(self.emotion.state, "valence", 0.5))
+                except Exception:
+                    valence = 0.5
+            if _target:
+                if valence >= 0.5:
+                    _word = "am cautious about"
+                    _conf = 0.5
+                    _reason = (f"i'm feeling positive right now, so the "
+                               f"opposite of that leans cautious on {_target}")
+                elif valence <= 0.35:
+                    _word = "lean toward"
+                    _conf = 0.5
+                    _reason = (f"i'm in a cautious headspace, so the opposite "
+                               f"leans positive on {_target}")
+                else:
+                    _word = "am curious about"
+                    _conf = 0.45
+                    _reason = (f"{_target} is new territory — the opposite "
+                               f"angle is open to me")
+                _stance = f"i {_word} {_target}"
+                try:
+                    self._agent_own_stances[_target] = (
+                        _word, _conf, _reason,
+                        int(getattr(self, "turn_count", 0)))
+                except Exception:
+                    pass
+                return (_stance, _reason)
+            return None
+        # We have a recorded stance. Invert it.
+        _word, _conf, _reason, _turn = _rec
+        # Map the recorded polarity word to its opposite.
+        _opposites = {
+            "love": "am against",
+            "like": "am cautious about",
+            "care deeply about": "am against",
+            "am against": "lean toward",
+            "am cautious about": "lean toward",
+            "strongly value": "am cautious about",
+            "value": "am cautious about",
+            "care about": "am cautious about",
+            "value above sounding smart": "am cautious about",
+            "am still forming a view on": "am still forming a view on",
+        }
+        _opposite_word = _opposites.get(_word, "am cautious about")
+        # The reason references the same underlying values but from the
+        # opposite angle — the REAL constitutive values haven't changed,
+        # only the direction.
+        _inv_reason = (
+            f"the same values apply, but from the opposite angle: "
+            f"{_reason.replace(_target, '').strip(' —.')}"
+            f" but inverted on {_target}")
+        # Record the inverted stance so a later revisit answers from it.
+        try:
+            self._agent_own_stances[_target] = (
+                _opposite_word, round(_conf * 0.8, 2), _inv_reason,
+                int(getattr(self, "turn_count", 0)))
+        except Exception:
+            pass
+        # Build the inverted response.
+        if "still forming" in _opposite_word:
+            return (f"i'm still forming a view on {_target} — but from the "
+                    f"other side. {_inv_reason}")
+        return (f"arguing the opposite: i {_opposite_word} {_target}. "
+                f"{_inv_reason}")
+
     def _route_own_stance_revisit(self, user_input: str) -> Optional[str]:
         """Answer 'do you still feel that way about X?' / 'have you changed
         your mind about X?' from RAVANA's RECORDED own stances.
@@ -572,12 +707,18 @@ class SelfQueryMixin:
         never fabricates one. No LLM.
         """
         t = (user_input or "").lower().strip()
-        # Revisit cue: "still feel that way", "still think that", "changed your
-        # mind", "feel the same about", "still feel the same about".
+        # Revisit cue: "still feel that way", "still think that",
+        # "changed your mind", "feel the same about", "still feel the
+        # same about", "revisit your stance", "has your view changed",
+        # "has your stance changed". Also catches "revisit" as a
+        # contradiction-revision intent.
         _revisit = re.search(
             r"\b(still\s+(feel|think|feel\s+the\s+same)|changed\s+your\s+mind|"
             r"feel\s+the\s+same\s+about|still\s+the\s+same\s+about|"
-            r"do\s+you\s+still)\b", t)
+            r"do\s+you\s+still|revisit\s+(?:your\s+)?stance|"
+            r"has\s+(?:your\s+)?(?:view|stance)\s+changed|"
+            r"what\s+was\s+your\s+(?:previous|earlier|original)\s+stance|"
+            r"what\s+did\s+you\s+say\s+about)\b", t)
         if not _revisit:
             return None
         # Extract the topic target — the noun phrase after "about".
@@ -1542,6 +1683,82 @@ class SelfQueryMixin:
                 return None
         return ans_text
 
+    # Non-content filler words that should never serve as analogical anchors.
+    # Structural: a closed-class seed set, not a per-topic guard. Reused from
+    # response_gen.py _reflective_response — kept in sync manually. These words
+    # are high-frequency, low-content discourse markers/pronouns/qualifiers that
+    # pollute GloVe nearest-neighbor search because they co-occur with everything
+    # but carry no semantic weight as an analogical anchor.
+    _NON_CONTENT_ANCHOR = {
+        "really", "lot", "lots", "bit", "thing", "things", "way", "ways",
+        "kind", "kinds", "sort", "sorts", "type", "types", "stuff",
+        "something", "anything", "nothing", "everything", "somewhat",
+        "quite", "rather", "mostly", "actually", "basically",
+        "generally", "usually", "often", "sometimes", "maybe", "perhaps",
+        "probably", "possibly", "definitely", "certainly", "truly",
+        "simply", "just", "even", "also", "too", "very", "more", "most",
+        "much", "many", "such", "like", "liking", "feel", "feels",
+        "feeling", "think", "thinks", "thought", "know", "knows",
+        "mean", "means", "sense", "idea", "ideas", "notion", "concept",
+        "concepts", "word", "words", "term", "terms", "part", "parts",
+        "piece", "pieces", "amount", "number", "level", "point", "points",
+        "good", "bad", "big", "small", "large", "little", "high", "low",
+        "new", "old", "own", "same", "other", "another", "different",
+        "i", "me", "my", "we", "our", "you", "your", "he", "she", "it",
+        "they", "them", "his", "her", "its", "their", "this", "that",
+        "these", "those", "what", "which", "who", "whom", "where", "when",
+        "why", "how", "all", "each", "every", "both", "few", "several",
+        "some", "any", "no", "not", "only", "so", "than", "too", "very",
+        "can", "could", "will", "would", "shall", "should", "may", "might",
+        "must", "do", "does", "did", "have", "has", "had", "be", "been",
+        "being", "am", "is", "are", "was", "were", "get", "gets", "got",
+        "go", "goes", "went", "come", "comes", "came", "say", "says",
+        "said", "tell", "tells", "told", "make", "makes", "made",
+        "take", "takes", "took", "give", "gives", "gave", "see", "sees",
+        "saw", "look", "looks", "looked", "find", "finds", "found",
+        "want", "wants", "wanted", "need", "needs", "needed",
+        "use", "uses", "used", "try", "tries", "tried",
+        "work", "works", "worked", "call", "calls", "called",
+        "ask", "asks", "asked", "seem", "seems", "seemed",
+        "keep", "keeps", "kept", "let", "lets", "put", "puts",
+        "help", "helps", "helped", "start", "starts", "started",
+        "show", "shows", "showed", "hear", "hears", "heard",
+        "play", "plays", "played", "run", "runs", "ran",
+        "move", "moves", "moved", "live", "lives", "lived",
+        "believe", "believes", "believed", "hold", "holds", "held",
+        "bring", "brings", "brought", "happen", "happens", "happened",
+        "write", "writes", "wrote", "provide", "provides", "provided",
+        "sit", "sits", "sat", "stand", "stands", "stood",
+        "lose", "loses", "lost", "pay", "pays", "paid",
+        "meet", "meets", "met", "include", "includes", "included",
+        "continue", "continues", "continued", "set", "sets",
+        "learn", "learns", "learned", "change", "changes", "changed",
+        "lead", "leads", "led", "understand", "understands", "understood",
+        "watch", "watches", "watched", "follow", "follows", "followed",
+        "stop", "stops", "stopped", "create", "creates", "created",
+        "speak", "speaks", "spoke", "read", "reads", "allow", "allows", "allowed",
+        "add", "adds", "added", "spend", "spends", "spent",
+        "grow", "grows", "grew", "open", "opens", "opened",
+        "walk", "walks", "walked", "win", "wins", "won",
+        "offer", "offers", "offered", "remember", "remembers", "remembered",
+        "consider", "considers", "considered", "appear", "appears", "appeared",
+        "buy", "buys", "bought", "wait", "waits", "waited",
+        "serve", "serves", "served", "die", "dies", "died",
+        "send", "sends", "sent", "expect", "expects", "expected",
+        "build", "builds", "built", "stay", "stays", "stayed",
+        "fall", "falls", "fell", "cut", "cuts", "reach", "reaches", "reached",
+        "kill", "kills", "killed", "remain", "remains", "remained",
+        "today", "yesterday", "tomorrow", "now", "then", "here", "there",
+        "always", "never", "ever", "already", "still", "yet",
+        "almost", "quite", "enough", "rather", "pretty",
+        "however", "therefore", "thus", "hence", "also", "too",
+        "again", "once", "twice", "often", "sometimes",
+        "everyone", "everybody", "everything", "everywhere",
+        "someone", "somebody", "something", "somewhere",
+        "anyone", "anybody", "anything", "anywhere",
+        "nobody", "nothing", "nowhere",
+    }
+
     def _try_analogical_reasoning(self, subj: str, user_input: str) -> Optional[str]:
         """When internal knowledge returns MISS, attempt analogical reasoning.
 
@@ -1568,7 +1785,11 @@ class SelfQueryMixin:
         if subj_vec is None:
             return None
 
-        # Find the closest concept in the graph by GloVe cosine similarity
+        # Find the closest concept in the graph by GloVe cosine similarity.
+        # Skip non-content filler words — they co-occur with everything but
+        # carry no semantic weight as an analogical anchor (e.g., "lot",
+        # "really", "thing"). This is a structural content gate, not a
+        # per-topic filter.
         best_sim = 0.0
         best_concept = None
         _nodes = getattr(self.graph, 'nodes', {})
@@ -1576,6 +1797,9 @@ class SelfQueryMixin:
         for _nid, _node in _nodes.items():
             _label = getattr(_node, 'label', None)
             if not _label or _label == subj:
+                continue
+            # Skip non-content filler words as analogical anchors
+            if _label.lower().strip() in self._NON_CONTENT_ANCHOR:
                 continue
             try:
                 _vec = self._glove_vector(_label.lower().strip())
