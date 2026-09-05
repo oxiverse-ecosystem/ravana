@@ -49,7 +49,9 @@ class IdentityEngine:
 
     def compute_update(self, resolution_delta: float, resolution_success: bool,
                        regulated_identity_delta: float, current_dissonance: float,
-                       resolution_streak: int, correctness: bool) -> float:
+                       resolution_streak: int, correctness: bool,
+                       valence_signal: float = 0.0, opinion_engagement: float = 0.0,
+                       user_disagreement: float = 0.0) -> float:
         """Compute identity update from cognitive signals."""
         cfg = self.config
 
@@ -65,6 +67,15 @@ class IdentityEngine:
         # Regulated delta from meaning engine
         regulated_signal = regulated_identity_delta
 
+        # Emotional valence signal: strong affect moves identity
+        valence_signal = max(-1.0, min(1.0, valence_signal)) * 0.05
+
+        # Opinion engagement: when the user engages on stances, identity shifts
+        opinion_signal = opinion_engagement * 0.05
+
+        # User disagreement: when the user pushes back, identity adjusts
+        disagreement_signal = user_disagreement * 0.08
+
         # Momentum: persistence of previous direction
         momentum_signal = self.state.momentum * cfg.momentum_factor
 
@@ -76,7 +87,10 @@ class IdentityEngine:
                  0.2 * regulated_signal +
                  0.15 * momentum_signal +
                  0.1 * recovery +
-                 0.05 * (-dissonance_penalty))
+                 0.05 * (-dissonance_penalty) +
+                 valence_signal +
+                 opinion_signal +
+                 disagreement_signal)
 
         # Clamp delta
         delta = np.clip(delta, -0.2, 0.2)

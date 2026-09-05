@@ -1080,6 +1080,33 @@ class ChatInterface:
             effort=0.2,
         )
         correct = len(ctx.associated_concepts) > 0
+        
+        # Compute conversation signals for identity update
+        _valence = self.emotion.state.valence
+        _valence_signal = max(-1.0, min(1.0, _valence))
+        
+        _strong_stances = 0
+        try:
+            for _stance in self.user_model.opinions.stances.values():
+                if abs(_stance.polarity) > 0.5 and _stance.confidence > 0.5:
+                    _strong_stances += 1
+        except Exception:
+            pass
+        _opinion_engagement = min(1.0, _strong_stances / 5.0)
+        
+        _user_disagreement = 0.0
+        try:
+            if self._last_responses and self._last_responses[-1]:
+                _user_input_lower = (ctx.raw_input or '').lower()
+                _correction_words = {'no', 'not', 'incorrect', 'wrong', 'actually', 'i disagree',
+                                     'i think', 'i believe', 'i feel', "that's not"}
+                if any(w in _user_input_lower for w in _correction_words):
+                    _user_disagreement = 0.5
+                if 'correct' in _user_input_lower or 'right' in _user_input_lower:
+                    _user_disagreement = 0.0
+        except Exception:
+            pass
+        
         new_s = self.identity.compute_update(
             resolution_delta=abs(self._free_energy - 0.5) * 0.1,
             resolution_success=correct,
@@ -1087,6 +1114,9 @@ class ChatInterface:
             current_dissonance=self._free_energy,
             resolution_streak=sum(1 for r in self._last_responses if r is not None and len(r) > 20),
             correctness=correct,
+            valence_signal=_valence_signal,
+            opinion_engagement=_opinion_engagement,
+            user_disagreement=_user_disagreement,
         )
         self.identity.apply_update(new_s)
         if self.identity.state.strength > 1.0:

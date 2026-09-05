@@ -42,7 +42,7 @@ class IdentityEngine:
     
     Key features:
     - Momentum: Changes have inertia (trend continuation)
-    - Recovery bias: Low identity gets bonus growth
+    - Recovery bias: Low identity gets growth boost
     - Stability: High identity resists change
     """
     
@@ -68,7 +68,10 @@ class IdentityEngine:
         regulated_identity_delta: float,  # From governor
         current_dissonance: float,
         resolution_streak: int = 0,
-        correctness: bool = True  # Pass correctness for failure penalty
+        correctness: bool = True,  # Pass correctness for failure penalty
+        valence_signal: float = 0.0,  # Emotional valence [-1.0, 1.0]
+        opinion_engagement: float = 0.0,  # Opinion strength [0.0, 1.0]
+        user_disagreement: float = 0.0  # Disagreement signal [0.0, 1.0]
     ) -> float:
         """
         Compute identity update with all dynamics.
@@ -77,6 +80,21 @@ class IdentityEngine:
         """
         # Start with governor-regulated delta
         delta = regulated_identity_delta
+        
+        # Emotional valence signal: modulate identity based on emotion
+        # Positive valence reinforces identity, negative valence erodes it
+        # Scale: valence_signal ∈ [-1.0, 1.0] → delta impact ∈ [-0.03, 0.03]
+        delta += valence_signal * 0.03
+        
+        # Opinion engagement: holding strong opinions strengthens identity
+        # opinion_engagement ∈ [0.0, 1.0]; values > 0.5 boost identity
+        # Scale: 0.02 * (opinion_engagement - 0.5) * 2 → δ impact ∈ [0.0, 0.02]
+        if opinion_engagement > 0.5:
+            delta += 0.02 * (opinion_engagement - 0.5) * 2
+        
+        # User disagreement: cognitive dissonance erodes identity
+        # user_disagreement ∈ [0.0, 1.0] → delta impact ∈ [-0.03, 0.0]
+        delta -= user_disagreement * 0.03
         
         # Failure penalty: Failed attempts reduce identity
         # FIX (honesty_lied): The penalty was 0.24 * strength causing -0.168 drop
