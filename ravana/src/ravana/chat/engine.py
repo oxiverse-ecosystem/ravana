@@ -9879,6 +9879,42 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # temporal/structured recall, agent_own_recall, preamble_hold,
         # arithmetic, empathy, etc. that lack per-site calls.
         # Self-recall queries are skipped inside _record_own_reply itself.
+        # ── Identity update (RV-1 fix: wire compute_update into process_turn) ──
+        # The IdentityEngine.compute_update() method was never called from
+        # process_turn(), so the identity stayed pinned at initial_strength=1.0
+        # regardless of conversation quality. Wire it here at the end of every
+        # turn so identity drifts online from conversation signals.
+        try:
+            _resolution_success = float(quality_score >= 0.55)
+            _dissonance = 0.0
+            _opinion_engagement = min(
+                len(ctx.associated_concepts) / 12.0, 1.0
+            ) if ctx.associated_concepts else 0.0
+            _contradiction = bool(re.search(
+                r"\b(no[,.]?|actually[,.]?|not\\s+really[,.]?|i\\s+disagree|"
+                r"that'?s\\s+(?:not|wrong|incorrect)|i\\s+think\\s+not|"
+                r"you'?re\\s+wrong|you'?re\\s+mistaken|that'?s\\s+not\\s+right)\b",
+                (user_input or "").lower()))
+            if _contradiction:
+                _dissonance = 0.6
+            _identity_delta = self.identity.compute_update(
+                resolution_delta=abs(getattr(self, '_free_energy', 0.5) - 0.5) * 0.1,
+                resolution_success=bool(_resolution_success),
+                regulated_identity_delta=0.03 if _resolution_success else -0.01,
+                current_dissonance=_dissonance,
+                resolution_streak=sum(
+                    1 for r in self._last_responses
+                    if r is not None and len(r) > 20
+                ),
+                correctness=bool(_resolution_success),
+                valence_signal=float(self.emotion.state.valence) if hasattr(self, 'emotion') else 0.0,
+                opinion_engagement=float(_opinion_engagement),
+                user_disagreement=0.5 if _contradiction else 0.0,
+            )
+            self.identity.apply_update(_identity_delta)
+        except Exception:
+            pass
+
         self._record_own_reply(user_input, response, subject)
         return response
     @staticmethod
