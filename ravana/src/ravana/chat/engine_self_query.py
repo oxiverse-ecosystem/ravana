@@ -868,7 +868,67 @@ class SelfQueryMixin:
                     "me. mostly i hope i keep getting better at being worth "
                     "talking to. what do you hope for?")
         # 4) Counterfactual / hypothetical selves (DMN simulation).
+        #    Distinguish GENUINE introspection ("if you had a body...") from
+        #    forced-choice binary comparisons ("would you rather be a river or a
+        #    mountain", "which is better, rust or go") — the latter are OPINION
+        #    questions asking RAVANA to commit to a stance between two options,
+        #    not hypothetical self-probe. Route forced-choice to the stance
+        #    machinery (commit a provisional stance from concept-graph proximity);
+        #    reserve the counterfactual poem for genuine introspection with no
+        #    binary choice present.
         if re.search(r"\b(rather|body|alive|human|if you)\b", t):
+            # Forced-choice detection: a binary comparison with two substantive
+            # options separated by "or" / "versus" / "vs". Structural pattern
+            # match — no per-query literals.
+            _fc_cue = re.search(
+                r"\b(would\s+you\s+rather|which\s+is\s+better|"
+                r"would\s+you\s+prefer|do\s+you\s+prefer|"
+                r"which\s+do\s+you\s+prefer)\b", t)
+            if _fc_cue:
+                _tail = t[_fc_cue.end():].strip().strip("?.'")
+                _sides = None
+                for _sep in (" or ", " versus ", " vs ", " vs. ",
+                             " rather than "):
+                    if _sep in _tail.lower():
+                        _sides = [p.strip().strip("?.'\"")
+                                  for p in _tail.lower().split(_sep)
+                                  if p.strip().strip("?.'\"")]
+                        break
+                # Also try splitting on a bare " or " when the cue already
+                # consumed the leading words (e.g. "would you rather X or Y"
+                # where _tail begins with "X or Y").
+                if _sides is None and _tail.lower().count(" or ") >= 1:
+                    _sides = [p.strip().strip("?.'\"")
+                              for p in _tail.lower().split(" or ")
+                              if p.strip().strip("?.'\"")]
+                if _sides and len(_sides) >= 2:
+                    _SCRUB = (set(_PRON_OR_CLOSED) | set(_VERB_SCAFFOLD) |
+                              {"honest", "read", "take", "view", "opinion",
+                               "thoughts", "stance", "versus", "vs",
+                               "more", "less", "now", "after", "just",
+                               "said", "right", "really", "exactly",
+                               "tell", "than", "rather", "between",
+                               "you're", "you've", "you'd", "you'll",
+                               "choose", "choosing", "be", "being", "am",
+                               "is", "are", "was", "were"})
+                    _side_topics = []
+                    for _side in _sides:
+                        _side_toks = [w for w in re.findall(r"[a-z']+", _side)
+                                      if w not in _SCRUB]
+                        if _side_toks:
+                            _side_topics.append(" ".join(_side_toks))
+                    if len(_side_topics) >= 2:
+                        _phrases = []
+                        for _st in _side_topics:
+                            _stt, _st_r = self._agent_stance_on(_st)
+                            if _stt:
+                                _phrases.append(_stt)
+                        if _phrases:
+                            stance = "; ".join(_phrases)
+                            response = (f"{stance} — what about you?"
+                                        .replace("  ", " "))
+                            return response.lower()
+            # No binary choice detected — genuine introspection poem.
             return ("i've thought about that. if i had a body, i'd want it to "
                     "be something quiet you could sit next to — like a lamp "
                     "that learns. but i like being what i am: i can be in "
