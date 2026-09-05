@@ -6447,6 +6447,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self._last_responses = self._last_responses[-10:]
                     self._record_own_reply(user_input, _tresp, subject)
                     self.notify_user_idle()
+                    self._identity_end_of_turn(user_input)
                     return _tresp
 
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
@@ -6852,17 +6853,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _exp_first = self._route_self_experience(user_input)
                 except Exception:
                     _exp_first = None
-                if _exp_first is not None:
                     self._last_strategy = "self_experience"
-                    self._last_responses.append(_exp_first)
+                    self._last_responses.append(_exp)
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
                     try:
-                        self._record_own_reply(user_input, _exp_first, subject)
+                        self._record_own_reply(user_input, _exp, subject)
                     except Exception:
                         pass
-                    return _exp_first
+                    self._identity_end_of_turn(user_input)
+                    return _exp
                 _sersp = self._route_self_query(user_input)
                 if _sersp is not None:
                     self._last_strategy = "self_model"
@@ -6944,6 +6945,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
+                self._identity_end_of_turn(user_input)
                 return _sr
         except Exception:
             pass
@@ -7123,6 +7125,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
+            self._identity_end_of_turn(user_input)
             return _intern
 
         # ── Fix 4 (Q12): episodic memory meta-query pre-pass ──────────────────
@@ -7841,6 +7844,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
+                    self._identity_end_of_turn(user_input)
                     return _resp
             # §7 Reaction to the prior turn ("that's hilarious", "aww") routes
             # to the affiliation/empathy frame, not concept lookup.
@@ -8373,6 +8377,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
+            self._identity_end_of_turn(user_input)
             return response.lower()
 
         # Deferred decoder training on first turn (fast startup)
@@ -9880,44 +9885,73 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # arithmetic, empathy, etc. that lack per-site calls.
         # Self-recall queries are skipped inside _record_own_reply itself.
         # ── Identity update (RV-1 fix: wire compute_update into process_turn) ──
-        # The IdentityEngine.compute_update() method was never called from
-        # process_turn(), so the identity stayed pinned at initial_strength=1.0
-        # regardless of conversation quality. Wire it here at the end of every
-        # turn so identity drifts online from conversation signals.
-        try:
-            _resolution_success = float(quality_score >= 0.55)
-            _dissonance = 0.0
-            _opinion_engagement = min(
-                len(ctx.associated_concepts) / 12.0, 1.0
-            ) if ctx.associated_concepts else 0.0
-            _contradiction = bool(re.search(
-                r"\b(no[,.]?|actually[,.]?|not\\s+really[,.]?|i\\s+disagree|"
-                r"that'?s\\s+(?:not|wrong|incorrect)|i\\s+think\\s+not|"
-                r"you'?re\\s+wrong|you'?re\\s+mistaken|that'?s\\s+not\\s+right)\b",
-                (user_input or "").lower()))
-            if _contradiction:
-                _dissonance = 0.6
-            _identity_delta = self.identity.compute_update(
-                resolution_delta=abs(getattr(self, '_free_energy', 0.5) - 0.5) * 0.1,
-                resolution_success=bool(_resolution_success),
-                regulated_identity_delta=0.03 if _resolution_success else -0.01,
-                current_dissonance=_dissonance,
-                resolution_streak=sum(
-                    1 for r in self._last_responses
-                    if r is not None and len(r) > 20
-                ),
-                correctness=bool(_resolution_success),
-                valence_signal=float(self.emotion.state.valence) if hasattr(self, 'emotion') else 0.0,
-                opinion_engagement=float(_opinion_engagement),
-                user_disagreement=0.5 if _contradiction else 0.0,
-            )
-            self.identity.apply_update(_identity_delta)
-        except Exception:
-            pass
+        self._identity_end_of_turn(user_input)
 
         self._record_own_reply(user_input, response, subject)
         return response
     @staticmethod
+    # ── Identity update wiring (RV-1 fix) ──────────────────────────────────────
+    # process_turn() never called IdentityEngine.compute_update(), so the
+    # identity stayed pinned at initial_strength=1.0. This helper computes the
+    # per-turn identity delta from conversation signals and applies it. Called
+    # from the end of process_turn (full pipeline path) AND from early-return
+    # paths that bypass the ctx/quality_score computation below it.
+    def _identity_end_of_turn(self, user_input: str,
+                               quality_score: float = None,
+                               ctx: Any = None,
+                               dissonance_override: float = None) -> None:
+        """Wire IdentityEngine.compute_update() into every turn.
+
+        Full-pipeline call (end of process_turn): pass the real quality_score
+        and ctx that were just computed. Early-return call: omit both and the
+        method derives lightweight proxies from the engine state + user_input
+        alone (no authored prose — structural signals only).
+        """
+        try:
+            if quality_score is not None and ctx is not None:
+                _resolution_success = float(quality_score >= 0.55)
+                _opinion_engagement = min(
+                    len(ctx.associated_concepts) / 12.0, 1.0
+                ) if ctx.associated_concepts else 0.0
+                _valence = float(ctx.valence) if getattr(ctx, 'valence', None) is not None else 0.0
+            else:
+                _resolution_success = 0.5
+                _opinion_engagement = min(
+                    len(getattr(self, '_last_responses', []) or []) / 50.0, 1.0
+                )
+                _valence = (float(self.emotion.state.valence)
+                            if hasattr(self, 'emotion') and self.emotion is not None
+                            else 0.0)
+            _dissonance = dissonance_override if dissonance_override is not None else 0.0
+            if _dissonance == 0.0:
+                _low = (user_input or "").lower()
+                _contradiction = bool(re.search(
+                    r"\b(no[,.]?|actually[,.]?|not\s+really[,.]?|i\s+disagree|"
+                    r"that'?s\s+(?:not|wrong|incorrect)|i\s+think\s+not|"
+                    r"you'?re\s+wrong|you'?re\s+mistaken|"
+                    r"that'?s\s+not\s+right)\b",
+                    _low))
+                if _contradiction:
+                    _dissonance = 0.6
+            _streak = sum(
+                1 for r in getattr(self, '_last_responses', [])
+                if r is not None and len(r) > 20
+            )
+            _delta = self.identity.compute_update(
+                resolution_delta=abs(getattr(self, '_free_energy', 0.5) - 0.5) * 0.1,
+                resolution_success=bool(_resolution_success),
+                regulated_identity_delta=0.03 if _resolution_success >= 0.5 else -0.01,
+                current_dissonance=_dissonance,
+                resolution_streak=_streak,
+                correctness=bool(_resolution_success),
+                valence_signal=_valence,
+                opinion_engagement=float(_opinion_engagement),
+                user_disagreement=_dissonance,
+            )
+            self.identity.apply_update(_delta)
+        except Exception:
+            pass
+
     def _norm_word(w: str) -> str:
         """Reduce a word to a comparable base: irregular-verb map, then strip
         common inflectional suffixes."""
