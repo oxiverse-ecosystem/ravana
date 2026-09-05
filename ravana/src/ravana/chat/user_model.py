@@ -2586,10 +2586,8 @@ class UserModel:
                     _nm = (_m.group(2) or "").strip().strip(" .,!?")
                     if _rel and _nm and _rel not in _pet_slots._PRONOUN_STOP:
                         _species = _pet_slots.species_of(_rel)
-                        if _species is None and _rel.isalpha():
-                            _species = _pet_slots.learn_species(_rel)
-                        elif _species is None:
-                            _species = _rel
+                        if _species is None:
+                            continue
                         if _species is not None:
                             _i = 1
                             while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
@@ -2622,12 +2620,8 @@ class UserModel:
                         _pre_txt, re.IGNORECASE)
                     _rel_w = _rel_match.group(1).strip().lower() if _rel_match else None
                     if _rel_w is not None and (
-                            _pet_slots.species_of(_rel_w) is not None or _rel_w.isalpha()):
+                            _pet_slots.species_of(_rel_w) is not None):
                         _species = _pet_slots.species_of(_rel_w)
-                        if _species is None and _rel_w.isalpha():
-                            _species = _pet_slots.learn_species(_rel_w)
-                        elif _species is None:
-                            _species = _rel_w
                         if _species is not None:
                             _i = 1
                             while _pet_slots.slot_for(_species, _i) in self.personal_facts.facts:
@@ -2655,10 +2649,8 @@ class UserModel:
                         continue
                     _species = _pet_slots.species_of(_sp)
                     _species_is_seed = _species is not None
-                    if _species is None and _sp.isalpha():
-                        _species = _pet_slots.learn_species(_sp)
-                    elif _species is None:
-                        _species = _sp
+                    if _species is None:
+                        continue
                     if _species is not None:
                         # PRESERVE THE SURFACE SPECIES PHRASE (round
                         # 2026-08-20T1229Z, pet-resolver hardening). The catch-all
@@ -3211,6 +3203,40 @@ class UserModel:
                         else:
                             break
                     _name = " ".join(_name_toks)
+                    # GENERALIZE (round 2026-09-05, FIX: recall contamination):
+                    # a relationship disclosure can carry a LOWERCASE name
+                    # ("my cousin tanvi", "my mentor john"). The isupper()
+                    # guard above captures only Capitalized names, so
+                    # lowercase names fall through with _name="" and
+                    # _put_fact_done=True, meaning the fact is NEVER
+                    # stored. A later "who is my cousin" then hits
+                    # honest uncertainty ("honestly, cousin is a bit
+                    # outside what i know") — conflating "I don't know"
+                    # with "you didn't tell me." Accept a lowercase name
+                    # when it follows a possessive and a relation word,
+                    # and there is no capitalized name token before it.
+                    # This mirrors the pet appositive branch (which already
+                    # accepts lowercase names for seed species) and the
+                    # earlier kin fix (feature t_1a4a3938) which dropped
+                    # the capitalization requirement for activity-verb
+                    # disclosures.
+                    if not _name and _toks:
+                        _skip_words = {"my", "your", "his", "her",
+                                       "its", "our", "their", "the",
+                                       "a", "an"}
+                        _name_candidate_toks = []
+                        for _t in _toks:
+                            _tc = _t.strip(".,!?").lower()
+                            if not _tc:
+                                break
+                            if _tc in _skip_words:
+                                continue  # skip leading possessives/articles
+                            if _tc in _REL_WORDS or _tc in _KIN:
+                                continue  # skip the relation word itself
+                            _name_candidate_toks.append(_tc)
+                        if _name_candidate_toks:
+                            _name = " ".join(_name_candidate_toks)
+                            _name = _name.strip(".,!?")
                     if not _name:
                         # Neither a recognized verb nor a proper-noun name:
                         # nothing informative to store (e.g. "my grandmother

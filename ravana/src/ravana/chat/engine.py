@@ -6414,6 +6414,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._last_responses.append(_meta_res)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
+            self._record_own_reply(user_input, _meta_res, subject)
             self.notify_user_idle()
             return _meta_res
 
@@ -6444,6 +6445,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._last_responses.append(_tresp)
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
+                    self._record_own_reply(user_input, _tresp, subject)
                     self.notify_user_idle()
                     return _tresp
 
@@ -6464,6 +6466,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses.append(_sr_top)
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
+                self._record_own_reply(user_input, _sr_top, subject)
                 self.notify_user_idle()
                 return _sr_top
         except Exception:
@@ -6483,6 +6486,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses.append(_own_res)
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
+                self._record_own_reply(user_input, _own_res, subject)
                 self.notify_user_idle()
                 return _own_res
         except Exception:
@@ -7143,6 +7147,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._last_responses.append(_mem)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
+            self._record_own_reply(user_input, _mem, subject)
             return _mem
 
 
