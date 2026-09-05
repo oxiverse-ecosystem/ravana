@@ -3733,7 +3733,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Route to honest uncertainty instead of word salad.
         if (subject and hasattr(self, '_CATEGORY_OF_SUBJECT')
                 and subject.lower().strip() in self._CATEGORY_OF_SUBJECT
-                and self._CATEGORY_OF_SUBJECT[subject.lower().strip()] == 'abstract'
+                and self._CATEGORY_OF_SUBJECT[subject.lower().strip()] in ('abstract', 'mental_state')
                 and subject.lower().strip() not in self._definitions
                 and len(assocs) < 3):
             return None
@@ -3957,7 +3957,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         # associations can produce fluent but irrelevant output (word salad).
         if (subject and hasattr(self, '_CATEGORY_OF_SUBJECT')
                 and subject.lower().strip() in self._CATEGORY_OF_SUBJECT
-                and self._CATEGORY_OF_SUBJECT[subject.lower().strip()] == 'abstract'):
+                and self._CATEGORY_OF_SUBJECT[subject.lower().strip()] in ('abstract', 'mental_state')):
             return best >= 0.60
         return best >= 0.45
 
@@ -6762,14 +6762,11 @@ class ResponseGenMixin(ChainWalkerMixin):
         #    word salad from sparse association spreading ──
         if (ctx.subject and hasattr(self, '_CATEGORY_OF_SUBJECT')
                 and ctx.subject.lower().strip() in self._CATEGORY_OF_SUBJECT
-                and self._CATEGORY_OF_SUBJECT[ctx.subject.lower().strip()] == 'abstract'
+                and self._CATEGORY_OF_SUBJECT[ctx.subject.lower().strip()] in ('abstract', 'mental_state')
                 and ctx.subject.lower().strip() not in self._definitions
-                and self._is_informational_query(ctx.raw_input, ctx.subject)
-                and not getattr(self, '_web_blocked', lambda: False)()):
-            # Web search was attempted but failed for an abstract concept
+                and self._is_informational_query(ctx.raw_input, ctx.subject)):
+            # Abstract concept with no definition and web search failed
             # → honest uncertainty, not decoder word salad
-            # Only apply when web was actually usable (not blocked) to avoid
-            # silently skipping web lookup in offline mode
             return self._human_like_uncertainty(ctx)
 
         # ── Fallback to stored _definitions or on-demand KB grounding ──
