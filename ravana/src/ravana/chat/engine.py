@@ -5752,23 +5752,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
         if _user_disclosure_recall:
             return None
-        # User-attribute recall must NOT be answered from the agent-reply
-        # store. A query like "can you recall my name?" / "do you remember my
-        # sister" asks RAVANA to recall the USER's OWN fact/identity (resolved
-        # by the user_identity detector and user stores further down), not the
-        # agent's prior speech. Without this guard the agent-reply store —
-        # which is seeded by RAVANA's OWN user_identity answers — preempts the
-        # user_identity detector for recall-framed user queries (round
-        # regression: test_identity_questions_detected expected user_identity
-        # but got agent_own_recall). Structural: 1st-person possessive +
-        # user-attribute noun + (already-required) recall verb; no per-topic
-        # table, consistent with _is_autobiographical_recall_query's attribute
-        # vocabulary. Fail-open: when no possessive+attribute pair is present
-        # the query is treated as genuine agent-own speech. This only affects
-        # the agent-own-speech gate and leaves the lim#3 episodic-echo gate
-        # (_is_autobiographical_recall_query) untouched.
-        if (re.search(
-                r"\b(my|mine|me|i|we|our|myself)\b", _q)
+        # Guard: user-attribute recall ("can you recall my name?", "do you
+        # remember my sister") must NOT be answered from the agent-reply store —
+        # those ask about the USER's own facts, resolved by the user stores
+        # further down. Structural (1st-person possessive + user-attribute noun),
+        # but ONLY when the query is NOT already a first-person recall of the
+        # agent's own prior speech (RV-5: "what did i just tell you about my
+        # favorite food" must reach the agent-reply store, not be blocked here).
+        if (not _is_first_person_recall
+                and re.search(
+                    r"\b(my|mine|me|i|we|our|myself)\b", _q)
                 and re.search(
                     r"\b(name|named|called|age|live|lives|from|work|study|"
                     r"studied|grew up|sister|brother|mother|father|mom|dad|"
@@ -5784,6 +5777,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # (most/behind/would/view/...) are excluded so a junk stored key can
         # never be matched by coincidence (round 2026-08-17 source-monitoring
         # fix — see _record_own_reply).
+        #
+        # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
+        # you about my favorite food" is a user recall query, but the answer the
+        # user wants is RAVANA's OWN prior reply confirming the disclosure. The
+        # agent-self flag is "you/your" (literal second person). First-person
+        # recall queries that reference the agent's own prior reply are detected
+        # below by the first-person-recall heuristic, NOT by this attribute
+        # guard — the attribute guard is for USER-ATTRIBUTE queries ("can you
+        # recall my name?") which must NOT be answered from the agent-reply
+        # store. So we only apply the attribute guard when the query is NOT a
+        # first-person recall of the agent's own speech.
+        _is_first_person_recall = bool(re.search(
+            r"\b(what did i (?:just |already |recently )?tell you|"
+            r"what did i just say|what did i tell you|"
+            r"what have i told you|what did i mention|"
+            r"remind me what you said|"
+            r"what did i say about|"
+            r"what was it i told you|"
+            r"what did i just tell you about)\b", _q))
         _TAIL_SCAFFOLD_REC = {
             "most", "behind", "would", "view", "start", "change", "first",
             "live", "does", "will", "been", "conversation", "good", "really",
@@ -6447,7 +6459,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self._last_responses = self._last_responses[-10:]
                     self._record_own_reply(user_input, _tresp, subject)
                     self.notify_user_idle()
-                    self._identity_end_of_turn(user_input)
+                    self._identity_end_of_turn(user_input, quality_score=None)
                     return _tresp
 
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
@@ -6862,7 +6874,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self._record_own_reply(user_input, _exp, subject)
                     except Exception:
                         pass
-                    self._identity_end_of_turn(user_input)
+                    self._identity_end_of_turn(user_input, quality_score=None)
                     return _exp
                 _sersp = self._route_self_query(user_input)
                 if _sersp is not None:
@@ -6945,7 +6957,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if len(self._last_responses) > 10:
                     self._last_responses = self._last_responses[-10:]
                 self.notify_user_idle()
-                self._identity_end_of_turn(user_input)
+                self._identity_end_of_turn(user_input, quality_score=None)
                 return _sr
         except Exception:
             pass
@@ -7125,7 +7137,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
-            self._identity_end_of_turn(user_input)
+            self._identity_end_of_turn(user_input, quality_score=None)
             return _intern
 
         # ── Fix 4 (Q12): episodic memory meta-query pre-pass ──────────────────
@@ -7150,7 +7162,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._last_responses.append(_mem)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
-            self._record_own_reply(user_input, _mem, subject)
+            self._record_own_reply(user_input, _mem, self._last_subject)
             return _mem
 
 
@@ -7844,7 +7856,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
-                    self._identity_end_of_turn(user_input)
+                    self._identity_end_of_turn(user_input, quality_score=None)
                     return _resp
             # §7 Reaction to the prior turn ("that's hilarious", "aww") routes
             # to the affiliation/empathy frame, not concept lookup.
@@ -8377,7 +8389,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
-            self._identity_end_of_turn(user_input)
+            self._identity_end_of_turn(user_input, quality_score=None)
             return response.lower()
 
         # Deferred decoder training on first turn (fast startup)
@@ -9885,7 +9897,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # arithmetic, empathy, etc. that lack per-site calls.
         # Self-recall queries are skipped inside _record_own_reply itself.
         # ── Identity update (RV-1 fix: wire compute_update into process_turn) ──
-        self._identity_end_of_turn(user_input)
+        self._identity_end_of_turn(user_input, quality_score=None)
 
         self._record_own_reply(user_input, response, subject)
         return response
