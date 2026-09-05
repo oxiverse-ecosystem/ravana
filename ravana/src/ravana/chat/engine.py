@@ -9850,6 +9850,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # "NASA" -> "nasa"), making RAVANA look broken. All generators already
         # produce correctly-cased text, and quality/scoring functions lowercase
         # internally where needed, so we return the response as-is.
+        # ── Agent-utterance log (catch-all): record RAVANA's own reply
+        # so later recall queries about the agent's prior speech can answer
+        # from the AgentReplyStore instead of echoing the user (D1 fix).
+        # Called at the END of process_turn as a catch-all so NO reply-
+        # producing path is missed — including early returns from meta,
+        # temporal/structured recall, agent_own_recall, preamble_hold,
+        # arithmetic, empathy, etc. that lack per-site calls.
+        # Self-recall queries are skipped inside _record_own_reply itself.
+        self._record_own_reply(user_input, response, subject)
         return response
     @staticmethod
     def _norm_word(w: str) -> str:

@@ -3728,6 +3728,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         subject = ctx.subject
         assocs = ctx.associated_concepts
 
+        # Abstract concepts without definitions or strong associations
+        # produce degenerate output from sparse association spreading.
+        # Route to honest uncertainty instead of word salad.
+        if (subject and hasattr(self, '_CATEGORY_OF_SUBJECT')
+                and subject.lower().strip() in self._CATEGORY_OF_SUBJECT
+                and self._CATEGORY_OF_SUBJECT[subject.lower().strip()] == 'abstract'
+                and subject.lower().strip() not in self._definitions
+                and len(assocs) < 3):
+            return None
+
         # Route through syntactic pipeline (graph + surface realizer only)
         try:
             syntax_response = self._generate_with_decoder_and_syntax(ctx)
@@ -3943,6 +3953,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         # distant/random neighbours (low feeling-of-knowing), so the topic is
         # treated as ungrounded and answered with honest uncertainty instead of
         # confabulated association salad.
+        # Abstract concepts need a higher threshold because sparse/noisy
+        # associations can produce fluent but irrelevant output (word salad).
+        if (subject and hasattr(self, '_CATEGORY_OF_SUBJECT')
+                and subject.lower().strip() in self._CATEGORY_OF_SUBJECT
+                and self._CATEGORY_OF_SUBJECT[subject.lower().strip()] == 'abstract'):
+            return best >= 0.60
         return best >= 0.45
 
     def _sm_response_grounded(self, ctx: CognitiveResponseContext,
@@ -6740,6 +6756,21 @@ class ResponseGenMixin(ChainWalkerMixin):
         web_ans = self._web_direct_answer(ctx)
         if web_ans and web_ans[1] != "web_unverified":
             return web_ans
+
+        # ── Abstract concept gate: if abstract with no definition and
+        #    web search failed, route to honest uncertainty instead of
+        #    word salad from sparse association spreading ──
+        if (ctx.subject and hasattr(self, '_CATEGORY_OF_SUBJECT')
+                and ctx.subject.lower().strip() in self._CATEGORY_OF_SUBJECT
+                and self._CATEGORY_OF_SUBJECT[ctx.subject.lower().strip()] == 'abstract'
+                and ctx.subject.lower().strip() not in self._definitions
+                and self._is_informational_query(ctx.raw_input, ctx.subject)
+                and not getattr(self, '_web_blocked', lambda: False)()):
+            # Web search was attempted but failed for an abstract concept
+            # → honest uncertainty, not decoder word salad
+            # Only apply when web was actually usable (not blocked) to avoid
+            # silently skipping web lookup in offline mode
+            return self._human_like_uncertainty(ctx)
 
         # ── Fallback to stored _definitions or on-demand KB grounding ──
         if ctx.subject:

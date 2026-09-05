@@ -124,6 +124,7 @@ class CognitiveResponseContext:
     exploration_drive: float = 0.0
     learned_recently: bool = False
     recall_mode: bool = False
+    recall_miss: bool = False  # True when recall mode fired but nothing stored
 
 
 @dataclass
