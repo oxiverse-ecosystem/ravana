@@ -538,7 +538,40 @@ class SelfQueryMixin:
                         return (_stance, _w_reason)
             except Exception:
                 pass
-        # No graph grounding at all (cosine < 0.30 to any node).
+        # 2b) USER-STANCE GROUNDING — the user may have disclosed a stance
+        #     on a semantically related topic (e.g. user says "privacy",
+        #     agent asked about "data privacy"). Resolve the topic through
+        #     the user's opinion store so a related learned stance
+        #     anchors the agent's reply instead of "still forming".
+        #     Seed structure (data/store, not if/elif): RAVANA can extend
+        #     the resolver at runtime as new stances are mined.
+        _opinions = getattr(getattr(self, "user_model", None), "opinions", None)
+        if _opinions is not None:
+            try:
+                _user_topic = _opinions.resolve_topic(target)
+                if _user_topic is not None:
+                    _u_stance = _opinions.query_stance(_user_topic)
+                    if _u_stance is not None and _u_stance.confidence >= 0.35:
+                        _u_pol = float(_u_stance.polarity)
+                        _conf = max(0.35, min(0.85, _u_stance.confidence * 0.8))
+                        _polarity_word = ("strongly for" if _u_pol >= 0.6
+                                          else "for" if _u_pol > 0.1
+                                          else "strongly against" if _u_pol <= -0.6
+                                          else "against" if _u_pol < -0.1
+                                          else "uncertain about")
+                        _stance = f"i'm {_polarity_word} {target}"
+                        _reason = (f"i've heard you care about {_user_topic} "
+                                   f"and i lean the same way on {target}")
+                        try:
+                            self._agent_own_stances[target.lower().strip()] = (
+                                _polarity_word, float(_conf), _reason,
+                                int(getattr(self, "turn_count", 0)))
+                        except Exception:
+                            pass
+                        return (_stance, _reason)
+            except Exception:
+                pass
+# No graph grounding at all (cosine < 0.30 to any node).
         # Genuinely novel topic with zero semantic grounding — honest
         # "still forming" is the only truthful reply.
         _stance = f"i'm still forming a view on {target}"
