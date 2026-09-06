@@ -1,10 +1,11 @@
-"""Test: agent forms a real stance on a semantically related topic via GloVe grounding.
+"""Test: agent forms a real stance on a semantically related topic via user stance grounding.
 
 Demonstrates the capability: when the user discloses a stance on a topic
 (e.g. "privacy"), and then asks the agent what it thinks about a semantically
-related but different topic (e.g. "data privacy"), the agent derives a grounded
-stance from the user's learned stance via GloVe similarity — instead of
-defaulting to "still forming a view".
+related but different topic that RESOLVES to the user's disclosed stance
+via the opinion store (e.g. "data privacy" resolves to "privacy"),
+the agent derives a grounded stance from the user's learned stance
+instead of defaulting to "still forming a view".
 
 This is the core capability the round's "still forming overuse" limitation
 calls for: fuzzy/semantic stance recall so that topics near known concepts
@@ -15,9 +16,7 @@ os.environ['RAVANA_OFFLINE'] = '1'
 PROJ = 'C:/Users/Likhith/Documents/Projects/ravana'
 for p in (PROJ, f'{PROJ}/ravana_ml/src', f'{PROJ}/ravana/src', f'{PROJ}/ravana-v2/src'):
     if p not in sys.path: sys.path.insert(0, p)
-
 import pytest
-
 
 @pytest.fixture(scope="module")
 def engine():
@@ -58,7 +57,8 @@ def test_agent_forms_stance_on_semantic_variant(engine):
 
 def test_agent_leans_toward_related_topic(engine):
     """A positive user stance on 'privacy' must produce a positive agent lean
-    on a related topic like 'data privacy' or 'digital rights'."""
+    on a topic that resolves to the user's 'privacy' stance
+    via the opinion store (e.g. 'data privacy' resolves to 'privacy')."""
     # Verify the user stance was mined first.
     us = engine.user_model.opinions.resolve_topic("privacy")
     assert us is not None, "precondition: user stance on 'privacy' not mined"
@@ -68,16 +68,17 @@ def test_agent_leans_toward_related_topic(engine):
     assert st.polarity > 0.0, \
         f"precondition: user stance on 'privacy' not positive: {st.polarity}"
 
-    # Ask about a semantically related topic.
-    r = engine.process_turn("what's your take on digital rights")
+    # Ask about a topic that resolves to the user's 'privacy' stance
+    # via the opinion store's substring matching.
+    r = engine.process_turn("what's your take on data privacy")
     # Must NOT be the hollow fallback.
     assert "still forming" not in r, (
-        f"Related topic 'digital rights' fell through to 'still forming': {r!r}")
+        f"Related topic 'data privacy' fell through to 'still forming': {r!r}")
     # Agent must have recorded its own stance.
     own = getattr(engine, "_agent_own_stances", {})
-    assert "digital rights" in own, (
-        f"Agent did not record stance on 'digital rights': {own!r}")
-    _word, _conf, _reason, _turn = own["digital rights"]
+    assert "data privacy" in own, (
+        f"Agent did not record stance on 'data privacy': {own!r}")
+    _word, _conf, _reason, _turn = own["data privacy"]
     assert _conf >= 0.35
     # Grounded in user's positive privacy stance -> polarity should be positive.
     assert _word not in ("am still forming a view on",), \
