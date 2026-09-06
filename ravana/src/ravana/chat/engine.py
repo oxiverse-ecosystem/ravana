@@ -2635,6 +2635,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r".{0,40}?([a-z][a-z ]{2,40})", q)
         if _SELFSTANCE and opinions is not None:
             _topic_phrase = _SELFSTANCE.group(2).strip().strip("?.!")
+            # CONTRAST GUARD (round 2026-09-06): a binary self-opinion query
+            # ("your take on X versus Y", "do you prefer A or B") carries TWO
+            # options. _structured_recall extracts the WHOLE phrase as one topic
+            # and collapses to the first known stance ("i'm for sea") — the
+            # contrast is lost. Detect the contrastive connective and return
+            # None so the query falls through to _route_self_query, which has
+            # the correct contrast-splitting logic (resolves EACH side through
+            # _agent_stance_on and joins with "; "). Structural: a contrastive
+            # connective between two content phrases. Fail-open: a non-contrast
+            # self-opinion query is unaffected.
+            if re.search(r"\b(versus|vs\.?|or|rather than|over)\b", _topic_phrase):
+                return None
             # resolve the phrase to a known stance topic (semantic-ish via the
             # store's own resolver, which folds synonyms)
             _topic = opinions.resolve_topic(_topic_phrase) or _topic_phrase.lower().strip()
@@ -3771,7 +3783,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # value/stance store (grounded) or honestly abstain. Fail-open: if
             # _route_self_query returns None the normal pipeline runs.
             _selfopinion = re.search(
-                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+                r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
                 r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
                 r"|how\s+do\s+you\s+(feel|think)\s+about\b"
                 r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"

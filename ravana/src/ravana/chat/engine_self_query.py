@@ -976,7 +976,7 @@ class SelfQueryMixin:
         # falls through because _agent_stance_on returns the honest
         # topic-named deflection when it holds no value there.
         _agent_opinion = re.search(
-            r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+            r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
             r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
             r"|how\s+do\s+you\s+(feel|think)\s+about\b"
             r"|what's\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
@@ -1152,8 +1152,53 @@ class SelfQueryMixin:
                 if len(_side_topics) >= 2:
                     _phrases = []
                     for _st in _side_topics:
-                        _stt, _st_r = self._agent_stance_on(_st)
-                        _phrases.append(_stt)
+                        # USER-STANCE GROUNDING (round 2026-09-06): if the
+                        # user holds a real learned stance on this side topic,
+                        # derive a grounded lean (attenuated copy) so the
+                        # contrast reply expresses a real polarity ("i'm wary
+                        # of cities") instead of the hollow "still forming a
+                        # view". Mirrors _structured_recall's FORM logic but
+                        # per-side and ephemeral (recorded in _agent_stances
+                        # for session stability, not a self/other boundary
+                        # violation — the agent is informed by its partner's
+                        # views, not echoing them as its own facts).
+                        _user_stance = None
+                        _opinions = getattr(self, "user_model", None)
+                        _opinions = getattr(_opinions, "opinions", None) if _opinions else None
+                        if _opinions is not None:
+                            _user_stance = _opinions.query_stance(_st)
+                        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
+                            _pol = float(_user_stance.polarity) * 0.7
+                            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
+                            if _pol >= 0.6:
+                                _w = "strongly for"
+                            elif _pol > 0.1:
+                                _w = "for"
+                            elif _pol <= -0.6:
+                                _w = "strongly against"
+                            elif _pol < -0.1:
+                                _w = "against"
+                            elif _pol >= 0.15:
+                                _w = "lean toward"
+                            elif _pol <= -0.15:
+                                _w = "wary of"
+                            else:
+                                _w = "uncertain about"
+                            _stance = f"i'm {_w} {_st}"
+                            try:
+                                from ravana.chat.personal_fact_store import Stance
+                                self._agent_stances[_st.lower().strip()] = Stance(
+                                    topic=_st.lower().strip(), polarity=_pol, confidence=_conf,
+                                    valence=getattr(_user_stance, "valence", 0.0),
+                                    arousal=getattr(_user_stance, "arousal", 0.0),
+                                    turn_number=getattr(self, "turn_count", 0) or 0,
+                                    rehearsal_count=1)
+                            except Exception:
+                                pass
+                            _phrases.append(_stance)
+                        else:
+                            _stt, _st_r = self._agent_stance_on(_st)
+                            _phrases.append(_stt)
                     stance = "; ".join(_phrases)
                     reason = ""
                     _reason = reason.rstrip()
