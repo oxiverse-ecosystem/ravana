@@ -902,16 +902,31 @@ class SelfQueryMixin:
                               for p in _tail.lower().split(" or ")
                               if p.strip().strip("?.'\"")]
                 if _sides and len(_sides) >= 2:
-                    _SCRUB = (set(_PRON_OR_CLOSED) | set(_VERB_SCAFFOLD) |
-                              {"honest", "read", "take", "view", "opinion",
-                               "thoughts", "stance", "versus", "vs",
-                               "more", "less", "now", "after", "just",
-                               "said", "right", "really", "exactly",
-                               "tell", "than", "rather", "between",
-                               "you're", "you've", "you'd", "you'll",
-                               "choose", "choosing", "be", "being", "am",
-                               "is", "are", "was", "were"})
-                    _side_topics = []
+                                    _PRON_OR_CLOSED = ("i", "me", "my", "mine", "you", "your", "yours",
+                                                       "he", "him", "his", "she", "her", "hers",
+                                                       "it", "its", "we", "us", "our", "ours",
+                                                       "they", "them", "their", "theirs",
+                                                       "this", "that", "these", "those",
+                                                       "what", "which", "who", "whom", "whose",
+                                                       "would", "could", "should", "might", "may",
+                                                       "is", "are", "was", "were", "be", "been",
+                                                       "have", "has", "had", "do", "does", "did",
+                                                       "will", "shall", "can", "cannot", "can't")
+                                    _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
+                                                      "make", "let", "help", "tell", "ask", "say", "said",
+                                                      "think", "feel", "believe", "know", "want", "need",
+                                                      "hope", "wish", "rather", "choose", "chose",
+                                                      "rather")
+                                    _SCRUB = (set(_PRON_OR_CLOSED) | set(_VERB_SCAFFOLD) |
+                                              {"honest", "read", "take", "view", "opinion",
+                                               "thoughts", "stance", "versus", "vs",
+                                               "more", "less", "now", "after", "just",
+                                               "said", "right", "really", "exactly",
+                                               "tell", "than", "rather", "between",
+                                               "you're", "you've", "you'd", "you'll",
+                                               "choose", "choosing", "be", "being", "am",
+                                               "is", "are", "was", "were"})
+                                    _side_topics = []
                     for _side in _sides:
                         _side_toks = [w for w in re.findall(r"[a-z']+", _side)
                                       if w not in _SCRUB]

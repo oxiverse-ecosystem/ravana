@@ -6884,7 +6884,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
                     try:
-                        self._record_own_reply(user_input, _sersp, subject)
+                        self._record_own_reply(user_input, _sersp, self._last_subject)
                     except Exception:
                         pass
                     return _sersp
@@ -6915,7 +6915,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # AgentReplyStore capture (D1): record the agent's own reply so a
                 # later "what did you say about X" answers from RAVANA's speech.
                 try:
-                    self._record_own_reply(user_input, _exp, subject)
+                    self._record_own_reply(user_input, _exp, self._last_subject)
                 except Exception:
                     pass
                 return _exp
