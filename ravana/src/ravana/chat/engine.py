@@ -6865,17 +6865,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _exp_first = self._route_self_experience(user_input)
                 except Exception:
                     _exp_first = None
+                if _exp_first is not None:
                     self._last_strategy = "self_experience"
-                    self._last_responses.append(_exp)
+                    self._last_responses.append(_exp_first)
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
                     try:
-                        self._record_own_reply(user_input, _exp, subject)
+                        self._record_own_reply(user_input, _exp_first, self._last_subject)
                     except Exception:
                         pass
-                    self._identity_end_of_turn(user_input, quality_score=None)
-                    return _exp
+                    return _exp_first
                 _sersp = self._route_self_query(user_input)
                 if _sersp is not None:
                     self._last_strategy = "self_model"
@@ -9530,7 +9530,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # sites (self_experience / self_reference) call the same helper before
             # their returns so no reply-producing path is missed.
             try:
-                self._record_own_reply(user_input, response, subject)
+                            self._record_own_reply(user_input, response, self._last_subject)
             except Exception:
                 pass
         finally:
@@ -9899,7 +9899,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # ── Identity update (RV-1 fix: wire compute_update into process_turn) ──
         self._identity_end_of_turn(user_input, quality_score=None)
 
-        self._record_own_reply(user_input, response, subject)
+        self._record_own_reply(user_input, response, self._last_subject)
         return response
 
     # ── Identity update wiring (RV-1 fix) ──────────────────────────────────────
