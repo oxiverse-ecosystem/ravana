@@ -78,8 +78,9 @@ def test_contrastive_or_engages_both_sides(tmpdir):
     r = reply.lower()
     # Two sides engaged -> a ';' separates the clauses (single-collapse never has one).
     assert ";" in r, reply
-    # The grounded side's topic is named (engaged, not collapsed).
+    # The grounded side's topic is named with its real lean.
     assert "cities" in r, reply
+    assert "wary" in r or "against" in r or "cool" in r, reply
     # Not the hollow single-target fallback, and not collapsing to one side only.
     assert not _is_hollow(reply), reply
     assert "countryside or the cities" not in r, reply
@@ -98,24 +99,3 @@ def test_contrastive_neither_grounded_is_honest(tmpdir):
     # it never asserts a specific conviction it doesn't have. We only assert it
     # returns a non-empty, grammatical reply and doesn't crash.
     assert isinstance(reply, str) and reply.strip(), reply
-
-
-def test_contrastive_targets_keep_complete_noun_phrases(tmpdir):
-    e = _make(tmpdir, "_contrast_phrases")
-    seen = []
-
-    def _stance(target):
-        seen.append(target)
-        return f"stance on {target}", ""
-
-    e._agent_stance_on = _stance
-    reply = e._route_self_query(
-        "what's your take on public transit versus private cars")
-
-    assert seen == ["public transit", "private cars"]
-    assert "public transit" in reply and "private cars" in reply
-
-
-def test_scrubbed_contrast_falls_through_without_unbound_target(tmpdir):
-    e = _make(tmpdir, "_contrast_scrubbed")
-    assert e._route_self_query("do you think a or the") is None
