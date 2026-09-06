@@ -9901,7 +9901,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         self._record_own_reply(user_input, response, subject)
         return response
-    @staticmethod
+
     # ── Identity update wiring (RV-1 fix) ──────────────────────────────────────
     # process_turn() never called IdentityEngine.compute_update(), so the
     # identity stayed pinned at initial_strength=1.0. This helper computes the
