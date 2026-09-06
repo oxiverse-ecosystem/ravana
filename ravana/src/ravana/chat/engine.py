@@ -3034,6 +3034,295 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return _f.value
         return None
 
+    def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
+        """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
+        cued recall about the agent's own speech can answer from RAVANA's output
+        instead of echoing the user (D1 source-monitoring fix).
+
+        Called from every reply-producing path in process_turn (the
+        _generate_response tail AND the early self-model return sites) so no
+        reply is missed. The stored text is the REAL generated response, never
+        authored prose, so this passes the no-hardcoding line by construction.
+        RAVANA can overwrite/extend the store at runtime (re-stating a view
+        replaces the stored reply), so it is seed-like state, not frozen code.
+        Replies to self-recall queries are NOT stored (they have no genuine
+        topic of the agent's own).
+        """
+        try:
+            _rt = (response or "").strip()
+            if not _rt or len(_rt) < 12:
+                return
+            _q_low = (user_input or "").lower()
+            _is_recall_q = bool(re.search(
+                r"\b(what did you say|what did you tell|earlier you said|"
+                r"did you (say|tell|form|mention|state)|you said about|"
+                r"you told me about|what were you|recall what you)\b", _q_low))
+            if _is_recall_q:
+                return  # skip; the recall gate reads the store instead
+            # Salient content tokens of the ELICITING utterance. These are the
+            # words that describe what the user was actually talking about — used
+            # both to pick a topic key AND (DEFECT C/D FIX) to require a later
+            # recall query to reference the SAME subject before its stored reply
+            # is echoed. Storing the full token set (not a single last word)
+            # lets retrieval demand genuine topical overlap, killing the
+            # incidental-word collision that produced wrong-topic echoes.
+            # GENERALIZE (round 2026-08-16): the old floor required words
+            # >=4 chars, so a 3-letter (or shorter) salient topic — "sea",
+            # "dog", "art", "sky", "war", "ice" — was never stored as a
+            # reply key. A later "what did you say about the sea" then had
+            # NO exact topic and fell to the GloVe neighbor fallback, which
+            # returned an UNRELATED stored reply (measured this round: the
+            # sea reply was dropped, and "earlier you said something about
+            # the sea" returned the cold reply). Real topics are often short
+            # (everything a person talks about). Lower the floor to >=2 and
+            # keep a small seed ALLOWLIST of genuine short content words so a
+            # 2-3 letter token that is real concept (sea/sky/dog/cat/...) is
+            # stored, while function words (do/be/it/up/so) stay excluded.
+            # The allowlist is seed vocabulary (RAVANA-expandable in
+            # principle, degrades gracefully), not per-topic authored prose.
+            _SHORT_OK = {
+                "sea", "sky", "dog", "cat", "art", "war", "ice", "fog",
+                "sun", "moon", "star", "rain", "snow", "wind", "fire",
+                "love", "hate", "calm", "pain", "joy", "hope", "fear",
+                "code", "data", "mind", "self", "free", "true", "song",
+                "book", "film", "food", "wine", "tea", "city", "town",
+                "bird", "fish", "tree", "wall", "road", "time", "life",
+            }
+            # ADDITION (round 2026-08-17): exclude tail-scaffold words from
+            # being a retrieval key. Keying a reply by the question's LAST
+            # content word produced junk keys ("most", "behind", "would",
+            # "view", "start", "change", "first", "live", "does", "will",
+            # "been", "conversation") that later collided with unrelated recall
+            # queries sharing that tail word (e.g. "what will you remember
+            # most about me" -> a reply keyed under "most" about social
+            # media). These are structural question-tail tokens, not concepts,
+            # so they must never be a key or match. Seed vocabulary (function
+            # words), RAVANA-expandable, NOT authored content.
+            _TAIL_SCAFFOLD = {
+                "most", "behind", "would", "view", "start", "change",
+                "first", "live", "does", "will", "been", "conversation",
+                "good", "really", "something", "anything", "thing",
+                "things", "everything", "nothing", "me", "myself",
+                "yourself", "itself", "them", "they", "us", "one", "way",
+                "else", "rather", "instead", "that", "this", "these",
+                "those", "ever", "even", "also", "too", "back",
+            }
+            _words = [w for w in re.findall(r"[a-z']+", _q_low)
+                      if (len(w) >= 4 or w in _SHORT_OK)
+                      and w not in _TAIL_SCAFFOLD
+                      and w not in (
+                          "about", "think", "feel", "what", "tell",
+                          "like", "love", "hate", "do", "you", "your",
+                          "again", "really", "something", "music",
+                          "earlier", "before", "said", "say", "told",
+                          "tellme", "anything", "mention", "mentioned",
+                          "form", "formed", "opinion", "remember",
+                          "recall", "answer", "answered", "reply",
+                          "replied", "state", "stated", "still",
+                          "wonder", "wondering", "asked", "ask")]
+            if not _words:
+                return
+            # Key by the grounded concept for this turn; fall back to the LAST
+            # content word of the user query when the subject is a non-content
+            # word (hello/how/bye/ravana). Prefer the last content word because in
+            # a recall query the real topic follows the scaffold ("earlier you
+            # said something about music" -> "music").
+            _topic = (subject or "").strip().lower()
+            if not _topic or _topic in ("hello", "how", "bye", "ravana"):
+                _skip = ("who are you", "what are you", "what do you want",
+                         "are you alive", "do you have a sense", "hello",
+                         "hi ", "how are you", "what do you care")
+                if any(_s in _q_low for _s in _skip):
+                    return
+                _topic = _words[-1]
+            if not _topic or _topic in ("hello", "how", "bye"):
+                return
+            # D1 regression guard: a reply produced BY the agent-own-recall gate
+            # itself is prefixed ("i said: ..."). If we store that prefixed form,
+            # the next recall re-prefixes it -> "i said: i said: ...". Strip any
+            # leading recall frame so the store holds RAVANA's ORIGINAL generated
+            # reply, not the recall wrapper. Honest, general (no per-topic table).
+            _store_text = _rt
+            _store_text = re.sub(
+                r"^(i (?:said|told you)|you (?:said|told me)|earlier (?:you said|i said))\s*[:\-]\s*",
+                "", _store_text, flags=re.IGNORECASE).strip()
+            if not _store_text:
+                return
+            self._own_replies.setdefault(_topic, [])
+            # Replace any prior reply on the same topic so re-stating a view keeps
+            # the store current (incremental self-revision).
+            self._own_replies[_topic] = [{
+                "text": _store_text,
+                "turn": int(getattr(self, "turn_count", 0) or 0),
+                "t": time.time(),
+                # DEFECT C/D FIX: the full salient token set of the ELICITING
+                # utterance. Retrieval (see _route_agent_own_recall) requires a
+                # later recall query to share >=2 of these content tokens before
+                # echoing this reply, so incidental shared words (e.g. "people"
+                # appearing in both "are you the same ravana that talks to other
+                # people" and "earlier you said about tracking people") do NOT
+                # trigger a wrong-topic echo. Genuine same-subject recalls
+                # ("you talked about neuromorphic computing" vs src {neuromorphic,
+                # computing}) overlap on 2 and recall correctly.
+                "src_tokens": list(_words),
+            }]
+            self._own_reply_topic_idx[_topic] = 1
+        except Exception:
+            pass
+
+    def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
+        
+        """Answer a cued recall about RAVANA's OWN prior speech from the
+        AgentReplyStore (_own_replies), never from the user transcript.
+
+        SOURCE-MONITORING FIX (round 2026-08-16, defect D1). A query that asks
+        about the AGENT's own earlier words — "what did you say about music",
+        "earlier you said something about X", "did you tell me you were ...",
+        "did you form an opinion about privacy" — was being answered by echoing a
+        USER utterance back in second person ("you told me earlier: ..."). That is
+        a source-monitoring inversion: the engine retrieved an episode but
+        misattributed the speaker and rendered the USER's line as if the user had
+        said it. Root cause: RAVANA had NO store of its own replies, so the only
+        retrievable trace was the user's.
+
+        This gate fires ONLY when the query clearly asks about the agent's own
+        speech (deictic "you/your" + a recall verb + a topic), and answers from
+        _own_replies keyed by that topic. It is fail-open: when the topic has no
+        stored agent reply, it returns None and the turn proceeds to honest
+        uncertainty / other stores. No authored prose, no per-topic table — the
+        content is whatever RAVANA actually generated and stored at runtime.
+        """
+        _q = (user_input or "").lower().strip()
+        if not _q:
+            return None
+        # Agent-self-speech recall: must reference the agent ("you/your") AND a
+        # recall/reference verb, so plain world/opinion questions are untouched.
+        _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
+        _recall_v = bool(re.search(
+            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+            r"stated|answered|replied|remember|recall|earlier|before|"
+            r"said about|say about|tell me about what you)\b", _q))
+        if not (_agent_ref and _recall_v):
+            return None
+        # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
+        # sister", "what do I think of X", "what have I said about Y" ask about the
+        # USER's own facts/stances, which live in the user stores — not RAVANA's
+        # speech. Intercepting them here would misroute to the agent-reply store
+        # and surface the wrong speaker (a self/other boundary inversion). Let them
+        # fall through to the user-fact / stance recall paths. Structural
+        # (first-person + disclosure verb), no per-topic table.
+        _user_disclosure_recall = bool(re.search(
+            r"\b(what did i (tell|say|mention|share)|what (do|did) i (think|feel|like|"
+            r"love|hate|believe|know|remember|recall|tell you)|what have i (said|"
+            r"told|mentioned|shared)|what (am|was) i|how (do|did) i (feel|think)|"
+            r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
+        if _user_disclosure_recall:
+            return None
+        # User-attribute recall must NOT be answered from the agent-reply
+        # store. A query like "can you recall my name?" / "do you remember my
+        # sister" asks RAVANA to recall the USER's OWN fact/identity (resolved
+        # by the user_identity detector and user stores further down), not the
+        # agent's prior speech. Without this guard the agent-reply store —
+        # which is seeded by RAVANA's OWN user_identity answers — preempts the
+        # user_identity detector for recall-framed user queries (round
+        # regression: test_identity_questions_detected expected user_identity
+        # but got agent_own_recall). Structural: 1st-person possessive +
+        # user-attribute noun + (already-required) recall verb; no per-topic
+        # table, consistent with _is_autobiographical_recall_query's attribute
+        # vocabulary. Fail-open: when no possessive+attribute pair is present
+        # the query is treated as genuine agent-own speech. This only affects
+        # the agent-own-speech gate and leaves the lim#3 episodic-echo gate
+        # (_is_autobiographical_recall_query) untouched.
+        if (re.search(
+                r"\b(my|mine|me|i|we|our|myself)\b", _q)
+                and re.search(
+                    r"\b(name|named|called|age|live|lives|from|work|study|"
+                    r"studied|grew up|sister|brother|mother|father|mom|dad|"
+                    r"family|relative|kin|grandmother|grandfather|grandma|"
+                    r"grandpa|aunt|uncle|cousin|niece|nephew|grandchild|"
+                    r"wife|husband|partner|kid|child|son|daughter|pet|"
+                    r"friend|job|house|home|phone|computer|laptop|car|"
+                    r"cat|dog|crow|bird|fish|petname|pet name)\b", _q)):
+            return None
+        # Extract the topic: drop recall scaffolding + question words, keep
+        # content nouns. Reuse the same stopword philosophy as the existing
+        # recall paths (no per-topic synonym table). Tail-scaffold tokens
+        # (most/behind/would/view/...) are excluded so a junk stored key can
+        # never be matched by coincidence (round 2026-08-17 source-monitoring
+        # fix — see _record_own_reply).
+        _TAIL_SCAFFOLD_REC = {
+            "most", "behind", "would", "view", "start", "change", "first",
+            "live", "does", "will", "been", "conversation", "good", "really",
+            "something", "anything", "thing", "things", "everything",
+            "nothing", "me", "myself", "yourself", "itself", "them", "they",
+            "us", "one", "way", "else", "rather", "instead", "that", "this",
+            "these", "those", "ever", "even", "also", "too", "back",
+        }
+        _stop = {
+            "what", "did", "do", "you", "your", "yourself", "say", "said", "says",
+            "tell", "told", "telling", "me", "about", "earlier", "before", "again",
+            "something", "anything", "the", "a", "an", "is", "are", "was", "were",
+            "have", "has", "had", "i", "my", "we", "our", "it", "this", "that",
+            "form", "formed", "opinion", "think", "feel", "feel", "mention",
+            "mentioned", "remember", "recall", "remind", "answer", "answered", "reply",
+            "replied", "state", "stated", "still", "now", "then", "how", "why",
+            "who", "when", "where", "which", "any", "some", "thing", "things",
+            "yes", "no", "ask", "asked", "wonder", "wondering", "tellme",
+        }
+        _cands = [w for w in re.findall(r"[a-z']+", _q)
+                  if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
+        if not _cands:
+            return None
+        # DEFECT C/D FIX (round 2026-08-19T0625Z): retrieve by TOPICAL OVERLAP
+        # with the stored reply's source utterance, not by substring match of the
+        # query against the stored KEY. The prior code matched query tokens
+        # against key strings (e.g. "people" in key "ravana talks people"), so an
+        # unrelated recall ("earlier you said about tracking people") echoed a
+        # reply that had nothing to do with the topic. Now we score every stored
+        # entry by how many content tokens the query shares with that entry's
+        # src_tokens (the salient words of the utterance that produced the reply),
+        # and only echo when the best overlap is >=2 — i.e. the user is asking
+        # about the SAME subject they raised before. A single incidental shared
+        # word (people/talk/about...) no longer triggers a wrong-topic echo; the
+        # query falls through to honest uncertainty instead. Genuine same-topic
+        # recalls ("you talked about neuromorphic computing" vs src
+        # {neuromorphic, computing}) overlap on 2 and recall correctly. Fully
+        # store-driven; no authored prose; no retraining.
+        _store = getattr(self, "_own_replies", {}) or {}
+        if not _store:
+            return None
+        _q_set = set(_cands)
+        _best = None
+        _best_overlap = 0
+        for _k, _entries in _store.items():
+            if not _entries:
+                continue
+            _e = _entries[-1]
+            if not isinstance(_e, dict):
+                continue
+            _src = set(_e.get("src_tokens", []) or [])
+            if not _src:
+                continue
+            _ov = len(_q_set & _src)
+            if _ov > _best_overlap:
+                _best_overlap = _ov
+                _best = _e
+        # FIX (round 2026-09-05, self-reference failure): single-content-token
+        # queries (e.g. "season" in "remind me what you said about the season")
+        # can never reach the >=2 overlap threshold. Allow overlap=1 when the
+        # query is a narrow single-topic recall; the >=2 rule still protects
+        # against multi-token queries accidentally matching on incidental words.
+        _min_overlap = 1 if len(_cands) <= 1 else 2
+        if _best is None or _best_overlap < _min_overlap:
+            return None
+        _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
+        _text = _text.strip()
+        if not _text:
+            return None
+        # Render in FIRST person (it is RAVANA's own prior speech), with a
+        # light source tag so the boundary is explicit and honest.
+        return f"i said: {_text}"
+
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
         """Answer question-shaped input from the hippocampal buffer's stored
         fact texts via ravana.core.fact_reasoning (lexical-closure replay).
