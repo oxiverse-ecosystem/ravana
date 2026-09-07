@@ -1087,7 +1087,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # that way about X?" can be answered from a REAL recorded stance rather
         # than recomputing fresh or echoing. Runtime-expandable (every stance
         # _agent_stance_on computes is written here) and persisted below.
-        self._agent_own_stances: Dict[str, Tuple[str, float, str, int]] = {}
+        # (renamed from _agent_own_stances on main; kept as _agent_stances)
         # RAVANA's own constitutive values (seed knowledge, NOT hardcoding):
         # these are the self-defining commitments a privacy-first, open-source
         # cognitive architecture is *born* with — analogous to a brain's innate
