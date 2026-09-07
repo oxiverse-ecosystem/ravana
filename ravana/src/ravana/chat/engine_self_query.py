@@ -1054,6 +1054,7 @@ class SelfQueryMixin:
             _toks = [w for w in re.findall(r"[a-z']+", _tail)
                      if w not in ("about", "on", "the", "a", "an", "of", "for",
                                   "with", "to", "we", "should", "could", "would",
+<<<<<<< HEAD
                                   "is", "are", "do", "does", "you", "your",
                                   "i", "i'm", "i've", "i'd", "i'll", "my", "me",
                                   "we're", "our", "us", "they", "them", "he",
@@ -1245,6 +1246,16 @@ class SelfQueryMixin:
                     _j += 1
                 _target = " ".join(_target_toks)
                 _stance, _reason = self._agent_stance_on(_target)
+=======
+                                  "is", "are", "do", "does", "you", "i", "it",
+                                  "that", "this", "and", "or", "honest", "read",
+                                  "take", "view", "opinion", "thoughts", "stance",
+                                  "versus", "vs", "more", "me", "now", "after",
+                                  "what", "just", "said", "right", "really",
+                                  "exactly", "tell", "think")]
+            _target = _toks[-1] if _toks else ""
+            _stance, _reason = self._agent_stance_on(_target)
+>>>>>>> parent of b933523a (feat(chat): contrastive self-opinion capability (X versus Y) — engage both sides via real state)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."
