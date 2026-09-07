@@ -3194,6 +3194,7 @@ class UserModel:
                 # verb (when present) real content from the user's words.
                 _put_fact_done = False
                 _val = ""
+                _lc_done = False
                 if _vidx is None:
                     _name_toks = []
                     for _t in _toks:
@@ -3224,19 +3225,74 @@ class UserModel:
                         _skip_words = {"my", "your", "his", "her",
                                        "its", "our", "their", "the",
                                        "a", "an"}
-                        _name_candidate_toks = []
-                        for _t in _toks:
-                            _tc = _t.strip(".,!?").lower()
-                            if not _tc:
-                                break
-                            if _tc in _skip_words:
-                                continue  # skip leading possessives/articles
-                            if _tc in _REL_WORDS or _tc in _KIN:
-                                continue  # skip the relation word itself
-                            _name_candidate_toks.append(_tc)
-                        if _name_candidate_toks:
-                            _name = " ".join(_name_candidate_toks)
-                            _name = _name.strip(".,!?")
+                        # GENERALIZE (round 2026-09-07, FIX: accidental
+                        # merge with the embedded-relative-clause path): the
+                        # lowercase-name fallback must stop at a comma so a
+                        # "<name>, she's a <descriptor>" disclosure yields the
+                        # NAME ("wren") not the whole clause ("wren she's a
+                        # ceramicist"). Otherwise the name swallows the
+                        # comma-bound relative clause and the value is lost.
+                        # Detect a comma on the RAW token (a trailing comma
+                        # survives the lower() in q_clean), same as the
+                        # embedded-relative path.
+                        _lc_done = False
+                        _lc_comma = next(
+                            (i for i, _t in enumerate(_toks)
+                             if _t.endswith(",")), None)
+                        if _lc_comma is not None:
+                            _name_toks = [
+                                _t.strip(".,!?").lower()
+                                for _t in _toks[:_lc_comma + 1]
+                                if _t.strip(".,!?")]
+                            _name_candidate_toks = []
+                            for _t in _name_toks:
+                                if not _t:
+                                    continue
+                                if _t in _skip_words:
+                                    continue
+                                if _t in _REL_WORDS or _t in _KIN:
+                                    continue
+                                _name_candidate_toks.append(_t)
+                            if _name_candidate_toks:
+                                _name = " ".join(_name_candidate_toks).strip(".,!?")
+                            # Capture the embedded relative clause
+                            # ("she's a ceramicist") as the descriptor value,
+                            # mirroring the embedded-relative path.
+                            if _name:
+                                _lc_clause = " ".join(
+                                    _t.strip(".,!?")
+                                    for _t in _toks[_lc_comma + 1:])
+                                _lc_mc = re.match(
+                                    r"^\s*(?:she|he|they|it|who|that)\b\s*"
+                                    r"(?:is|'s|was|are|were|be|being|been)\s*"
+                                    r"(?:a|an|the)?\s*(.+?)\s*$",
+                                    _lc_clause, re.IGNORECASE)
+                                if _lc_mc:
+                                    _lc_desc = _lc_mc.group(1).strip().lower()
+                                    _lc_desc = re.sub(r"\s+", " ", _lc_desc)
+                                    if _lc_desc and len(_lc_desc.split()) <= 8:
+                                        if not _lc_desc.startswith(
+                                                ("a ", "an ", "the ")):
+                                            _lc_desc = "a " + _lc_desc
+                                        _val = _lc_desc
+                                        _put_fact_done = False
+                                        _lc_done = True
+                                else:
+                                    _put_fact_done = True
+                        else:
+                            _name_candidate_toks = []
+                            for _t in _toks:
+                                _tc = _t.strip(".,!?").lower()
+                                if not _tc:
+                                    break
+                                if _tc in _skip_words:
+                                    continue  # skip leading possessives/articles
+                                if _tc in _REL_WORDS or _tc in _KIN:
+                                    continue  # skip the relation word itself
+                                _name_candidate_toks.append(_tc)
+                            if _name_candidate_toks:
+                                _name = " ".join(_name_candidate_toks)
+                                _name = _name.strip(".,!?")
                     if not _name:
                         # Neither a recognized verb nor a proper-noun name:
                         # nothing informative to store (e.g. "my grandmother
@@ -3258,7 +3314,10 @@ class UserModel:
                             r"\s*(?:[.!?]+|where|that|which|when|but)\b",
                             _after)[0].strip(" ,.!?;:")
                         _after = re.sub(r"\s+", " ", _after).lower()
-                        if _after and len(_after.split()) <= 12:
+                        # The comma-bound embedded-relative path (above) already
+                        # captured the descriptor; don't overwrite it with the
+                        # whole trailing clause.
+                        if _after and len(_after.split()) <= 12 and not _lc_done:
                             _val = _after
                 else:
                     _name = " ".join(_toks[:_vidx]).lower()

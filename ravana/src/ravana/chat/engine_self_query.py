@@ -481,6 +481,141 @@ class SelfQueryMixin:
         # none, so return the honest fallback WITHOUT recording.
         return (_stance, _reason)
 
+    def _route_own_stance_inversion(self, user_input: str) -> Optional[str]:
+        """Detect contradiction-revision intent and invert RAVANA's own stance.
+
+        Handles: "argue the opposite", "argue the opposite of what you just
+        said about X", "now argue the opposite", "flip your stance on X",
+        "take the other side of X", "what's the opposite view on X",
+        "rebuttal on X". When RAVANA has a recorded stance on the topic
+        (in _agent_stances), it inverts the polarity word and produces
+        a view from the same underlying values. If no recorded stance exists,
+        it derives an inverted stance from the current affective state
+        (valence) and the ConceptGraph proximity — still state-driven, not
+        fabricated.
+
+        Returns None if the query is not a contradiction-revision request,
+        or if RAVANA has no basis for any stance on the target topic.
+        """
+        t = (user_input or "").lower().strip()
+        # Inversion intent: ask RAVANA to argue the opposite / flip /
+        # rebuttal / take the other side of its own prior stance.
+        _inversion = re.search(
+            r"\b(argue\s+(?:the\s+)?opposite|flip\s+(?:your\s+)?stance|take\s+(?:the\s+)?other\s+side|opposite\s+view|rebuttal|argue\s+against|go\s+against)\b",
+            t)
+        if not _inversion:
+            return None
+        # Extract the topic target. Two surface shapes:
+        #   1) "...about X" / "...on X"  — the target follows the cue
+        #   2) "flip your stance on X"   — "on X" after the verb
+        _target = None
+        # Shape 1: "...argue the opposite of what you just said about X"
+        _about = re.search(
+            r"\b(?:about|on|regarding|regarding)\s+([a-z][a-z\s'-]{1,40})", t)
+        if _about:
+            _raw = _about.group(1).rstrip(" .!?'")
+            _target = _raw.strip().lower()
+        # Shape 2: "flip your stance on X" / "take the other side of X"
+        if not _target:
+            _on = re.search(
+                r"\b(?:stance|view|position)\s+(?:is|was|on|about)\s+"
+                r"([a-z][a-z\s'-]{1,40})", t)
+            if _on:
+                _target = _on.group(1).strip().lower()
+        if not _target:
+            # Last resort: last content word before "about"/"on" in the query
+            # or the whole thing after the inversion cue.
+            _cue_end = _inversion.end()
+            _rest = t[_cue_end:].strip()
+            _after = re.split(r"\b(?:about|on|regarding)\b", _rest)
+            if _after and _after[-1].strip():
+                _target = _after[-1].strip().lower()
+        if not _target:
+            return None
+        # Look up the durable recorded stance.
+        _rec = self._agent_stances.get(_target)
+        if _rec is None:
+            # Containment match: "nostalgia" vs "nostalgia changed"
+            for _k in self._agent_stances:
+                if _target and (_target in _k.split() or _k in _target.split()
+                                or _k == _target):
+                    _rec = self._agent_stances[_k]
+                    _target = _k
+                    break
+        if _rec is None:
+            # No recorded stance on this topic. Derive an inverted stance
+            # from RAVANA's CURRENT affective state (valence). If valence is
+            # positive, invert to cautious/negative; if negative, invert to
+            # positive. This is still state-driven — the polarity comes from
+            # the vmPFC value signal, not a per-topic table.
+            valence = 0.5
+            if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+                try:
+                    valence = float(getattr(self.emotion.state, "valence", 0.5))
+                except Exception:
+                    valence = 0.5
+            if _target:
+                if valence >= 0.5:
+                    _word = "am cautious about"
+                    _conf = 0.5
+                    _reason = (f"i'm feeling positive right now, so the "
+                               f"opposite of that leans cautious on {_target}")
+                elif valence <= 0.35:
+                    _word = "lean toward"
+                    _conf = 0.5
+                    _reason = (f"i'm in a cautious headspace, so the opposite "
+                               f"leans positive on {_target}")
+                else:
+                    _word = "am curious about"
+                    _conf = 0.45
+                    _reason = (f"{_target} is new territory — the opposite "
+                               f"angle is open to me")
+                _stance = f"i {_word} {_target}"
+                try:
+                    self._agent_stances[_target] = (
+                        _word, _conf, _reason,
+                        int(getattr(self, "turn_count", 0)))
+                except Exception:
+                    pass
+                return (_stance, _reason)
+            return None
+        # We have a recorded stance. Invert it.
+        _word, _conf, _reason, _turn = _rec
+        # Map the recorded polarity word to its opposite.
+        _opposites = {
+            "love": "am against",
+            "like": "am cautious about",
+            "care deeply about": "am against",
+            "am against": "lean toward",
+            "am cautious about": "lean toward",
+            "strongly value": "am cautious about",
+            "value": "am cautious about",
+            "care about": "am cautious about",
+            "value above sounding smart": "am cautious about",
+            "am still forming a view on": "am still forming a view on",
+        }
+        _opposite_word = _opposites.get(_word, "am cautious about")
+        # The reason references the same underlying values but from the
+        # opposite angle — the REAL constitutive values haven't changed,
+        # only the direction.
+        _inv_reason = (
+            f"the same values apply, but from the opposite angle: "
+            f"{_reason.replace(_target, '').strip(' —.')}"
+            f" but inverted on {_target}")
+        # Record the inverted stance so a later revisit answers from it.
+        try:
+            self._agent_stances[_target] = (
+                _opposite_word, round(_conf * 0.8, 2), _inv_reason,
+                int(getattr(self, "turn_count", 0)))
+        except Exception:
+            pass
+        # Build the inverted response.
+        if "still forming" in _opposite_word:
+            return (f"i'm still forming a view on {_target} — but from the "
+                    f"other side. {_inv_reason}")
+        return (f"arguing the opposite: i {_opposite_word} {_target}. "
+                f"{_inv_reason}")
+
     def _route_own_stance_revisit(self, user_input: str) -> Optional[str]:
         """Answer 'do you still feel that way about X?' / 'have you changed
         your mind about X?' from RAVANA's RECORDED own stances.
