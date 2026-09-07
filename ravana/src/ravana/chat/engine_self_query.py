@@ -1704,16 +1704,84 @@ class SelfQueryMixin:
         from .brain_regions import consult_internal
         _ans = consult_internal(best_concept, self)
         if _ans is None:
-            # Even the closest concept has no internal knowledge —
-            # just generate a generic analogical hedge
-            _rel = best_concept
-            _hedges = [
-                f"i'm not sure about {subj}, but it reminds me of {_rel} — they feel related somehow",
-                f"i can't quite grasp {subj}, though {_rel} comes to mind as something connected",
-                f"i'm fuzzy on {subj}, but {_rel} feels like it might point in the same direction",
-            ]
-            _idx = hash(subj) % len(_hedges)
-            return _hedges[_idx]
+            # Even the closest concept has no internal knowledge.
+            # Use the CONCEPT GRAPH'S REAL EDGE STRUCTURE to frame an analogy,
+            # not a hardcoded hedge. This is graph-derived, not authored prose.
+            _subj_node = None
+            _rel_node = None
+            _rel_type = None
+            _graph = self.graph
+            if _graph is not None and getattr(_graph, 'nodes', None):
+                # Resolve node ids for both concepts (if present in the graph).
+                for _nid, _node in _graph.nodes.items():
+                    _lbl = getattr(_node, 'label', '') or ''
+                    if _lbl.strip().lower() == subj.lower().strip():
+                        _subj_node = _nid
+                    if _lbl.strip().lower() == best_concept.lower().strip():
+                        _rel_node = _nid
+                # Direct edge between the unknown subject and the known concept?
+                if _subj_node is not None and _rel_node is not None:
+                    for (_s, _t), _e in _graph.edges.items():
+                        if (_s == _subj_node and _t == _rel_node) or \
+                           (_s == _rel_node and _t == _subj_node):
+                            _rel_type = getattr(_e, 'relation_type', 'semantic') or 'semantic'
+                            break
+                # No direct edge — inherit the known concept's strongest
+                # outgoing edge type as the best available structural signal.
+                if _rel_type is None and _rel_node is not None:
+                    _outs = _graph.get_outgoing(_rel_node)
+                    if _outs:
+                        _best_w = -1.0
+                        for _tgt, _e in _outs:
+                            _w = getattr(_e, 'weight', 0.0) or 0.0
+                            if _w > _best_w:
+                                _best_w = _w
+                                _rel_type = getattr(_e, 'relation_type', 'semantic') or 'semantic'
+            # Map the structural relation type to an analogical frame.
+            # These are STRUCTURAL TEMPLATES keyed by relation type — not
+            # per-topic literals. The frame + the two real concept labels
+            # are all that goes into the reply, so nothing here is authored
+            # prose about any specific query.
+            _rel_type_l = (_rel_type or '').lower().strip()
+            _frames: Dict[str, str] = {
+                'causes': "{subj} is like {rel} — the one tends to bring the other into view",
+                'causal': "{subj} is like {rel} — you can feel one leading into the other",
+                'related_to': "{subj} is like {rel} — they keep showing up in the same conversations",
+                'semantic': "{subj} is like {rel} — they sit close in the same part of the map",
+                'similar_to': "{subj} is like {rel} — they wear a lot of the same shape",
+                'part_of': "{subj} is like {rel} — it makes more sense once you see where it sits",
+                'has_part': "{subj} is like {rel} — it is built out of pieces that feel familiar",
+                'analogical': "{subj} is like {rel} — the same pattern shows up in both",
+                'contextual': "{subj} is like {rel} — they mean more when you hold them together",
+                'inferred': "{subj} is like {rel} — the thread between them is one i keep pulling",
+                'temporal': "{subj} is like {rel} — one tends to follow the other in time",
+                'comparison': "{subj} is like {rel} — they measure out on the same scale",
+                'antonym': "{subj} is like {rel} — which is to say, it resists being its opposite",
+                'negation': "{subj} is like {rel} — not in the sense of being opposite, but in the sense of sharing a boundary",
+                'transitive': "{subj} is like {rel} — the same chain runs through both",
+                'physical_cause': "{subj} is like {rel} — one change in it tends to move the other",
+                'pragmatic': "{subj} is like {rel} — the way you mean one changes how you mean the other",
+            }
+            _frame = _frames.get(_rel_type_l)
+            _rel_label = best_concept
+            if _frame is not None:
+                return _frame.format(subj=subj, rel=_rel_label)
+            # No graph edge and no inherited relation type — the two concepts
+            # are near in GloVe space but have no structural link we can name.
+            # Frame honestly as a proximity-based thread, not a fake definition.
+            if _rel_type_l:
+                _prox = (
+                    f"{subj} sits close to {_rel_label} in the space i carry — "
+                    f"not the same thing, but the same neighborhood. "
+                    f"the thread i keep pulling is {_rel_label}."
+                )
+                return _prox
+            # GloVe-nearest but no graph data at all — weakest honest signal.
+            return (
+                f"i don't have a clean line on {subj} yet, but {_rel_label} "
+                f"keeps coming up nearby. the two feel like they point in the "
+                f"same direction — i'd have to think longer to say how."
+            )
 
         # We have a known concept with an internal definition —
         # generate an analogical reply relating the unknown to the known

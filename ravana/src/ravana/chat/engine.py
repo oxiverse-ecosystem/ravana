@@ -5751,6 +5751,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
         if _user_disclosure_recall:
             return None
+        # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
+        # you about my favorite food" is a user recall query, but the answer the
+        # user wants is RAVANA's OWN prior reply confirming the disclosure. The
+        # agent-self flag is "you/your" (literal second person). First-person
+        # recall queries that reference the agent's own prior reply are detected
+        # here by the first-person-recall heuristic, NOT by the attribute guard
+        # below — the attribute guard is for USER-ATTRIBUTE queries ("can you
+        # recall my name?") which must NOT be answered from the agent-reply
+        # store. So we only apply the attribute guard when the query is NOT a
+        # first-person recall of the agent's own speech. Computed BEFORE the
+        # attribute guard (which consumes it) so no UnboundLocalError.
+        _is_first_person_recall = bool(re.search(
+            r"\b(what did i (?:just |already |recently )?tell you|"
+            r"what did i just say|what did i tell you|"
+            r"what have i told you|what did i mention|"
+            r"remind me what you said|"
+            r"what did i say about|"
+            r"what was it i told you|"
+            r"what did i just tell you about)\b", _q))
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
@@ -5777,24 +5796,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # never be matched by coincidence (round 2026-08-17 source-monitoring
         # fix — see _record_own_reply).
         #
-        # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
-        # you about my favorite food" is a user recall query, but the answer the
-        # user wants is RAVANA's OWN prior reply confirming the disclosure. The
-        # agent-self flag is "you/your" (literal second person). First-person
-        # recall queries that reference the agent's own prior reply are detected
-        # below by the first-person-recall heuristic, NOT by this attribute
-        # guard — the attribute guard is for USER-ATTRIBUTE queries ("can you
-        # recall my name?") which must NOT be answered from the agent-reply
-        # store. So we only apply the attribute guard when the query is NOT a
-        # first-person recall of the agent's own speech.
-        _is_first_person_recall = bool(re.search(
-            r"\b(what did i (?:just |already |recently )?tell you|"
-            r"what did i just say|what did i tell you|"
-            r"what have i told you|what did i mention|"
-            r"remind me what you said|"
-            r"what did i say about|"
-            r"what was it i told you|"
-            r"what did i just tell you about)\b", _q))
+        # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): see the heuristic
+        # computed above (before the user-attribute guard), which keeps
+        # "what did i tell you about my favorite food" in-scope.
         _TAIL_SCAFFOLD_REC = {
             "most", "behind", "would", "view", "start", "change", "first",
             "live", "does", "will", "been", "conversation", "good", "really",
@@ -6393,6 +6397,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
         self._last_subject = None  # set once grounded below
+        subject = None  # ground _record_own_reply topic safely before extraction
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
@@ -6864,17 +6869,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _exp_first = self._route_self_experience(user_input)
                 except Exception:
                     _exp_first = None
+                if _exp_first is not None:
                     self._last_strategy = "self_experience"
-                    self._last_responses.append(_exp)
+                    self._last_responses.append(_exp_first)
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
                     try:
-                        self._record_own_reply(user_input, _exp, subject)
+                        self._record_own_reply(user_input, _exp_first, subject)
                     except Exception:
                         pass
-                    self._identity_end_of_turn(user_input, quality_score=None)
-                    return _exp
+                    return _exp_first
                 _sersp = self._route_self_query(user_input)
                 if _sersp is not None:
                     self._last_strategy = "self_model"
