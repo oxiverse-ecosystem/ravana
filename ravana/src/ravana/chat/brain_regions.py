@@ -272,7 +272,7 @@ class PersonaState:
         # Real agent stances (formed during chat, not authored)
         stances = []
         try:
-            raw = getattr(engine, "_agent_own_stances", {}) or {}
+            raw = getattr(engine, "_agent_stances", {}) or {}
             for topic, val in raw.items():
                 # val may be a tuple (text, weight, ..., ts) or similar
                 weight = 0.0

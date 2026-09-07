@@ -425,11 +425,11 @@ class SelfQueryMixin:
             # 2026-08-19T0625Z limitation #2). The docstring claims every real
             # stance is "recorded" — previously it was only cached in-memory in
             # _agent_preferences (which is purged of stance: keys on load). Now it
-            # is written to the persisted _agent_own_stances store so a later
+            # is written to the persisted _agent_stances store so a later
             # "do you still feel that way about X?" answers from the real record.
             # Keyed by canonical concept so "open source" / "source" both map back.
             try:
-                self._agent_own_stances[_canon.lower().strip()] = (
+                self._agent_stances[_canon.lower().strip()] = (
                     _word, float(_conf), _reason, int(getattr(self, "turn_count", 0)))
             except Exception:
                 pass
@@ -471,15 +471,14 @@ class SelfQueryMixin:
         _stance = f"i'm still forming a view on {target}"
         _reason = (f"i don't have a fixed stance on {target} yet — what's your "
                   f"take? i'd rather hear how you see it than guess.")
-        # Record the provisional stance too (low confidence) so a revisit query
-        # about a topic RAVANA was still "forming a view" on is answered from
-        # the record — not recomputed fresh (round 2026-08-19T0625Z #2).
-        try:
-            self._agent_own_stances[target.lower().strip()] = (
-                "am still forming a view on", 0.2, _reason,
-                int(getattr(self, "turn_count", 0)))
-        except Exception:
-            pass
+        # F3 FIX (round 2026-09-06): do NOT record a provisional stance when
+        # there is NO evidence (no seeded value, no user stance). Recording a
+        # fake "still forming a view" stance for an evidence-less topic is a
+        # fabrication — the test_F3_agent_honest_when_no_evidence test asserts
+        # that no stance is stored for such topics. Only record a provisional
+        # stance when there is at least some grounding (handled in branch 1
+        # above, where a seeded value or user stance exists). Here, there is
+        # none, so return the honest fallback WITHOUT recording.
         return (_stance, _reason)
 
     def _route_own_stance_revisit(self, user_input: str) -> Optional[str]:
@@ -489,7 +488,7 @@ class SelfQueryMixin:
         Round 2026-08-19T0625Z limitation #2: opinion questions were answered
         but never persisted, so a later revisit could only be answered from the
         echo store (C/D), never from a recorded stance. This is the missing
-        capability: it consults `_agent_own_stances` (the durable record written
+        capability: it consults `_agent_stances` (the durable record written
         by `_agent_stance_on`) and reports what RAVANA actually said before.
 
         State-driven, not hardcoded: the reply is built from the recorded
@@ -522,11 +521,11 @@ class SelfQueryMixin:
             return None
         # Look up the durable record. Exact key, then containment so clipped
         # targets ("source") resolve to the canonical recorded stance.
-        _rec = self._agent_own_stances.get(target)
+        _rec = self._agent_stances.get(target)
         if _rec is None:
-            for _k in self._agent_own_stances:
+            for _k in self._agent_stances:
                 if target and (target in _k.split() or _k in target.split() or _k == target):
-                    _rec = self._agent_own_stances[_k]
+                    _rec = self._agent_stances[_k]
                     target = _k
                     break
         if _rec is None:
@@ -1055,6 +1054,7 @@ class SelfQueryMixin:
             _toks = [w for w in re.findall(r"[a-z']+", _tail)
                      if w not in ("about", "on", "the", "a", "an", "of", "for",
                                   "with", "to", "we", "should", "could", "would",
+<<<<<<< HEAD
                                   "is", "are", "do", "does", "you", "your",
                                   "i", "i'm", "i've", "i'd", "i'll", "my", "me",
                                   "we're", "our", "us", "they", "them", "he",
@@ -1246,6 +1246,16 @@ class SelfQueryMixin:
                     _j += 1
                 _target = " ".join(_target_toks)
                 _stance, _reason = self._agent_stance_on(_target)
+=======
+                                  "is", "are", "do", "does", "you", "i", "it",
+                                  "that", "this", "and", "or", "honest", "read",
+                                  "take", "view", "opinion", "thoughts", "stance",
+                                  "versus", "vs", "more", "me", "now", "after",
+                                  "what", "just", "said", "right", "really",
+                                  "exactly", "tell", "think")]
+            _target = _toks[-1] if _toks else ""
+            _stance, _reason = self._agent_stance_on(_target)
+>>>>>>> parent of b933523a (feat(chat): contrastive self-opinion capability (X versus Y) — engage both sides via real state)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."

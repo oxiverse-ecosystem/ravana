@@ -4,7 +4,7 @@ revisit query ("do you still feel that way about X?") from that record.
 Round 2026-08-19T0625Z limitation #2: opinion questions were answered but
 never persisted, so "do you still feel that way about X?" could not be
 answered from a recorded stance. This test fails before the capability exists
-(_agent_own_stances store absent, _route_own_stance_revisit absent) and passes
+(_agent_stances store absent, _route_own_stance_revisit absent) and passes
 after: the stance is written to a persisted store and survives a save/load, and
 a later revisit question reports the recorded orientation.
 
@@ -27,16 +27,16 @@ def _build():
 def run():
     fails = 0
 
-    # ---- 1) Real stance question records durably into _agent_own_stances ----
+    # ---- 1) Real stance question records durably into _agent_stances ----
     eng, d = _build()
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         r = eng.process_turn("what do you think about open source")
     reply = r if isinstance(r, str) else r.get("reply", "")
     # The capability writes the stance it computed into the persisted store.
-    rec = eng._agent_own_stances.get("open source")
+    rec = eng._agent_stances.get("open source")
     if not rec:
-        print("[FAIL] open-source stance was NOT recorded into _agent_own_stances")
+        print("[FAIL] open-source stance was NOT recorded into _agent_stances")
         fails += 1
     else:
         # The recorded polarity word must be the REAL seeded value's word.
@@ -51,7 +51,7 @@ def run():
         eng.save()
         eng2 = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, data_dir=d)
         eng2.load()
-        rec2 = eng2._agent_own_stances.get("open source")
+        rec2 = eng2._agent_stances.get("open source")
         if not rec2:
             print("[FAIL] recorded stance was lost on save/load")
             fails += 1
