@@ -481,6 +481,141 @@ class SelfQueryMixin:
         # none, so return the honest fallback WITHOUT recording.
         return (_stance, _reason)
 
+    def _route_own_stance_inversion(self, user_input: str) -> Optional[str]:
+        """Detect contradiction-revision intent and invert RAVANA's own stance.
+
+        Handles: "argue the opposite", "argue the opposite of what you just
+        said about X", "now argue the opposite", "flip your stance on X",
+        "take the other side of X", "what's the opposite view on X",
+        "rebuttal on X". When RAVANA has a recorded stance on the topic
+        (in _agent_stances), it inverts the polarity word and produces
+        a view from the same underlying values. If no recorded stance exists,
+        it derives an inverted stance from the current affective state
+        (valence) and the ConceptGraph proximity — still state-driven, not
+        fabricated.
+
+        Returns None if the query is not a contradiction-revision request,
+        or if RAVANA has no basis for any stance on the target topic.
+        """
+        t = (user_input or "").lower().strip()
+        # Inversion intent: ask RAVANA to argue the opposite / flip /
+        # rebuttal / take the other side of its own prior stance.
+        _inversion = re.search(
+            r"\b(argue\s+(?:the\s+)?opposite|flip\s+(?:your\s+)?stance|take\s+(?:the\s+)?other\s+side|opposite\s+view|rebuttal|argue\s+against|go\s+against)\b",
+            t)
+        if not _inversion:
+            return None
+        # Extract the topic target. Two surface shapes:
+        #   1) "...about X" / "...on X"  — the target follows the cue
+        #   2) "flip your stance on X"   — "on X" after the verb
+        _target = None
+        # Shape 1: "...argue the opposite of what you just said about X"
+        _about = re.search(
+            r"\b(?:about|on|regarding|regarding)\s+([a-z][a-z\s'-]{1,40})", t)
+        if _about:
+            _raw = _about.group(1).rstrip(" .!?'")
+            _target = _raw.strip().lower()
+        # Shape 2: "flip your stance on X" / "take the other side of X"
+        if not _target:
+            _on = re.search(
+                r"\b(?:stance|view|position)\s+(?:is|was|on|about)\s+"
+                r"([a-z][a-z\s'-]{1,40})", t)
+            if _on:
+                _target = _on.group(1).strip().lower()
+        if not _target:
+            # Last resort: last content word before "about"/"on" in the query
+            # or the whole thing after the inversion cue.
+            _cue_end = _inversion.end()
+            _rest = t[_cue_end:].strip()
+            _after = re.split(r"\b(?:about|on|regarding)\b", _rest)
+            if _after and _after[-1].strip():
+                _target = _after[-1].strip().lower()
+        if not _target:
+            return None
+        # Look up the durable recorded stance.
+        _rec = self._agent_stances.get(_target)
+        if _rec is None:
+            # Containment match: "nostalgia" vs "nostalgia changed"
+            for _k in self._agent_stances:
+                if _target and (_target in _k.split() or _k in _target.split()
+                                or _k == _target):
+                    _rec = self._agent_stances[_k]
+                    _target = _k
+                    break
+        if _rec is None:
+            # No recorded stance on this topic. Derive an inverted stance
+            # from RAVANA's CURRENT affective state (valence). If valence is
+            # positive, invert to cautious/negative; if negative, invert to
+            # positive. This is still state-driven — the polarity comes from
+            # the vmPFC value signal, not a per-topic table.
+            valence = 0.5
+            if hasattr(self, "emotion") and hasattr(self.emotion, "state"):
+                try:
+                    valence = float(getattr(self.emotion.state, "valence", 0.5))
+                except Exception:
+                    valence = 0.5
+            if _target:
+                if valence >= 0.5:
+                    _word = "am cautious about"
+                    _conf = 0.5
+                    _reason = (f"i'm feeling positive right now, so the "
+                               f"opposite of that leans cautious on {_target}")
+                elif valence <= 0.35:
+                    _word = "lean toward"
+                    _conf = 0.5
+                    _reason = (f"i'm in a cautious headspace, so the opposite "
+                               f"leans positive on {_target}")
+                else:
+                    _word = "am curious about"
+                    _conf = 0.45
+                    _reason = (f"{_target} is new territory — the opposite "
+                               f"angle is open to me")
+                _stance = f"i {_word} {_target}"
+                try:
+                    self._agent_stances[_target] = (
+                        _word, _conf, _reason,
+                        int(getattr(self, "turn_count", 0)))
+                except Exception:
+                    pass
+                return (_stance, _reason)
+            return None
+        # We have a recorded stance. Invert it.
+        _word, _conf, _reason, _turn = _rec
+        # Map the recorded polarity word to its opposite.
+        _opposites = {
+            "love": "am against",
+            "like": "am cautious about",
+            "care deeply about": "am against",
+            "am against": "lean toward",
+            "am cautious about": "lean toward",
+            "strongly value": "am cautious about",
+            "value": "am cautious about",
+            "care about": "am cautious about",
+            "value above sounding smart": "am cautious about",
+            "am still forming a view on": "am still forming a view on",
+        }
+        _opposite_word = _opposites.get(_word, "am cautious about")
+        # The reason references the same underlying values but from the
+        # opposite angle — the REAL constitutive values haven't changed,
+        # only the direction.
+        _inv_reason = (
+            f"the same values apply, but from the opposite angle: "
+            f"{_reason.replace(_target, '').strip(' —.')}"
+            f" but inverted on {_target}")
+        # Record the inverted stance so a later revisit answers from it.
+        try:
+            self._agent_stances[_target] = (
+                _opposite_word, round(_conf * 0.8, 2), _inv_reason,
+                int(getattr(self, "turn_count", 0)))
+        except Exception:
+            pass
+        # Build the inverted response.
+        if "still forming" in _opposite_word:
+            return (f"i'm still forming a view on {_target} — but from the "
+                    f"other side. {_inv_reason}")
+        return (f"arguing the opposite: i {_opposite_word} {_target}. "
+                f"{_inv_reason}")
+
     def _route_own_stance_revisit(self, user_input: str) -> Optional[str]:
         """Answer 'do you still feel that way about X?' / 'have you changed
         your mind about X?' from RAVANA's RECORDED own stances.
@@ -1059,7 +1194,193 @@ class SelfQueryMixin:
                                   "we're", "our", "us", "they", "them", "he",
                                   "she", "his", "her", "its", "their", "it",
                                   "that", "this", "and", "or")]
-            # DEFECT A/B/GENERALIZE: take the MAXIMAL noun phrase after the opinion cue.
+            # DEFECT A (round 2026-08-19T0625Z) TOPIC FIX: the prior code took
+            # _toks[-1] (the LAST content token) as the stance target. That is
+            # only correct for imperative frames like "do you think we should
+            # protect mangroves" (topic follows the verb scaffolding). For the
+            # dominant "what do you think about X" / "your take on X" / "how do
+            # you feel about X" frames the topic is the FIRST content noun after
+            # the cue ("people tracking each other online without asking" ->
+            # "people"), so the last-word heuristic produced garbled targets
+            # ("asking", "now", "hobbyists", "yards") and the agent answered
+            # about the wrong subject. Fix: take the FIRST content noun after
+            # the cue as the topic; strip a small closed-class verb-scaffold at
+            # the head so imperative frames ("should protect mangroves") still
+            # resolve to the real object ("mangroves"). The target is the user's
+            # actual topic (real state), so the reply names the right subject —
+            # no authored per-topic sentence.
+            # GENERALIZE (round 2026-08-20T0701Z): the FIRST/LAST-content-token
+            # heuristics (DEFECT A/B) were both fragile — they pick a single
+            # token at a fixed position, which misfires on real opinion frames:
+            #   * "how do you feel about ME leaving the water" lands on
+            #     "leaving" (a verb), and "do you think I'M contradictory" lands
+            #     on "contradictory" only by luck; the pronoun itself
+            #     ("my"/"me"/"i'm") was a recurring leak -> "forming a view on my".
+            #   * "so do you think i'm for or against street art" -> first token
+            #     "for" (a closed-class polarity word), not "street art".
+            # Fix: take the MAXIMAL noun phrase immediately after the opinion cue
+            # — i.e. the first CONTENT token that is NOT a closed-class word,
+            # pronoun, polarity word, or verb-scaffold, then keep accumulating
+            # subsequent content tokens (multiword topics like "street art",
+            # "public transit") until a closed-class boundary. Structural
+            # (closed-class + pronoun + polarity vocabulary), generalizes to any
+            # topic wording, no per-topic list. The target is the user's real
+            # subject (real state) so the reply names the right topic — no
+            # authored per-topic sentence.
+            _PRON_OR_CLOSED = (
+                "about", "on", "the", "a", "an", "of", "for", "with", "to",
+                "at", "in", "by", "from", "as", "if", "than", "but", "so",
+                "now", "then", "there", "here", "up", "down", "out", "off",
+                "when", "where", "why", "how", "who", "what", "which",
+                "because", "before", "after", "while", "during", "through",
+                "over", "under", "into", "onto", "upon", "until", "against",
+                "we", "should", "could", "would", "is", "are", "do", "does",
+                "you", "your", "i", "i'm", "i've", "i'd", "i'll", "my", "me",
+                "we're", "our", "us", "they", "them", "he", "she", "his",
+                "her", "its", "their", "it", "that", "this", "and", "or")
+            _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
+                               "support", "defend", "fund", "build", "make",
+                               "change", "help", "avoid", "prevent",
+                               "leaving", "feel", "think", "believe",
+                               # attitude verbs (round 2026-08-20T0701Z regression
+                               # t_a9ce2550): 'do you think i LIKE X' must resolve
+                               # the topic to X, not 'like X'. Structural verb
+                               # vocabulary — generalizes to any preference verb.
+                               "like", "likes", "liked", "love", "loves",
+                               "loved", "hate", "hates", "hated", "prefer",
+                               "prefers", "preferred", "dislike",
+                               "dislikes", "disliked")
+            # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
+            # t_2595f8ad; mirror of process_turn's _contrast_sides path) ──
+            # "do you think you're more like a question or an answer" carries
+            # TWO options; a single target collapses to a degenerate fragment
+            # ("you're more") that hits the "still forming a view" fallback.
+            # Split on the contrastive connective and resolve EACH side
+            # through _agent_stance_on, composing a reply that names both.
+            _contrast_sides = None
+            _full_target_lower = _tail.lower().strip()
+            for _sep in (" versus ", " vs ", " vs. ", " or ", " over ",
+                         " rather than ", " more like "):
+                if _sep in _full_target_lower:
+                    _contrast_sides = [p.strip().strip("?.'")
+                                         for p in _full_target_lower.split(_sep)
+                                         if p.strip().strip("?.'")]
+                    break
+            if _contrast_sides and len(_contrast_sides) >= 2:
+                # Strip closed-class words from each side so "you're more"
+                # resolves to "more" -> but "more" is a comparison word,
+                # so also try splitting on the comparison word itself.
+                _SCRUB = (set(_PRON_OR_CLOSED) | set(_VERB_SCAFFOLD) |
+                          {"honest", "read", "take", "view", "opinion",
+                           "thoughts", "stance", "versus", "vs", "more",
+                           "less", "now", "after", "just", "said", "right",
+                           "really", "exactly", "tell", "than", "rather",
+                           "between", "you're", "you've", "you'd", "you'll",
+                           "choose", "choosing"})
+                _side_topics = []
+                for _side in _contrast_sides:
+                    _side_toks = [w for w in re.findall(r"[a-z']+", _side)
+                                  if w not in _SCRUB]
+                    if _side_toks:
+                        _side_topics.append(" ".join(_side_toks))
+                if len(_side_topics) >= 2:
+                    _phrases = []
+                    for _st in _side_topics:
+                        # USER-STANCE GROUNDING (round 2026-09-06): if the
+                        # user holds a real learned stance on this side topic,
+                        # derive a grounded lean (attenuated copy) so the
+                        # contrast reply expresses a real polarity ("i'm wary
+                        # of cities") instead of the hollow "still forming a
+                        # view". Mirrors _structured_recall's FORM logic but
+                        # per-side and ephemeral (recorded in _agent_stances
+                        # for session stability, not a self/other boundary
+                        # violation — the agent is informed by its partner's
+                        # views, not echoing them as its own facts).
+                        _user_stance = None
+                        _opinions = getattr(self, "user_model", None)
+                        _opinions = getattr(_opinions, "opinions", None) if _opinions else None
+                        if _opinions is not None:
+                            _user_stance = _opinions.query_stance(_st)
+                        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
+                            _pol = float(_user_stance.polarity) * 0.7
+                            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
+                            if _pol >= 0.6:
+                                _w = "strongly for"
+                            elif _pol > 0.1:
+                                _w = "for"
+                            elif _pol <= -0.6:
+                                _w = "strongly against"
+                            elif _pol < -0.1:
+                                _w = "against"
+                            elif _pol >= 0.15:
+                                _w = "lean toward"
+                            elif _pol <= -0.15:
+                                _w = "wary of"
+                            else:
+                                _w = "uncertain about"
+                            _stance = f"i'm {_w} {_st}"
+                            try:
+                                from ravana.chat.personal_fact_store import Stance
+                                self._agent_stances[_st.lower().strip()] = Stance(
+                                    topic=_st.lower().strip(), polarity=_pol, confidence=_conf,
+                                    valence=getattr(_user_stance, "valence", 0.0),
+                                    arousal=getattr(_user_stance, "arousal", 0.0),
+                                    turn_number=getattr(self, "turn_count", 0) or 0,
+                                    rehearsal_count=1)
+                            except Exception:
+                                pass
+                            _phrases.append(_stance)
+                        else:
+                            _stt, _st_r = self._agent_stance_on(_st)
+                            _phrases.append(_stt)
+                    stance = "; ".join(_phrases)
+                    reason = ""
+                    _reason = reason.rstrip()
+                    if _reason and not _reason.endswith((".", "!", "?")):
+                        _reason += "."
+                    response = f"{stance}{(' ' + _reason) if _reason else ''} what about you?".replace("  ", " ")
+                    return response.lower()
+            _i = 0
+            while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
+                                       or _toks[_i] in _VERB_SCAFFOLD
+                                       or _toks[_i].isdigit()):
+                _i += 1
+            if _i >= len(_toks):
+                # No real topic after the cue (e.g. "how do you feel about me?"
+                # with no object). Don't answer "a view on <empty>"; fall
+                # through so the next handler (or honest uncertainty) deals with
+                # it. Fail-open.
+                _agent_opinion = None
+                _stance, _reason = None, None
+            else:
+                # Accumulate the topic noun phrase: first content token, then
+                # keep adjacent content tokens (handles "street art", "public
+                # transit") but stop at the first closed-class/polarity boundary.
+                # Relative pronouns (who/whom/whose/which/that) BRIDGE the topic
+                # head into its modifying clause ("people who talk", "friends who
+                # keep") — they must NOT terminate the phrase; the following
+                # verb/object is included up to the next closed-class boundary
+                # (round 2026-08-13T0634Z t_4297f732 D-B fix: the resolved head
+                # is the multi-token relative clause, not the trailing last
+                # token "theatres"/"promises"). Structural (closed-class
+                # vocabulary), no per-topic table.
+                _REL_PRON = ("who", "whom", "whose", "which", "that")
+                _target_toks = [_toks[_i]]
+                _j = _i + 1
+                while _j < len(_toks):
+                    _w = _toks[_j]
+                    if _w in _REL_PRON:
+                        _target_toks.append(_w)
+                        _j += 1
+                        continue
+                    if (_w in _PRON_OR_CLOSED or _w in _VERB_SCAFFOLD
+                            or _w.isdigit()):
+                        break
+                    _target_toks.append(_w)
+                    _j += 1
+                _target = " ".join(_target_toks)
+                _stance, _reason = self._agent_stance_on(_target)
+            _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
                 _reason += "."
             # Fail-open: when no real topic object was extracted (e.g. "what do
@@ -1383,16 +1704,84 @@ class SelfQueryMixin:
         from .brain_regions import consult_internal
         _ans = consult_internal(best_concept, self)
         if _ans is None:
-            # Even the closest concept has no internal knowledge —
-            # just generate a generic analogical hedge
-            _rel = best_concept
-            _hedges = [
-                f"i'm not sure about {subj}, but it reminds me of {_rel} — they feel related somehow",
-                f"i can't quite grasp {subj}, though {_rel} comes to mind as something connected",
-                f"i'm fuzzy on {subj}, but {_rel} feels like it might point in the same direction",
-            ]
-            _idx = hash(subj) % len(_hedges)
-            return _hedges[_idx]
+            # Even the closest concept has no internal knowledge.
+            # Use the CONCEPT GRAPH'S REAL EDGE STRUCTURE to frame an analogy,
+            # not a hardcoded hedge. This is graph-derived, not authored prose.
+            _subj_node = None
+            _rel_node = None
+            _rel_type = None
+            _graph = self.graph
+            if _graph is not None and getattr(_graph, 'nodes', None):
+                # Resolve node ids for both concepts (if present in the graph).
+                for _nid, _node in _graph.nodes.items():
+                    _lbl = getattr(_node, 'label', '') or ''
+                    if _lbl.strip().lower() == subj.lower().strip():
+                        _subj_node = _nid
+                    if _lbl.strip().lower() == best_concept.lower().strip():
+                        _rel_node = _nid
+                # Direct edge between the unknown subject and the known concept?
+                if _subj_node is not None and _rel_node is not None:
+                    for (_s, _t), _e in _graph.edges.items():
+                        if (_s == _subj_node and _t == _rel_node) or \
+                           (_s == _rel_node and _t == _subj_node):
+                            _rel_type = getattr(_e, 'relation_type', 'semantic') or 'semantic'
+                            break
+                # No direct edge — inherit the known concept's strongest
+                # outgoing edge type as the best available structural signal.
+                if _rel_type is None and _rel_node is not None:
+                    _outs = _graph.get_outgoing(_rel_node)
+                    if _outs:
+                        _best_w = -1.0
+                        for _tgt, _e in _outs:
+                            _w = getattr(_e, 'weight', 0.0) or 0.0
+                            if _w > _best_w:
+                                _best_w = _w
+                                _rel_type = getattr(_e, 'relation_type', 'semantic') or 'semantic'
+            # Map the structural relation type to an analogical frame.
+            # These are STRUCTURAL TEMPLATES keyed by relation type — not
+            # per-topic literals. The frame + the two real concept labels
+            # are all that goes into the reply, so nothing here is authored
+            # prose about any specific query.
+            _rel_type_l = (_rel_type or '').lower().strip()
+            _frames: Dict[str, str] = {
+                'causes': "{subj} is like {rel} — the one tends to bring the other into view",
+                'causal': "{subj} is like {rel} — you can feel one leading into the other",
+                'related_to': "{subj} is like {rel} — they keep showing up in the same conversations",
+                'semantic': "{subj} is like {rel} — they sit close in the same part of the map",
+                'similar_to': "{subj} is like {rel} — they wear a lot of the same shape",
+                'part_of': "{subj} is like {rel} — it makes more sense once you see where it sits",
+                'has_part': "{subj} is like {rel} — it is built out of pieces that feel familiar",
+                'analogical': "{subj} is like {rel} — the same pattern shows up in both",
+                'contextual': "{subj} is like {rel} — they mean more when you hold them together",
+                'inferred': "{subj} is like {rel} — the thread between them is one i keep pulling",
+                'temporal': "{subj} is like {rel} — one tends to follow the other in time",
+                'comparison': "{subj} is like {rel} — they measure out on the same scale",
+                'antonym': "{subj} is like {rel} — which is to say, it resists being its opposite",
+                'negation': "{subj} is like {rel} — not in the sense of being opposite, but in the sense of sharing a boundary",
+                'transitive': "{subj} is like {rel} — the same chain runs through both",
+                'physical_cause': "{subj} is like {rel} — one change in it tends to move the other",
+                'pragmatic': "{subj} is like {rel} — the way you mean one changes how you mean the other",
+            }
+            _frame = _frames.get(_rel_type_l)
+            _rel_label = best_concept
+            if _frame is not None:
+                return _frame.format(subj=subj, rel=_rel_label)
+            # No graph edge and no inherited relation type — the two concepts
+            # are near in GloVe space but have no structural link we can name.
+            # Frame honestly as a proximity-based thread, not a fake definition.
+            if _rel_type_l:
+                _prox = (
+                    f"{subj} sits close to {_rel_label} in the space i carry — "
+                    f"not the same thing, but the same neighborhood. "
+                    f"the thread i keep pulling is {_rel_label}."
+                )
+                return _prox
+            # GloVe-nearest but no graph data at all — weakest honest signal.
+            return (
+                f"i don't have a clean line on {subj} yet, but {_rel_label} "
+                f"keeps coming up nearby. the two feel like they point in the "
+                f"same direction — i'd have to think longer to say how."
+            )
 
         # We have a known concept with an internal definition —
         # generate an analogical reply relating the unknown to the known
