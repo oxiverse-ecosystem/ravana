@@ -996,6 +996,18 @@ class SelfQueryMixin:
         # about who i am" (a self/other boundary error + incoherent reply).
         # Genuine identity questions ("who are you", "what are you") have no
         # "on/about/of <topic>" object, so they still route to the self-model.
+        # GUARD (round 2026-09-09): a PHILOSOPHICAL-OPINION frame ("what do you
+        # think the weight of X is", "what's your view on the nature of Y") is
+        # NOT self-introspection — it asks RAVANA's opinion on an abstract
+        # subject, which must reach the opinion handler, not the identity
+        # coherence blurb. The existing topic-opinion guard only catches
+        # "your take/view/opinion ON X"; this catches the "what do you think
+        # [noun phrase] is" shape. Structural: "what" + "do/does/did you" +
+        # "think" + noun-phrase + "is/are/was/were", no per-topic table.
+        if _self_introspect and re.search(
+                r"\b(what|how)\s+(do|does|did|would|could)\s+you\s+think\b",
+                t):
+            _self_introspect = None
         if _self_introspect and re.search(
                 r"\b(your|you)\s+(?:honest\s+)?(take|view|opinion|stance|"
                 r"read|thoughts?)\s+(on|about|of|regarding|toward)\b", t):

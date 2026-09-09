@@ -3003,10 +3003,24 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"\b(poem|story|haiku|song|tale|limerick|rap|verse|lyric|lyrics|"
             r"word|world|scene|character|creature)\b",
             text.lower())
-        _creative_shape = re.search(
+        # Creative-shape verbs must be in IMPERATIVE position (start of
+        # sentence or after a modal request phrase like "can you / could you
+        # / please"). A mid-sentence "create" inside a declarative clause
+        # ("people who create art") is NOT a creative request — it is a
+        # stance/disclosure. Anchoring to imperative position is structural
+        # (no per-topic table) and matches how _is_action_request detects
+        # imperatives.
+        _shape_verb = re.search(
             r"\b(make up|invent|coin|imagine|picture|envision|draw|sketch|"
             r"doodle|compose|create|come up with)\b",
             text.lower())
+        _creative_shape = None
+        if _shape_verb:
+            _prefix = text[:_shape_verb.start()].lower().strip()
+            if (not _prefix
+                or re.search(r"\b(can you|could you|would you|please|won't you)\s*$", _prefix)
+                or re.search(r"^(i want you to|i'd like you to|i need you to)\s*$", _prefix)):
+                _creative_shape = _shape_verb
         if _creative or _creative_shape:
             # topic after "about" (covers "poem about X", "world about X")
             _m = re.search(r"\babout\s+(.+)", text.lower())
