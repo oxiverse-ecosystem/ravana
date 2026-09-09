@@ -5817,6 +5817,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "replied", "state", "stated", "still", "now", "then", "how", "why",
             "who", "when", "where", "which", "any", "some", "thing", "things",
             "yes", "no", "ask", "asked", "wonder", "wondering", "tellme",
+            "remind", "reminded",
         }
         _cands = [w for w in re.findall(r"[a-z']+", _q)
                   if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
@@ -5856,7 +5857,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _ov > _best_overlap:
                 _best_overlap = _ov
                 _best = _e
-        if _best is None or _best_overlap < 2:
+        _min_overlap = 1 if len(_q_set) <= 1 else 2
+        if _best is None or _best_overlap < _min_overlap:
             return None
         _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()
