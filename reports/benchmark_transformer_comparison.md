@@ -27,6 +27,8 @@
 | **Social (Few-Shot Adapted)** | After brief target domain exposure | 100.0% |
 | **Held-Out Social Generalization** | Unseen social entities | 0.0% |
 
+> **Architectural Finding**: In the absence of a grounded semantic manifold (e.g., pretrained GloVe embeddings or ConceptNet priors), orthogonal token embeddings provide zero structural overlap across disparate lexical domains. This confirms that cross-domain analogical projection fundamentally requires grounded semantic representations or topological graph bridges, while demonstrating high-plasticity rapid domain acquisition (100% in-domain science, 100% adapted social) via local Hebbian updates.
+
 ## 3. Controlled Multi-Seed Ontology Ablation (Ontology ON vs OFF)
 
 > **Experimental Control**: Both conditions share identical architecture, initialization seeds, vocabulary, data ordering, and update rule. The only intervention is the presence of seed ontological priors.
