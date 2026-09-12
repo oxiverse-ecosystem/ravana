@@ -454,6 +454,7 @@ def get_theoretical_baseline_sizes() -> Dict[str, int]:
         "RAVANA RLMv2": None,
         "Linear Baseline": None,
         "MLP Baseline (2-layer)": None,
+        "nanoGPT (Shakespeare)": 10_700_000,
         "DistilGPT-2": 82_000_000,
         "Tiny Transformer (4-layer)": 10_000_000,
         "Tiny LLaMA (1.1B)": 1_100_000_000,
@@ -464,6 +465,50 @@ def get_theoretical_baseline_sizes() -> Dict[str, int]:
 # ═══════════════════════════════════════════════════════════════════════
 # Transformer Baselines
 # ═══════════════════════════════════════════════════════════════════════
+
+def _build_nanogpt_baseline(vocab_size: int, embed_dim: int, n_relations: int,
+                            n_heads: int = 4, n_layers: int = 2) -> object:
+    import torch
+    import torch.nn as nn
+
+    class NanoGPTBlock(nn.Module):
+        def __init__(self, ed, nh):
+            super().__init__()
+            self.ln1 = nn.LayerNorm(ed)
+            self.attn = nn.MultiheadAttention(ed, nh, batch_first=True)
+            self.ln2 = nn.LayerNorm(ed)
+            self.mlp = nn.Sequential(
+                nn.Linear(ed, 4 * ed),
+                nn.GELU(),
+                nn.Linear(4 * ed, ed),
+            )
+
+        def forward(self, x):
+            norm_x = self.ln1(x)
+            attn_out, _ = self.attn(norm_x, norm_x, norm_x)
+            x = x + attn_out
+            x = x + self.mlp(self.ln2(x))
+            return x
+
+    class NanoGPTBaseline(nn.Module):
+        def __init__(self, vs, ed, nr, nh=4, nl=2):
+            super().__init__()
+            self.token_embed = nn.Embedding(vs, ed)
+            self.rel_embed = nn.Embedding(nr, ed)
+            self.pos_embed = nn.Parameter(torch.zeros(1, 2, ed))
+            self.blocks = nn.ModuleList([NanoGPTBlock(ed, nh) for _ in range(nl)])
+            self.ln_f = nn.LayerNorm(ed)
+            self.head = nn.Linear(ed, vs, bias=False)
+
+        def forward(self, subjects, relations):
+            tok = torch.stack([self.token_embed(subjects), self.rel_embed(relations)], dim=1)
+            x = tok + self.pos_embed[:, :tok.size(1), :]
+            for block in self.blocks:
+                x = block(x)
+            x = self.ln_f(x)
+            return self.head(x[:, -1, :])
+
+    return NanoGPTBaseline(vocab_size, embed_dim, n_relations, n_heads, n_layers)
 
 def _build_linear_baseline(vocab_size: int, embed_dim: int, n_relations: int) -> object:
     import torch
@@ -946,6 +991,55 @@ def run_benchmark(args):
         except ImportError:
             print("  [SKIP] PyTorch not available")
 
+    # ── nanoGPT Baseline (Transformer Causal Self-Attention) ──
+    if args.model in ("nanogpt", "all"):
+        print("\n=== nanoGPT Baseline (Transformer Causal Self-Attention) ===")
+        try:
+            import torch
+            import torch.nn as nn
+            import torch.optim as optim
+
+            n_train, n_held = _make_verb_offset_data()
+            n_tok = WordTokenizer()
+            for s, r, o in n_train + n_held:
+                for w in [s, r, o]:
+                    n_tok.encode(w)
+            n_vsize = n_tok.vocab_size + 5
+
+            ns, nr, no = _triples_to_ids(n_train, n_tok)
+            ns_te, nr_te, no_te = _triples_to_ids(n_held, n_tok)
+
+            gpt = _build_nanogpt_baseline(n_vsize, embed_dim, 6, n_heads=4, n_layers=2)
+            opt = optim.Adam(gpt.parameters(), lr=0.005)
+            loss_fn = nn.CrossEntropyLoss()
+            s_t = torch.tensor(ns, dtype=torch.long)
+            r_t = torch.tensor(nr, dtype=torch.long)
+            o_t = torch.tensor(no, dtype=torch.long)
+
+            for ep in range(args.epochs):
+                opt.zero_grad()
+                loss = loss_fn(gpt(s_t, r_t), o_t)
+                loss.backward()
+                opt.step()
+                if ep % 10 == 0:
+                    print(f"  Epoch {ep:3d}: loss={loss.item():.4f}")
+
+            with torch.no_grad():
+                s_te = torch.tensor(ns_te, dtype=torch.long)
+                r_te = torch.tensor(nr_te, dtype=torch.long)
+                o_te = torch.tensor(no_te, dtype=torch.long)
+                held_acc = (torch.argmax(gpt(s_te, r_te), dim=-1) == o_te).float().mean().item()
+                train_acc = (torch.argmax(gpt(s_t, r_t), dim=-1) == o_t).float().mean().item()
+
+            gp = sum(p.numel() for p in gpt.parameters())
+            gr_ = BenchmarkResult(model_name="nanoGPT (Transformer)", train_accuracy=train_acc,
+                                  test_accuracy=train_acc, held_out_accuracy=held_acc,
+                                  generalization_gap=train_acc - held_acc, parameters=gp)
+            all_results.append(gr_)
+            print(f"  Train: {train_acc:.3f}, Held-out: {held_acc:.3f}, Params: {gp:,}")
+        except ImportError:
+            print("  [SKIP] PyTorch not available")
+
     # ── DistilGPT-2 ──
     if args.model in ("distilgpt2", "all"):
         print("\n=== DistilGPT-2 ===")
@@ -1005,7 +1099,7 @@ def run_benchmark(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RAVANA P3 Benchmark Harness v2")
-    parser.add_argument("--model", choices=["rlm", "linear", "mlp", "distilgpt2", "all"],
+    parser.add_argument("--model", choices=["rlm", "linear", "mlp", "nanogpt", "distilgpt2", "all"],
                         default="all", help="Which model(s) to benchmark")
     parser.add_argument("--epochs", type=int, default=30, help="Training epochs")
     parser.add_argument("--output", type=str, default=None, help="Path to save markdown report")
