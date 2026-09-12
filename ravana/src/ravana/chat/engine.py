@@ -5751,6 +5751,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
         if _user_disclosure_recall:
             return None
+        # B3 (round 2026-09-12): "earlier you heard me say X", "you heard me
+        # mention Y", "you told me I said Z" are USER-disclosure recalls phrased
+        # with "you" as the subject. The user is asking about THEIR OWN prior
+        # statement, not RAVANA's speech. Without this guard, the agent-ref
+        # ("you") + recall-verb ("heard"/"said") heuristic matches and echoes
+        # a stored agent reply about the same topic — a source-monitoring
+        # inversion (e.g. "earlier you heard me say builders are braver" returned
+        # RAVANA's creative warm-defer from a prior turn instead of recalling
+        # the user's stance). Structural — "you + heard/perceived + me + say/
+        # mention" shape, no per-topic table.
+        if re.search(
+                r"\b(you|your)\b.*\b(heard|hear|noticed|notice|perceive|perceived|"
+                r"overheard|overhear)\b.*\b(me|i)\b.*\b(say|said|mention|mentioned|"
+                r"tell|told|share|shared|state|stated)\b", _q):
+            return None
         # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
         # you about my favorite food" is a user recall query, but the answer the
         # user wants is RAVANA's OWN prior reply confirming the disclosure. The

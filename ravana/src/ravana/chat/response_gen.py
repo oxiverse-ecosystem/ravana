@@ -3007,6 +3007,26 @@ class ResponseGenMixin(ChainWalkerMixin):
             r"\b(make up|invent|coin|imagine|picture|envision|draw|sketch|"
             r"doodle|compose|create|come up with)\b",
             text.lower())
+        # Imperative-position guard (round 2026-09-12): a creative-shape verb
+        # must appear at the START of the sentence or after a modal request
+        # phrase ("can you", "could you", "please", "won't you", "i want you to",
+        # "i'd like you to", "i need you to"). Mid-sentence "create" in a
+        # declarative clause ("people who create art") must NOT trigger the
+        # creative path. Without this, "i believe people who create art are
+        # braver than people who critique it" falsely matched and returned
+        # the warm creative defer. Structural — no per-topic table.
+        if _creative_shape:
+            _t = text.lower().rstrip()
+            _imperative_pos = bool(re.search(
+                r"^(make up|invent|coin|imagine|picture|envision|draw|sketch|"
+                r"doodle|compose|create|come up with)\b"
+                r"|^(can you|could you|would you|will you|please|won't you|"
+                r"i want you to|i'd like you to|i need you to)\s+"
+                r"(make up|invent|coin|imagine|picture|envision|draw|sketch|"
+                r"doodle|compose|create|come up with)\b",
+                _t))
+            if not _imperative_pos:
+                _creative_shape = None
         if _creative or _creative_shape:
             # topic after "about" (covers "poem about X", "world about X")
             _m = re.search(r"\babout\s+(.+)", text.lower())

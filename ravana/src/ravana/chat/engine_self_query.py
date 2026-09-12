@@ -1542,6 +1542,20 @@ class SelfQueryMixin:
                 r"laptop|dog|cat|pet|house|home|job|favorite|favourite|"
                 r"broken|happened|friend|reboot|turn|drive|ride)\b", t):
             return None
+        # B2b (round 2026-09-12): a "what + be" query that also references a
+        # personal pronoun is a personal-attribute recall ("what am i terrified
+        # of", "what was the first question i asked", "what are you thinking"),
+        # NOT a request for the dictionary definition of the subject word. The
+        # B2 attribute-word list above is incomplete (terrified/drawn/etc. are
+        # absent), so this general structural guard catches the broad "what +
+        # be + personal-pronoun" shape. Without it, "what am i terrified of"
+        # grounds the subject as "terrified" and emits a concept-graph
+        # association ("terrified sits close to frustrated...") instead of
+        # recalling the stored personal fact ("you're terrified of deep
+        # water"). Structural — no per-topic table, no authored prose.
+        if re.search(r"\bwhat\s+(am|are|is|was|were)\b", t) and re.search(
+                r"\b(i|me|my|we|our|you|your)\b", t):
+            return None
         # B1 (source monitoring / self-other boundary): self-knowledge RECALL
         # queries ("what do you remember about me", "what do you know about me",
         # "what have i told you") are about the USER's stored autobiographical
