@@ -31,6 +31,11 @@ from dataclasses import dataclass, field, asdict
 
 import numpy as np
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "ravana_ml" / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "ravana" / "src"))
@@ -58,6 +63,8 @@ class BenchmarkResult:
     repetition_rate: float = 0.0
     avg_response_length: float = 0.0
     parameters: int = 0
+    optimizer_memory_mb: float = 0.0
+    training_algorithm: str = "Hebbian"
     mean_latency_ms: float = 0.0
     params_per_accuracy: float = 0.0
     speed_score: float = 0.0
@@ -87,16 +94,21 @@ VERB_WORDS = ["causes", "produces", "is", "has", "like", "in"]
 
 def _make_verb_offset_data(
     seed: int = 42,
-) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str, str]]]:
-    """Generate verb-offset generalization test data.
+) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str, str]], List[str]]:
+    """Generate synthetic compositional generalization test data.
 
+    Experimental Framing:
+    Synthetic compositional generalization benchmark with held-out lexical
+    entities under vocabulary initialization (entities known to tokenizer,
+    unseen during subject-object relation training).
+    
     Train: multiple subjects paired with the SAME verb (each -> specific object).
-    Test: completely novel subjects with the SAME verb.
+    Test: held-out subjects paired with the SAME verb.
+    
+    Evaluates whether the architecture can leverage relational offsets
+    (object = subject + Delta_verb) vs requiring memorized subject-verb pairs.
 
-    RAVANA should predict: object = subject + offset(verb).
-    Baselines fail because subject tokens are unseen.
-
-    Returns (train_triples, held_out_triples).
+    Returns (train_triples, held_out_triples, candidate_objects).
     """
     rng = np.random.RandomState(seed)
 
@@ -113,7 +125,8 @@ def _make_verb_offset_data(
     held = causes_held + produces_held + is_held
     rng.shuffle(train)
     rng.shuffle(held)
-    return train, held
+    candidate_objects = sorted(list(set(o for s, r, o in train + held)))
+    return train, held, candidate_objects
 
 
 def _make_cross_domain_transfer_data(
@@ -338,6 +351,14 @@ def evaluate_conversation_quality(model, tokenizer) -> Dict[str, float]:
 
 def run_catastrophic_forgetting(model, tokenizer, domains: Dict[str, List],
                                 sequence: List[str], epochs_per_domain: int = 30) -> Dict:
+    """Evaluate catastrophic forgetting under sequential domain shift.
+
+    Protocol (Standard Continual Learning):
+    For each domain d trained at stage i:
+      - Peak/learned accuracy A_{d, learned} = curves[d][i]
+      - Final retention accuracy A_{d, final} = curves[d][-1]
+      - Forgetting F_d = max(0, A_{d, learned} - A_{d, final})
+    """
     for facts in domains.values():
         for s, r, o in facts:
             tokenizer.encode(f"{s} {r} ")
@@ -370,16 +391,70 @@ def run_catastrophic_forgetting(model, tokenizer, domains: Dict[str, List],
             curves[eval_domain].append(correct / max(total, 1))
 
     forgetting_rates = {}
-    for d in domains:
-        if len(curves[d]) >= len(sequence):
-            forgetting_rates[d] = curves[d][0] - curves[d][-1]
+    for i, d in enumerate(sequence):
+        if i < len(sequence) - 1:
+            peak = curves[d][i]
+            final = curves[d][-1]
+            forgetting_rates[d] = max(0.0, peak - final)
         else:
             forgetting_rates[d] = 0.0
+
+    eval_domains = [d for i, d in enumerate(sequence) if i < len(sequence) - 1]
+    avg_f = float(np.mean([forgetting_rates[d] for d in eval_domains])) if eval_domains else 0.0
 
     return {
         "curves": curves,
         "forgetting_rates": forgetting_rates,
-        "avg_forgetting": float(np.mean(list(forgetting_rates.values()))),
+        "avg_forgetting": avg_f,
+    }
+
+
+def run_catastrophic_forgetting_transformer(gpt, opt, loss_fn, tokenizer,
+                                            domains: Dict[str, List],
+                                            sequence: List[str],
+                                            epochs_per_domain: int = 30) -> Dict:
+    """Evaluate Transformer under sequential domain shift with Adam."""
+    import torch
+    curves = {d: [] for d in domains}
+    for step, domain_name in enumerate(sequence):
+        facts = domains[domain_name]
+        s_arr, r_arr, o_arr = _triples_to_ids(facts, tokenizer)
+        st = torch.tensor(s_arr, dtype=torch.long)
+        rt = torch.tensor(r_arr, dtype=torch.long)
+        ot = torch.tensor(o_arr, dtype=torch.long)
+        for ep in range(epochs_per_domain):
+            opt.zero_grad()
+            logits = gpt(st, rt)
+            loss = loss_fn(logits, ot)
+            loss.backward()
+            opt.step()
+
+        with torch.no_grad():
+            for eval_d in domains:
+                efacts = domains[eval_d]
+                es, er, eo = _triples_to_ids(efacts, tokenizer)
+                est = torch.tensor(es, dtype=torch.long)
+                ert = torch.tensor(er, dtype=torch.long)
+                eot = torch.tensor(eo, dtype=torch.long)
+                pred = torch.argmax(gpt(est, ert), dim=-1)
+                acc = (pred == eot).float().mean().item()
+                curves[eval_d].append(acc)
+
+    forgetting_rates = {}
+    for i, d in enumerate(sequence):
+        if i < len(sequence) - 1:
+            peak = curves[d][i]
+            final = curves[d][-1]
+            forgetting_rates[d] = max(0.0, peak - final)
+        else:
+            forgetting_rates[d] = 0.0
+
+    eval_domains = [d for i, d in enumerate(sequence) if i < len(sequence) - 1]
+    avg_f = float(np.mean([forgetting_rates[d] for d in eval_domains])) if eval_domains else 0.0
+    return {
+        "curves": curves,
+        "forgetting_rates": forgetting_rates,
+        "avg_forgetting": avg_f,
     }
 
 
@@ -392,20 +467,16 @@ def run_cross_domain_transfer(model, tokenizer,
                                social: List[Tuple[str, str, str]],
                                held_out: List[Tuple[str, str, str]],
                                n_epochs: int = 40) -> Dict:
-    all_facts = science + social
-    for s, r, o in all_facts + held_out:
+    """Science -> Social cross-domain transfer.
+
+    Rigorous Protocol:
+    1. Zero-Shot: Train ONLY on physical science triples.
+       Evaluate on science (in-domain) and social (zero-shot transfer).
+    2. Few-Shot Adapted: Expose model to social domain and evaluate held-out social.
+    """
+    for s, r, o in science + social + held_out:
         tokenizer.encode(f"{s} {r} ")
         tokenizer.encode(o)
-
-    for epoch in range(n_epochs):
-        order = list(range(len(all_facts)))
-        np.random.RandomState(epoch).shuffle(order)
-        for idx in order:
-            s, r, o = all_facts[idx]
-            ids = np.array(tokenizer.encode(f"{s} {r} "), dtype=np.int64)
-            tgt = np.array(tokenizer.encode(o), dtype=np.int64)
-            model.learn(ids, tgt)
-    model._compute_verb_offsets()
 
     def _eval(triples):
         correct = total = 0
@@ -421,9 +492,35 @@ def run_cross_domain_transfer(model, tokenizer,
                 pass
         return correct / max(total, 1)
 
+    # Phase 1: Pure Zero-Shot Transfer (Train ONLY on Science)
+    for epoch in range(n_epochs):
+        order = list(range(len(science)))
+        np.random.RandomState(epoch).shuffle(order)
+        for idx in order:
+            s, r, o = science[idx]
+            ids = np.array(tokenizer.encode(f"{s} {r} "), dtype=np.int64)
+            tgt = np.array(tokenizer.encode(o), dtype=np.int64)
+            model.learn(ids, tgt)
+    model._compute_verb_offsets()
+
     sci_acc = _eval(science)
-    soc_acc = _eval(social)
-    ho_acc = _eval(held_out)
+    soc_zero_shot = _eval(social)
+    ho_zero_shot = _eval(held_out)
+
+    # Phase 2: Few-Shot Adaptation on Social Domain
+    adapt_epochs = max(5, n_epochs // 3)
+    for epoch in range(adapt_epochs):
+        order = list(range(len(social)))
+        np.random.RandomState(100 + epoch).shuffle(order)
+        for idx in order:
+            s, r, o = social[idx]
+            ids = np.array(tokenizer.encode(f"{s} {r} "), dtype=np.int64)
+            tgt = np.array(tokenizer.encode(o), dtype=np.int64)
+            model.learn(ids, tgt)
+    model._compute_verb_offsets()
+
+    soc_adapted = _eval(social)
+    ho_adapted = _eval(held_out)
 
     per_rel = defaultdict(list)
     for s, r, o in held_out:
@@ -438,9 +535,11 @@ def run_cross_domain_transfer(model, tokenizer,
 
     return {
         "science_accuracy": sci_acc,
-        "social_accuracy": soc_acc,
-        "held_out_accuracy": ho_acc,
-        "cross_domain_gap": sci_acc - ho_acc,
+        "social_zero_shot_accuracy": soc_zero_shot,
+        "held_out_zero_shot_accuracy": ho_zero_shot,
+        "social_adapted_accuracy": soc_adapted,
+        "held_out_accuracy": ho_adapted,
+        "zero_shot_transfer_gap": sci_acc - soc_zero_shot,
         "per_relation": {k: float(np.mean(v)) for k, v in per_rel.items()},
     }
 
@@ -451,10 +550,7 @@ def run_cross_domain_transfer(model, tokenizer,
 
 def get_theoretical_baseline_sizes() -> Dict[str, int]:
     return {
-        "RAVANA RLMv2": None,
-        "Linear Baseline": None,
-        "MLP Baseline (2-layer)": None,
-        "nanoGPT (Shakespeare)": 10_700_000,
+        "nanoGPT (Shakespeare, Canonical 6L, 6H)": 10_700_000,
         "DistilGPT-2": 82_000_000,
         "Tiny Transformer (4-layer)": 10_000_000,
         "Tiny LLaMA (1.1B)": 1_100_000_000,
@@ -485,7 +581,10 @@ def _build_nanogpt_baseline(vocab_size: int, embed_dim: int, n_relations: int,
 
         def forward(self, x):
             norm_x = self.ln1(x)
-            attn_out, _ = self.attn(norm_x, norm_x, norm_x)
+            T = x.size(1)
+            # Causal self-attention mask: upper triangular masked out
+            mask = torch.triu(torch.ones(T, T, device=x.device), diagonal=1).bool()
+            attn_out, _ = self.attn(norm_x, norm_x, norm_x, attn_mask=mask)
             x = x + attn_out
             x = x + self.mlp(self.ln2(x))
             return x
@@ -573,109 +672,117 @@ def generate_markdown_report(all_results: List[BenchmarkResult],
                               forgetting_results: Dict,
                               cross_domain_results: Dict,
                               conv_quality_results: Dict[str, Dict],
-                              baseline_sizes: Dict[str, int]) -> str:
-    lines = ["# RAVANA Benchmark Report",
+                              baseline_sizes: Dict[str, int],
+                              ontology_results: Optional[Dict] = None) -> str:
+    lines = ["# RAVANA Architectural Benchmark Report",
              "",
              f"**Generated:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
              "",
              "---", ""]
 
-    # 1. Verb-Offset Held-Out
-    lines.append("## 1. Verb-Offset Held-Out Generalization")
+    # 1. Compositional Generalization
+    lines.append("## 1. Compositional Generalization (Verb-Offset Prediction)")
     lines.append("")
-    lines.append("| Model | Train Acc | Held-Out Acc | Gen Gap | Params |")
-    lines.append("|-------|-----------|--------------|---------|--------|")
+    lines.append("> **Experimental Framing**: Synthetic compositional generalization benchmark testing held-out lexical entities under vocabulary initialization. Unseen subjects are paired with seen verb predicates to evaluate whether the architecture can predict object tokens via relational offset geometry ($e_o \\approx e_s + \\Delta_{\\text{verb}}$) rather than memorizing seen pairs.")
+    lines.append("")
+    lines.append("| Model | Architecture | Training Algorithm | Exact Params | Train Acc | Held-Out Acc | Gen Gap |")
+    lines.append("|---|---|---|---|---|---|---|")
     for r in all_results:
-        lines.append(f"| {r.model_name} | {_fmt_pct(r.train_accuracy)} | {_fmt_pct(r.held_out_accuracy)} | {_fmt_pct(r.generalization_gap)} | {r.parameters:,} |")
-    lines.append("")
-    lines.append("*Held-out uses novel subjects with verbs seen during training. RAVANA uses verb-offset mechanism; baselines can only memorize seen subject-verb pairs.*")
+        arch = "Neuro-Symbolic" if "RLM" in r.model_name else ("Causal Transformer" if "nanoGPT" in r.model_name else "Feedforward")
+        lines.append(f"| {r.model_name} | {arch} | {r.training_algorithm} | {r.parameters:,} | {_fmt_pct(r.train_accuracy)} | {_fmt_pct(r.held_out_accuracy)} | {_fmt_pct(r.generalization_gap)} |")
     lines.append("")
 
     # 2. Cross-Domain Transfer
-    lines.append("## 2. Cross-Domain Transfer (Science -> Social)")
+    lines.append("## 2. Cross-Domain Transfer (Physical Science -> Social Relational)")
+    lines.append("")
+    lines.append("> **Experimental Protocol**: Model is trained exclusively on Physical Science triples (`heat causes expansion`, `cold causes contraction`), then tested zero-shot on Social triples (`kindness causes trust`, `anger causes conflict`) to isolate predicate transfer across distinct semantic domains without prior target exposure.")
     lines.append("")
     if cross_domain_results:
-        lines.append("| Metric | Score |")
-        lines.append("|--------|-------|")
-        for k in ["science_accuracy", "social_accuracy", "held_out_accuracy", "cross_domain_gap",
-                   "ontology_benefit_held_out", "ontology_without_held_out", "ontology_benefit_delta"]:
-            if k in cross_domain_results:
-                v = cross_domain_results[k]
-                lines.append(f"| {k} | {_fmt_pct(v) if isinstance(v, float) else v} |")
-        if "per_relation" in cross_domain_results and cross_domain_results["per_relation"]:
-            lines.append("")
-            lines.append("### Held-Out Per-Relation Accuracy")
-            for rel, acc in cross_domain_results["per_relation"].items():
-                lines.append(f"- **{rel}**: {_fmt_pct(acc)}")
+        lines.append("| Stage / Metric | Description | Accuracy |")
+        lines.append("|---|---|---|")
+        lines.append(f"| **Science (Source In-Domain)** | Trained on physical causation | {_fmt_pct(cross_domain_results.get('science_accuracy', 0))} |")
+        lines.append(f"| **Social (Zero-Shot Transfer)** | Pure transfer (zero social training) | {_fmt_pct(cross_domain_results.get('social_zero_shot_accuracy', 0))} |")
+        lines.append(f"| **Zero-Shot Transfer Gap** | $A_{{\\text{{source}}}} - A_{{\\text{{zero-shot}}}}$ | {_fmt_pct(cross_domain_results.get('zero_shot_transfer_gap', 0))} |")
+        lines.append(f"| **Social (Few-Shot Adapted)** | After brief target domain exposure | {_fmt_pct(cross_domain_results.get('social_adapted_accuracy', 0))} |")
+        lines.append(f"| **Held-Out Social Generalization** | Unseen social entities | {_fmt_pct(cross_domain_results.get('held_out_accuracy', 0))} |")
         lines.append("")
 
-    # 3. Catastrophic Forgetting
-    lines.append("## 3. Catastrophic Forgetting (Sequential A -> B -> C)")
+    # 3. Controlled Multi-Seed Ontology Ablation
+    lines.append("## 3. Controlled Multi-Seed Ontology Ablation (Ontology ON vs OFF)")
     lines.append("")
-    if forgetting_results and "curves" in forgetting_results:
-        curves = forgetting_results["curves"]
-        lines.append("| Domain | After A | After B | After C | Forgetting |")
-        lines.append("|--------|---------|---------|---------|------------|")
-        for d, curve in curves.items():
-            vals = [f"{v * 100:.1f}%" for v in curve]
-            while len(vals) < 3:
-                vals.append("-")
-            fr = forgetting_results.get("forgetting_rates", {}).get(d, 0)
-            lines.append(f"| {d} | {vals[0]} | {vals[1]} | {vals[2]} | {_fmt_pct(fr)} |")
-        avg_f = forgetting_results.get("avg_forgetting", 0)
-        lines.append(f"| **Average** | | | | **{_fmt_pct(avg_f)}** |")
-        lines.append("")
-        lines.append("*Negative forgetting = improvement through sleep consolidation.*")
+    lines.append("> **Experimental Control**: Both conditions share identical architecture, initialization seeds, vocabulary, data ordering, and update rule. The only intervention is the presence of seed ontological priors.")
+    lines.append("")
+    if ontology_results and "seed_runs" in ontology_results:
+        lines.append("| Seed | With Ontology (Prior ON) | Without Ontology (Prior OFF) | $\\Delta$ Advantage |")
+        lines.append("|---|---|---|---|")
+        for sr in ontology_results["seed_runs"]:
+            lines.append(f"| Seed {sr['seed']} | {_fmt_pct(sr['with_ontology'])} | {_fmt_pct(sr['without_ontology'])} | +{_fmt_pct(sr['delta'])} |")
+        lines.append(f"| **Mean $\\pm$ Std (N={len(ontology_results['seed_runs'])})** | **{_fmt_pct(ontology_results['mean_with'])} $\\pm$ {_fmt_pct(ontology_results['std_with'])}** | **{_fmt_pct(ontology_results['mean_without'])} $\\pm$ {_fmt_pct(ontology_results['std_without'])}** | **+{_fmt_pct(ontology_results['mean_delta'])} $\\pm$ {_fmt_pct(ontology_results['std_delta'])}** |")
         lines.append("")
 
-    # 4. Conversation Quality
-    lines.append("## 4. Conversation Quality")
+    # 4. Catastrophic Forgetting
+    lines.append("## 4. Continual Learning & Catastrophic Forgetting (Sequential A -> B -> C)")
     lines.append("")
-    lines.append("| Model | Coherence | Diversity (1g) | Diversity (2g) | Diversity (3g) | Repetition | Avg Length |")
-    lines.append("|-------|-----------|---------------|---------------|---------------|------------|------------|")
-    for mn, m in conv_quality_results.items():
-        lines.append(f"| {mn} | {m.get('coherence',0):.3f} | {m.get('diversity',0):.3f} | {m.get('bigram_diversity',0):.3f} | {m.get('trigram_diversity',0):.3f} | {m.get('repetition',0):.3f} | {m.get('avg_length',0):.1f} |")
+    lines.append("> **Metric Definition**: Peak accuracy on domain $d$ measured immediately after learning domain $d$ vs final retention after subsequent sequential domain training ($F_d = A_{d, \\text{learned}} - A_{d, \\text{final}}$).")
     lines.append("")
-    lines.append("*Higher coherence & diversity = better. Lower repetition = better.*")
-    lines.append("")
-
-    # 5. Parameter Efficiency
-    lines.append("## 5. Parameter Efficiency")
-    lines.append("")
-    lines.append("| Model | Parameters | Held-Out | Params/Acc (↓ better) |")
-    lines.append("|-------|------------|----------|----------------------|")
-    for r in all_results:
-        eff = r.parameters / max(r.held_out_accuracy, 0.001)
-        lines.append(f"| {r.model_name} | {r.parameters:,} | {_fmt_pct(r.held_out_accuracy)} | {eff:,.0f} |")
-    lines.append("")
-    lines.append("### Theoretical Baselines")
-    lines.append("")
-    lines.append("| Model | Parameters | x RAVANA |")
-    lines.append("|-------|------------|----------|")
-    if baseline_sizes and all_results:
-        rp = all_results[0].parameters if all_results else 1
-        for name, size in baseline_sizes.items():
-            if size:
-                lines.append(f"| {name} | {size:,} | {size/max(rp,1):.1f}x |")
-    lines.append("")
-
-    # Summary
-    lines.append("## Summary")
-    lines.append("")
-    if all_results:
-        best = max(all_results, key=lambda r: r.held_out_accuracy)
-        lines.append(f"- **Best held-out accuracy**: {best.model_name} ({_fmt_pct(best.held_out_accuracy)})")
-    if cross_domain_results:
-        ho = cross_domain_results.get("held_out_accuracy", 0)
-        lines.append(f"- **Cross-domain held-out**: {_fmt_pct(ho)}")
-        delta = cross_domain_results.get("ontology_benefit_delta", 0)
-        lines.append(f"- **Ontology benefit**: +{_fmt_pct(delta)}")
     if forgetting_results:
-        avg_f = forgetting_results.get("avg_forgetting", 0)
-        lines.append(f"- **Catastrophic forgetting**: {_fmt_pct(avg_f)} across domains")
+        if "curves" in forgetting_results:
+            lines.append("### RAVANA (Local Hebbian + Sleep Replay)")
+            lines.append("| Domain | After Domain A | After Domain B | After Domain C | Retention Loss ($F_d$) |")
+            lines.append("|---|---|---|---|---|")
+            for d, curve in forgetting_results["curves"].items():
+                vals = [f"{v * 100:.1f}%" for v in curve]
+                while len(vals) < 3:
+                    vals.append("-")
+                fr = forgetting_results.get("forgetting_rates", {}).get(d, 0.0)
+                lines.append(f"| {d} | {vals[0]} | {vals[1]} | {vals[2]} | {_fmt_pct(fr)} |")
+            lines.append(f"| **Average Retention Loss** | | | | **{_fmt_pct(forgetting_results.get('avg_forgetting', 0))}** |")
+            lines.append("")
+        if "nanogpt_curves" in forgetting_results:
+            lines.append("### nanoGPT (Causal Transformer + AdamW)")
+            lines.append("| Domain | After Domain A | After Domain B | After Domain C | Retention Loss ($F_d$) |")
+            lines.append("|---|---|---|---|---|")
+            for d, curve in forgetting_results["nanogpt_curves"].items():
+                vals = [f"{v * 100:.1f}%" for v in curve]
+                while len(vals) < 3:
+                    vals.append("-")
+                fr = forgetting_results.get("nanogpt_forgetting_rates", {}).get(d, 0.0)
+                lines.append(f"| {d} | {vals[0]} | {vals[1]} | {vals[2]} | {_fmt_pct(fr)} |")
+            lines.append(f"| **Average Retention Loss** | | | | **{_fmt_pct(forgetting_results.get('nanogpt_avg_forgetting', 0))}** |")
+            lines.append("")
+
+    # 5. Diagnostic Graph Traversal & Surface N-Gram Diagnostics
+    lines.append("## 5. Diagnostic Surface Graph Traversal (Template Realization)")
     lines.append("")
-    lines.append("---")
-    lines.append("*RAVANA: Forward-only, Hebbian, sleep-consolidating cognitive architecture.*")
+    lines.append("> **Diagnostic Note**: Evaluates local graph connectivity and n-gram diversity over template-realized walks for internal RLMv2 components. Real conversational and multi-turn capabilities are evaluated via the 9-battery cognitive suite in `scripts/evaluate_ravana.py`.")
+    lines.append("")
+    if conv_quality_results:
+        lines.append("| Model | Coherence | Diversity (1g) | Diversity (2g) | Diversity (3g) | Repetition | Avg Length |")
+        lines.append("|---|---|---|---|---|---|---|")
+        for mn, m in conv_quality_results.items():
+            lines.append(f"| {mn} | {m.get('coherence',0):.3f} | {m.get('diversity',0):.3f} | {m.get('bigram_diversity',0):.3f} | {m.get('trigram_diversity',0):.3f} | {m.get('repetition',0):.3f} | {m.get('avg_length',0):.1f} |")
+        lines.append("")
+
+    # 6. Parameter & Compute Efficiency
+    lines.append("## 6. Parameter & Compute Efficiency Comparison")
+    lines.append("")
+    lines.append("### A. Empirically Evaluated & Instantiated Models")
+    lines.append("| Model | Exact Parameters | Training Algorithm | Optimizer Overhead | Computation Graph Mode |")
+    lines.append("|---|---|---|---|---|")
+    for r in all_results:
+        mode = "Forward-only (streaming)" if "RLM" in r.model_name else "Autograd graph retained"
+        lines.append(f"| {r.model_name} | {r.parameters:,} | {r.training_algorithm} | {r.optimizer_memory_mb:.2f} MB | {mode} |")
+    lines.append("")
+    lines.append("### B. Theoretical Architecture Reference (External Production Models)")
+    lines.append("> These are canonical scale reference points from published literature, not instantiated in this micro-benchmark.")
+    lines.append("")
+    lines.append("| Model | Parameters | Relative Size vs RLMv2 |")
+    lines.append("|---|---|---|")
+    rp = all_results[0].parameters if all_results else 1
+    for name, size in baseline_sizes.items():
+        if size:
+            lines.append(f"| {name} | {size:,} | {size/max(rp,1):.1f}x |")
+    lines.append("")
 
     return "\n".join(lines)
 
@@ -704,9 +811,9 @@ def run_benchmark(args):
     if args.model in ("rlm", "all"):
         print("\n=== RLMv2 (RAVANA) ===")
 
-        # Task 1: Verb-Offset Held-Out Generalization
-        print("\n--- Task 1: Verb-Offset Held-Out Generalization ---")
-        train_triples, held_out_triples = _make_verb_offset_data()
+        # Task 1: Compositional Generalization
+        print("\n--- Task 1: Compositional Generalization (Verb-Offset Prediction) ---")
+        train_triples, held_out_triples, candidate_objects = _make_verb_offset_data()
 
         vo_tokenizer = WordTokenizer()
         for s, r, o in train_triples + held_out_triples:
@@ -747,9 +854,10 @@ def run_benchmark(args):
         same_domain_acc = _eval_vo(train_triples, vo_model, vo_tokenizer)
 
         vo_params = sum(v.size if hasattr(v, 'size') else 0 for v in vo_model.state_dict().values())
+        n_cands = len(candidate_objects)
 
         print(f"  Same-domain (memorization): {same_domain_acc:.3f}")
-        print(f"  Verb-offset held-out:       {vo_held_out_acc:.3f}  (chance = 1/{vo_vocab:.0f} = {1/vo_vocab:.3f})")
+        print(f"  Held-out generalization:   {vo_held_out_acc:.3f}  (chance: 1/{n_cands} candidates = {1/n_cands:.3f}, 1/{vo_vocab} vocab = {1/vo_vocab:.3f})")
         print(f"  Parameters: {vo_params:,}")
 
         rlm_result = BenchmarkResult(
@@ -759,11 +867,13 @@ def run_benchmark(args):
             held_out_accuracy=vo_held_out_acc,
             generalization_gap=same_domain_acc - vo_held_out_acc,
             parameters=vo_params,
+            optimizer_memory_mb=0.0,
+            training_algorithm="Local Predictive Hebbian",
         )
         all_results.append(rlm_result)
 
-        # Task 2: Cross-Domain Transfer
-        print("\n--- Task 2: Cross-Domain Transfer (Science -> Social) ---")
+        # Task 2: Cross-Domain Transfer (Physical Science -> Social Relational)
+        print("\n--- Task 2: Cross-Domain Transfer (Physical Science -> Social Relational) ---")
         science, social, held_out = _make_cross_domain_transfer_data()
         cd_tokenizer = WordTokenizer()
         for tl in [science, social, held_out]:
@@ -779,74 +889,102 @@ def run_benchmark(args):
                                                 n_epochs=args.epochs)
         cross_domain_results = cd_results
         rlm_result.cross_domain_accuracy = cd_results.get("held_out_accuracy", 0.0)
-        rlm_result.generalization_gap = min(rlm_result.generalization_gap,
-                                            1.0 - cd_results.get("held_out_accuracy", 0.0))
-        print(f"  Science acc: {cd_results.get('science_accuracy', 0):.3f}, "
-              f"Social acc: {cd_results.get('social_accuracy', 0):.3f}, "
-              f"Held-out: {cd_results.get('held_out_accuracy', 0):.3f}")
+        rlm_result.generalization_gap = cd_results.get("zero_shot_transfer_gap", 0.0)
+        print(f"  Science In-Domain:      {cd_results.get('science_accuracy', 0):.3f}")
+        print(f"  Social Zero-Shot:       {cd_results.get('social_zero_shot_accuracy', 0):.3f} (Zero-shot gap: {cd_results.get('zero_shot_transfer_gap', 0):.3f})")
+        print(f"  Social Few-Shot:        {cd_results.get('social_adapted_accuracy', 0):.3f}")
+        print(f"  Held-Out Social:        {cd_results.get('held_out_accuracy', 0):.3f}")
 
-        # Task 3: Ontology Benefit
-        print("\n--- Task 3: Ontology Benefit (with vs without seed knowledge) ---")
-        onto_train, onto_test = _make_ontology_comparison_data()
-        onto_tokenizer = WordTokenizer()
-        for tl in [onto_train, onto_test]:
-            for s, r, o in tl:
-                for w in [s, r, o]:
-                    onto_tokenizer.encode(w)
-        onto_vocab = onto_tokenizer.vocab_size
+        # Task 3: Controlled Multi-Seed Ontology Ablation
+        print("\n--- Task 3: Controlled Multi-Seed Ontology Ablation (Ontology ON vs OFF) ---")
+        onto_seeds = [42, 43, 44, 45, 46]
+        onto_seed_results = []
+        for s_val in onto_seeds:
+            onto_train, onto_test = _make_ontology_comparison_data(seed=s_val)
+            tok_s = WordTokenizer()
+            for tl in [onto_train, onto_test]:
+                for s, r, o in tl:
+                    for w in [s, r, o]:
+                        tok_s.encode(w)
+            vsize = tok_s.vocab_size + 10
 
-        # Model WITH ontology
-        model_with = RLMv2(vocab_size=onto_vocab + 10, embed_dim=embed_dim,
-                           concept_dim=concept_dim, n_concepts=onto_vocab + 10)
-        model_with.use_verb_offset = True
-        for s, r, o in onto_train:
-            ids = np.array(onto_tokenizer.encode(f"{s} {r} "), dtype=np.int64)
-            tgt = np.array(onto_tokenizer.encode(o), dtype=np.int64)
-            if ids.max() < model_with.vocab_size and tgt.max() < model_with.vocab_size:
-                model_with.learn(ids, tgt)
+            def _eval_onto(model, tok, triples):
+                correct = total = 0
+                for s, r, o in triples:
+                    ids = np.array(tok.encode(f"{s} {r} "), dtype=np.int64)
+                    tid = tok.encode(o)[0]
+                    try:
+                        logits = model.forward(ids)
+                        if logits is not None and hasattr(logits, 'data'):
+                            lf = logits.data.flatten()
+                            if tid < len(lf):
+                                correct += int(np.argmax(lf) == tid)
+                                total += 1
+                    except Exception:
+                        pass
+                return correct / max(total, 1)
 
-        # Model WITHOUT ontology (monkey-patch with try/finally for safety)
-        orig_init_onto = RLMv2._init_ontology
-        try:
-            RLMv2._init_ontology = lambda self: None
-            model_without = RLMv2(vocab_size=onto_vocab + 10, embed_dim=embed_dim,
-                                  concept_dim=concept_dim, n_concepts=onto_vocab + 10)
-        finally:
-            RLMv2._init_ontology = orig_init_onto  # Restore for other models
-        model_without._ontology_edges = {}
-        model_without.use_verb_offset = True
-        for s, r, o in onto_train:
-            ids = np.array(onto_tokenizer.encode(f"{s} {r} "), dtype=np.int64)
-            tgt = np.array(onto_tokenizer.encode(o), dtype=np.int64)
-            if ids.max() < model_without.vocab_size and tgt.max() < model_without.vocab_size:
-                model_without.learn(ids, tgt)
+            # Model WITH ontology
+            m_with = RLMv2(vocab_size=vsize, embed_dim=embed_dim,
+                           concept_dim=concept_dim, n_concepts=vsize)
+            m_with._tokenizer = tok_s
+            m_with.use_verb_offset = True
+            for nid, node in m_with.graph.nodes.items():
+                if node.label and node.label.lower() in tok_s.word_to_id:
+                    tid = tok_s.word_to_id[node.label.lower()]
+                    m_with.binding_map.bind(tid, nid, confidence=0.8)
 
-        def _eval_onto(model, tok, triples):
-            correct = total = 0
-            for s, r, o in triples:
-                ids = np.array(tok.encode(f"{s} {r} "), dtype=np.int64)
-                tid = tok.encode(o)[0]
-                try:
-                    logits = model.forward(ids)
-                    if logits is not None and hasattr(logits, 'data'):
-                        lf = logits.data.flatten()
-                        if tid < len(lf):
-                            correct += int(np.argmax(lf) == tid)
-                            total += 1
-                except Exception:
-                    pass
-            return correct / max(total, 1)
+            for s, r, o in onto_train:
+                ids = np.array(tok_s.encode(f"{s} {r} "), dtype=np.int64)
+                tgt = np.array(tok_s.encode(o), dtype=np.int64)
+                if ids.max() < m_with.vocab_size and tgt.max() < m_with.vocab_size:
+                    m_with.learn(ids, tgt)
+            m_with._compute_verb_offsets()
+            acc_with = _eval_onto(m_with, tok_s, onto_test)
 
-        onto_with = _eval_onto(model_with, onto_tokenizer, onto_test)
-        onto_without = _eval_onto(model_without, onto_tokenizer, onto_test)
-        onto_delta = onto_with - onto_without
+            # Model WITHOUT ontology
+            orig_init_onto = RLMv2._init_ontology
+            try:
+                RLMv2._init_ontology = lambda self: None
+                m_without = RLMv2(vocab_size=vsize, embed_dim=embed_dim,
+                                  concept_dim=concept_dim, n_concepts=vsize)
+            finally:
+                RLMv2._init_ontology = orig_init_onto
+            m_without._ontology_edges = {}
+            m_without._tokenizer = tok_s
+            m_without.use_verb_offset = True
+            for s, r, o in onto_train:
+                ids = np.array(tok_s.encode(f"{s} {r} "), dtype=np.int64)
+                tgt = np.array(tok_s.encode(o), dtype=np.int64)
+                if ids.max() < m_without.vocab_size and tgt.max() < m_without.vocab_size:
+                    m_without.learn(ids, tgt)
+            m_without._compute_verb_offsets()
+            acc_without = _eval_onto(m_without, tok_s, onto_test)
+            delta = acc_with - acc_without
+            onto_seed_results.append({
+                "seed": s_val,
+                "with_ontology": acc_with,
+                "without_ontology": acc_without,
+                "delta": delta,
+            })
+            print(f"    Seed {s_val}: With={acc_with:.3f}, Without={acc_without:.3f}, Delta=+{delta:.3f}")
 
-        cross_domain_results["ontology_benefit_held_out"] = onto_with
-        cross_domain_results["ontology_without_held_out"] = onto_without
-        cross_domain_results["ontology_benefit_delta"] = onto_delta
-        print(f"  With ontology:  {onto_with:.3f}")
-        print(f"  Without ontology: {onto_without:.3f}")
-        print(f"  Ontology benefit: +{onto_delta:.3f}")
+        with_scores = [r["with_ontology"] for r in onto_seed_results]
+        without_scores = [r["without_ontology"] for r in onto_seed_results]
+        delta_scores = [r["delta"] for r in onto_seed_results]
+        ontology_results = {
+            "seed_runs": onto_seed_results,
+            "mean_with": float(np.mean(with_scores)),
+            "std_with": float(np.std(with_scores)),
+            "mean_without": float(np.mean(without_scores)),
+            "std_without": float(np.std(without_scores)),
+            "mean_delta": float(np.mean(delta_scores)),
+            "std_delta": float(np.std(delta_scores)),
+        }
+        print(f"  Ontology Summary ({len(onto_seeds)} seeds): "
+              f"With={ontology_results['mean_with']*100:.1f}+/-{ontology_results['std_with']*100:.1f}%, "
+              f"Without={ontology_results['mean_without']*100:.1f}+/-{ontology_results['std_without']*100:.1f}%, "
+              f"Delta=+{ontology_results['mean_delta']*100:.1f}+/-{ontology_results['std_delta']*100:.1f}%")
 
         # Task 4: Catastrophic Forgetting
         print("\n--- Task 4: Catastrophic Forgetting (Sequential A -> B -> C) ---")
@@ -867,10 +1005,10 @@ def run_benchmark(args):
                                                           epochs_per_domain=max(5, args.epochs // 3))
         rlm_result.forgetting_curves = forgetting_results.get("curves", {})
         rlm_result.forgetting_rate = forgetting_results.get("avg_forgetting", 0.0)
-        print(f"  Avg forgetting: {rlm_result.forgetting_rate:.3f}  (negative = improvement)")
+        print(f"  RAVANA Retention Loss: {rlm_result.forgetting_rate:.3f}")
 
-        # Task 5: Conversation Quality
-        print("\n--- Task 5: Conversation Quality ---")
+        # Task 5: Diagnostic Graph Traversal
+        print("\n--- Task 5: Diagnostic Graph Traversal & Surface N-Gram Diagnostics ---")
         cq_tokenizer = WordTokenizer()
         for w in ["trust", "freedom", "knowledge", "friendship", "change", "love", "fear", "hope",
                   "is", "an", "important", "concept", "it", "connects", "with", "many",
@@ -902,7 +1040,7 @@ def run_benchmark(args):
             import torch.nn as nn
             import torch.optim as optim
 
-            l_train, l_held = _make_verb_offset_data()
+            l_train, l_held, l_cand = _make_verb_offset_data()
             l_tok = WordTokenizer()
             for s, r, o in l_train + l_held:
                 for w in [s, r, o]:
@@ -937,7 +1075,9 @@ def run_benchmark(args):
             lp = sum(p.numel() for p in lin.parameters())
             lr_ = BenchmarkResult(model_name="Linear Baseline", train_accuracy=train_acc,
                                   test_accuracy=train_acc, held_out_accuracy=held_acc,
-                                  generalization_gap=train_acc - held_acc, parameters=lp)
+                                  generalization_gap=train_acc - held_acc, parameters=lp,
+                                  optimizer_memory_mb=(lp * 8) / (1024 * 1024),
+                                  training_algorithm="Backpropagation (Adam)")
             all_results.append(lr_)
             print(f"  Train: {train_acc:.3f}, Held-out: {held_acc:.3f}, Params: {lp:,}")
         except ImportError:
@@ -950,7 +1090,7 @@ def run_benchmark(args):
             import torch.nn as nn
             import torch.optim as optim
 
-            m_train, m_held = _make_verb_offset_data()
+            m_train, m_held, m_cand = _make_verb_offset_data()
             m_tok = WordTokenizer()
             for s, r, o in m_train + m_held:
                 for w in [s, r, o]:
@@ -985,21 +1125,23 @@ def run_benchmark(args):
             mp = sum(p.numel() for p in mlp.parameters())
             mr_ = BenchmarkResult(model_name="MLP Baseline (2-layer)", train_accuracy=train_acc,
                                   test_accuracy=train_acc, held_out_accuracy=held_acc,
-                                  generalization_gap=train_acc - held_acc, parameters=mp)
+                                  generalization_gap=train_acc - held_acc, parameters=mp,
+                                  optimizer_memory_mb=(mp * 8) / (1024 * 1024),
+                                  training_algorithm="Backpropagation (Adam)")
             all_results.append(mr_)
             print(f"  Train: {train_acc:.3f}, Held-out: {held_acc:.3f}, Params: {mp:,}")
         except ImportError:
             print("  [SKIP] PyTorch not available")
 
-    # ── nanoGPT Baseline (Transformer Causal Self-Attention) ──
+    # ── nanoGPT Baseline (Causal Transformer) ──
     if args.model in ("nanogpt", "all"):
-        print("\n=== nanoGPT Baseline (Transformer Causal Self-Attention) ===")
+        print("\n=== nanoGPT Baseline (Causal Transformer) ===")
         try:
             import torch
             import torch.nn as nn
             import torch.optim as optim
 
-            n_train, n_held = _make_verb_offset_data()
+            n_train, n_held, n_cand = _make_verb_offset_data()
             n_tok = WordTokenizer()
             for s, r, o in n_train + n_held:
                 for w in [s, r, o]:
@@ -1032,11 +1174,34 @@ def run_benchmark(args):
                 train_acc = (torch.argmax(gpt(s_t, r_t), dim=-1) == o_t).float().mean().item()
 
             gp = sum(p.numel() for p in gpt.parameters())
-            gr_ = BenchmarkResult(model_name="nanoGPT (Transformer)", train_accuracy=train_acc,
+            gr_ = BenchmarkResult(model_name="nanoGPT (Causal Transformer)", train_accuracy=train_acc,
                                   test_accuracy=train_acc, held_out_accuracy=held_acc,
-                                  generalization_gap=train_acc - held_acc, parameters=gp)
+                                  generalization_gap=train_acc - held_acc, parameters=gp,
+                                  optimizer_memory_mb=(gp * 8) / (1024 * 1024),
+                                  training_algorithm="Backpropagation (Adam)")
             all_results.append(gr_)
-            print(f"  Train: {train_acc:.3f}, Held-out: {held_acc:.3f}, Params: {gp:,}")
+            print(f"  Train: {train_acc:.3f}, Held-out: {held_acc:.3f}, Params: {gp:,}, Optimizer: {gr_.optimizer_memory_mb:.2f} MB")
+
+            # Also evaluate nanoGPT on catastrophic forgetting
+            if forgetting_results is not None:
+                domains, sequence = _make_domain_sequence()
+                cf_tok = WordTokenizer()
+                for facts in domains.values():
+                    for s, r, o in facts:
+                        for w in [s, r, o]:
+                            cf_tok.encode(w)
+                cf_vsize = cf_tok.vocab_size + 50
+                gpt_cf = _build_nanogpt_baseline(cf_vsize, embed_dim, 6, n_heads=4, n_layers=2)
+                opt_cf = optim.Adam(gpt_cf.parameters(), lr=0.005)
+                loss_fn_cf = nn.CrossEntropyLoss()
+                gpt_f_res = run_catastrophic_forgetting_transformer(
+                    gpt_cf, opt_cf, loss_fn_cf, cf_tok, domains, sequence,
+                    epochs_per_domain=max(5, args.epochs // 3)
+                )
+                forgetting_results["nanogpt_curves"] = gpt_f_res.get("curves", {})
+                forgetting_results["nanogpt_forgetting_rates"] = gpt_f_res.get("forgetting_rates", {})
+                forgetting_results["nanogpt_avg_forgetting"] = gpt_f_res.get("avg_forgetting", 0.0)
+                print(f"  nanoGPT Retention Loss (Catastrophic Forgetting): {forgetting_results['nanogpt_avg_forgetting']:.3f}")
         except ImportError:
             print("  [SKIP] PyTorch not available")
 
@@ -1050,7 +1215,8 @@ def run_benchmark(args):
     baseline_sizes = get_theoretical_baseline_sizes()
     report = generate_markdown_report(
         all_results, forgetting_results, cross_domain_results,
-        conv_quality_results, baseline_sizes
+        conv_quality_results, baseline_sizes,
+        ontology_results=(ontology_results if 'ontology_results' in locals() else None)
     )
 
     # Print summary
@@ -1058,15 +1224,22 @@ def run_benchmark(args):
     print("BENCHMARK SUMMARY")
     print("=" * 70)
     for r in all_results:
-        print(f"  {r.model_name:30s}  train={r.train_accuracy:.3f}  held_out={r.held_out_accuracy:.3f}  params={r.parameters:,}")
+        print(f"  {r.model_name:32s}  train={r.train_accuracy:.3f}  held_out={r.held_out_accuracy:.3f}  params={r.parameters:,}  opt={r.optimizer_memory_mb:.2f}MB")
     if forgetting_results:
-        print(f"  Catastrophic forgetting (avg): {forgetting_results.get('avg_forgetting', 0):.3f}")
+        print(f"  Catastrophic forgetting (RAVANA retention loss): {forgetting_results.get('avg_forgetting', 0):.3f}")
+        if "nanogpt_avg_forgetting" in forgetting_results:
+            print(f"  Catastrophic forgetting (nanoGPT retention loss): {forgetting_results.get('nanogpt_avg_forgetting', 0):.3f}")
     if cross_domain_results:
-        print(f"  Cross-domain held-out: {cross_domain_results.get('held_out_accuracy', 0):.3f}")
-        print(f"  Ontology benefit: +{cross_domain_results.get('ontology_benefit_delta', 0):.3f}")
+        print(f"  Zero-shot cross-domain transfer: {cross_domain_results.get('social_zero_shot_accuracy', 0):.3f} (gap: {cross_domain_results.get('zero_shot_transfer_gap', 0):.3f})")
+        print(f"  Adapted cross-domain held-out:   {cross_domain_results.get('held_out_accuracy', 0):.3f}")
+    if 'ontology_results' in locals():
+        print(f"  Ontology benefit (5 seeds):     +{ontology_results['mean_delta']*100:.1f}+/-{ontology_results['std_delta']*100:.1f}%")
 
-    safe_report = report.encode('ascii', errors='replace').decode('ascii')
-    print(f"\n{safe_report}")
+    try:
+        print(f"\n{report}")
+    except UnicodeEncodeError:
+        safe_report = report.encode('ascii', errors='replace').decode('ascii')
+        print(f"\n{safe_report}")
 
     if args.output:
         out_path = Path(args.output)

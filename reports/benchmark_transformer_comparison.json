@@ -1,0 +1,186 @@
+{
+  "timestamp": "2026-09-12 21:14:42",
+  "results": [
+    {
+      "model_name": "RLMv2 (RAVANA)",
+      "timestamp": "2026-09-12 21:13:27",
+      "train_accuracy": 0.7454545454545455,
+      "test_accuracy": 0.7454545454545455,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 1.0,
+      "per_relation_test": {},
+      "forgetting_curves": {
+        "physics": [
+          0.575,
+          0.55,
+          0.475
+        ],
+        "cooking": [
+          0.0,
+          0.95,
+          0.5
+        ],
+        "music": [
+          0.0,
+          0.0,
+          0.95
+        ]
+      },
+      "forgetting_rate": 0.27499999999999997,
+      "coherence_score": 0.8286521873513394,
+      "diversity_score": 0.6249999999999999,
+      "repetition_rate": 0.2272727272727273,
+      "avg_response_length": 12.0,
+      "parameters": 156870,
+      "optimizer_memory_mb": 0.0,
+      "training_algorithm": "Local Predictive Hebbian",
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    },
+    {
+      "model_name": "Linear Baseline",
+      "timestamp": "2026-09-12 21:14:42",
+      "train_accuracy": 0.6727272868156433,
+      "test_accuracy": 0.6727272868156433,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 0.6727272868156433,
+      "per_relation_test": {},
+      "forgetting_curves": {},
+      "forgetting_rate": 0.0,
+      "coherence_score": 0.0,
+      "diversity_score": 0.0,
+      "repetition_rate": 0.0,
+      "avg_response_length": 0.0,
+      "parameters": 5472,
+      "optimizer_memory_mb": 0.041748046875,
+      "training_algorithm": "Backpropagation (Adam)",
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    },
+    {
+      "model_name": "MLP Baseline (2-layer)",
+      "timestamp": "2026-09-12 21:14:42",
+      "train_accuracy": 0.9454545378684998,
+      "test_accuracy": 0.9454545378684998,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 0.9454545378684998,
+      "per_relation_test": {},
+      "forgetting_curves": {},
+      "forgetting_rate": 0.0,
+      "coherence_score": 0.0,
+      "diversity_score": 0.0,
+      "repetition_rate": 0.0,
+      "avg_response_length": 0.0,
+      "parameters": 15816,
+      "optimizer_memory_mb": 0.12066650390625,
+      "training_algorithm": "Backpropagation (Adam)",
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    },
+    {
+      "model_name": "nanoGPT (Causal Transformer)",
+      "timestamp": "2026-09-12 21:14:42",
+      "train_accuracy": 0.20000000298023224,
+      "test_accuracy": 0.20000000298023224,
+      "held_out_accuracy": 0.0,
+      "cross_domain_accuracy": 0.0,
+      "generalization_gap": 0.20000000298023224,
+      "per_relation_test": {},
+      "forgetting_curves": {},
+      "forgetting_rate": 0.0,
+      "coherence_score": 0.0,
+      "diversity_score": 0.0,
+      "repetition_rate": 0.0,
+      "avg_response_length": 0.0,
+      "parameters": 12096,
+      "optimizer_memory_mb": 0.09228515625,
+      "training_algorithm": "Backpropagation (Adam)",
+      "mean_latency_ms": 0.0,
+      "params_per_accuracy": 0.0,
+      "speed_score": 0.0
+    }
+  ],
+  "forgetting": {
+    "curves": {
+      "physics": [
+        0.575,
+        0.55,
+        0.475
+      ],
+      "cooking": [
+        0.0,
+        0.95,
+        0.5
+      ],
+      "music": [
+        0.0,
+        0.0,
+        0.95
+      ]
+    },
+    "forgetting_rates": {
+      "physics": 0.09999999999999998,
+      "cooking": 0.44999999999999996,
+      "music": 0.0
+    },
+    "avg_forgetting": 0.27499999999999997,
+    "nanogpt_curves": {
+      "physics": [
+        0.05000000074505806,
+        0.10000000149011612,
+        0.0
+      ],
+      "cooking": [
+        0.0,
+        0.05000000074505806,
+        0.07500000298023224
+      ],
+      "music": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "nanogpt_forgetting_rates": {
+      "physics": 0.05000000074505806,
+      "cooking": 0.0,
+      "music": 0.0
+    },
+    "nanogpt_avg_forgetting": 0.02500000037252903
+  },
+  "cross_domain": {
+    "science_accuracy": 1.0,
+    "social_zero_shot_accuracy": 0.0,
+    "held_out_zero_shot_accuracy": 0.0,
+    "social_adapted_accuracy": 1.0,
+    "held_out_accuracy": 0.0,
+    "zero_shot_transfer_gap": 1.0,
+    "per_relation": {
+      "causes": 0.0,
+      "produces": 0.0
+    }
+  },
+  "conversation_quality": {
+    "RLMv2 (RAVANA)": {
+      "coherence": 0.8286521873513394,
+      "diversity": 0.6249999999999999,
+      "bigram_diversity": 0.7727272727272728,
+      "trigram_diversity": 0.95,
+      "repetition": 0.2272727272727273,
+      "avg_length": 12.0
+    }
+  },
+  "baseline_sizes": {
+    "nanoGPT (Shakespeare, Canonical 6L, 6H)": 10700000,
+    "DistilGPT-2": 82000000,
+    "Tiny Transformer (4-layer)": 10000000,
+    "Tiny LLaMA (1.1B)": 1100000000,
+    "GPT-2 Small (124M)": 124000000
+  }
+}
