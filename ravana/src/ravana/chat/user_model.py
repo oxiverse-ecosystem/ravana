@@ -1896,7 +1896,8 @@ class UserModel:
                         self.correction_severity = \
                             max(self.correction_severity, 0.7)
 
-        def _put_fact(attr: str, val: str, conf: float) -> None:
+        def _put_fact(attr: str, val: str, conf: float,
+                      disclosure_id: Optional[str] = None) -> None:
             # D3 (round v3): never store a closed-class / negation token as a
             # fact value. The old miner matched "my sister's name is not meena,
             # it's priya" and stored value="not" (the word after "is"). Values
@@ -1941,7 +1942,8 @@ class UserModel:
             else:
                 self.personal_facts.assert_fact("i", attr, _val,
                                                 confidence=conf,
-                                                source="seed_regex")
+                                                source="seed_regex",
+                                                disclosure_id=disclosure_id)
 
         def _split_possessive_attr(attr: str):
             """D6 (round 2026-08-08b-d): 'my partner's name is theo' must model
@@ -2943,8 +2945,111 @@ class UserModel:
                     else:
                         _put_fact(_attr, _val, 0.6)
 
+        # ── MULTI-PART DISCLOSURE MINER (round 2026-09-13) ──────────────────
+        # A user often discloses multiple facts about ONE entity in a single
+        # utterance: "my childhood dog was named copper and he was afraid of
+        # thunderstorms", "i taught myself harmonica when i was twelve". The
+        # single-shot miners above either drop these or store fragmented,
+        # unlinked facts. This block detects the multi-part shape, extracts
+        # each (attr, val) pair, and stores them with a SHARED disclosure_id
+        # so recall can surface them together.
+        #
+        # Shapes handled (all first-person, past or present):
+        #   "my <entity> was named <name> and he/she/it was <attr> of <val>"
+        #   "my <entity> is <name> and <pronoun> is <attr> <val>"
+        #   "i taught myself <skill> when i was <age>"
+        #   "i <verb> <object> and i <verb2> <object2>" (conjoined self-acts)
+        # Generic: no per-entity table; disclosure_id is derived from the
+        # utterance hash so the same utterance re-mines to the same cluster.
+        import hashlib as _hashlib
+        _did_seed = _hashlib.md5(q_clean.encode()).hexdigest()[:12]
+        # (a) "my <entity> was named <name> and <pronoun> was <attr> of <val>"
+        _mp_a = re.search(
+            r"my\s+([\w'-]+(?:\s+[\w'-]+){0,2})\s+"
+            r"(?:was|is|am)\s+"
+            r"(?:named|called)\s+([\w'-]+)"
+            r"(?:\s*,\s*|\s+and\s+)"
+            r"(?:he|she|it|they|i)\s+(?:was|is|am)\s+"
+            r"(?:afraid|scared|terrified|fearful|fond|keen|allergic|"
+            r"interested|obsessed|passionate)\s+"
+            r"(?:of|in|on|about)?\s*"
+            r"([\w'-]+(?:\s+[\w'-]+){0,5})",
+            q_clean, re.IGNORECASE)
+        if _mp_a:
+            _ent_a = _mp_a.group(1).strip().lower()
+            _name_a = _mp_a.group(2).strip().strip(".,!?")
+            _fear_a = _mp_a.group(3).strip().strip(".,!?")
+            # Resolve entity through pet_slots if it's a known species
+            _species_a = _pet_slots.species_of(_ent_a)
+            if _species_a is None and _ent_a.isalpha():
+                _species_a = _pet_slots.learn_species(_ent_a)
+            if _species_a is not None:
+                _i = 1
+                while _pet_slots.slot_for(_species_a, _i) in self.personal_facts.facts:
+                    _i += 1
+                _slot_a = _pet_slots.slot_for(_species_a, _i)
+                self.personal_facts.assert_fact(
+                    "i", _slot_a, _name_a, confidence=0.6,
+                    source="seed_regex", disclosure_id=_did_seed)
+                # Store the fear/attr as a linked fact
+                self.personal_facts.assert_fact(
+                    "i", f"{_slot_a}_fear", _fear_a, confidence=0.55,
+                    source="seed_regex", disclosure_id=_did_seed)
+            else:
+                # Generic entity: store under the surface phrase
+                self.personal_facts.assert_fact(
+                    "i", _ent_a, _name_a, confidence=0.6,
+                    source="seed_regex", disclosure_id=_did_seed)
+                self.personal_facts.assert_fact(
+                    "i", f"{_ent_a}_fear", _fear_a, confidence=0.55,
+                    source="seed_regex", disclosure_id=_did_seed)
+        # (b) "i taught myself <skill> when i was <age>" / "i learned <skill> at <age>"
+        _mp_b = re.search(
+            r"i\s+(?:taught|learned|learnt|trained|coached)\s+"
+            r"(?:myself|me)?\s*"
+            r"([\w'-]+(?:\s+[\w'-]+){0,3})"
+            r"\s+(?:when|at|around)\s+i\s+was\s+"
+            r"(\d+|a\s+few|\w+)",
+            q_clean, re.IGNORECASE)
+        if _mp_b:
+            _skill = _mp_b.group(1).strip().strip(".,!?")
+            _age = _mp_b.group(2).strip().strip(".,!?")
+            self.personal_facts.assert_fact(
+                "i", "skill", _skill, confidence=0.6,
+                source="seed_regex", disclosure_id=_did_seed)
+            self.personal_facts.assert_fact(
+                "i", "skill_age", _age, confidence=0.55,
+                source="seed_regex", disclosure_id=_did_seed)
+        # (c) "i <verb> <object> and i <verb2> <object2>" (conjoined self-acts)
+        # Only fire when the activity miner above did NOT already capture both
+        # (avoid double-storing). Check if we have a conjunction of two
+        # first-person activity clauses.
+        if " and " in q_clean and not _mp_a and not _mp_b:
+            _clauses = re.split(r"\s+and\s+", q_clean, maxsplit=1)
+            if len(_clauses) == 2:
+                _c1, _c2 = _clauses
+                # Both clauses must be first-person disclosures
+                if (re.match(r"i\s+(?:have|had|am|was|do|did|will|can)", _c1)
+                        and re.match(r"i\s+(?:have|had|am|was|do|did|will|can)", _c2)):
+                    # Extract verb+object from each clause
+                    _v1 = re.search(r"i\s+(?:\w+\s+)?(\w+)\s+(.+?)(?:\.|!|$)", _c1)
+                    _v2 = re.search(r"i\s+(?:\w+\s+)?(\w+)\s+(.+?)(?:\.|!|$)", _c2)
+                    if _v1 and _v2:
+                        _verb1, _obj1 = _v1.group(1).lower(), _v1.group(2).strip().strip(".,!?")
+                        _verb2, _obj2 = _v2.group(1).lower(), _v2.group(2).strip().strip(".,!?")
+                        # Only store if both verbs are legitimate activity verbs
+                        if (_activity_verb_ok(_verb1) and _activity_verb_ok(_verb2)
+                                and _obj1 and _obj2):
+                            self.personal_facts.assert_fact(
+                                "i", canonical_activity_attr("does", _verb1),
+                                f"{_verb1} {_obj1}", confidence=0.55,
+                                source="seed_regex", disclosure_id=_did_seed)
+                            self.personal_facts.assert_fact(
+                                "i", canonical_activity_attr("does", _verb2),
+                                f"{_verb2} {_obj2}", confidence=0.55,
+                                source="seed_regex", disclosure_id=_did_seed)
 
-        # D7 (round 2026-08-16T1745Z): relationship-ACTIVITY disclosures were
+# D7 (round 2026-08-16T1745Z): relationship-ACTIVITY disclosures were
         # never mined. "my X is Y" (equational) was captured, but the dominant
         # real-world shape "my <relation> <Name> <verb> <object>" (e.g. "my
         # grandmother Indira weaves baskets", "my brother Arjun climbs mountains")

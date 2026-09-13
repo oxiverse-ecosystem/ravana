@@ -51,6 +51,7 @@ class PersonalFact:
     rehearsal_count: int = 1
     source: str = "seed_regex"   # seed_regex | user_confirmation | correction | repetition
     superseded: bool = False      # marked when a newer value wins the battle
+    disclosure_id: Optional[str] = None  # shared id for multi-part disclosures (fact clustering)
 
 
 class PersonalFactStore:
@@ -70,7 +71,8 @@ class PersonalFactStore:
         return (subject.lower().strip(), attribute.lower().strip(), value.lower().strip())
 
     def assert_fact(self, subject: str, attribute: str, value: str,
-                    confidence: float = 0.6, source: str = "seed_regex") -> None:
+                    confidence: float = 0.6, source: str = "seed_regex",
+                    disclosure_id: Optional[str] = None) -> None:
         """Store or reinforce a personal fact.
 
         If the exact (subject, attribute, value) already exists, reinforce it.
@@ -87,6 +89,8 @@ class PersonalFactStore:
             if source in ("user_confirmation", "correction"):
                 existing.source = source
             existing.superseded = False
+            if disclosure_id and existing.disclosure_id is None:
+                existing.disclosure_id = disclosure_id
             return
         # New value. Check for a conflicting prior value on this (subj, attr).
         for (s, a, v), f in self.facts.items():
@@ -97,7 +101,7 @@ class PersonalFactStore:
         self.facts[key] = PersonalFact(
             subject=subject, attribute=attribute, value=val,
             confidence=confidence, turn_number=self.turn_num,
-            rehearsal_count=1, source=source)
+            rehearsal_count=1, source=source, disclosure_id=disclosure_id)
 
     def reinforce(self, subject: str, attribute: str, value: Optional[str] = None) -> None:
         best = self.get(subject, attribute, value)
@@ -145,6 +149,33 @@ class PersonalFactStore:
                          confidence=0.7, source="correction")
 
     # ── queries ───────────────────────────────────────────────────
+    def query_disclosure(self, disclosure_id: str) -> List[PersonalFact]:
+        """Return all facts sharing the same disclosure_id (multi-part disclosures).
+
+        When a user says "my dog was named copper and he was afraid of
+        thunderstorms", both facts get the same disclosure_id so recall can
+        surface them together."""
+        out = [f for f in self.facts.values()
+               if f.disclosure_id == disclosure_id and not f.superseded]
+        out.sort(key=self._decay_score, reverse=True)
+        return out
+
+    def get_linked_facts(self, subject: str, attribute: str) -> List[PersonalFact]:
+        """Return facts linked by disclosure_id to the given (subject, attribute).
+
+        If a fact for (subject, attribute) has a disclosure_id, all facts with
+        the same disclosure_id are returned — so asking about a dog's name also
+        surfaces its fear, breed, etc."""
+        target_id = None
+        for (s, a, v), f in self.facts.items():
+            if s == subject.lower().strip() and a == attribute.lower().strip() \
+                    and not f.superseded and f.disclosure_id:
+                target_id = f.disclosure_id
+                break
+        if target_id is None:
+            return []
+        return self.query_disclosure(target_id)
+
     def query_fact(self, subject: str, attribute: Optional[str] = None
                    ) -> List[PersonalFact]:
         """Return matching facts sorted by confidence x recency (best first)."""
@@ -222,7 +253,7 @@ class PersonalFactStore:
             'facts': {f"{k[0]}|{k[1]}|{k[2]}": (f.subject, f.attribute, f.value,
                                                f.confidence, f.turn_number,
                                                f.rehearsal_count, f.source,
-                                               f.superseded)
+                                               f.superseded, f.disclosure_id)
                       for k, f in self.facts.items()},
             'contradictions': self.contradictions,
             'turn_num': self.turn_num,
@@ -231,10 +262,12 @@ class PersonalFactStore:
     def set_state(self, state: Dict) -> None:
         self.facts = {}
         for k, v in state.get('facts', {}).items():
-            s, a, val, conf, tn, rc, src, sup = v
+            s, a, val, conf, tn, rc, src, sup = v[:8]
+            did = v[8] if len(v) > 8 else None
             self.facts[(s.lower(), a.lower(), val.lower())] = PersonalFact(
                 subject=s, attribute=a, value=val, confidence=conf,
-                turn_number=tn, rehearsal_count=rc, source=src, superseded=sup)
+                turn_number=tn, rehearsal_count=rc, source=src, superseded=sup,
+                disclosure_id=did)
         self.contradictions = state.get('contradictions', [])
         self.turn_num = state.get('turn_num', 0)
 
