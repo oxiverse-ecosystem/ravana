@@ -2336,6 +2336,40 @@ class MemoryMixin:
                             _bits.append(f"you're allergic to {_val}")
                         elif _attr.startswith("favorite_"):
                             _bits.append(f"your favorite {_attr[len('favorite_'):]} is {_val}")
+                        elif _attr == "since_age" or _attr == "since":
+                            # Temporal-anchored activity: the mined value is
+                            # "<activity_phrase> <age_or_year>" (e.g. "pick up
+                            # harmonica 14", "build telescopes 2019"). The LAST
+                            # token is the anchor number; the rest is the
+                            # activity (verb-stem + object). Render naturally
+                            # based on whether the anchor is an age (since_age,
+                            # 1-120) or a calendar year (since, 1900-2100). The
+                            # stored activity is a bare verb-stem phrase, so use
+                            # the infinitive ("to <verb> <obj>") which is
+                            # grammatical after "started". No authored prose —
+                            # content is entirely from the live store.
+                            _sv = (str(_val) or "").strip()
+                            _parts = _sv.split()
+                            if len(_parts) >= 2:
+                                _anchor = _parts[-1]
+                                _activity = " ".join(_parts[:-1])
+                                if _anchor.isdigit():
+                                    _n = int(_anchor)
+                                    if _attr == "since_age" and 1 <= _n <= 120:
+                                        _bits.append(
+                                            f"you were {_n} when you started to {_activity}")
+                                    elif _attr == "since" and 1900 <= _n <= 2100:
+                                        _bits.append(
+                                            f"you started to {_activity} in {_n}")
+                                    else:
+                                        # Unrecognized anchor format — fall
+                                        # through to the generic handler below.
+                                        _bits.append(
+                                            f"your {_attr} is {_sv}")
+                                else:
+                                    _bits.append(f"your {_attr} is {_sv}")
+                            else:
+                                _bits.append(f"your {_attr} is {_sv}")
                         # Pets stored under a species-keyed slot.
                         elif (_pet := _pet_slots.render_pair(_ent, _attr, _val)):
                             _bits.append(_pet)
