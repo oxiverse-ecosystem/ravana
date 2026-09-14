@@ -4921,7 +4921,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _gv = getattr(self, "_glove_vector", None)
         if _gv is not None and _ptoks:
             _SEM_BAR = 0.70
-            _best_sem = None
+            _candidates = []
             for _attr, _val, _conf in facts:
                 _val_l = (_val or "").lower()
                 _attr_l = (_attr or "").lower()
@@ -4942,10 +4942,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _sim > _max_sim:
                             _max_sim = _sim
                 if _max_sim >= _SEM_BAR:
-                    if _best_sem is None or _max_sim > _best_sem[3]:
-                        _best_sem = (_attr, _val, _conf, _max_sim)
-            if _best_sem is not None:
-                return (_best_sem[0], _best_sem[1], _best_sem[2])
+                    _candidates.append((_attr, _val, _conf, _max_sim))
+            # Sort deterministically: highest similarity first, then by (attr, val) for stable tiebreaker
+            _candidates.sort(key=lambda c: (-c[3], c[0] or "", c[1] or ""))
+            if _candidates:
+                _best = _candidates[0]
+                return (_best[0], _best[1], _best[2])
         return None
 
     def _extract_disclosure_topic(self, text: str) -> str:
