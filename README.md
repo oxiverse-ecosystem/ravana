@@ -329,6 +329,20 @@ python -m pytest tests/integration/ -q # cross-module
 python -m pytest tests/ --tb=short     # full suite
 ```
 
+## Acceptance ledger
+
+`scripts/acceptance_ledger.py` grades each cognitive module GREEN/RED with
+quantitative metrics (identity strength, stance count, fact count, graph size,
+save/load roundtrip, determinism checksum, strategy diversity, episodic buffer,
+neuromodulator levels). Run it from the repo root:
+
+```bash
+python scripts/acceptance_ledger.py
+```
+
+Exit code 0 = all GREEN, 1 = any RED. See the [determinism contract](#determinism-contract)
+above for the reproducibility guarantee.
+
 CI (`.github/workflows/ci.yml`) runs `pip install -e .[full,dev]` then the
 `ci` / `unit` / `integration` jobs on Python 3.10.
 
@@ -469,6 +483,52 @@ In addition to macro cognitive benchmarks, the isolated neuro-symbolic substrate
 * **Cross-Domain Transfer & Grounding**: In the absence of a grounded semantic manifold (e.g. GloVe or ConceptNet), orthogonal token embeddings yield zero cross-domain transfer (0.0%), confirming that analogical projection fundamentally requires grounded semantic geometry rather than ungrounded token lookups.
 
 For the complete experimental report, methodology, and raw JSON data, see [`reports/benchmark_transformer_comparison.md`](reports/benchmark_transformer_comparison.md) and [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+
+## Determinism contract
+
+RAVANA guarantees **bit-exact reproducibility** under controlled conditions:
+
+- **Same seed + same inputs = same SHA256.** Two `CognitiveChatEngine` instances
+  with the same `dim`, `seed`, and `baby_mode` parameters, fed the same
+  sequence of `process_turn()` calls, produce identical `state_checksum` values
+  after `save()`. Verified by `scripts/acceptance_ledger.py` (determinism grade).
+- **Same seed = same SHA256** is the contract. Different seeds produce different
+  hashes — this is expected and correct.
+- **Offline mode** (`RAVANA_OFFLINE=1`) is required for reproducibility. Online
+  mode fetches web content that varies between runs.
+- **What is deterministic:** identity state, stances, facts, beliefs, turn count,
+  learning count, free energy, prediction error, neuromodulator levels, graph
+  structure (nodes + edges), and the RNG state.
+- **What is NOT deterministic across processes:** the `ConceptGraph` object's
+  in-memory representation (it is serialized to a string on save and rebuilt on
+  load). The `state_checksum` excludes the graph for this reason — see
+  `engine_persistence.py:_checksum_state`.
+- **Checksum scope:** the `state_checksum` is a SHA-256 fingerprint of the
+  durable cognitive state (identity, user model, beliefs, turn count, etc.),
+  excluding the graph and the checksum itself. It is stored in the pickle and
+  in a `.sha` sidecar file.
+
+To verify reproducibility:
+
+```python
+import pickle
+# Run 1: create engine, process turns, save
+eng1 = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
+eng1.process_turn("i love coffee")
+eng1.save()
+
+# Run 2: same seed, same turns
+eng2 = CognitiveChatEngine(dim=64, seed=42, baby_mode=True)
+eng2.process_turn("i love coffee")
+eng2.save()
+
+# Compare checksums
+with open(eng1._save_path, "rb") as f:
+    s1 = pickle.load(f)
+with open(eng2._save_path, "rb") as f:
+    s2 = pickle.load(f)
+assert s1["state_checksum"] == s2["state_checksum"]  # passes
+```
 
 ## Design principles
 
