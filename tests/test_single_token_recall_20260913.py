@@ -91,9 +91,9 @@ def test_remind_verb_excluded_from_candidates():
 
 def test_glove_synonym_fact_match():
     """Pass 3 of _match_fact: a query using a synonym of the stored value
-    must still match via GloVe cosine >= 0.65. Stores ('i','fear','terrified
+    must still match via GloVe cosine >= 0.7. Stores ('i','fear','terrified
     of deep water') and queries 'afraid' — no literal token overlap, but
-    GloVe cosine between the two synonyms clears the 0.65 bar."""
+    GloVe cosine between the two synonyms clears the 0.70 bar."""
     e = _eng()
     # Inject a fact directly into the PersonalFactStore
     e.user_model.personal_facts.assert_fact(
