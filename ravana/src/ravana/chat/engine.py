@@ -255,6 +255,7 @@ from ravana.language.surface_realizer import SurfaceRealizer, DiscourseState
 from ravana_ml.nn.neural_decoder import NeuralDecoder
 from ravana.core import UserEmotionDetector, EmotionalMirrorEngine, MirrorConfig
 from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
+from ravana.core.episodic_binder import EpisodicBinder, EpisodicBinderConfig
 from ravana.core.proposition_parser import PropositionParser
 from ravana.core.causal_schema import CausalSchemaLearner, CausalSchemaConfig
 from ravana.core.implicature_detector import ImplicatureDetector
@@ -1383,6 +1384,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # New cognitive modules (Phase 2-5)
         self.hippocampal_buffer = HippocampalBuffer(HippocampalConfig(max_facts=50, decay_turns=50))
+        # Episodic binder: CA3-style fast concept-pair binding. Stores a
+        # bound pair after a single exposure (one-shot learning) and supports
+        # pattern-completion retrieval from either side. User facts stay
+        # episodic (user_fact=True) so they don't drain into the world graph.
+        self.episodic_binder = EpisodicBinder(EpisodicBinderConfig(max_pairs=200, decay_turns=80))
         # Share the hippocampal buffer with the user_model so the fact miner can
         # enforce the self/other boundary on OWNER re-attribution (a pet moved
         # off the user must also be purged from this buffer — the multi-hop
@@ -2464,6 +2470,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 absolute_date=_abs_date,
                 user_fact=_is_user_fact,
             )
+            # CA3-style pair binding: bind consecutive content-word pairs
+            # from the utterance. One exposure creates a retrievable trace.
+            # Filter stop words so "my cat is named Pixel" binds cat-pixel,
+            # not cat-named and named-pixel.
+            _STOP_WORDS = {
+                "is", "are", "was", "were", "be", "been", "being",
+                "have", "has", "had", "do", "does", "did",
+                "will", "would", "could", "should", "may", "might",
+                "shall", "can", "need", "dare", "ought", "used",
+                "to", "of", "in", "for", "on", "with", "at", "by",
+                "from", "as", "into", "through", "during", "before",
+                "after", "above", "below", "between", "out", "off",
+                "over", "under", "again", "further", "then", "once",
+                "here", "there", "when", "where", "why", "how", "all",
+                "both", "each", "few", "more", "most", "other",
+                "some", "such", "no", "nor", "not", "only", "own",
+                "same", "so", "than", "too", "very", "just",
+                "because", "but", "and", "or", "if", "while",
+                "that", "this", "these", "those", "am", "the", "a", "an",
+                "my", "your", "his", "her", "their", "our", "its",
+                "i", "you", "he", "she", "it", "we", "they", "me",
+                "him", "her", "us", "them",
+                "named", "called", "known", "found", "made",
+            }
+            _filtered = [w for w in content_words if w not in _STOP_WORDS]
+            if len(_filtered) >= 2:
+                for i in range(min(len(_filtered) - 1, 3)):
+                    self.episodic_binder.bind(
+                        _filtered[i],
+                        _filtered[i + 1],
+                        context=user_input[:200],
+                        confidence=0.6,
+                        user_fact=_is_user_fact,
+                    )
         except Exception:
             pass
 
@@ -7316,6 +7356,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self.hippocampal_buffer, self.semantic_graph)
         except Exception:
             pass
+        # Episodic pair replay: consolidate high-confidence bound pairs into
+        # the concept graph as typed edges (CA3 -> neocortical transfer).
+        try:
+            _candidates = self.episodic_binder.get_consolidation_candidates()
+            for _pair in _candidates:
+                if _pair.user_fact:
+                    continue
+                _a_ids = self._concept_keywords.get(_pair.concept_a, [])
+                _b_ids = self._concept_keywords.get(_pair.concept_b, [])
+                if _a_ids and _b_ids:
+                    _edge = self.graph.get_edge(_a_ids[0], _b_ids[0])
+                    if _edge is None:
+                        self.graph.add_edge(
+                            _a_ids[0], _b_ids[0],
+                            weight=min(0.5, _pair.confidence * 0.5),
+                            relation_type="episodic",
+                            confidence=min(0.6, _pair.confidence),
+                        )
+                    self.episodic_binder.mark_consolidated(_pair)
+        except Exception:
+            pass
         # Philosophical paradoxes and Zen koans are currently routed into the
         # decomposer, which looks up the word "paradox" and returns its stale
         # dictionary definition ("The meaning of PARADOX is..."). That's a
@@ -10231,6 +10292,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # Phase 3 state
                 'curiosity_engine_state': self.curiosity_engine.get_state(),
                 'hippocampal_replay_state': self.hippocampal_replay.get_state(),
+                'episodic_binder_state': self.episodic_binder.get_state(),
                 'register_controller_state': self.register_controller.get_state(),
                 # Neuromodulator state
                 'neuromodulator_state': self.neuromodulator_engine.get_state()
@@ -10960,6 +11022,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             hr_state = state.get('hippocampal_replay_state', None)
             if hr_state and hasattr(self, 'hippocampal_replay'):
                 self.hippocampal_replay.set_state(hr_state)
+            eb_state = state.get('episodic_binder_state', None)
+            if eb_state and hasattr(self, 'episodic_binder'):
+                self.episodic_binder.set_state(eb_state)
             rc_state = state.get('register_controller_state', None)
             if rc_state and hasattr(self, 'register_controller'):
                 self.register_controller.set_state(rc_state)
