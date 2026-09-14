@@ -126,7 +126,7 @@ class TestAcetylcholineGate:
             sys.update(prediction_error=0.0, novelty=0.0, valence=0.0,
                        surprise=0.0, arousal=0.0, resolution_success=False,
                        attention_focus=0.0)
-        assert sys.is_plasticity_open() is False
+        assert sys.is_plasticity_open() == False
 
 
 class TestNoradrenalineGain:
