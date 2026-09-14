@@ -109,7 +109,7 @@ class TestAcetylcholineGate:
                        attention_focus=0.05)
         # ACh should drop below threshold
         assert sys.acetylcholine < _default_config().ach_gate_threshold
-        assert sys.is_plasticity_open() is False
+        assert sys.is_plasticity_open() == False
 
     def test_high_attention_success_opens_gate(self):
         sys = NeuromodulatorSystem(_default_config())
@@ -117,7 +117,7 @@ class TestAcetylcholineGate:
                    surprise=0.0, arousal=0.0, resolution_success=True,
                    attention_focus=0.9)
         assert sys.acetylcholine > 0.4
-        assert sys.is_plasticity_open() is True
+        assert sys.is_plasticity_open() == True
 
     def test_plasticity_closed_when_ach_below_threshold(self):
         sys = NeuromodulatorSystem(_default_config())
@@ -184,7 +184,7 @@ class TestSerotoninDamping:
         sys.update(prediction_error=1.0, novelty=1.0, valence=1.0,
                    surprise=1.0, arousal=1.0, resolution_success=True)
         da_change = abs(sys.dopamine - cfg.dopamine_baseline)
-        ser_change = abs(sys.serotonin - cfg.serotonin_damping)
+        ser_change = abs(sys.serotonin - cfg.serotonin_baseline)
         # Serotonin should change less than dopamine in one step
         assert ser_change < da_change
 
