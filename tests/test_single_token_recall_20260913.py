@@ -89,6 +89,25 @@ def test_remind_verb_excluded_from_candidates():
     assert out is not None, "expected recall with single content token, got None"
 
 
+def test_glove_synonym_fact_match():
+    """Pass 3 of _match_fact: a query using a synonym of the stored value
+    must still match via GloVe cosine >= 0.65. Stores ('i','fear','terrified
+    of deep water') and queries 'afraid' — no literal token overlap, but
+    GloVe cosine between the two synonyms clears the 0.65 bar."""
+    e = _eng()
+    # Inject a fact directly into the PersonalFactStore
+    e.user_model.personal_facts.assert_fact(
+        "i", "fear", "terrified of deep water", confidence=0.8)
+    # Query with a synonym ("afraid") that has NO literal token overlap
+    # with the stored value ("terrified of deep water").
+    result = e._match_fact("afraid")
+    assert result is not None, (
+        "expected synonym match via GloVe Pass 3, got None")
+    attr, val, conf = result
+    assert attr == "fear", f"expected attr='fear', got {attr!r}"
+    assert "terrified" in val, f"expected 'terrified' in val, got {val!r}"
+
+
 def teardown_module(module):
     try:
         e = _eng()

@@ -4827,9 +4827,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     def _match_fact(self, phrase: str):
         """Find the user's real fact whose attr OR value relates to `phrase`.
-        Returns (attr, val, conf) or None — prefers the longest matching value.
-        Three-pass matching: (1) containment, (2) token overlap, (3) GloVe
-        semantic synonym fallback (so "afraid" matches "terrified")."""
+        Returns (attr, val, conf) or None — prefers the longest matching value."""
         facts, _, _ = self._collect_user_model_state()
         _p = (phrase or "").lower().strip().replace("-", " ")
         # Drop the closed-class functional word "does"/"did"/"do" from the
@@ -4868,45 +4866,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _best = (_attr, _val, _conf, _overlap)
         if _best is not None and len(_best) == 4:
             _best = (_best[0], _best[1], _best[2])
-        if _best is not None:
-            return _best
-        # Pass 3 — GloVe semantic synonym fallback (round 2026-09-13T1526Z).
-        # When literal token overlap fails, check whether any QUERY content token
-        # is semantically close (GloVe cosine >= 0.7) to any VALUE/ATTRIBUTE
-        # token. This links "afraid" -> "terrified", "scared" -> "fearful",
-        # etc. — synonyms the user might phrase differently from the stored
-        # fact. Uses the SAME seed embeddings the rest of the engine reasons
-        # over (no new model, no retraining). Fail-closed: only fires when
-        # GloVe vectors exist for BOTH tokens and cosine clears the bar.
-        _gv = getattr(self, "_glove_vector", None)
-        if _gv is not None and _ptoks:
-            _SEM_BAR = 0.70
-            _best_sem = None
-            for _attr, _val, _conf in facts:
-                _val_l = (_val or "").lower()
-                _attr_l = (_attr or "").lower()
-                _vtoks = set(w for w in re.findall(r"[a-z']+", _val_l + " " + _attr_l)
-                              if len(w) >= 3 and w not in ("does", "did", "do", "done"))
-                if not _vtoks:
-                    continue
-                _max_sim = 0.0
-                for _pw in _ptoks:
-                    _pv = _gv(_pw)
-                    if _pv is None:
-                        continue
-                    for _vw in _vtoks:
-                        _vv = _gv(_vw)
-                        if _vv is None:
-                            continue
-                        _sim = float(np.dot(_pv, _vv) / (np.linalg.norm(_pv) * np.linalg.norm(_vv) + 1e-9))
-                        if _sim > _max_sim:
-                            _max_sim = _sim
-                if _max_sim >= _SEM_BAR:
-                    if _best_sem is None or _max_sim > _best_sem[3]:
-                        _best_sem = (_attr, _val, _conf, _max_sim)
-            if _best_sem is not None:
-                return (_best_sem[0], _best_sem[1], _best_sem[2])
-        return None
+        return _best
 
     def _extract_disclosure_topic(self, text: str) -> str:
         """Strip a leading first/second-person + disclosure verb from a phrase
@@ -5027,19 +4987,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"mentioned|share|shared|let you know)\b", q)
         if _B:
             # Recover the disclosure content after the tell-clause.
-            # The helper verb (did/have/had) is OPTIONAL: "remember when I
-            # TOLD you about X" has no helper verb, only "i told you". The
-            # previous pattern required did/have/had + i/you + tell-verb, so
-            # for "remember when i told you about the commission -- what did i
-            # say it was for?" it skipped the FIRST tell-clause ("i told you")
-            # and matched the LATER "what did i say", stripping everything up
-            # to "it was for?" and dropping the real topic ("commission").
-            # Making the helper verb optional lets the FIRST tell-clause match,
-            # so _rem keeps the genuine topic.
-            _rem = re.sub(
-                r"^.*?(?:(?:did|have|had)\s+)?(?:i|you)\s+(?:tell|told|say|said|"
-                r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
-                "", q).strip()
+            # Handles BOTH shapes:
+            #   Yes/no: "did i tell you X" -> strip from start -> "X"
+            #   Wh-:    "what did i say X" -> strip wh-aux-subj-verb -> "X"
+            # The old ^.*? regex ate the topic in wh-questions; the old
+            # non-^.*? regex failed to match wh-questions at all. This
+            # two-branch form handles both.
+            _rem = ""
+            _m = re.match(
+                r"^(?:what|where|when|which|who|whom|whose|why|how)\s+"
+                r"(?:did|have|had|do|does|is|are|was|were)\s+"
+                r"(?:i|you)\s+"
+                r"(?:tell|told|say|said|mention|mentioned|share|shared|let you know)\s*"
+                r"(?:you|me)?\s*",
+                q)
+            if _m:
+                _rem = q[_m.end():].strip()
+            else:
+                _rem = re.sub(
+                    r"^(?:(?:did|have|had)\s+)?(?:i|you)\s+(?:tell|told|say|said|"
+                    r"mention|mentioned|share|shared|let you know)\s*(?:you|me)?\s*",
+                    "", q).strip()
             _topic = self._extract_disclosure_topic(_rem)
             if not _topic:
                 _topic = _rem
@@ -5690,7 +5658,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                           "earlier", "before", "said", "say", "told",
                           "tellme", "anything", "mention", "mentioned",
                           "form", "formed", "opinion", "remember",
-                          "recall", "remind", "answer", "answered", "reply",
+                          "recall", "answer", "answered", "reply",
                           "replied", "state", "stated", "still",
                           "wonder", "wondering", "asked", "ask")]
             if not _words:
@@ -5853,7 +5821,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "something", "anything", "the", "a", "an", "is", "are", "was", "were",
             "have", "has", "had", "i", "my", "we", "our", "it", "this", "that",
             "form", "formed", "opinion", "think", "feel", "feel", "mention",
-            "mentioned", "remember", "recall", "remind", "answer", "answered", "reply",
+            "mentioned", "remember", "recall", "answer", "answered", "reply",
             "replied", "state", "stated", "still", "now", "then", "how", "why",
             "who", "when", "where", "which", "any", "some", "thing", "things",
             "yes", "no", "ask", "asked", "wonder", "wondering", "tellme",
@@ -5896,8 +5864,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _ov > _best_overlap:
                 _best_overlap = _ov
                 _best = _e
-        _min_overlap = 1 if len(_cands) <= 1 else 2
-        if _best is None or _best_overlap < _min_overlap:
+        if _best is None or _best_overlap < 2:
             return None
         _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()
