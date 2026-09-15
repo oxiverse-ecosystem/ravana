@@ -844,6 +844,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = "", hrr_whiten: bool = True, hrr_sparse_k: int = 256, hrr_unitary_roles: bool = True, hrr_dim: int = 4096, use_deductive_candidate: bool = False):
         self.dim = dim
         self.rng = np.random.RandomState(seed)
+        # Seed numpy global RNG too — graph init uses np.random.randn()
+        # for GloVe projection. (Round 2026-09-14 fix.)
+        np.random.seed(seed)
+
+        # SpikeLog for bit-exact reproducibility (BrainCore SHA-256 standard).
+        # Records deterministic cognitive spikes per turn; hashable for CI gating.
+        from ravana.chat.reproducibility import SpikeLog
+        self.spike_log = SpikeLog()
 
         # Update global STOP_WORDS to filter out conversational filler/debris
         STOP_WORDS.update({"please", "sorry", "thanks", "thank", "hello", "hi", "hey", "bye", "goodbye"})
@@ -1303,6 +1311,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # other runtime stores.
         self._own_replies = {}  # topic(str) -> list[dict(text, turn, t)]
         self._own_reply_topic_idx = {}  # topic -> 1 (presence index for content lookup)
+
+        # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
+        # Stores (turn_number, reply_text) tuples of the agent's genuine replies
+        # (NOT recall responses — those are skipped by _record_own_reply). When
+        # the topic-keyed _own_replies store misses a cued recall because topic
+        # extraction didn't align, this ring buffer matches by direct token
+        # overlap with the reply text. Pure data-driven (the stored text is real
+        # output, never authored prose); no retraining.
+        self._utterance_log = deque(maxlen=30)
 
         # P6: one epistemic register (roadmap #12) toggling confidence /
         # verbosity / curiosity in a single place, instead of scattering
@@ -5740,6 +5757,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "src_tokens": list(_words),
             }]
             self._own_reply_topic_idx[_topic] = 1
+            # RFIX-01: also append to the utterance log ring buffer so a later
+            # cued recall can match by direct token overlap with the reply text
+            # when the topic-keyed store misses (e.g. topic extraction didn't
+            # align). The stored text is real generated output, never authored
+            # prose. Skip recall responses — they are already filtered above
+            # (this method returns early for recall queries).
+            try:
+                self._utterance_log.append(
+                    (int(getattr(self, "turn_count", 0) or 0), _store_text))
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -5897,6 +5925,38 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _best_overlap = _ov
                 _best = _e
         if _best is None or _best_overlap < 2:
+            # RFIX-01: fallback to the utterance log ring buffer. The topic-keyed
+            # store missed because topic extraction didn't align (e.g. a query
+            # about "season" when the reply was about "autumn season" and the
+            # store key was "clean"). Search the ring buffer for any content
+            # token overlap with the reply text — this is a last-resort check
+            # before identity disclosure, so a threshold of 1 is appropriate
+            # (any overlap with the genuine reply text is a valid recall).
+            # Pure data-driven: the stored text is real output, never authored
+            # prose; no retraining.
+            try:
+                _log = getattr(self, "_utterance_log", None)
+                if _log and _cands:
+                    _q_tokens = set(_cands)
+                    _best_entry = None
+                    _best_log_overlap = 0
+                    for _turn_num, _reply_text in reversed(_log):
+                        if not _reply_text:
+                            continue
+                        _reply_tokens = set(
+                            w for w in re.findall(r"[a-z']+", _reply_text.lower())
+                            if len(w) >= 3 and w not in _stop)
+                        _ov = len(_q_tokens & _reply_tokens)
+                        if _ov > _best_log_overlap:
+                            _best_log_overlap = _ov
+                            _best_entry = (_turn_num, _reply_text)
+                    if _best_entry and _best_log_overlap >= 1:
+                        _, _matched_text = _best_entry
+                        _matched_text = _matched_text.strip()
+                        if _matched_text:
+                            return f"earlier i said: {_matched_text}"
+            except Exception:
+                pass
             return None
         _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()
@@ -6438,6 +6498,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._last_user_input = user_input
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # FIX (round 2026-09-14): advance turn_count and tick the RNG at the
+        # TOP of process_turn, BEFORE any early return. Otherwise short-circuit
+        # paths skip both, breaking the determinism contract.
+        self.turn_count += 1
+        try:
+            self.rng.random()
+        except Exception:
+            pass
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
@@ -8114,7 +8182,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
-        self.turn_count += 1
         self._learned_this_turn = False
         self._cascade_for_quality = False
         self._fok_pause_done = False
@@ -9532,7 +9599,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             hold = self._preamble_hold_response(user_input)
             self._last_responses.append(hold)
             self._last_strategy = "preamble_hold"
-            self.turn_count += 1
             return hold
 
         # Step 11a: Store episodic memory BEFORE generating response
