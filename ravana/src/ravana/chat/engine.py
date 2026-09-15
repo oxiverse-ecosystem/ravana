@@ -848,7 +848,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Update global STOP_WORDS to filter out conversational filler/debris
         STOP_WORDS.update({"please", "sorry", "thanks", "thank", "hello", "hi", "hey", "bye", "goodbye"})
 
-        self.graph = ConceptGraph(dim=dim, max_nodes=10000)
+        self.graph = ConceptGraph(dim=dim, max_nodes=10000, rng=self.rng)
         self.baby_mode = baby_mode
         self._concept_labels: Set[str] = set()  # set of primary concept labels
 
@@ -10509,7 +10509,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                       f"{type(loaded_graph).__name__}, not ConceptGraph — "
                       f"rebuilding empty graph; other state restored")
                 self.graph = ConceptGraph(dim=self.dim,
-                                      max_nodes=getattr(self, '_max_nodes', 20000))
+                                      max_nodes=getattr(self, '_max_nodes', 20000),
+                                      rng=self.rng)
                 # Durable reconsolidation: recover the real graph from the ACID
                 # SQLite mirror written on every save(), so a pickle-graph
                 # corruption does not silently wipe all learned knowledge.
