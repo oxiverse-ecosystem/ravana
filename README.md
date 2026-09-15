@@ -412,6 +412,8 @@ See [`docs/`](docs/README.md):
 - [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
 - [Reverse Pet Lookup by Name](docs/PET_NAME_RECALL.md) — answering "who is wren to me?" by reverse-indexing the pet store by the name value.
 - [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
+- [Acceptance Ledger](docs/ACCEPTANCE_LEDGER.md) — per-module test-coverage grade (GREEN/YELLOW/RED) with real numbers.
+- [Honest Reporting Standard](docs/HONEST_REPORTING_STANDARD.md) — four enforceable rules for every RAVANA claim.
 
 ## Benchmark results
 
