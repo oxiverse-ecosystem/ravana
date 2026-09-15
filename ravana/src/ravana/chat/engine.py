@@ -848,11 +848,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # for GloVe projection. (Round 2026-09-14 fix.)
         np.random.seed(seed)
 
-        # SpikeLog for bit-exact reproducibility (BrainCore SHA-256 standard).
-        # Records deterministic cognitive spikes per turn; hashable for CI gating.
-        from ravana.chat.reproducibility import SpikeLog
-        self.spike_log = SpikeLog()
-
         # Update global STOP_WORDS to filter out conversational filler/debris
         STOP_WORDS.update({"please", "sorry", "thanks", "thank", "hello", "hi", "hey", "bye", "goodbye"})
 
