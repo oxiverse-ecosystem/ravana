@@ -1,0 +1,15 @@
+{
+  "name": "sleep_episodic_replay",
+  "hypothesis": "If episodic pairs are replayed during idle sleep, then high-confidence rehearsed pairs will graduate to the concept graph as typed edges, increasing the graph's episodic edge count without crashing.",
+  "primary_metric": "episodic_pairs_graduated",
+  "threshold": {"operator": ">=", "value": 1},
+  "test_type": "behavioral",
+  "negative_controls": [
+    "empty_binder_no_crash",
+    "user_fact_pairs_withheld"
+  ],
+  "min_seeds": 1,
+  "analysis_plan": "Verify that (a) at least one non-user_fact pair graduates to a graph edge with relation_type='episodic', (b) user_fact pairs are withheld (not drained to world graph), (c) empty binder does not crash. This is a structural/behavioral test, not a statistical comparison.",
+  "related_backlog_task": "Add sleep-phase replay: consolidate episodic -> semantic during idle",
+  "created": "2026-09-15T1410IST"
+}

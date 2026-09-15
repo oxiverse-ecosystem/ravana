@@ -1362,6 +1362,47 @@ class GenerationMixin:
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] opinion drain error: {e}")
+        # Phase 3b4: episodic pair replay — promote high-confidence bound
+        # pairs into the concept graph as typed edges (CA3 -> neocortex
+        # transfer, McClelland 1995 CLS). Currently this also runs inline
+        # in process_turn, but here it runs as part of the idle sleep cycle
+        # so that offline consolidation can replay pairs that were missed
+        # or arrived after the last inline pass. user_fact pairs stay
+        # episodic — they must NOT drain into the world graph.
+        try:
+            _eb = getattr(self, 'episodic_binder', None)
+            if _eb is not None:
+                _cands = _eb.get_consolidation_candidates()
+                _graduated = 0
+                _user_skipped = 0
+                for _pair in _cands:
+                    try:
+                        if _pair.user_fact:
+                            _user_skipped += 1
+                            _eb.mark_consolidated(_pair)
+                            continue
+                        _a_ids = self._concept_keywords.get(_pair.concept_a, [])
+                        _b_ids = self._concept_keywords.get(_pair.concept_b, [])
+                        if _a_ids and _b_ids:
+                            _edge = self.graph.get_edge(_a_ids[0], _b_ids[0])
+                            if _edge is None:
+                                self.graph.add_edge(
+                                    _a_ids[0], _b_ids[0],
+                                    weight=min(0.5, _pair.confidence * 0.5),
+                                    relation_type="episodic",
+                                    confidence=min(0.6, _pair.confidence),
+                                )
+                            _eb.mark_consolidated(_pair)
+                            _graduated += 1
+                    except Exception:
+                        continue
+                result['episodic_pairs_graduated'] = _graduated
+                result['episodic_user_facts_withheld'] = _user_skipped
+                if getattr(self, '_trace_enabled', False) and _graduated:
+                    print(f"  [sleep] graduated {_graduated} episodic pairs to graph")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] episodic pair consolidation error: {e}")
         # Phase 3c: Hebbian reinforcement of the ConnectorLearner (Item 3, P1).
         # Re-affirm each confirmed connector->relation association from the
         # learner's own discovered set, nudging prototype centroids toward the
