@@ -117,12 +117,43 @@ class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _strip_html(html: str) -> str:
+    """Extract clean text from raw HTML.
+
+    Removes script/style/nav/footer blocks, strips tags, collapses whitespace.
+    Returns plain text suitable for RAVANA's reasoning path.
+    """
+    # Remove script, style, nav, footer blocks entirely
+    for tag in ("script", "style", "nav", "footer", "header", "aside"):
+        html = re.sub(
+            rf"<{tag}\b[^>]*>.*?</{tag}>", " ", html,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+    # Extract <title> if present
+    title_match = re.search(r"<title\b[^>]*>(.*?)</title>", html, re.DOTALL | re.IGNORECASE)
+    title = title_match.group(1).strip() if title_match else ""
+    # Remove all remaining tags
+    text = re.sub(r"<[^>]+>", " ", html)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    if title:
+        return f"[{title}] {text}"
+    return text
+
+
 def _read_website(url: str) -> str:
-    """Fetch and trim a public web page for grounding."""
+    """Fetch a public web page and extract clean text for grounding."""
     _validate_public_url(url)
-    opener = urllib.request.build_opener(_ValidatingRedirectHandler())
-    with opener.open(url, timeout=8) as r:
-        return f"[site] {r.read().decode('utf-8','replace')[:1500]}"
+    try:
+        opener = urllib.request.build_opener(_ValidatingRedirectHandler())
+        with opener.open(url, timeout=8) as r:
+            raw = r.read().decode("utf-8", "replace")
+        clean = _strip_html(raw)
+        if not clean:
+            return f"[site] (empty page at {url})"
+        return f"[site] {clean[:2000]}"
+    except Exception as e:
+        return f"[site] fetch failed: {type(e).__name__}: {e}"
 
 
 def _run_script(script: str) -> str:
