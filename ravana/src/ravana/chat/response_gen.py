@@ -6681,7 +6681,14 @@ class ResponseGenMixin(ChainWalkerMixin):
         # (Emotion contagion / mirror-system response — Decety & Jackson, 2004.)
         disclosure = self._detect_emotional_disclosure(ctx)
         if disclosure is not None:
-            return self._emotional_response(ctx, disclosure)
+            # ROUND 2026-09-14 FIX: _emotional_response may return None when
+            # the affect gate rejects a non-affective disclosure (e.g. a factual
+            # statement with a positive word like "great"). Must fall through
+            # to the normal generation path instead of returning None, which
+            # crashes process_turn's tuple unpacking.
+            _emot = self._emotional_response(ctx, disclosure)
+            if _emot:
+                return _emot
 
         # ── Procedural/Priority Decomposition Path (PMd / 'how' network) ──
         # For HOW/causal/complex questions, the brain's premotor-parietal 'how'
