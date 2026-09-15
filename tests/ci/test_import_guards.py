@@ -64,6 +64,10 @@ REQUIRED_INTERNAL_MODULES = [
     "ravana.chat.pos_model",
     "ravana.chat.intent_router",
     "ravana.chat.functional_lexicon",
+    # Lazy-imported in CognitiveChatEngine.__init__ — a missing file here
+    # cascades into ModuleNotFoundError across av-soak, misc-tests, and
+    # unit-tests (regression caught in round 2026-09-15).
+    "ravana.chat.reproducibility",
 ]
 
 
