@@ -123,6 +123,40 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
         return ToolCall(tool="read_website", arg=url,
                         reason=f"url_pattern_detected url={url}")
 
+    # 1b) Git-intent early path: repo operations are concrete local actions,
+    # not world-knowledge gaps. Fire github_cli BEFORE the curiosity path so
+    # "show me the last 5 commits in this repo" does not get misrouted to
+    # web_search (the engine has high uncertainty about commit history).
+    # This is seed vocabulary — the noun set is expandable at runtime.
+    _git_nouns = {"commit", "commits", "branch", "branches", "diff", "log",
+                  "status", "repo", "repository", "git", "head", "heads",
+                  "remote", "remotes", "tag", "tags", "stash"}
+    q_lower = q.lower()
+    is_git_query = any(re.search(rf"\b{re.escape(n)}\b", q_lower) for n in _git_nouns)
+    if is_git_query and "github_cli" in registry.tools:
+        is_imp = _is_imperative_formed(q)
+        is_wh = bool(re.match(r"^(what|which|who|where|when|how)", q_lower))
+        if is_imp or is_wh:
+            # Translate natural language to a safe git subcommand.
+            # Only allow read-only or safe local ops.
+            if re.search(r"\b(branch|branches)\b", q_lower):
+                return ToolCall(tool="github_cli", arg="branch",
+                                reason="git_intent_early branch_query")
+            if re.search(r"\b(log|commit|commits|history|recent)\b", q_lower):
+                return ToolCall(tool="github_cli", arg="log --oneline -5",
+                                reason="git_intent_early log_query")
+            if re.search(r"\b(status)\b", q_lower):
+                return ToolCall(tool="github_cli", arg="status",
+                                reason="git_intent_early status_query")
+            if re.search(r"\b(diff)\b", q_lower):
+                return ToolCall(tool="github_cli", arg="diff",
+                                reason="git_intent_early diff_query")
+            if re.search(r"\b(repo|repository)\b", q_lower):
+                return ToolCall(tool="github_cli", arg="status",
+                                reason="git_intent_early repo_query")
+            return ToolCall(tool="github_cli", arg="status",
+                            reason="git_intent_early generic_git_query")
+
     # 1) Uncertainty / curiosity: does RAVANA not know this topic?
     # Only act when it's a genuine KNOWLEDGE gap (recall query about the world),
     # not social chitchat ("how are you") or self/personal questions. Reuse the
