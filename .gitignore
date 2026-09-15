@@ -172,3 +172,5 @@ tmp/
 experiments/_identity_baseline_6912.npz
 benchmark_results/locomo_full_progress_PRE_20260724_185358.jsonl
 node_modules/
+# Pre-registration: only manifests tracked, results are ephemeral
+pre_registered/results/
