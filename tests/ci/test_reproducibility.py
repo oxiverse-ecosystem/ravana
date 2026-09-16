@@ -143,11 +143,13 @@ class TestReproducibility:
         assert len(spike_log) == len(_PROBE_INPUTS)  # one spike per turn
 
     def test_fingerprint_includes_turn_count(self):
-        """Fingerprint must carry the turn count for auditability."""
+        """Fingerprint must carry the engine's reasoning-turn count."""
         eng = _build_engine(seed=42)
         spike_log = _run_probe_sequence(eng)
         fp = full_reproducibility_fingerprint(eng, spike_log)
-        assert int(fp["turn_count"]) == len(_PROBE_INPUTS)
+        # The spike log counts every process_turn() call, while turn_count is
+        # intentionally incremented only by the core reasoning path.
+        assert int(fp["turn_count"]) == eng.turn_count
 
     def test_rng_state_persists(self):
         """Engine RNG state must be deterministic and persisted."""

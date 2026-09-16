@@ -10,9 +10,11 @@ class PredictiveCodingLearner:
     based on context. Only prediction errors are propagated and learned from.
     """
     
-    def __init__(self, graph: ConceptGraph, lr: float = 0.001):
+    def __init__(self, graph: ConceptGraph, lr: float = 0.001,
+                 rng: Optional[np.random.RandomState] = None):
         self.graph = graph
         self.lr = lr
+        self.rng = rng if rng is not None else np.random
         # Store predictor matrices: node_id -> (dim x dim) ndarray
         self.predictors: Dict[int, np.ndarray] = {}
         
@@ -21,7 +23,7 @@ class PredictiveCodingLearner:
         if node_id not in self.predictors:
             dim = self.graph.dim
             # Small random weights initialized to prevent symmetry
-            self.predictors[node_id] = np.random.randn(dim, dim) * 0.01
+            self.predictors[node_id] = self.rng.randn(dim, dim) * 0.01
         return self.predictors[node_id]
         
     def predict(self, node_id: int, context_vector: np.ndarray) -> np.ndarray:

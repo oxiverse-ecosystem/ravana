@@ -1448,7 +1448,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 
         self.db = CognitiveDB(self._db_path)
         self.working_memory = WorkingMemory(capacity=self._pfc_buffer_capacity)
-        self.predictive_coding_learner = PredictiveCodingLearner(self.graph)
+        self.predictive_coding_learner = PredictiveCodingLearner(
+            self.graph, rng=self.rng)
         self.coherence_net = CoherenceNetwork()
         # G4: VSA schemas bind/unbind in the 75-D dual-code space
         # (GloVe-64 | Lancaster-11) so role-filler realization operates on
