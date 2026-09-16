@@ -844,11 +844,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     def __init__(self, dim: int = 64, seed: int = 42, baby_mode: bool = True, data_dir: Optional[str] = None, user_suffix: str = "", hrr_whiten: bool = True, hrr_sparse_k: int = 256, hrr_unitary_roles: bool = True, hrr_dim: int = 4096, use_deductive_candidate: bool = False):
         self.dim = dim
         self.rng = np.random.RandomState(seed)
+        # Seed numpy global RNG too — graph init uses np.random.randn()
+        # for GloVe projection. (Round 2026-09-14 fix.)
+        np.random.seed(seed)
 
         # Update global STOP_WORDS to filter out conversational filler/debris
         STOP_WORDS.update({"please", "sorry", "thanks", "thank", "hello", "hi", "hey", "bye", "goodbye"})
 
-        self.graph = ConceptGraph(dim=dim, max_nodes=10000)
+        self.graph = ConceptGraph(dim=dim, max_nodes=10000, rng=self.rng)
         self.baby_mode = baby_mode
         self._concept_labels: Set[str] = set()  # set of primary concept labels
 
@@ -6442,6 +6445,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # carries the extracted event span ("lost half the colony"). Consumed
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
+        # FIX (round 2026-09-14): advance turn_count and tick the RNG at the
+        # TOP of process_turn, BEFORE any early return. Otherwise short-circuit
+        # paths skip both, breaking the determinism contract.
+        self.turn_count += 1
+        try:
+            self.rng.random()
+        except Exception:
+            pass
         # ── Spike log: record cognitive event at TOP of every turn ──
         # Recording here (before any early-return path) guarantees EVERY turn
         # is captured: meta_command, structured_recall, temporal_recall,
@@ -8135,7 +8146,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
-        self.turn_count += 1
         self._learned_this_turn = False
         self._cascade_for_quality = False
         self._fok_pause_done = False
@@ -9553,7 +9563,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             hold = self._preamble_hold_response(user_input)
             self._last_responses.append(hold)
             self._last_strategy = "preamble_hold"
-            self.turn_count += 1
             return hold
 
         # Step 11a: Store episodic memory BEFORE generating response
@@ -10531,7 +10540,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                       f"{type(loaded_graph).__name__}, not ConceptGraph — "
                       f"rebuilding empty graph; other state restored")
                 self.graph = ConceptGraph(dim=self.dim,
-                                      max_nodes=getattr(self, '_max_nodes', 20000))
+                                      max_nodes=getattr(self, '_max_nodes', 20000),
+                                      rng=self.rng)
                 # Durable reconsolidation: recover the real graph from the ACID
                 # SQLite mirror written on every save(), so a pickle-graph
                 # corruption does not silently wipe all learned knowledge.
