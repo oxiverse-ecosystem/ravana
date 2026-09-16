@@ -2,9 +2,9 @@ name: RAVANA CI
 
 on:
   push:
-    branches: [main, develop, 'auto/**']
+    branches: [main, develop, 'auto/**', 'fix/**']
   pull_request:
-    branches: [main, 'auto/**']
+    branches: [main, 'auto/**', 'fix/**']
 
 # A new push to the same ref cancels the previous, still-running run.
 concurrency:

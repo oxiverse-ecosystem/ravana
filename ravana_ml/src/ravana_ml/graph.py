@@ -1050,12 +1050,16 @@ class ConceptGraph:
     def __init__(self, dim: int = 64, max_nodes: int = 10000,
                  max_edges: int = 60000,
                  anchor_relation_vectors: bool = True,
-                 adaptive_downscale: bool = True):
+                 adaptive_downscale: bool = True,
+                 rng: Optional[np.random.RandomState] = None):
         self.dim = dim
         self.max_nodes = max_nodes
         self.max_edges = max_edges
         self._anchor_relation_vectors = anchor_relation_vectors
         self._adaptive_downscale = adaptive_downscale
+        # Seeded RNG for deterministic OOV node vectors. Using the global
+        # np.random here would make every engine diverge regardless of seed.
+        self.rng = rng if rng is not None else np.random.RandomState(42)
         self.nodes: Dict[int, ConceptNode] = {}
         self.edges: Dict[Tuple[int, int], ConceptEdge] = {}
         # ── Issue 2: canonical-dimension write boundary ──
@@ -1250,7 +1254,7 @@ class ConceptGraph:
                         print(f"  [graph] QUARANTINE node '{label}': {_dm}")
                     return None
             else:
-                v = np.random.randn(self.dim).astype(np.float32) * 0.1
+                v = self.rng.randn(self.dim).astype(np.float32) * 0.1
             # G2: Lancaster-11 sensorimotor co-primary. If not passed in,
             # try the engine-supplied fn (set by CognitiveChatEngine) so every
             # node auto-carries its dual-code vector without touching each call
@@ -1563,7 +1567,7 @@ class ConceptGraph:
                     pass
             # Ablation: randomize relation vector if type-anchoring is disabled
             if not self._anchor_relation_vectors:
-                edge.relation_vector = np.random.randn(self._relation_dim).astype(np.float32)
+                edge.relation_vector = self.rng.randn(self._relation_dim).astype(np.float32)
                 edge.relation_vector /= (np.linalg.norm(edge.relation_vector) + 1e-15)
             self.edges[key] = edge
             # Maintain adjacency indices
@@ -3473,7 +3477,7 @@ class ConceptGraph:
         node_ids = list(self.nodes.keys())
         max_sample = 500
         if len(node_ids) > max_sample:
-            sample_idx = np.random.choice(len(node_ids), max_sample, replace=False)
+            sample_idx = self.rng.choice(len(node_ids), max_sample, replace=False)
             node_ids = [node_ids[i] for i in sample_idx]
             # Build small similarity matrix from sampled nodes only
             id_to_idx = {nid: i for i, nid in enumerate(self._node_id_order)}
@@ -3614,7 +3618,7 @@ class ConceptGraph:
 
             for noise_mag in noise_levels:
                 # Apply noise to a copy of the vector
-                noise = np.random.randn(*node.vector.shape).astype(np.float32) * noise_mag
+                noise = self.rng.randn(*node.vector.shape).astype(np.float32) * noise_mag
                 perturbed = node.vector + noise
                 perturbed_norm = np.linalg.norm(perturbed)
                 if perturbed_norm > 0:
