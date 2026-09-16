@@ -4837,7 +4837,8 @@ class ResponseGenMixin(ChainWalkerMixin):
             return "third_narrative"
         return "self_report"
 
-    def _appraised_affective_reply(self, ctx, disclosure) -> Tuple[str, str]:
+    def _appraised_affective_reply(
+            self, ctx, disclosure) -> Optional[Tuple[str, str]]:
         """Deep Fix B: appraised, store-grounded affective reply.
 
         Stage 2 — appraisal over real dimensions: VAD valence/arousal/control
@@ -5202,7 +5203,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         return (f"i hear you. how are you feeling, really?",
                 "emotional_empathy")
 
-    def _emotional_response(self, ctx, disclosure) -> Tuple[str, str]:
+    def _emotional_response(
+            self, ctx, disclosure) -> Optional[Tuple[str, str]]:
         """Empathic reply (Deep Fix B). Delegates to the appraised,
         cognition-driven responder — no random pool."""
         return self._appraised_affective_reply(ctx, disclosure)
@@ -6681,7 +6683,9 @@ class ResponseGenMixin(ChainWalkerMixin):
         # (Emotion contagion / mirror-system response — Decety & Jackson, 2004.)
         disclosure = self._detect_emotional_disclosure(ctx)
         if disclosure is not None:
-            return self._emotional_response(ctx, disclosure)
+            emotional_res = self._emotional_response(ctx, disclosure)
+            if emotional_res is not None:
+                return emotional_res
 
         # ── Procedural/Priority Decomposition Path (PMd / 'how' network) ──
         # For HOW/causal/complex questions, the brain's premotor-parietal 'how'
@@ -8132,5 +8136,3 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return refl[0] if isinstance(refl, tuple) else refl
             return self._human_like_uncertainty(ctx)[0]
         return text
-
-
