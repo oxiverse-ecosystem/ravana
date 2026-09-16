@@ -1621,6 +1621,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._visited_concepts: Set[str] = set()
         self._dopamine_tone: float = 0.5
         self._td_error_history: List[float] = []
+        # Bit-exact reproducibility: append-only spike log of cognitive events.
+        # One spike per turn records strategy + free_energy + prediction_error,
+        # enabling a SHA-256 fingerprint that is deterministic for the same
+        # seed + input sequence (BrainCore standard).
+        from ravana.chat.reproducibility import SpikeLog
+        self.spike_log: SpikeLog = SpikeLog()
         self._expected_strength: float = 0.25
         self._episodic_edges: Dict[Tuple[int, int], Any] = {}
         self._semantic_edges: Dict[Tuple[int, int], Any] = {}
@@ -6436,6 +6442,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # carries the extracted event span ("lost half the colony"). Consumed
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
+        # ── Spike log: record cognitive event at TOP of every turn ──
+        # Recording here (before any early-return path) guarantees EVERY turn
+        # is captured: meta_command, structured_recall, temporal_recall,
+        # preamble_hold, internal_knowledge, etc. all skip the end-of-turn
+        # code but still pass through here.
+        self.spike_log.record(
+            turn=self.turn_count,
+            kind="activation",
+            data={
+                "strategy": getattr(self, "_last_strategy", ""),
+                "free_energy": round(float(getattr(self, "_free_energy", 0.0)), 8),
+                "mean_pe": round(float(getattr(self, "_mean_prediction_error", 0.0)), 8),
+                "pe_count": int(getattr(self, "_prediction_error_count", 0)),
+            },
+        )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
         # Reset the prior turn's stance-reversal marker so a retraction recorded
@@ -10263,6 +10284,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'recent_traversals': _rt_snapshot,
                 'recent_traversal_map': _rtm_snapshot,
                 'cognitive_state': self._cognitive_state,
+                'spike_log_entries': list(self.spike_log.entries) if hasattr(self, 'spike_log') else [],
                 'state_duration': self._state_duration,
                 'prefrontal_buffer': list(self._prefrontal_buffer),
                 'mean_prediction_error': self._mean_prediction_error,
@@ -10949,6 +10971,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._recent_traversals = state.get('recent_traversals', [])
             self._recent_traversal_map = state.get('recent_traversal_map', {})
             self._cognitive_state = state.get('cognitive_state', 'default')
+            # Restore spike log (bit-exact reproducibility)
+            _spike_entries = state.get('spike_log_entries', [])
+            if _spike_entries:
+                from ravana.chat.reproducibility import SpikeLog
+                self.spike_log = SpikeLog()
+                self.spike_log.entries = list(_spike_entries)
             self._state_duration = state.get('state_duration', 0)
             self._impossible_queries = state.get('impossible_queries', [])
             self._concept_pos = ConceptPosDict(state.get('concept_pos', {}))
