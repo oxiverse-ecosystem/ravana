@@ -1894,23 +1894,38 @@ class GenerationMixin:
                  and w.strip(".,!?") not in STOP_WORDS]
         print(f"  [ground_query] query_phrase={query_phrase!r} words={words!r}")
         if words:
-            if len(words) >= 2:
-                # For scenario/hypothetical/causal queries (e.g. hypothetical, why, how),
-                # the last content/entity word represents the target scenario.
-                # NOTE: only for "hypothetical" — for "why"/"how"/"compare" the
-                # trailing word is usually a predicate ("salty" in "why is the
-                # ocean salty", an adjective), not the actual topic. For those
-                # we keep the multi-word phrase below so web grounding stays
-                # on the real subject ("ocean salty").
-                if qtype == "hypothetical" and len(words) >= 2:
-                    last_word = words[-1]
-                    if last_word in self._concept_labels or last_word in self._concept_keywords:
-                        if not self._is_generic_noun(last_word):
-                            _leading = " ".join(words[:-1])
-                            if re.search(r"\b(would|could|will|might|if|when|suddenly|disappear|gone|removed|vanished)\b", _leading):
-                                return (last_word, 0.7, "scenario_last_entity")
+            # Strip trailing temporal/adverbial modifiers that pollute topic
+            # keys ("cooking earlier" -> "cooking", "raise kid care ocean"
+            # keeps "ocean" not "raise kid care").  Trailing-position
+            # detection: only strip from the END, seeded from the functional
+            # lexicon (grows online via data/functional_lexicon.json).
+            _trail_mods = (tuple(self._func_lex.trailing_modifiers)
+                           if getattr(self, "_func_lex", None) is not None
+                           else set())
+            if _trail_mods:
+                while len(words) > 1 and words[-1].strip(".,!?").lower() in _trail_mods:
+                    words = words[:-1]
+            if words:
+                # Take the LAST N words (head noun is usually at the end in
+                # English), not the first N — "raise kid care [ocean]" must
+                # keep "ocean", not drop it by leading truncation.
+                clean_subj = " ".join(words[-3:]) if len(words) >= 3 else " ".join(words)
+                if len(words) >= 2:
+                    # For scenario/hypothetical/causal queries (e.g. hypothetical, why, how),
+                    # the last content/entity word represents the target scenario.
+                    # NOTE: only for "hypothetical" — for "why"/"how"/"compare" the
+                    # trailing word is usually a predicate ("salty" in "why is the
+                    # ocean salty", an adjective), not the actual topic. For those
+                    # we keep the multi-word phrase below so web grounding stays
+                    # on the real subject ("ocean salty").
+                    if qtype == "hypothetical" and len(words) >= 2:
+                        last_word = words[-1]
+                        if last_word in self._concept_labels or last_word in self._concept_keywords:
+                            if not self._is_generic_noun(last_word):
+                                _leading = " ".join(words[:-1])
+                                if re.search(r"\b(would|could|will|might|if|when|suddenly|disappear|gone|removed|vanished)\b", _leading):
+                                    return (last_word, 0.7, "scenario_last_entity")
 
-                clean_subj = " ".join(words[:3]) if len(words) >= 3 else " ".join(words)
                 clean_subj = self._clean_subject_phrase(clean_subj)
                 # Malformed-grounding guard (fixes "is it ever okay to break a
                 # promise" -> "ever okay break"): when the phrase is dominated by

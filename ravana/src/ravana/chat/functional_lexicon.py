@@ -48,6 +48,21 @@ _SEED: Dict[str, list] = {
     # Generic question-framing words (signal a malformed multi-word subject).
     "framing": ["ever", "okay", "ok", "break", "make", "really", "right",
                "wrong", "thing", "things", "actually", "question", "answer"],
+    # Trailing temporal/adverbial modifiers that pollute topic keys when they
+    # survive to the word list.  Stripped from the END of a phrase before the
+    # topic-key truncation so "cooking earlier" -> "cooking" and
+    # "raise a kid to care about the ocean" keeps "ocean" (the real topic).
+    # A seed list — grows at runtime via data/functional_lexicon.json.
+    "trailing_modifiers": ["earlier", "now", "then", "later", "soon",
+                            "always", "never", "sometimes", "again",
+                            "already", "still", "yet", "just", "even",
+                            "too", "very", "quite", "really", "better",
+                            "best", "worse", "worst", "more", "most",
+                            "less", "least", "often", "usually",
+                            "generally", "basically", "actually",
+                            "literally", "seriously", "honestly",
+                            "frankly", "clearly", "obviously",
+                            "apparently", "presumably", "supposedly"],
 }
 
 
@@ -89,6 +104,11 @@ class FunctionalLexicon:
     @property
     def framing(self) -> Set[str]:
         return self._v.get("framing", set(_SEED["framing"]))
+
+    @property
+    def trailing_modifiers(self) -> Set[str]:
+        return self._v.get("trailing_modifiers",
+                           set(_SEED["trailing_modifiers"]))
 
     # ── Stage 5b-iii (P1-H): closed-class lists consolidated from the
     # 6 hand-crafted engine sets. Each accessor returns the fit-file
