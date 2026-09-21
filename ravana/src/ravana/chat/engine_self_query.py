@@ -1170,6 +1170,21 @@ class SelfQueryMixin:
             _tail = re.sub(
                 r"^\s*(honest\s+)?(read|take|view|opinion|thoughts|stance)"
                 r"(\s+(on|about|now|these\s+days))?\s*", "", _tail)
+            # PREPOSITIONAL-PRASE HEAD-NOUN DETECTION (FIX-RV-02):
+            # For frames like "about the ethics of terraforming mars" the head
+            # of the prepositional phrase ("terraforming mars") is the real
+            # topic, not the first noun after the opinion cue ("ethics").
+            # Detect "of ..." / "between ... and ..." tails and narrow _tail
+            # to the object of the preposition so the existing maximal-noun
+            # phrase accumulator resolves the correct subject. Structural
+            # (prepositional-frame vocabulary), no per-topic table.
+            _pp = re.search(r"\bof\s+(.+)$", _tail)
+            if _pp:
+                _tail = _pp.group(1)
+            else:
+                _btw = re.search(r"\bbetween\s+(.+?)\s+and\s+(.+)$", _tail)
+                if _btw:
+                    _tail = f"{_btw.group(1)} {_btw.group(2)}"
             # Take the LAST meaningful content noun as the stance target. The
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
