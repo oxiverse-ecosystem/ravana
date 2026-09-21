@@ -494,6 +494,14 @@ class SelfQueryMixin:
         (valence) and the ConceptGraph proximity — still state-driven, not
         fabricated.
 
+        ALSO handles natural contradiction-revision signals (round
+        2026-09-21T1954Z, FIX-RV-01): "actually", "on second thought",
+        "i changed my mind", "i was wrong", "i take it back", "never mind",
+        "i don't think so anymore". These are detected structurally (one
+        regex, not per-phrase) and routed through the SAME inversion
+        mechanism — the topic is resolved against the user's stance store
+        and the polarity is reversed via the existing recode path.
+
         Returns None if the query is not a contradiction-revision request,
         or if RAVANA has no basis for any stance on the target topic.
         """
@@ -503,8 +511,47 @@ class SelfQueryMixin:
         _inversion = re.search(
             r"\b(argue\s+(?:the\s+)?opposite|flip\s+(?:your\s+)?stance|take\s+(?:the\s+)?other\s+side|opposite\s+view|rebuttal|argue\s+against|go\s+against)\b",
             t)
-        if not _inversion:
+        # Natural contradiction-revision signals (FIX-RV-01): the user
+        # retracts or reverses a prior stance WITHOUT an explicit
+        # "argue the opposite" command. One structural regex — the topic
+        # is resolved from the utterance, not hardcoded.
+        _natural_contradiction = re.search(
+            r"\b(actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
+            r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
+            r"i\s+don'?t\s+think\s+so\s+anymore|"
+            r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
+            r"i\s+(?:actually\s+)?(?:hate|dislike|loathe|detest|can'?t\s+stand)|"
+            r"i\s+was\s+(?:too\s+)?(?:hasty|quick|wrong)|"
+            r"i\s+think\s+differently\s+now|"
+            r"i'?ve\s+(?:changed|reversed)\s+(?:my\s+)?(?:mind|position|stance)|"
+            r"i\s+(?:take|am\s+taking)\s+it\s+all\s+back|"
+            r"i\s+don'?t\s+feel\s+that\s+way\s+anymore)\b",
+            t)
+        if not _inversion and not _natural_contradiction:
             return None
+        # When only the natural-contradiction signal matched, extract the
+        # topic from the remainder of the utterance (after the signal word).
+        if _natural_contradiction and not _inversion:
+            _nc_end = _natural_contradiction.end()
+            _nc_rest = t[_nc_end:].strip()
+            _nc_rest = re.sub(
+                r"^(?:i\s+(?:think\s+|feel\s+|now\s+)?|"
+                r"about\s+|on\s+|regarding\s+|that\s+|"
+                r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
+                r"am\s+(?:now\s+)?|have\s+)?)",
+                "", _nc_rest).strip()
+            _nc_rest = re.sub(
+                r"\s+(?:is\s+)?(?:disgusting|terrible|awful|horrible|"
+                r"bad|wrong|not\s+so\s+good|"
+                r"i\s+think\s+so|"
+                r"anymore|now|though)\s*$",
+                "", _nc_rest).strip()
+            if not _nc_rest:
+                return None
+            _topic = self._resolve_natural_contradiction_topic(_nc_rest, t)
+            if _topic is None:
+                return None
+            return self._execute_stance_inversion(_topic, t)
         # Extract the topic target. Two surface shapes:
         #   1) "...about X" / "...on X"  — the target follows the cue
         #   2) "flip your stance on X"   — "on X" after the verb
@@ -615,6 +662,112 @@ class SelfQueryMixin:
                     f"other side. {_inv_reason}")
         return (f"arguing the opposite: i {_opposite_word} {_target}. "
                 f"{_inv_reason}")
+
+
+    # -- FIX-RV-01 helpers (natural contradiction-revision) --
+
+    _NC_STOP = frozenset(
+        "i me my we us you your it that this is are was were be been being "
+        "have has had do does did will would could should may might can "
+        "the a an and or but if then than so too very just really actually "
+        "now anymore think feel know disgusting terrible awful horrible "
+        "bad wrong not no".split())
+
+    def _resolve_natural_contradiction_topic(
+            self, phrase: str, full_query: str) -> Optional[str]:
+        """Resolve a natural-contradiction utterance to a held stance topic.
+
+        Store-driven: exact key, then substring, then content-word Jaccard
+        against the user's `opinions.stances` store. Same resolution the
+        free-form contradiction recode uses. Returns None when no held
+        stance plausibly matches — we never fabricate a reversal.
+        """
+        head = (phrase or "").lower().strip()
+        if not head:
+            return None
+        stances = getattr(self.user_model, "opinions", None)
+        if stances is None:
+            return None
+        store = getattr(stances, "stances", {})
+        if not store:
+            return None
+        if head in store:
+            return head
+        for k in store:
+            if head and (head in k or k in head):
+                return k
+        hw = set(re.findall(r"[a-z']+", head)) - self._NC_STOP
+        if not hw:
+            return None
+        best, best_j = None, 0.0
+        for k in store:
+            kw = set(re.findall(r"[a-z']+", k)) - self._NC_STOP
+            if not kw:
+                continue
+            j = len(hw & kw) / len(hw | kw)
+            if j > best_j:
+                best, best_j = k, j
+        if best is not None and best_j >= 0.4:
+            return best
+        return None
+
+    def _execute_stance_inversion(
+            self, topic: str, full_query: str) -> Optional[str]:
+        """Execute the stance inversion for a natural contradiction.
+
+        Reuses the EXISTING inversion mechanism: the user's held stance on
+        `topic` is reversed via `UserStanceStore.reverse_stance` (the same
+        method the free-form contradiction recode uses), and the reply is
+        built from the inverted stance's real values. State-driven, not
+        hardcoded. Only inverts a stance held in a PRIOR turn.
+        """
+        stances = getattr(self.user_model, "opinions", None)
+        if stances is None:
+            return None
+        store = getattr(stances, "stances", {})
+        if not store:
+            return None
+        _held = store.get(topic)
+        if _held is None:
+            return None
+        # Guard: only invert a stance held in a PRIOR turn. turn_num is
+        # incremented at the END of process_turn, so during turn N,
+        # turn_num is still N-1. A stance from turn N-1 has
+        # turn_number = N-1, which equals turn_num. Use > (not >=) so a
+        # prior-turn stance can be inverted in the current turn.
+        _turn_num = getattr(stances, "turn_num", 0)
+        _held_turn = getattr(_held, "turn_number", 0)
+        if _held_turn > _turn_num:
+            return None
+        # Invert the held stance via the existing reverse_stance mechanism.
+        try:
+            stances._soft_reversal = False
+            _prior = stances.reverse_stance(topic, utterance=full_query)
+        except Exception:
+            return None
+        if _prior is None:
+            return None
+        # _prior is the SAME Stance object returned by reverse_stance, but
+        # its .polarity has already been mutated to the NEW value. The OLD
+        # polarity is preserved in .prior_polarity.
+        _old_pol = getattr(_prior, "prior_polarity", None)
+        if _old_pol is None:
+            _old_pol = getattr(_prior, "polarity", 0.0)
+        _new_pol = getattr(_prior, "polarity", 0.0)
+        _old_word = "strongly for" if _old_pol >= 0.6 else (
+            "for" if _old_pol > 0.1 else (
+                "strongly against" if _old_pol <= -0.6 else (
+                    "against" if _old_pol < -0.1 else "uncertain about")))
+        _new_word = "strongly for" if _new_pol >= 0.6 else (
+            "for" if _new_pol > 0.1 else (
+                "strongly against" if _new_pol <= -0.6 else (
+                    "against" if _new_pol < -0.1 else "uncertain about")))
+        _conf = getattr(_prior, "confidence", 0.5)
+        return (
+            f"got it — you used to say you were {_old_word} {topic}, "
+            f"and now you're {_new_word}. i've updated my read "
+            f"(confidence {_conf:.2f})."
+        )
 
     def _route_own_stance_revisit(self, user_input: str) -> Optional[str]:
         """Answer 'do you still feel that way about X?' / 'have you changed
