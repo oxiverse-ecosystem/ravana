@@ -3713,6 +3713,15 @@ class UserModel:
             # retraction cue ("i take back ...") is not an activity
             if _verb in ("take", "took", "taking") and "back" in _am.group(2).lower():
                 continue
+            # PHRASAL VERB GUARD (round 2026-09-22): "grow up" / "grew up" is a
+            # phrasal verb meaning maturation/raising — NOT an activity disclosure
+            # ("i grew up in a house"). Matching "grew" as an activity verb and
+            # capturing "up in a house..." as the object produces the garbage
+            # fact ("i", "does:grow", "grew house"). The location miner below
+            # handles "grew up" as a location disclosure; the activity miner
+            # must skip it. Structural (verb + particle), not per-topic.
+            if _verb in ("grow", "grew") and _am.group(2).strip().lower().startswith("up"):
+                continue
             _obj = self._opinion_topic(_am.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
             # also skip when the resolved object is itself a meta-reflection word
@@ -5172,14 +5181,41 @@ class UserModel:
                 if thing not in self.preferences["interests"]:
                     self.preferences["interests"].append(thing)
 
-        m_fav = re.search(r"\bmy\s+favorite\s+(.+?)\s+is\s+(.+)", q_clean, re.IGNORECASE)
+        m_fav = re.search(r"\bmy\s+favorite\s+(.+?)\s+(?:is|has\s+been)\s+(.+)", q_clean, re.IGNORECASE)
         if m_fav:
             category = m_fav.group(1).strip(" .!?")
             val = m_fav.group(2).strip(" .!?")
             if category and val:
-                if "favorites" not in self.preferences:
-                    self.preferences["favorites"] = {}
-                self.preferences["favorites"][category] = val
+                # Strip trailing temporal modifiers from the category so
+                # "book since childhood" -> "book" (the user's real category).
+                # Structural: a small closed-class set of trailing modifiers
+                # (seed vocabulary, expandable) that narrow the noun phrase
+                # without discarding genuine category words.
+                _TRAIL_MOD = (
+                    "since childhood", "since i was", "since i'm", "since i've been",
+                    "since i", "growing up", "of all time", "in the world",
+                    "ever", "right now", "at the moment", "lately", "these days",
+                    "since school", "since college", "since high school",
+                )
+                for _mod in _TRAIL_MOD:
+                    if category.lower().endswith(_mod):
+                        category = category[: -len(_mod)].strip(" ,")
+                        break
+                category = category.strip(" .,;:!?")
+                if category and val:
+                    if "favorites" not in self.preferences:
+                        self.preferences["favorites"] = {}
+                    self.preferences["favorites"][category] = val
+                    # ALSO store in personal_facts so recall paths (which read
+                    # from personal_facts, not preferences) can answer
+                    # "what book did i tell you was my favorite". Keyed by the
+                    # category noun so a later "what's my favorite <X>" resolves.
+                    try:
+                        self.personal_facts.assert_fact(
+                            "i", f"favorite {category}", val,
+                            confidence=0.6, source="seed_regex")
+                    except Exception:
+                        pass
 
         m_name = re.search(
             r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"

@@ -987,18 +987,21 @@ class SelfQueryMixin:
             r"(?:see|feel|think)|want|wants|wanted|desire|desires|aim|aims|"
             r"goal|goals|hope|hopes|said|told|spoke|mentioned|recall|remember"
             r")\b", t)
-        # GUARD (round 2026-08-18T1340Z): a TOPIC-OPINION frame ("what's your
-        # take/view/opinion/stance ON <topic>", "your thoughts about X") is NOT
-        # self-introspection — it asks RAVANA's view on a subject, which must
-        # reach the opinion handler (_agent_stance_on), not the identity
-        # coherence blurb. Without this, "what's your take on eating insects"
-        # matched `your ... take` and answered with "i'm still quite unsettled
-        # about who i am" (a self/other boundary error + incoherent reply).
-        # Genuine identity questions ("who are you", "what are you") have no
-        # "on/about/of <topic>" object, so they still route to the self-model.
+        # GUARD (round 2026-09-22): a topic-opinion frame ("what's your
+        # take/view/opinion/stance ON <topic>", "your thoughts about X", "what
+        # do you think about Y") is NOT self-introspection — it asks RAVANA's
+        # view on a SUBJECT, which must reach the opinion handler
+        # (_agent_stance_on), not the identity blurb. Without this guard, "what
+        # do you think about mycelium networks" matched the broad `you.*think`
+        # introspect regex and answered "i have a fairly settled sense of
+        # myself" (a self/other boundary error + incoherent reply). The
+        # alternation now includes "think"/"thinking" so the bare verb form is
+        # also caught. Structural (opinion-verb + on/about/of), no per-topic
+        # table.
         if _self_introspect and re.search(
                 r"\b(your|you)\s+(?:honest\s+)?(take|view|opinion|stance|"
-                r"read|thoughts?)\s+(on|about|of|regarding|toward)\b", t):
+                r"read|thoughts?|think|thinking|thought)\s+"
+                r"(on|about|of|regarding|toward)\b", t):
             _self_introspect = None
         if _self_introspect:
             # R2 (round 2026-08-18T0937Z): do NOT deflect a genuine USER-recall
@@ -1170,6 +1173,21 @@ class SelfQueryMixin:
             _tail = re.sub(
                 r"^\s*(honest\s+)?(read|take|view|opinion|thoughts|stance)"
                 r"(\s+(on|about|now|these\s+days))?\s*", "", _tail)
+            # PREPOSITIONAL-PRASE HEAD-NOUN DETECTION (FIX-RV-02):
+            # For frames like "about the ethics of terraforming mars" the head
+            # of the prepositional phrase ("terraforming mars") is the real
+            # topic, not the first noun after the opinion cue ("ethics").
+            # Detect "of ..." / "between ... and ..." tails and narrow _tail
+            # to the object of the preposition so the existing maximal-noun
+            # phrase accumulator resolves the correct subject. Structural
+            # (prepositional-frame vocabulary), no per-topic table.
+            _pp = re.search(r"\bof\s+(.+)$", _tail)
+            if _pp:
+                _tail = _pp.group(1)
+            else:
+                _btw = re.search(r"\bbetween\s+(.+?)\s+and\s+(.+)$", _tail)
+                if _btw:
+                    _tail = f"{_btw.group(1)} {_btw.group(2)}"
             # Take the LAST meaningful content noun as the stance target. The
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
