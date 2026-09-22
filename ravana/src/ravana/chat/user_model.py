@@ -657,7 +657,6 @@ _NAME_REJECT_RUNTIME: set = set()
 # over the import (per the project's silent-import-guard rule).
 try:
     from nltk.corpus import wordnet as _WN
-    _WN.synsets("tender", pos="a")  # touch to force corpus load error early
     _WN_AVAILABLE = True
 except Exception as _wn_err:  # pragma: no cover - optional dependency
     _WN = None

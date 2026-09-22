@@ -10893,7 +10893,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if os.path.exists(_um_path):
                     _separate_um = load_user_model(getattr(self, 'user_suffix', ''))
                     if _separate_um is not None:
-                        self.user_model = _separate_um
+                        # Only prefer the dedicated file when it actually
+                        # CONTAINS data. An empty dedicated file (e.g. written
+                        # by a prior save when the model was fresh) must NOT
+                        # overwrite a non-empty embedded snapshot — otherwise
+                        # every load wipes all learned stances and facts.
+                        _sep_stances = len(getattr(_separate_um.opinions, 'stances', {})) if hasattr(_separate_um, 'opinions') else 0
+                        _sep_facts = len(getattr(_separate_um.personal_facts, 'facts', {})) if hasattr(_separate_um, 'personal_facts') else 0
+                        _emb_stances = len(getattr(self.user_model.opinions, 'stances', {})) if hasattr(self.user_model, 'opinions') else 0
+                        _emb_facts = len(getattr(self.user_model.personal_facts, 'facts', {})) if hasattr(self.user_model, 'personal_facts') else 0
+                        if _sep_stances > 0 or _sep_facts > 0 or (_emb_stances == 0 and _emb_facts == 0):
+                            self.user_model = _separate_um
             except Exception:
                 pass
             # A reask/correction is only meaningful within a single session.
