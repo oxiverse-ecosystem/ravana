@@ -2339,6 +2339,42 @@ class MemoryMixin:
                         # Pets stored under a species-keyed slot.
                         elif (_pet := _pet_slots.render_pair(_ent, _attr, _val)):
                             _bits.append(_pet)
+                        elif _attr in ("since", "since_age"):
+                            # Temporal facts: render as natural language, not
+                            # raw "your since_age is <val>". Parse the stored
+                            # "<activity> <age_or_year>" value into components.
+                            _sv = (str(_val) or "").strip()
+                            _parts = _sv.rsplit(" ", 1)
+                            if len(_parts) == 2:
+                                _act_raw, _anchor = _parts
+                                try:
+                                    _anchor_num = int(_anchor)
+                                    # Validate range: since_age must be 1-120,
+                                    # since (year) must be 1900-2100. Outside
+                                    # that, fall back to raw rendering (never
+                                    # crash on junk facts).
+                                    if _attr == "since_age" and not (1 <= _anchor_num <= 120):
+                                        raise ValueError(f"age out of range: {_anchor_num}")
+                                    if _attr == "since" and not (1900 <= _anchor_num <= 2100):
+                                        raise ValueError(f"year out of range: {_anchor_num}")
+                                    from .engine import _verb_phrase_to_gerund as _gerund
+                                    _act_gerund = _gerund(_act_raw)
+                                    if _attr == "since_age":
+                                        _bits.append(
+                                            f"you've been {_act_gerund} since you were about {_anchor_num}")
+                                    else:
+                                        _bits.append(
+                                            f"you started {_act_gerund} in {_anchor_num}")
+                                except (ValueError, ImportError):
+                                    # Unparseable anchor or missing helper —
+                                    # fall back to raw rendering (never crash).
+                                    _bits.append(
+                                        f"your {_ent}'s {_attr} is {_sv}" if not _is_user
+                                        else f"your {_attr} is {_sv}")
+                            else:
+                                _bits.append(
+                                    f"your {_ent}'s {_attr} is {_sv}" if not _is_user
+                                    else f"your {_attr} is {_sv}")
                         else:
                             # verb-phrase value: drop the copula (same rule as
                             # the D7 cued-recall + the other self-profile render
