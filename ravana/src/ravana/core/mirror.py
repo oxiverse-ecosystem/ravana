@@ -174,6 +174,19 @@ _VAD_SEED: Dict[str, Tuple[float, float, float]] = {
     "ignored":     (-0.55, 0.40, -0.45),
     "bullied":     (-0.80, 0.70, -0.65),
     "homesick":    (-0.60, 0.35, -0.50),
+    # ── metaphorical distress terms (FIX-RV-06) ──
+    # Single-metaphor disclosures ("feel like a ghost", "i feel invisible")
+    # are dissociation/fading/numbing self-reports. These nouns carry VAD
+    # load (low valence, low arousal = dissociative, negative dominance).
+    # Seed vocabulary (RAVANA-expandable via Hebbian learning), not authored
+    # replies.
+    "ghost":       (-0.55, 0.20, -0.45),
+    "phantom":     (-0.50, 0.25, -0.40),
+    "shadow":      (-0.45, 0.20, -0.35),
+    "shell":       (-0.55, 0.15, -0.50),
+    "fading":      (-0.50, 0.20, -0.45),
+    "invisible":   (-0.55, 0.20, -0.50),
+    "hollow":      (-0.60, 0.15, -0.45),
 }
 
 # Intensifiers multiply arousal (closed-class grammatical — kept as universal)

@@ -4515,6 +4515,38 @@ class ResponseGenMixin(ChainWalkerMixin):
             if _distress_m:
                 self._update_vad_baseline(-0.8)
                 return ("negative", "hurting")
+
+        # ── Metaphorical distress schema (FIX-RV-06) ──
+        # Single-metaphor disclosures ("feel like a ghost", "i feel invisible",
+        # "i'm a shell") are dissociation/fading/numbing self-reports. The
+        # metaphor nouns (ghost, phantom, shadow, shell, invisible, fading, hollow)
+        # now carry VAD load in the seed lexicon, so the VAD scan below scores
+        # them. But the utterance may ALSO lack an explicit first-person token
+        # ("feel like a ghost" has only the implied "i"), which previously
+        # returned None at the first-person gate. Here we recognize the
+        # "feel/feel like/feeling like/i am/i'm <metaphor>" construction as a
+        # genuine self-disclosure. The metaphor terms are seed vocabulary
+        # (RAVANA-expandable via Hebbian VAD learning); this is a structural
+        # detection path, not an authored reply.
+        _METAPHOR_DISTRESS = (
+            "ghost", "phantom", "shadow", "shell", "fading", "invisible", "hollow")
+        _has_metaphor = any(w in text for w in _METAPHOR_DISTRESS)
+        _feel_like_frame = bool(re.search(
+            r"\b(?:i\s+(?:am|feel|'m|m)|i'm|feel|feeling|felt)\s+"
+            r"(?:like\s+(?:a\s+|an\s+)?)?"
+            r"(?:ghost|phantom|shadow|shell|fading|invisible|hollow)\b",
+            text))
+        _is_eli5 = bool(re.search(
+            r"\b(like|as if|as though)\s+(i'm|i am|i feel)\b", text))
+        if _has_metaphor and _feel_like_frame and not _is_eli5 and not _has_narrative_frame:
+            # Resolve which metaphor term is the affect word so the empathy
+            # responder names it ("ghost", "shell", ...) instead of a generic
+            # "hurting". The metaphor is the felt state here.
+            _metaphor_word = next(
+                (m for m in _METAPHOR_DISTRESS if m in text), "ghost")
+            self._update_vad_baseline(-0.8)
+            return ("negative", _metaphor_word)
+
         if not re.search(r"\b(i|i'm|i am|my|me|we|we're|we are)\b", text):
             return None
         if re.search(r"\blike (?:i am|i'm|i)\s+(?:a |an )?\w+\b", text) or \

@@ -7769,7 +7769,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"retired|unemployed|single|married|divorced|widowed)\b",
                 _low_b))
             _suffering_word_b = bool(re.search(
-                r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
+                r"\b(hurt|hurts|hollow|empt(y|iness)|numb|invisible|fading|ghost|phantom|shadow|shell|pain|ache|suffering|suffer|grief|grieving|"
                 r"lonely|alone|scared|afraid|terrified|anxious|panic|"
                 r"devastated|broken|dying|dead|miserable|hopeless|"
                 r"overwhelmed|exhausted|furious|angry|cry|cried|crying)\b",
@@ -7921,7 +7921,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"anxious|panic|devastated|broken|dying|dead|died|death|"
                     r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
                     r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
-                    r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
+                    r"wounded|bleeding|lost|worried|troubled|upset|hollow|"
+                    r"empty|numb|invisible|fading|ghost|phantom|shadow|shell)\b", _low_d))
                 if _possessive_attr and not _suffering:
                     _disc = None
                 # W-loss-homograph guard (round 2026-08-10T1401Z F2): the VAD

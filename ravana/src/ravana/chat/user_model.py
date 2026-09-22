@@ -770,6 +770,14 @@ _AFFECT_TERM_LEXICON = frozenset({
     # overwhelm / exhaustion
     "overwhelmed", "exhausted", "drained", "burned", "burnt", "spent",
     "fried", "stressed", "pressure", "wired",
+    # ── metaphorical distress terms (FIX-RV-06) ──
+    # Single-metaphor disclosures ("feel like a ghost", "i feel invisible")
+    # are dissociation/fading/numbing self-reports. The copula fallback path
+    # (_extract_user_affect_word → is_affect_term) must recognize these nouns
+    # as valid felt-words so "i feel like a ghost" resolves the affect word
+    # "ghost" instead of falling through. Seed vocabulary (RAVANA-expandable),
+    # not an authored reply path.
+    "ghost", "phantom", "shadow", "shell", "fading", "invisible", "hollow",
     # positive
     "happy", "joy", "joyful", "delighted", "thrilled", "euphoric",
     "excited", "proud", "grateful", "relieved", "content", "peaceful",
