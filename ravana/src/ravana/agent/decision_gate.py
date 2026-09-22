@@ -103,6 +103,185 @@ def _trim_url_match(url: str) -> str:
     return url
 
 
+# Personal-possessive entity words — seed vocabulary (expandable at runtime).
+# These are common nouns that, when combined with a possessive pronoun ("my",
+# "your"), indicate an autobiographical query rather than a world-knowledge
+# gap. This is seed data, not a hardcoded trigger: the set can be extended at
+# runtime via add_personal_entity_words() as new entity types are encountered.
+#
+# The set is intentionally small — it bootstraps the routing check. RAVANA
+# grows it at runtime from personal disclosures in conversation (e.g. learning
+# that "my motorcycle" is a personal entity after the user mentions it).
+_PERSONAL_ENTITY_WORDS = {
+    # Vehicles and personal possessions (most common in "what is wrong with my X")
+    "car", "cars", "gps", "phone", "phones", "computer", "computers",
+    "laptop", "laptops", "dog", "dogs", "cat", "cats", "pet", "pets",
+    "house", "home", "bike", "bicycle", "motorcycle", "truck", "vehicle",
+    "engine", "battery", "tire", "tires", "brake", "brakes", "transmission",
+    # Personal states and conditions (recall-gap terms that look like knowledge queries)
+    "broken", "happened", "reboot", "turn", "drive", "ride",
+    # Family and relationships
+    "sister", "brother", "mother", "father", "mom", "dad", "parent",
+    "parents", "child", "children", "kid", "kids", "son", "daughter",
+    "husband", "wife", "spouse", "partner", "boyfriend", "girlfriend",
+    "friend", "friends", "teacher", "professor", "boss", "manager",
+    "colleague", "coworker", "neighbor", "neighbour", "classmate",
+    "roommate", "landlord",
+    # Health and medical
+    "doctor", "dentist", "therapist", "counselor", "physician",
+    "hospital", "clinic", "pharmacy", "headache", "cold", "flu", "fever",
+    "cough", "sore", "pain", "injury", "wound", "bruise", "cut", "burn",
+    "rash", "allergy", "medication", "medicine", "pill", "pills",
+    "vitamin", "vitamins",
+    # Education and work
+    "school", "college", "university", "course", "class", "classes",
+    "grade", "grades", "exam", "exams", "test", "tests", "homework",
+    "assignment", "project", "thesis", "job", "jobs", "bank", "account",
+    "credit", "debt", "loan", "mortgage", "rent", "insurance", "tax",
+    "taxes", "salary", "wage", "income", "money",
+    # Personal items
+    "wallet", "purse", "bag", "backpack", "suitcase", "luggage",
+    "clothes", "clothing", "shirt", "pants", "shoes", "jacket", "coat",
+    "watch", "jewelry", "ring", "necklace", "glasses", "sunglasses",
+    "camera", "television", "tv", "radio", "speaker", "headphones",
+    "keyboard", "mouse", "monitor", "printer", "router", "modem",
+    "tablet", "ipad", "kindle", "console", "playstation", "xbox",
+    # Entertainment and leisure
+    "game", "games", "movie", "movies", "book", "books", "novel",
+    "song", "songs", "album", "band", "artist", "painting", "art",
+    "vacation", "holiday", "trip", "travel", "flight", "hotel",
+    "restaurant", "cafe", "coffee", "tea", "beer", "wine", "food",
+    "meal", "breakfast", "lunch", "dinner", "snack", "dessert",
+    # Home and property
+    "garden", "yard", "lawn", "fence", "roof", "door", "window",
+    "kitchen", "bathroom", "bedroom", "living", "dining", "garage",
+    "apartment", "condo", "flat", "studio", "office", "workplace",
+    # Personal attributes and states
+    "favorite", "favourite", "habit", "routine", "hobby", "hobbies",
+    "interest", "interests", "skill", "skills", "talent", "ability",
+    "strength", "weakness", "problem", "problems", "issue", "issues",
+    "trouble", "concern", "worry", "worries", "fear", "fears", "anxiety",
+    "stress", "anger", "sadness", "happiness", "joy", "love", "hate",
+    "dislike", "preference", "opinion", "thought", "thoughts", "idea",
+    "ideas", "memory", "memories", "dream", "dreams", "goal", "goals",
+    "plan", "plans", "decision", "decisions", "choice", "choices",
+    "mistake", "mistakes", "regret", "success", "failure", "achievement",
+    "challenge", "challenges", "difficulty", "struggle", "effort",
+    "attempt", "try", "practice", "progress", "improvement", "growth",
+    "change", "changes", "transition", "shift", "move", "movement",
+    "journey", "path", "direction", "destination", "arrival", "departure",
+    "beginning", "start", "end", "finish", "completion", "result",
+    "results", "outcome", "consequence", "effect", "impact", "influence",
+    "cause", "reason", "purpose", "meaning", "significance", "value",
+    "worth", "importance", "priority", "urgency", "necessity", "need",
+    "needs", "want", "wants", "desire", "wish", "hope", "expectation",
+    "standard", "quality", "quantity", "amount", "number", "count",
+    "level", "degree", "extent", "range", "scope", "scale", "size",
+    "shape", "form", "structure", "pattern", "trend", "tendency",
+    "behavior", "behaviour", "action", "actions", "activity", "activities",
+    "event", "events", "incident", "occasion", "situation", "circumstance",
+    "condition", "conditions", "state", "status", "position", "place",
+    "location", "spot", "site", "area", "region", "zone", "sector",
+    "field", "domain", "realm", "world", "universe", "existence",
+    "life", "death", "birth", "age", "time", "period", "era", "epoch",
+    "moment", "minute", "hour", "day", "week", "month", "year",
+    "decade", "century", "millennium", "past", "present", "future",
+    "history", "story", "tale", "narrative", "account", "report",
+    "description", "explanation", "definition", "interpretation",
+    "understanding", "comprehension", "knowledge", "wisdom", "insight",
+    "intuition", "instinct", "feeling", "emotion", "sentiment", "mood",
+    "attitude", "disposition", "temperament", "personality", "character",
+    "nature", "essence", "core", "heart", "soul", "spirit", "mind",
+    "brain", "thinking", "reasoning", "logic", "rationality",
+    "intelligence", "intellect", "creativity", "imagination", "fantasy",
+    "reality", "truth", "fact", "facts", "information", "data",
+    "evidence", "proof", "verification", "confirmation", "validation",
+    "authentication", "certification", "qualification", "credential",
+    "license", "permit", "authorization", "approval", "consent",
+    "agreement", "contract", "treaty", "pact", "deal", "arrangement",
+    "compromise", "negotiation", "discussion", "debate",
+    "argument", "dispute", "conflict", "fight", "battle", "war", "peace",
+    "truce", "ceasefire", "surrender", "victory", "defeat", "win", "loss",
+    "triumph", "disaster", "catastrophe", "crisis",
+    "emergency", "demand",
+    "requirement", "specification", "criterion", "benchmark",
+    "measure", "measurement", "metric", "indicator", "signal", "sign",
+    "symbol", "token", "mark", "label", "tag", "category", "class",
+    "type", "kind", "sort", "variety", "version", "edition",
+    "release", "update", "upgrade", "patch", "fix", "repair", "correction",
+    "revision", "modification", "alteration", "adjustment", "adaptation",
+    "transformation", "conversion", "evolution", "revolution",
+    "innovation", "invention", "discovery", "finding",
+    "power", "force", "energy", "might",
+    "authority", "control", "command", "dominion", "rule", "governance",
+    "leadership", "management", "administration", "organization",
+    "institution", "establishment", "foundation", "association", "society",
+    "community", "group", "team", "crew", "squad", "unit", "division",
+    "department", "section", "branch", "segment", "part",
+    "piece", "portion", "fraction", "percentage", "ratio", "proportion",
+    "rate", "speed", "velocity", "acceleration", "momentum",
+    "pressure", "tension", "strain", "load", "weight", "mass",
+    "volume", "density", "concentration", "intensity", "magnitude",
+    "amplitude", "frequency", "wavelength", "cycle", "loop",
+    "circle", "ring", "sphere", "globe", "ball", "orb", "planet",
+    "star", "sun", "moon", "earth", "cosmos",
+    "galaxy", "nebula", "constellation", "asteroid", "comet", "meteor",
+    "satellite", "spacecraft", "rocket", "shuttle", "station", "base",
+    "colony", "settlement", "outpost", "camp", "tent", "cabin", "hut",
+    "shelter", "refuge", "haven", "sanctuary", "temple", "church",
+    "mosque", "synagogue", "shrine", "altar", "monastery", "convent",
+    "abbey", "cathedral", "basilica", "chapel", "oratory",
+    # Places and geography
+    "city", "town", "village", "country", "state", "province",
+    "street", "road", "avenue", "highway", "freeway", "bridge",
+    "park", "beach", "mountain", "river", "lake", "ocean", "forest",
+    # Weather and environment
+    "weather", "temperature", "rain", "snow", "wind", "storm",
+    # Fitness and activities
+    "diet", "exercise", "workout", "gym", "run", "running", "walk",
+    "walking", "swim", "swimming", "biking", "hike", "hiking",
+    # Events and occasions
+    "birthday", "anniversary", "wedding", "funeral", "party",
+    "meeting", "appointment", "interview", "deadline", "schedule",
+}
+
+
+def add_personal_entity_words(words: set) -> None:
+    """Extend the personal-entity word seed set at runtime.
+
+    As new entity types are encountered in personal disclosures, the set can
+    be grown without modifying code. This keeps the heuristic data-driven.
+    """
+    _PERSONAL_ENTITY_WORDS.update(words)
+
+
+def _is_personal_possessive_query(query: str) -> bool:
+    """Detect autobiographical queries: personal possessive + entity word.
+
+    A query like "what is wrong with my car" contains a possessive pronoun
+    ("my") and an entity word ("car") — this is a personal disclosure, not a
+    world-knowledge gap. Such queries should route to episodic recall, not
+    web_search.
+
+    Returns True only when BOTH conditions hold:
+    1. The query contains a personal possessive pronoun ("my", "your")
+    2. The query contains an entity word (from the seed vocabulary)
+
+    This is a routing check, not a capability removal — genuine knowledge
+    queries like "what is the capital of france" still fire web_search.
+    """
+    q = query.lower()
+    # Check for personal possessive pronouns
+    has_possessive = bool(re.search(r"\b(my|your)\b", q))
+    if not has_possessive:
+        return False
+    # Check for entity words — use word boundaries to avoid partial matches
+    for word in _PERSONAL_ENTITY_WORDS:
+        if re.search(rf"\b{re.escape(word)}\b", q):
+            return True
+    return False
+
+
 def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None) -> Optional[ToolCall]:
     """Return a ToolCall plan if RAVANA's cognition justifies acting, else None.
 
@@ -122,6 +301,13 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
         url = _trim_url_match(url_match.group(1))
         return ToolCall(tool="read_website", arg=url,
                         reason=f"url_pattern_detected url={url}")
+
+    # 0b) Personal-possessive pre-gate: if the query is autobiographical
+    # (contains "my"/"your" + an entity word), SKIP web_search entirely.
+    # This is a routing fix, not a capability removal — web_search still fires
+    # for genuine knowledge queries like "what is the capital of france".
+    if _is_personal_possessive_query(q):
+        return None
 
     # 1) Uncertainty / curiosity: does RAVANA not know this topic?
     # Only act when it's a genuine KNOWLEDGE gap (recall query about the world),
