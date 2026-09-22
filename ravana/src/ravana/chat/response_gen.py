@@ -4430,8 +4430,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         # extractor below reads one clean group. noun-first: g2; verb-first: g4.
         _poss_loss_pat = re.compile(
             r"\b(?:"
-            r"(my|our)\s+(\w+(?:\s+\w+)?)\s+" + _LOSS_VERB + r"|"
-            r"\b" + _LOSS_VERB + r"\s+(my|our)\s+(\w+(?:\s+\w+)?)"
+            r"(my|our)\s+(\w+(?:\s+\w+){0,3})\s+" + _LOSS_VERB + r"|"
+            r"\b" + _LOSS_VERB + r"\s+(my|our)\s+(\w+(?:\s+\w+){0,3})"
             r")\b")
         _self_possessive_loss = bool(_poss_loss_pat.search(text))
         if any(t in text for t in _LOSS_TERMS):
@@ -4473,11 +4473,26 @@ class ResponseGenMixin(ChainWalkerMixin):
                     # last" (from "last spring") -> "grandmother"; "my dear old
                     # dog" -> "dog". The filler set is a small seed vocabulary
                     # (not a per-entity table); removing one entry only loses
-                    # that one shape.
+                    # that one shape. Extended with prepositions, determiners, and
+                    # common temporal words so trailing modifiers strip cleanly
+                    # ("grandmother last spring" -> "grandmother", "sense of
+                    # self" -> "self").
                     _FILLER = {"dear", "old", "little", "late", "beloved",
                                "last", "past", "this", "that", "next",
                                "former", "poor", "sweet", "young", "big",
-                               "small", "our", "my"}
+                               "small", "our", "my",
+                               # Prepositions (trailing modifiers)
+                               "of", "in", "on", "at", "from", "with", "by",
+                               "for", "to", "about", "like", "through",
+                               "over", "into", "after", "before", "between",
+                               # Determiners
+                               "the", "a", "an",
+                               # Temporal trailing words
+                               "yesterday", "today", "tomorrow", "ago",
+                               "later", "soon", "now", "spring", "summer",
+                               "fall", "autumn", "winter", "morning",
+                               "afternoon", "evening", "night", "year",
+                               "month", "week", "day"}
                     _lw = _lost.split()
                     while len(_lw) > 1 and _lw[0].lower() in _FILLER:
                         _lw = _lw[1:]
