@@ -1341,6 +1341,56 @@ class SelfQueryMixin:
                 _btw = re.search(r"\bbetween\s+(.+?)\s+and\s+(.+)$", _tail)
                 if _btw:
                     _tail = f"{_btw.group(1)} {_btw.group(2)}"
+            # CLAUSE-STRUCTURE TOPIC DETECTION (FIX-RV-10):
+            # The tail after the opinion cue is often a CLAUSE, not a noun
+            # phrase. The flat extractor below would treat the predicate or a
+            # trailing adverb as the topic:
+            #   "do you think silence is underrated" -> tail "silence is underrated"
+            #       -> topic "silence underrated" (predicate leaks in)
+            #   "what do you think happens to a memory" -> tail "happens to a memory"
+            #       -> topic "happens memory" (verb leaks in)
+            #   "what kind of mind do you have, exactly" -> tail ", exactly"
+            #       -> topic "exactly" (trailing adverb)
+            # Detect clause structure and narrow _tail to the real subject:
+            #   * Copular clause (X is/are/was ...): topic = X (noun before copula)
+            #   * Intransitive + PP (X happens to Y): topic = Y (object of "to")
+            #   * Bare trailing adverb: no resolvable topic, fall through
+            # Structural (copula/intransitive verb vocabulary), no per-topic table.
+            _tail_clean = _tail.strip(" \t\n\r,.!?;:").lower()
+            if _tail_clean:
+                _COPULA = ("is", "are", "was", "were", "been", "being",
+                           "seems", "appears", "looks", "sounds", "feels",
+                           "becomes", "remains", "stays")
+                _INTRANS_PP = ("happens", "occurred", "occurs", "exists",
+                               "matters", "counts")
+                _TAIL_ADVERBS = ("exactly", "precisely", "specifically",
+                                 "particularly", "especially", "really",
+                                 "truly", "actually", "honestly", "frankly",
+                                 "basically", "essentially", "generally",
+                                 "usually", "normally", "typically", "clearly",
+                                 "obviously", "apparently", "evidently",
+                                 "literally", "seriously", "definitely",
+                                 "certainly", "absolutely", "completely",
+                                 "totally", "entirely", "quite", "rather",
+                                 "somewhat", "somehow", "anyway", "anyhow",
+                                 "else", "too", "just", "merely", "simply",
+                                 "only", "even", "still", "already", "yet",
+                                 "ever", "never", "always", "often",
+                                 "sometimes", "perhaps", "maybe", "probably",
+                                 "possibly", "likely")
+                if _tail_clean in _TAIL_ADVERBS:
+                    _tail = ""
+                else:
+                    _words = re.findall(r"[a-z']+", _tail_clean)
+                    _cop_idx = None
+                    for _ci, _cw in enumerate(_words):
+                        if _cw in _COPULA:
+                            _cop_idx = _ci
+                            break
+                    if _cop_idx is not None and _cop_idx > 0:
+                        _tail = " ".join(_words[:_cop_idx])
+                    elif len(_words) >= 3 and _words[0] in _INTRANS_PP and _words[1] == "to":
+                        _tail = " ".join(_words[2:])
             # Take the LAST meaningful content noun as the stance target. The
             # cue ("do you think we should protect mangroves") leaves topic
             # words AFTER the scaffolding ("we/should/protect"), so the final
