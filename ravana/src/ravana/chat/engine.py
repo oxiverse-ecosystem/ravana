@@ -3084,7 +3084,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _best:
                 return f"your call sign is {_best}."
             return None
-        if re.search(r"\bwhat'?s\s+my\s+favorite\b", q):
+        if re.search(r"\bwhat(?:'s|\s+(?:is|was|are|were))\s+my\s+favorite\b", q):
             # surface every favorite_* fact
             if pf is not None:
                 _bits = []

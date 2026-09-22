@@ -841,6 +841,34 @@ _ACTIVITY_DENY = frozenset({
     "regret", "regrets", "suspect", "realize", "realises", "care", "mind",
     # pure reporting / communication utterances (echo verbatim as garbage)
     "said", "say", "says", "told", "tell", "tells",
+    # TEMPORAL / DEGREE ADVERBS (round 2026-09-22: "i am still terrible"
+    # stored as "does:still still terrible"). "still" is an adverb modifying
+    # the adjective "terrible", NOT an activity the user does. Already in
+    # _FRAMER_SKIP but the skip runs BEFORE the aux in the regex, so the
+    # regex captures "still" as a verb head. Adding here rejects it at the
+    # _activity_verb_ok gate. "quite"/"very"/"really" are degree adverbs.
+    "still", "quite", "very", "really",
+    # TEMPORAL ADVERBS (round 2026-09-22, DEFECT: "i once stayed" stored as
+    # activity "does:once once stayed"). These are framer/scaffolding words,
+    # NOT activity verbs. "once"/"twice"/"again"/"never" describe frequency,
+    # not what the user DOES. Adding them here makes _activity_verb_ok reject
+    # them at every capture block (act/evt/gen), so the real verb ("stayed")
+    # surfaces instead. Seed vocabulary — removing an entry only re-admits one
+    # frequency word, degrading gracefully.
+    "once", "twice", "again", "never", "always",
+    # ADJECTIVE / NON-VERB capture (DEFECT: "i am afraid of..." stored as
+    # "does:afraid afraid losing"). "afraid" is an adjective describing a state,
+    # not an activity the user does. _activity_verb_ok already rejects emotion
+    # words; "afraid" was missing.
+    "afraid", "scared", "terrified",
+    # ACHIEVERMENT / COMMUNICATION verbs (DEFECT: "i spent three years..."
+    # stored as "does:spent spent years learning"). These describe resource
+    # expenditure, NOT activities RAVANA can recall as "what do I do". They
+    # are already denied in the gen_verb block's _STATIVE_DENY but were absent
+    # from _ACTIVITY_DENY, so the seeded _act_pat captured them. Moving them
+    # here unifies the deny across all three capture blocks.
+    "spent", "spend", "sent", "send", "gave", "give", "made", "make",
+    "told", "tell", "said", "say",
 })
 
 # Framer / temporal / degree words that may immediately precede the REAL
@@ -3853,6 +3881,15 @@ class UserModel:
         for _gm in _gen_verb_pat.finditer(q_clean):
             _verb = _gm.group(1).lower().replace("'t", "")
             if _verb in _STATIVE_DENY:
+                continue
+            # UNIFIED VERB GATE (round 2026-09-22): delegate to _activity_verb_ok
+            # so temporal adverbs ("once"/"twice"/"again"), adjectives ("afraid"),
+            # and other non-activity words are rejected here too — not just the
+            # words in the local _STATIVE_DENY list. Previously this block only
+            # checked _STATIVE_DENY (which lacks "once", "afraid", "twice" etc.),
+            # so "i once stayed" stored junk fact ("does:once once stayed").
+            # _activity_verb_ok reads _ACTIVITY_DENY — single source of truth.
+            if not _activity_verb_ok(_verb):
                 continue
             # Meta-reflection / self-error clauses ("i lose track of whether...",
             # "i mixed them up", "i got muddled") are NOT disclosures of real
