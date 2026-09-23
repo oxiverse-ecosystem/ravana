@@ -4596,7 +4596,13 @@ class ResponseGenMixin(ChainWalkerMixin):
         # "i forage from empty lots" was misread as a negative self-disclosure
         # ("feeling empty is hard").
         _FEEL_COPULA = {"feel", "feeling", "am", "'m", "felt", "get", "got",
-                        "been", "become", "became", "seem", "sound", "look"}
+                        "been", "become", "became", "seem", "sound", "look",
+                        # Change-of-state verbs (FIX-RV-03): "started to hate",
+                        # "begun to fear", "grown to love" are emotional disclosures
+                        # where the affect word follows the infinitive. Without
+                        # these, the VAD scanner's _is_feeling_frame breaks at "to"
+                        # and the affect word is skipped, routing to fact storage.
+                        "started", "begun", "grown", "began", "grew", "come"}
         _FIRSTPERSON = {"i", "i'm", "im", "we", "we're", "we're"}
 
         def _is_feeling_frame(i: int) -> bool:
@@ -4613,13 +4619,18 @@ class ResponseGenMixin(ChainWalkerMixin):
             # "a bottle of joy" still abstains.
             _FILLERS = _det._intensifiers if hasattr(_det, "_intensifiers") \
                 else {}
+            # FIX-RV-03: "to" is an infinitive marker between a change-of-state
+            # verb and an affect word ("started to hate"). Without it in FILLERS,
+            # the _is_feeling_frame scanner breaks before reaching the verb.
+            _INF_FILLERS = {"to"}
             for j in range(i - 1, max(-1, i - 4), -1):
                 _t = tokens[j]
                 if _t in _FEEL_COPULA or _t in _FIRSTPERSON or \
                         _t in ("with", "of"):
                     return True
-                if _t in _FILLERS or _t in ("so", "very", "quite", "just",
-                                            "really", "that", "this"):
+                if _t in _FILLERS or _t in _INF_FILLERS or \
+                        _t in ("so", "very", "quite", "just",
+                                "really", "that", "this"):
                     continue
                 break
             return False
