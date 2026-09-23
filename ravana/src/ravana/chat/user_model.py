@@ -3862,7 +3862,7 @@ class UserModel:
         _gen_verb_pat = re.compile(
             r"\bi\s+"
             r"(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
+            r"often\s+|sometimes\s+|usually\s+|used\s+to\s+)?"
             r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
             r"(?:been\s+)?"
             # verb: lowercase token, optionally hyphenated compound; excludes
@@ -3873,9 +3873,7 @@ class UserModel:
             r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es|ing|ed|[a-z]ed|[a-z]d)?)"
             r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
             r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
-            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
-            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
             re.IGNORECASE)
         for _gm in _gen_verb_pat.finditer(q_clean):
             _verb = _gm.group(1).lower().replace("'t", "")
