@@ -3401,7 +3401,31 @@ class UserModel:
                     else:
                         _obj_raw = re.split(
                             r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
-                        _obj = self._opinion_topic(_obj_raw.lower()) or ""
+                        # CLAUSE-INTENT PRE-GATE (round 2026-09-23T0952Z
+                        # regression): when the object opens with a possessive
+                        # framer + question word ("me how to read...", "me what
+                        # the stars do"), the topic resolver strips the question
+                        # word (it lives in _OPINION_STOP) and collapses the
+                        # clause to a bare content head ("read hive's mood"),
+                        # losing the user's own clause words. Detect this shape
+                        # and skip straight to the raw-clause fallback so the
+                        # full clause is preserved verbatim. Structural: the
+                        # question word is a closed-class marker that signals
+                        # a clause object, not a noun-phrase object.
+                        _CLAUSE_Q = {"how", "what", "why", "when", "where",
+                                     "which", "who", "whom", "whose"}
+                        _raw_toks_pre = _obj_raw.lower().split()
+                        _is_clause_obj = (
+                            len(_raw_toks_pre) >= 2
+                            and _raw_toks_pre[0] in (
+                                "me", "us", "them", "him", "her", "you",
+                                "myself", "himself", "herself")
+                            and _raw_toks_pre[1] in _CLAUSE_Q
+                        )
+                        if _is_clause_obj:
+                            _obj = ""
+                        else:
+                            _obj = self._opinion_topic(_obj_raw.lower()) or ""
                         _obj = _strip_obj_framers(_obj)
                         if _obj and len(_obj.split()) <= 5:
                             _val = f"{_verb} {_obj}"
