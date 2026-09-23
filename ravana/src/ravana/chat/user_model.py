@@ -5502,6 +5502,12 @@ class UserModel:
         "to", "in", "on", "at", "for", "with", "from", "by", "as", "into",
         "about", "over", "under", "how", "what", "why", "who", "where",
         "off", "onto", "upon", "than", "then", "till", "until", "since",
+        "during",  # (round 2026-09-23): preposition that terminates an opinion
+        # object phrase just like the other prepositions above. Without it,
+        # _opinion_topic("was during a film...") collapsed to "during" (the
+        # first non-stop token after "was"), mining "cried during" instead
+        # of "cried film". Structural closed-class entry, not a per-topic
+        # rule; generalizes to any "<verb> during <noun>" disclosure.
         # Discourse connectors that terminate an opinion object phrase
         # (round 2026-08-20T1229Z, FIX B). "i love small jazz clubs though"
         # was mining a stance whose TOPIC was "small jazz clubs though" because
