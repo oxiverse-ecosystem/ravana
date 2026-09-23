@@ -3401,7 +3401,31 @@ class UserModel:
                     else:
                         _obj_raw = re.split(
                             r"\b(?:when|but|because|and)\b", _obj_rest)[0].strip(" ,.!?")
-                        _obj = self._opinion_topic(_obj_raw.lower()) or ""
+                        # CLAUSE-INTENT PRE-GATE (round 2026-09-23T0952Z
+                        # regression): when the object opens with a possessive
+                        # framer + question word ("me how to read...", "me what
+                        # the stars do"), the topic resolver strips the question
+                        # word (it lives in _OPINION_STOP) and collapses the
+                        # clause to a bare content head ("read hive's mood"),
+                        # losing the user's own clause words. Detect this shape
+                        # and skip straight to the raw-clause fallback so the
+                        # full clause is preserved verbatim. Structural: the
+                        # question word is a closed-class marker that signals
+                        # a clause object, not a noun-phrase object.
+                        _CLAUSE_Q = {"how", "what", "why", "when", "where",
+                                     "which", "who", "whom", "whose"}
+                        _raw_toks_pre = _obj_raw.lower().split()
+                        _is_clause_obj = (
+                            len(_raw_toks_pre) >= 2
+                            and _raw_toks_pre[0] in (
+                                "me", "us", "them", "him", "her", "you",
+                                "myself", "himself", "herself")
+                            and _raw_toks_pre[1] in _CLAUSE_Q
+                        )
+                        if _is_clause_obj:
+                            _obj = ""
+                        else:
+                            _obj = self._opinion_topic(_obj_raw.lower()) or ""
                         _obj = _strip_obj_framers(_obj)
                         if _obj and len(_obj.split()) <= 5:
                             _val = f"{_verb} {_obj}"
@@ -3862,7 +3886,7 @@ class UserModel:
         _gen_verb_pat = re.compile(
             r"\bi\s+"
             r"(?:also\s+|really\s+|even\s+|just\s+|now\s+|still\s+|"
-            r"often\s+|sometimes\s+|usually\s+)?"
+            r"often\s+|sometimes\s+|usually\s+|used\s+to\s+)?"
             r"(?:have\s+been\s+|has\s+been\s+|am\s+|was\s+|were\s+)?"
             r"(?:been\s+)?"
             # verb: lowercase token, optionally hyphenated compound; excludes
@@ -3873,9 +3897,7 @@ class UserModel:
             r"((?:[a-z']+(?:-[a-z']+)*)(?:s|es|ing|ed|[a-z]ed|[a-z]d)?)"
             r"\s+(?:my\s+|a\s+|an\s+|the\s+|some\s+|two\s+|three\s+|four\s+|"
             r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
-            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|"
-            r"\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|"
-            r"\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
+            r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
             re.IGNORECASE)
         for _gm in _gen_verb_pat.finditer(q_clean):
             _verb = _gm.group(1).lower().replace("'t", "")
@@ -5502,6 +5524,12 @@ class UserModel:
         "to", "in", "on", "at", "for", "with", "from", "by", "as", "into",
         "about", "over", "under", "how", "what", "why", "who", "where",
         "off", "onto", "upon", "than", "then", "till", "until", "since",
+        "during",  # (round 2026-09-23): preposition that terminates an opinion
+        # object phrase just like the other prepositions above. Without it,
+        # _opinion_topic("was during a film...") collapsed to "during" (the
+        # first non-stop token after "was"), mining "cried during" instead
+        # of "cried film". Structural closed-class entry, not a per-topic
+        # rule; generalizes to any "<verb> during <noun>" disclosure.
         # Discourse connectors that terminate an opinion object phrase
         # (round 2026-08-20T1229Z, FIX B). "i love small jazz clubs though"
         # was mining a stance whose TOPIC was "small jazz clubs though" because
@@ -5668,6 +5696,17 @@ class UserModel:
                 head.append(t)          # bridge: continue into the clause
                 continue
             if t in self._OPINION_STOP:
+                # DEGENERATE-HEAD SKIP (feature t_a2a708df, D5 residual from
+                # round 2026-09-23T0952Z): if the head collected so far is
+                # ENTIRELY non-content (e.g. "night" alone), the stop word
+                # would break the loop and the content-adequacy gate would
+                # reject the whole phrase — even though real content follows
+                # ("out at night just to watch the stars"). Skip the stop word
+                # and keep collecting until a content token anchors the head.
+                # This only fires when the head is degenerate, so contentful
+                # heads like "small talk" still break at "at" as before.
+                if head and all(h in _OBJ_NONCONTENT for h in head):
+                    continue
                 break
             head.append(t)
         if not head:
