@@ -5672,6 +5672,17 @@ class UserModel:
                 head.append(t)          # bridge: continue into the clause
                 continue
             if t in self._OPINION_STOP:
+                # DEGENERATE-HEAD SKIP (feature t_a2a708df, D5 residual from
+                # round 2026-09-23T0952Z): if the head collected so far is
+                # ENTIRELY non-content (e.g. "night" alone), the stop word
+                # would break the loop and the content-adequacy gate would
+                # reject the whole phrase — even though real content follows
+                # ("out at night just to watch the stars"). Skip the stop word
+                # and keep collecting until a content token anchors the head.
+                # This only fires when the head is degenerate, so contentful
+                # heads like "small talk" still break at "at" as before.
+                if head and all(h in _OBJ_NONCONTENT for h in head):
+                    continue
                 break
             head.append(t)
         if not head:
