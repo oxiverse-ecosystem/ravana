@@ -3240,6 +3240,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _vv and _vv.split() and _is_act(_vv.split()[0]):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
+
+        # ── (1b-activity) ACTIVITY-VERB recall (round 2026-09-25) ──────────
+        # A "where am i [verb]ing to X" / "what am i [verb]ing" query asks
+        # about a stored activity fact whose attribute or value contains the
+        # verb. Without this, "where am i planning to travel" falls through
+        # every branch and the response generator emits "i don't really have
+        # a solid grasp on planning". Extract the -ing verb and route through
+        # _match_fact (which scores partial key overlap: "planning" matches
+        # attr "planning" even when the value is "planning trip").
+        # Fail-closed: returns None when no stored fact clears the matcher.
+        _activity_verb = re.search(
+            r"\b(where|what)\s+am\s+i\s+([a-z]+ing)\b", q)
+        if _activity_verb:
+            _verb = _activity_verb.group(2).lower()
+            _fact = self._match_fact(_verb)
+            if _fact is not None:
+                return ("yes — i remember: " +
+                        self._render_fact_line(_fact[0], _fact[1]) + ".")
+
             return None
 
         # ── (1b2) PRIOR / ORIGINAL-STANCE recall (feature round 2026-08-21T1653Z,
