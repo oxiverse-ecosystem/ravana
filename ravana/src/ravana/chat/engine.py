@@ -3117,14 +3117,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # topic the user might ask about.
         _TOLD = re.search(
             r"\b("
-            r"what\s+(?:did|do)\s+i\s+(?:tell|say)\s+(?:you|me)\s+about\s+"
+            r"what\s+(?:did|do)\s+i\s+(?:just\s+)?(?:tell|say)\s+(?:you|me)(?:\s+about)?\s+"
             r"|what\s+(?:do|did)\s+i\s+(?:think|feel)\s+(?:of|about)\s+"
             r"|how\s+(?:do|did)\s+i\s+feel\s+about\s+"
             r"|what'?s\s+my\s+(?:opinion|stance)\s+(?:on|about|of)\s+"
-            r"|do\s+you\s+(?:remember|recall)\s+what\s+(?:i\s+)?(?:said|mentioned|told|shared)\s+(?:you\s+)?about\s+"
-            r"|anything\s+i\s+(?:told|said|shared|mentioned)\s+(?:you\s+)?about\s+"
-            r"|remember\s+what\s+i\s+(?:said|told|mentioned|shared)\s+about\s+"
-            r")([a-z][a-z \-]{1,40})", q)
+            r"|do\s+you\s+(?:remember|recall)\s+what\s+(?:i\s+)?(?:said|mentioned|told|shared)\s+(?:you\s+)(?:\s+about)?\s+"
+            r"|anything\s+i\s+(?:told|said|shared|mentioned)\s+(?:you\s+)(?:\s+about)?\s+"
+            r"|remember\s+what\s+i\s+(?:said|told|mentioned|shared)(?:\s+about)?\s+"
+            r")([a-z][a-z '\-]{1,40})", q)
         if _TOLD and pf is not None:
             _cue = _TOLD.group(2).strip().strip("?.!").lower()
             # (a) resolve to a stance topic the user holds
@@ -4920,8 +4920,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                       if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
                 _overlap = len(_vtoks & _ptoks)
-                if _best is None or _overlap > _best[2]:
-                    _best = (_attr, _val, _conf, _overlap)
+                _score = _overlap + _conf * 0.1
+                if _attr_l and any(t in _attr_l for t in _ptoks):
+                    _score += 0.5
+                if _best is None or _score > _best[3]:
+                    _best = (_attr, _val, _conf, _score)
         if _best is not None and len(_best) == 4:
             _best = (_best[0], _best[1], _best[2])
         return _best
@@ -5040,9 +5043,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # ── (B) CONFIRMATION: "did i tell you i liked X" / "have i told you
         #    about my brother" — answer from the REAL user store, not the
         #    agent's own echo. ──
-        _B = re.search(
-            r"\b(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
-            r"mentioned|share|shared|let you know)\b", q)
+        _B = None
+        if not re.match(r"^what", q):
+            _B = re.search(
+                r"(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
+                r"mentioned|share|shared|let you know)", q)
         if _B:
             # Recover the disclosure content after the tell-clause.
             # The helper verb (did/have/had) is OPTIONAL: "remember when I
