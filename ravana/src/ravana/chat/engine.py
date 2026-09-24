@@ -3117,14 +3117,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # topic the user might ask about.
         _TOLD = re.search(
             r"\b("
-            r"what\s+(?:did|do)\s+i\s+(?:just\s+)?(?:tell|say)\s+(?:you|me)(?:\s+about)?\s+"
+            r"what\s+(?:did|do)\s+i\s+(?:tell|say)\s+(?:you|me)\s+about\s+"
             r"|what\s+(?:do|did)\s+i\s+(?:think|feel)\s+(?:of|about)\s+"
             r"|how\s+(?:do|did)\s+i\s+feel\s+about\s+"
             r"|what'?s\s+my\s+(?:opinion|stance)\s+(?:on|about|of)\s+"
-            r"|do\s+you\s+(?:remember|recall)\s+what\s+(?:i\s+)?(?:said|mentioned|told|shared)\s+(?:you\s+)(?:\s+about)?\s+"
-            r"|anything\s+i\s+(?:told|said|shared|mentioned)\s+(?:you\s+)(?:\s+about)?\s+"
-            r"|remember\s+what\s+i\s+(?:said|told|mentioned|shared)(?:\s+about)?\s+"
-            r")([a-z][a-z '\-]{1,40})", q)
+            r"|do\s+you\s+(?:remember|recall)\s+what\s+(?:i\s+)?(?:said|mentioned|told|shared)\s+(?:you\s+)?about\s+"
+            r"|anything\s+i\s+(?:told|said|shared|mentioned)\s+(?:you\s+)?about\s+"
+            r"|remember\s+what\s+i\s+(?:said|told|mentioned|shared)\s+about\s+"
+            r")([a-z][a-z \-]{1,40})", q)
         if _TOLD and pf is not None:
             _cue = _TOLD.group(2).strip().strip("?.!").lower()
             # (a) resolve to a stance topic the user holds
@@ -3240,25 +3240,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _vv and _vv.split() and _is_act(_vv.split()[0]):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
-
-        # ── (1b-activity) ACTIVITY-VERB recall (round 2026-09-25) ──────────
-        # A "where am i [verb]ing to X" / "what am i [verb]ing" query asks
-        # about a stored activity fact whose attribute or value contains the
-        # verb. Without this, "where am i planning to travel" falls through
-        # every branch and the response generator emits "i don't really have
-        # a solid grasp on planning". Extract the -ing verb and route through
-        # _match_fact (which scores partial key overlap: "planning" matches
-        # attr "planning" even when the value is "planning trip").
-        # Fail-closed: returns None when no stored fact clears the matcher.
-        _activity_verb = re.search(
-            r"\b(where|what)\s+am\s+i\s+([a-z]+ing)\b", q)
-        if _activity_verb:
-            _verb = _activity_verb.group(2).lower()
-            _fact = self._match_fact(_verb)
-            if _fact is not None:
-                return ("yes — i remember: " +
-                        self._render_fact_line(_fact[0], _fact[1]) + ".")
-
             return None
 
         # ── (1b2) PRIOR / ORIGINAL-STANCE recall (feature round 2026-08-21T1653Z,
@@ -4939,11 +4920,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                       if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
                 _overlap = len(_vtoks & _ptoks)
-                _score = _overlap + _conf * 0.1
-                if _attr_l and any(t in _attr_l for t in _ptoks):
-                    _score += 0.5
-                if _best is None or _score > _best[3]:
-                    _best = (_attr, _val, _conf, _score)
+                if _best is None or _overlap > _best[2]:
+                    _best = (_attr, _val, _conf, _overlap)
         if _best is not None and len(_best) == 4:
             _best = (_best[0], _best[1], _best[2])
         return _best
@@ -5063,8 +5041,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         #    about my brother" — answer from the REAL user store, not the
         #    agent's own echo. ──
         _B = re.search(
-            r"(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
-            r"mentioned|share|shared|let you know)", q)
+            r"\b(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
+            r"mentioned|share|shared|let you know)\b", q)
         if _B:
             # Recover the disclosure content after the tell-clause.
             # The helper verb (did/have/had) is OPTIONAL: "remember when I
@@ -7944,11 +7922,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
                     r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
                     r"wounded|bleeding|lost|worried|troubled|upset|hollow|"
-                    r"empty|numb|invisible|fading|ghost|phantom|shadow|shell|"
-                    r"diagnosed|diagnosis|chronic|illness|disease|condition|"
-                    r"surgery|operation|prognosis|cancer|tumor|infection|"
-                    r"acute|terminal|malignant|biopsy|relapse|symptom|"
-                    r"symptoms|flare|flareup)\b", _low_d))
+                    r"empty|numb|invisible|fading|ghost|phantom|shadow|shell)\b", _low_d))
                 if _possessive_attr and not _suffering:
                     _disc = None
                 # W-loss-homograph guard (round 2026-08-10T1401Z F2): the VAD
