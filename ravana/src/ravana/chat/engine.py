@@ -5062,11 +5062,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # ── (B) CONFIRMATION: "did i tell you i liked X" / "have i told you
         #    about my brother" — answer from the REAL user store, not the
         #    agent's own echo. ──
-        _B = None
-        if not re.match(r"^what", q):
-            _B = re.search(
-                r"(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
-                r"mentioned|share|shared|let you know)", q)
+        _B = re.search(
+            r"(did|have|had)\s+(i|you)\s+(tell|told|say|said|mention|"
+            r"mentioned|share|shared|let you know)", q)
         if _B:
             # Recover the disclosure content after the tell-clause.
             # The helper verb (did/have/had) is OPTIONAL: "remember when I
