@@ -101,6 +101,14 @@ on this codebase:
   `docs/DATE_GROUNDED_RECALL_YEAR_ANCHOR.md`.
 - **Recalls what you told it.** *"what do you remember about me?"* surfaces the
   learned facts/stances (location, pet, likes) drawn from the durable stores.
+- **Score-based fact matching + recall routing guards.** When asked *"what did i
+  tell you i am planning for next spring"*, RAVANA now picks the right fact
+  using a composite score (overlap + confidence weight + attribute bonus)
+  instead of comparing the wrong tuple index. The recall gate also stops the
+  confirmation path from intercepting `what`-prefixed recall queries, and the
+  `_TOLD` regex generalizes to match phrasings with a `just` adverb, apostrophe,
+  or optional `about` particle — all of which previously missed entirely.
+  See `docs/CAPABILITY_RECALL_ROUTING_FIXES.md`.
 - **Mines activity durations into dated facts.** Told *"i've been brewing beer
   for a decade"* (or *"a few years"*, *"two decades"*, *"several years"*, *"many
   years"*) it resolves the fuzzy span to a start year (`now − n`) and stores a
