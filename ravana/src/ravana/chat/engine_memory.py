@@ -2562,7 +2562,8 @@ class MemoryMixin:
             # not a per-topic table.
             _m = re.search(
                 r"\b(?:about|that|regarding|on|my|the)\s+"
-                r"(?:the\s+)?([a-z']+)"
+                r"(?:(?:the|my|your|our|their)\s+)*"
+                r"([a-z']+)"
                 r"|([a-z']+)'s\b", t)
             if _m:
                 _cue = (_m.group(1) or _m.group(2) or "").lower().strip(".,!?")
