@@ -633,7 +633,13 @@ class MemoryMixin:
                         # boundary holds at the recall source, not just the
                         # fact-store.
                         _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
-                        if _subj not in (None, "i", "I"):
+                        # A fact stored under a SPECIES key (subject="cat") is a
+                        # user-owned pet fact — the miner keys it by species
+                        # entity, not "i". The self/other boundary must let these
+                        # through while still excluding third-party owners
+                        # (subject="sister"): species_of("cat")="cat" vs
+                        # species_of("sister")=None. FIX-RV-02.
+                        if _subj not in (None, "i", "I") and _pet_slots.species_of(_subj) is None:
                             continue
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
                         _ent = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
