@@ -7927,7 +7927,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
                     r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
                     r"wounded|bleeding|lost|worried|troubled|upset|hollow|"
-                    r"empty|numb|invisible|fading|ghost|phantom|shadow|shell)\b", _low_d))
+                    r"empty|numb|invisible|fading|ghost|phantom|shadow|shell|"
+                    r"diagnosed|diagnosis|chronic|illness|disease|condition|"
+                    r"surgery|operation|prognosis|cancer|tumor|infection|"
+                    r"acute|terminal|malignant|biopsy|relapse|symptom|"
+                    r"symptoms|flare|flareup)\b", _low_d))
                 if _possessive_attr and not _suffering:
                     _disc = None
                 # W-loss-homograph guard (round 2026-08-10T1401Z F2): the VAD

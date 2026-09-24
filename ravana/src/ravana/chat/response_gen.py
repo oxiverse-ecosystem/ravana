@@ -4562,6 +4562,54 @@ class ResponseGenMixin(ChainWalkerMixin):
             self._update_vad_baseline(-0.8)
             return ("negative", _metaphor_word)
 
+        # ── Health disclosure schema (FIX-RV-01) ──
+        # Disclosures about illness, diagnosis, surgery, prognosis (e.g.,
+        # "my cat has been diagnosed with a chronic illness") have no strong
+        # affect WORD, no loss term, and no distress verb — so the VAD scan
+        # below misses them and they fall through to a flat "noted." A
+        # self-possessive entity co-occurring with a health/medical term is
+        # an unambiguous high-intensity NEGATIVE self-disclosure. Caught
+        # here, BEFORE the first-person + VAD scan, because the health
+        # terms yield no lexical valence and the early `if not vals: return
+        # None` would otherwise suppress them. The detected entity name is
+        # captured so the empathy responder can specialize ("your cat"
+        # instead of generic "hurting").
+        _HEALTH_TERMS = (
+            "diagnosed", "diagnosis", "chronic", "illness", "disease",
+            "condition", "surgery", "operation", "prognosis", "cancer",
+            "tumor", "treatment", "therapy", "recovery", "relapse",
+            "injury", "injured", "fracture", "hospital", "chemotherapy",
+            "radiation", "biopsy", "scan", "mri", "ct", "transplant",
+            "acute", "terminal", "benign", "malignant", "infection",
+            "infectious", "virus", "bacterial", "syndrome", "disorder",
+            "symptom", "symptoms", "flare", "flareup",
+        )
+        _HEALTH_VERBS = (
+            "has", "have", "had", "was", "were", "is", "are", "got", "been",
+            "becomes", "become", "developed", "suffers", "suffered",
+            "battles", "battled", "caught", "contracts", "contracted",
+        )
+        _health_verb_alt = "|".join(re.escape(v) for v in _HEALTH_VERBS)
+        _health_term_alt = "|".join(re.escape(t) for t in _HEALTH_TERMS)
+        _health_pat = re.compile(
+            r"\b(?:my|our)\s+(\w+(?:\s+\w+){0,1})\s+"
+            r"(?:" + _health_verb_alt + r")\s+"
+            r"(?:\w+\s+){0,3}(?:" + _health_term_alt + r")\b")
+        _health_m = _health_pat.search(text)
+        if _health_m and not _has_narrative_frame:
+            _entity = _health_m.group(1).strip()
+            _FILLER_H = {"dear", "old", "little", "late", "beloved",
+                          "sweet", "young", "big", "small", "poor"}
+            _ew = _entity.split()
+            while len(_ew) > 1 and _ew[0].lower() in _FILLER_H:
+                _ew = _ew[1:]
+            while len(_ew) > 1 and _ew[-1].lower() in _HEALTH_VERBS:
+                _ew = _ew[:-1]
+            if _ew:
+                _entity = _ew[-1]
+            self._update_vad_baseline(-0.8)
+            return ("negative", f"health:{_entity}")
+
         if not re.search(r"\b(i|i'm|i am|my|me|we|we're|we are)\b", text):
             return None
         if re.search(r"\blike (?:i am|i'm|i)\s+(?:a |an )?\w+\b", text) or \
@@ -5015,7 +5063,29 @@ class ResponseGenMixin(ChainWalkerMixin):
                     f"i'm here for you. do you want to talk about it?",
                     "emotional_empathy")
 
-        # Control/agency appraisal (VAD dominance) selects the PROBE: a
+        # ── Health disclosure schema (FIX-RV-01) ──
+        # Health disclosures ("my cat has been diagnosed with a chronic
+        # illness") have no lexical affect WORD, so they fall through to the
+        # valence-driven empathy path below. But naming the entity
+        # ("your cat") is structurally nicer than a generic "feeling rough is
+        # hard". Here, just before the general empathy, we inject the
+        # stored-entity acknowledgment when the disclosure was tagged with a
+        # "health:<entity>" marker.
+        if isinstance(word, str) and word.startswith("health:"):
+            _entity = word[len("health:"):].strip()
+            if _entity:
+                if has_stored_detail:
+                    return (f"that sounds rough. i know about your {_entity} — "
+                            f"what's the hardest part?",
+                            "emotional_empathy")
+                return (f"that sounds rough. i'm thinking of your {_entity}. "
+                        f"do you want to talk about it?",
+                        "emotional_empathy")
+            # Fallback when entity was not parsed
+            return (f"that sounds rough. i'm here if you want to talk about it.",
+                    "emotional_empathy")
+
+        # Control/agency appraisal (VAD dominance) selects the PROBE
         # low-control state invites "what happened" (the cause is external and
         # unnamed), a higher-control state invites "what set it off" (the user
         # can locate the trigger). Lazarus secondary appraisal — the same
