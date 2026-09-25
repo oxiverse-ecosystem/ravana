@@ -71,10 +71,12 @@ TAM's deep extraction invokes Ollama, so RAVANA cannot adopt that exact implemen
 
 Adopt TAM's **independent lexical ranking + rank fusion** for episodic retrieval. RAVANA currently has two pieces but not their fusion:
 
-1. The stem-cue path in `ravana/src/ravana/chat/engine_memory.py:895-987` scores presence/fraction of query cue stems.
-2. The semantic path in `ravana/src/ravana/chat/engine_memory.py:995-1094` sums GloVe cosine evidence and accepts a winner through adaptive gating.
+1. The stem-cue path in `ravana/src/ravana/chat/engine_memory.py:904-984` builds `_CUE_STOP` (`engine_memory.py:904`), filters query cues (`engine_memory.py:928-929`), and scores them by presence/fraction of query cue stems.
+2. The semantic path in `ravana/src/ravana/chat/engine_memory.py:985-1084` sums GloVe cosine evidence (`engine_memory.py:1026-1032`) and accepts a winner through adaptive gating plus a word-boundary verbatim check (`engine_memory.py:1052-1081`).
 
 A small dependency-free BM25 tier over the same in-memory/durable episodic records can produce an independent lexical ordering. Reciprocal Rank Fusion can combine that ordering with the existing semantic ordering. This is online and stateless per query: every new episode is immediately in the next lexical ranking, and no rebuild or retraining is required.
+
+Adopted as `MemoryMixin._bm25_rank` at `ravana/src/ravana/chat/engine_memory.py:553-584`, called from the lexical tier at `engine_memory.py:968`.
 
 ### Adapt
 
@@ -90,3 +92,23 @@ A small dependency-free BM25 tier over the same in-memory/durable episodic recor
 - Reject Ollama triple extraction: RAVANA has an existing no-LLM typed extractor.
 - Reject a parallel temporal graph: RAVANA already has typed graph and fact lifecycle structures; this would be architecture duplication.
 - Reject author-written answer behavior. The change may alter which stored episode is selected, but it must not add a question-to-answer mapping or authored reply.
+
+## Constraint justification
+
+RAVANA's four non-negotiable constraints, and how each recommendation above is checked against them.
+
+| Constraint | Adopted BM25 tier | Rejected items |
+|---|---|---|
+| No LLM | Okapi BM25 is a closed-form term-weighting formula; `_bm25_rank` (`engine_memory.py:553-584`) uses only `re`, `math.log`, and `collections.Counter` over the stored episode text. No model inference on the query path. | TAM's Ollama triple extraction (`src/ingestion/extractor.py:233-251`) requires a local LLM process at query-independent time — a hard fail. |
+| No retraining | Term frequency, document length, and IDF are computed from the current store on every query. Nothing is fitted, stored as a model parameter, or re-embedded. There is no checkpoint to rebuild. | TAM's FastEmbed dense tier (`src/embed_provider.py:142-217`) requires materializing a model and generating vectors; adopting it would add both a model artifact and a re-embedding step. |
+| Online / incremental | A newly recorded episode participates in the next query's IDF and document-length statistics immediately. Learning is a single forward pass over live records. | A parallel bi-temporal graph (`src/temporal_kg.py:53-135`) and a durable extraction queue (`src/triple_extraction_queue.py:1-6`) are both large new subsystems whose value depends on extraction RAVANA already performs. |
+| No hardcoding | The tier adds no reply string. It only reorders the candidates already returned by the existing lexical/semantic/entity paths, which then render stored state via `_reconstruct_gist` (`engine_memory.py:1507`). | Any question-to-answer table, keyword-to-reply branch, or authored fallback was excluded by design; there is nothing in the adopted tier to seed one. |
+
+Privacy is the fifth constraint and is unaffected: BM25 statistics are derived in-process from RAVANA's own episodic records and are never transmitted, logged, or persisted to a new store.
+
+## Citation audit
+
+Every `path:line` in this document was re-verified by reading the cited lines on 2026-09-25:
+
+- External citations were checked against a read-only clone of `vbcherepanov/total-agent-memory` pinned at `95ea2b881f507cc303eda32fc1d9849c8cf228aa`, matching the snapshot commit named above. No external code is vendored into this repository.
+- RAVANA citations were checked against this working tree after the adopted change; the two retrieval ranges were corrected to `904-984` and `985-1084` (the previously written `895-987`/`995-1094` pointed at comment blocks outside the two paths).
