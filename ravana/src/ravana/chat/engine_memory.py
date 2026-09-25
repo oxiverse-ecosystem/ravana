@@ -75,6 +75,32 @@ from ravana._import_guard import report_missing  # non-silent import-guard loggi
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss_attrs
 
+# SINGLE SOURCE OF TRUTH for "is this turn asking RAVANA for its OWN stance?".
+# Two independent routers need this judgement — `_route_self_query`'s
+# _agent_opinion gate and `_self_cued_episodic`'s source-monitoring gate — and
+# two hand-kept copies of the same phrase list is precisely how the two drift
+# apart and one of them starts stealing the other's turns. Defined once here
+# (the module that owns episodic/memory routing) and imported by the self-query
+# router.
+#
+# Also covers "are you still ..." (a self-opinion RECALL) and "do i <verb> ..."
+# (the user asking RAVANA to confirm THEIR OWN stance), both of which share the
+# user's content cues with the stored disclosure and would otherwise be
+# answered out of the episodic record instead of from the stance stores.
+_SELF_OPINION_SHAPE = (
+    r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
+    r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
+    r"|how\s+do\s+you\s+(feel|think)\s+about\b"
+    r"|what'?s\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
+    r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
+    r"|what\s+is\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
+    r"|give\s+me\s+your\s+(honest\s+)?(read|take|view|opinion)\s+(on|about)\b"
+    r"|your\s+(honest\s+)?(read|take|view)\s+(now|these\s+days)?\s*(on|about)\b"
+    r"|are\s+you\s+still\b"
+    r"|do\s+i\s+(like|love|hate|think|feel|believe)\b"
+    r"|what\s+do\s+you\s+make\s+of\b)"
+)
+
 # Closed-class + recall-scaffold vocabulary used to reduce a recall query to
 # its CONTENT CUE. This is a grammatical/scaffolding class, not a topic table:
 # it is identical in kind to the per-call _RECALL_SCAFFOLD / _GENERIC_CUE sets
@@ -641,6 +667,22 @@ class MemoryMixin:
         if not q or not self._is_question(q):
             return None
         qn = q.lower()
+        # ── SOURCE-MONITORING GATE: an ask about RAVANA's OWN stance is not a
+        # recall of the user's disclosure ─────────────────────────────────────
+        # "do you think i hate cold coffee?" shares every content cue with the
+        # stored disclosure "i hate cold coffee" — cue coverage alone therefore
+        # matched it, and this capability echoed the user's own words back
+        # instead of letting the stance machinery answer. The retrieval target
+        # is RAVANA's belief, not the user's record, so the episodic store is
+        # the wrong source and the turn must fall through.
+        #
+        # This consults the SINGLE shared self-opinion pattern
+        # (_SELF_OPINION_SHAPE below), the same constant
+        # `_route_self_query._agent_opinion` matches on
+        # (engine_self_query.py:1268) — one definition, two call sites, so the
+        # two routers cannot drift apart.
+        if re.search(_SELF_OPINION_SHAPE, qn):
+            return None
         store = self._episodic_transcript or []
         if not store:
             try:

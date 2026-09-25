@@ -158,6 +158,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 
 from .user_model import UserModel
 from . import pet_slots
+from .engine_memory import _SELF_OPINION_SHAPE
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -1265,17 +1266,7 @@ class SelfQueryMixin:
         # ("what do you make of paris" with no agent-opinion intent) still
         # falls through because _agent_stance_on returns the honest
         # topic-named deflection when it holds no value there.
-        _agent_opinion = re.search(
-            r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
-            r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
-            r"|how\s+do\s+you\s+(feel|think)\s+about\b"
-            r"|what's\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
-            r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
-            r"|what\s+is\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
-            r"|give\s+me\s+your\s+(honest\s+)?(read|take|view|opinion)\s+(on|about)\b"
-            r"|your\s+(honest\s+)?(read|take|view)\s+(now|these\s+days)?\s*(on|about)\b"
-            r"|what\s+do\s+you\s+make\s+of\b)",
-            t)
+        _agent_opinion = re.search(_SELF_OPINION_SHAPE, t)
         # Self-opinion RECALL: a follow-up that asks whether the agent STILL
         # holds a stance it previously computed ("are you still cautious about
         # X", "you said you were cautious about X", "weren't you cautious about
