@@ -682,43 +682,49 @@ class MemoryMixin:
             _stem = (lambda w: w)
         # Cue coverage per stored user turn. Coverage is measured in DISTINCT
         # query cues stem-matched by the record, so morphology variation
-        # ("restore"/"restores") counts as the same cue and a record can only
-        # win by covering several cues — one shared word is not evidence.
+        # ("restore"/"restores") counts as the same cue.
+        #
+        # COVERAGE is the source-monitoring discriminator, and it is what
+        # separates a question about the user's own life from a world question
+        # that merely shares a word with it:
+        #   "where does meera restore clocks" -> the record accounts for
+        #       meera + restore + clocks = 3/3 of the query's content. The
+        #       user is asking me to re-surface what they told me.
+        #   "what is cooking oil made of" -> the record accounts only for
+        #       "cooking" = 1/3. The question is really about oil and what it
+        #       is made of, which the user never told me; answering it from
+        #       the autobiographical record would be confabulation dressed as
+        #       recall. A single shared word is a coincidence, not a cue.
+        # A record must therefore account for a MAJORITY of the query's
+        # content cues. The threshold is structural (majority, not a tuned
+        # constant) and is recomputed against the live query every time.
         n = len(eligible)
         _stem_sets = []
         for rec in eligible:
             _stem_sets.append({
                 _stem(w) for w in re.findall(
                     r"[a-z']+", (rec.get("text", "") or "").lower())})
-        # Rarity (idf-like): a cue carried by MOST of the store is a background
-        # word, not evidence. It is computed live and scales with the store:
-        # one qualifying record in a one-record store is legitimate evidence;
-        # a word shared by every record in a large store is not.
+        # Rarity (idf-like): a cue carried by MOST of the store is a
+        # background word, not evidence. Computed live so it scales with the
+        # store: one qualifying record in a one-record store is legitimate
+        # evidence, while a word shared by every record in a large store is
+        # not. Coverage AND rarity are both required — either alone lets a
+        # coincidence through.
         _max_df = max(1, n // 2)
+        _need = (len(cues) // 2) + 1
         _cand = []
         for _i, rec in enumerate(eligible):
-            _matched = [c for c in cues if _stem(c) in _stem_sets[_i]]
-            if len(_matched) < 2:
-                # A single-cue record can still qualify when the cue is rare in
-                # the live store AND the record is the only one carrying it
-                # (a fresh one-fact disclosure) — otherwise one common word
-                # would anchor an unrelated recall.
-                _rare = [c for c in cues
-                         if _stem(c) in _stem_sets[_i]
-                         and sum(1 for _s in _stem_sets
-                                 if _stem(c) in _s) <= _max_df]
-                if len(_rare) != 1:
-                    continue
-                _matched = _rare
-            _df = max(sum(1 for _s in _stem_sets if _stem(c) in _s)
-                      for c in _matched)
-            if _df > _max_df:
+            _matched = [c for c in cues
+                        if _stem(c) in _stem_sets[_i]
+                        and sum(1 for _s in _stem_sets
+                                if _stem(c) in _s) <= _max_df]
+            if len(_matched) < _need:
                 continue
-            _cand.append((len(_matched), -_df, _i))
+            _cand.append((len(_matched), _i))
         if not _cand:
             return None
         _cand.sort(reverse=True)
-        return self._reconstruct_gist(eligible[_cand[0][2]])
+        return self._reconstruct_gist(eligible[_cand[0][1]])
 
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:

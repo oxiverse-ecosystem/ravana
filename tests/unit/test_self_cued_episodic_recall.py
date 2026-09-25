@@ -88,3 +88,26 @@ def test_second_disclosure_is_independently_recallable(engine):
     assert "jaipur" in hit.lower()
     # A question carrying only scaffolding has no content cue at all.
     assert engine._self_cued_episodic("what is it about") is None
+
+
+def test_world_question_sharing_one_word_is_not_recalled(engine):
+    """Source monitoring: a world question that shares ONE word with a stored
+    autobiographical fact must NOT be answered from that fact.
+
+    This is the exact regression the first cut of this capability caused: a
+    single-cue escape hatch let "what is cooking oil made of?" match the
+    stored "i enjoy cooking pasta on weekends" on the lone word "cooking".
+    The user's record accounts for only part of what was asked, so answering
+    from it is confabulation dressed as recall.
+    """
+    engine.process_turn("i enjoy cooking pasta on weekends")
+    assert engine._self_cued_episodic("what is cooking oil made of?") is None
+
+
+def test_partial_overlap_world_question_is_not_recalled(engine):
+    """Coverage, not vocabulary: a question only PARTLY covered by the store
+    is a question about something the user never disclosed."""
+    engine.process_turn(DISCLOSURE)
+    # "meera" is covered but the question is really about the tide tables.
+    assert engine._self_cued_episodic(
+        "what tide tables does meera use") is None
