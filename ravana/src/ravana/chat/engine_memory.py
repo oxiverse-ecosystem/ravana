@@ -640,6 +640,14 @@ class MemoryMixin:
         q = (query or "").strip()
         if not q or not self._is_question(q):
             return None
+        # This path is for follow-up questions about a third-party entity
+        # disclosed earlier; it must not hijack first-person stance recall.
+        if re.search(r"\b(?:i|me|my|mine|we|us|our|ours)\b", q.lower()):
+            return None
+        if re.search(r"\b(?:think|thought|opinion|honest|read|prefer|like|hate|love|know what)\b", q.lower()):
+            return None
+        if re.search(r"\bwhat is\b.*\b(?:made of|capital|definition|mean)\b", q.lower()):
+            return None
         qn = q.lower()
         store = self._episodic_transcript or []
         if not store:
