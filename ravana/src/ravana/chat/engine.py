@@ -6645,34 +6645,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses = self._last_responses[-10:]
             return resp
 
-        # ── SELF-CUED EPISODIC RETRIEVAL (capability: retrieval-by-cue) ──────
-        # A question about something the user ALREADY disclosed is a memory
-        # question, not a world-knowledge gap. Before RAVANA consults its
-        # internal knowledge base or reaches for the web, it reactivates its
-        # OWN record: _self_cued_episodic returns the stored user turn whose
-        # rare content cue the query stem-matches. This runs BEFORE the
-        # agentic hands below and before _consult_internal_knowledge, so a
-        # fact the user gave us is answered from the user, not the world.
-        # Fails closed (None) unless a specific, rare cue matches a stored
-        # user turn — genuine world queries ("what is the capital of france")
-        # have no such cue and proceed unchanged.
-        try:
-            _cued_self = self._self_cued_episodic(user_input)
-        except Exception:
-            _cued_self = None
-        if _cued_self is not None:
-            self._last_strategy = "self_cued_episodic"
-            self._last_responses.append(_cued_self)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            self._recent_user_turns.append(user_input)
-            if len(self._recent_user_turns) > 12:
-                self._recent_user_turns = self._recent_user_turns[-12:]
-            self._record_episode(user_input)
-            self._record_own_reply(user_input, _cued_self, self._last_subject)
-            self.notify_user_idle()
-            return _cued_self
-
         # ── Agentic pre-check (fix 'c'): if this is a knowledge gap RAVANA cannot
         # answer from memory, USE ITS HANDS. State-driven (curiosity/recall-query/
         # metacog), no keyword table. The tool result is stored as grounded
