@@ -917,9 +917,26 @@ class MemoryMixin:
         if _ent_hit is not None:
             _facts = _entity_idx[_ent_hit]
             if _facts:
-                _bits = _reconstruct_entity(_ent_hit, _facts)
-                if _bits:
-                    return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+                # A name query may only be answered by a name. This path
+                # renders EVERY attribute it holds for the cued entity, so
+                # "what is my cat's name" was answered "you told me your cat
+                # is diagnosed with a chronic illness" — right entity, wrong
+                # attribute, stated confidently. Keep only name-shaped values;
+                # if none survives, fall through so the caller fails CLOSED
+                # rather than substituting a different attribute for the one
+                # the user asked about. Same attribute-agreement rule the two
+                # other recall sites apply, so all three agree.
+                if re.search(r"\b(?:name|named|called|nickname)\b", q):
+                    _name_only = {
+                        _a: _v for _a, _v in _facts.items()
+                        if isinstance(_v, str) and len(_v.split()) == 1
+                        and _v.strip().isalpha() and len(_v.strip()) > 1}
+                    _facts = _name_only
+                if _facts:
+                    _bits = _reconstruct_entity(_ent_hit, _facts)
+                    if _bits:
+                        return "you told me " + "; ".join(
+                            dict.fromkeys(_bits)) + "."
         # (a0) LITERAL-CONTENT CUE PASS (B-fix, round v-aug04). The previous
         # semantic cosine matcher returned the highest-scoring UNRELATED
         # episode because GloVe similarity is loosely positive across many

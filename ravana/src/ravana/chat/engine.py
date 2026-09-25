@@ -6760,7 +6760,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # "[\w'-]+" greedily eats the possessive: "my cat's name" captures
             # "cat's" — normalize to the bare attribute so the store lookup hits.
             _attr = re.sub(r"'s$", "", _attr)
+            # A name query may only be answered by a name. This block captures
+            # the entity but DISCARDS which attribute was asked for (the
+            # trailing group is non-capturing), so it looked the entity up and
+            # rendered whatever it found — "what is my cat's name" came back
+            # "your cat is diagnosed with a chronic illness (i'm 65% sure)",
+            # right animal and wrong attribute with a confidence figure
+            # bolted to a fact the user never stated. Fail the gate and the
+            # turn falls through to honest uncertainty. Same
+            # attribute-agreement rule the other two recall sites apply.
+            _pf_asked_name = bool(re.search(
+                r"\b(?:name|named|called|nickname)\b", user_input,
+                re.IGNORECASE))
             _hit = self.user_model.personal_facts.get("i", _attr)
+            if _hit is not None and _pf_asked_name:
+                _hv = (_hit.value or "").strip()
+                # A name is a short single token; a predicate phrase is state.
+                if not (_hv and len(_hv.split()) == 1 and _hv.isalpha()
+                        and len(_hv) > 1):
+                    _hit = None
             if _hit is not None:
                 _val = _hit.value
                 _conf = _hit.confidence
