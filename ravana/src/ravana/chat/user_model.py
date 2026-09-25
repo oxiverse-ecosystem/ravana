@@ -3574,6 +3574,102 @@ class UserModel:
                     _put_fact(_attr, _final_val, 0.6)
 
 
+        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): POSSESSION +
+        # PREDICATE disclosures with no copula and no name were mined by
+        # NOTHING. Every existing branch needs one of three shapes: an
+        # equational copula ("my X is/are Y"), an explicit name keyword
+        # ("my <species> named/called N"), or a relationship head word
+        # ("my <kin> ..."). A perfectly canonical first-person disclosure
+        # that states a PREDICATE about a possession falls between all three:
+        #
+        #   "my cat has been diagnosed with a chronic illness"
+        #   "my dog had surgery last month"
+        #   "my rabbit has been missing since friday"
+        #
+        # Measured COLD on a clean suffix: four such disclosures mined ZERO
+        # facts. Every downstream recall failure was a symptom of that — with
+        # nothing stored, the recall path could only echo an unrelated turn.
+        # So this is the ROOT-cause branch, not another retrieval patch.
+        #
+        # SHAPE, NOT TOPIC (the deciding test from the seed-vs-hardcoding
+        # rule): the branch recognizes the grammatical SHAPE "possessive noun
+        # phrase + predicate" and stores the predicate in the USER'S OWN
+        # WORDS. There is no per-species branch, no per-verb answer table and
+        # no authored reply — swap the species or the predicate and the
+        # content still comes from the disclosure. The entity word is resolved
+        # through the SAME live pet_slots vocabulary every other miner and
+        # recall site uses (species_of / learn_species / slot_for), so the
+        # miner and the recaller agree on the key BY CONSTRUCTION.
+        #
+        # Storage shape mirrors the equational path exactly: ('i', <slot>,
+        # <predicate>), which the recall resolvers already render as a pet
+        # slot ("your cat is ...") — no new render branch needed.
+        _pp_toks = list(re.findall(r"[a-z][a-z'-]*", q_clean.lower()))
+        if "my" in _pp_toks:
+            _rest = _pp_toks[_pp_toks.index("my") + 1:]
+            # A copula-led clause ("my cat IS sick") is already owned by the
+            # equational path. Skipping it here stops one disclosure being
+            # stored twice under two different shapes.
+            _PP_COPULA = {"is", "are", "was", "were", "am"}
+            _pp_ent = None
+            for _j, _tk in enumerate(_rest):
+                if _tk in _PP_COPULA or _tk in _pet_slots._PRONOUN_STOP:
+                    break
+                # The entity is a token the LIVE pet vocabulary already knows.
+                # We deliberately do NOT learn a species from an arbitrary
+                # word here: "my laptop has been ..." / "my sister plays ..."
+                # would register "laptop"/"sister" as animals and create bogus
+                # slots that leak on unknown-entity recall (the documented
+                # confabulation bar). The growth path already exists on the
+                # explicit name-keyword paths ("i have an axolotl named nyx"),
+                # which key on "named/called" — an unambiguous animal context
+                # this branch cannot infer. A species RAVANA has never heard
+                # of is honestly NOT mined here until the user names it; that
+                # limitation is logged, not papered over with a wider regex.
+                _cand = _pet_slots.species_of(_tk)
+                if _cand is None and _tk.isalpha() \
+                        and _tk not in _pet_slots._PRONOUN_STOP \
+                        and re.search(r"\b(?:named|called)\b", q_clean,
+                                      re.IGNORECASE):
+                    _cand = _pet_slots.learn_species(_tk)
+                if _cand is not None:
+                    _pp_ent = (_cand, _j, _tk)
+                    break
+            if _pp_ent is not None and _pp_ent[1] + 1 < len(_rest):
+                _sp, _j, _ent_word = _pp_ent
+                # Value = the predicate the user actually said. A leading
+                # AUXILIARY chain is stripped only when it is genuinely
+                # auxiliary, i.e. when followed by the perfect/passive marker
+                # ("my cat HAS BEEN diagnosed" -> "diagnosed ..."); a simple
+                # past auxiliary IS the lexical verb and carries content
+                # ("my dog HAD surgery last month"), so it is kept. A
+                # grammatical distinction, not a per-verb table.
+                #
+                # The rest of the clause is kept VERBATIM (bounded) rather than
+                # through _opinion_topic: that resolver drops closed-class
+                # words to isolate a content HEAD, which is right for a topic
+                # key but WRONG here — it shredded the disclosed condition
+                # ("... diagnosed with a chronic illness" stored just
+                # "diagnosed"), silently dropping the user's content and
+                # making recall answer a different question than the one asked.
+                _tail = " ".join(_rest[_j + 1:])
+                _tail = re.sub(
+                    r"^(?:has|have|had|is|are|was|were)\s+(?=been\b|being\b)",
+                    "", _tail.strip(), flags=re.IGNORECASE)
+                _tail = re.sub(r"^(?:been|being)\s+", "", _tail.strip(),
+                               flags=re.IGNORECASE)
+                _pred_full = " ".join(_tail.split()[:8]).strip(" .,!?;:'\"")
+                if _pred_full and _pred_full not in _VALUE_STOP \
+                        and not _pet_slots.species_of(_pred_full):
+                    # Find a FREE slot for this species so a second animal of
+                    # the same species does not overwrite the first's record
+                    # (the same multiplicity discipline the name paths use).
+                    _i = 1
+                    while _pet_slots.slot_for(_sp, _i) in self.personal_facts.facts:
+                        _i += 1
+                    _put_fact(_pet_slots.slot_for(_sp, _i), _pred_full, 0.55)
+
+
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
         # stall near the mysore palace", "i play the tabla when the stall is
         # closed", "i've been watching the night sky for twelve years". These are

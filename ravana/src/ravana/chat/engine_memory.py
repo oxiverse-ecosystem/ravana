@@ -506,6 +506,17 @@ class MemoryMixin:
         "would", "should", "may", "might", "shall", "am", "have", "has", "had",
     )
 
+    # FIX-RV-13 (round auto/round-20260925T0823-fix-7): the interrogative
+    # SUB-CLASS of _QUESTION_LEAD — the wh-words. Grammatical category, not a
+    # topic list: a wh-word is a question word wherever it leads an utterance,
+    # whereas a yes/no AUXILIARY is a question word only in initial position
+    # (English builds a yes/no question by inverting subject and auxiliary, so
+    # an auxiliary with a subject already in front of it is declaring
+    # something). _is_question consults the split to tell the two apart.
+    _QUESTION_WH = frozenset({
+        "what", "where", "when", "who", "whom", "whose", "which", "why", "how",
+    })
+
     def _is_question(self, text: str) -> bool:
         _t = (text or "").strip().lower()
         if not _t:
@@ -515,10 +526,23 @@ class MemoryMixin:
         _first = re.findall(r"[a-z']+", _t)
         if not _first:
             return False
-        # Allow a short lead-in ("so, ..." / "and ...") before the question word.
-        for _w in _first[:3]:
+        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): the lead window
+        # forgives a LEAD-IN, and only for a WH-word. The old check scanned
+        # three tokens for ANY question-lead word, so a canonical disclosure
+        # whose third token happened to be an auxiliary ("my cat HAS been
+        # diagnosed", "my dog HAD surgery last month") was classified as a
+        # question. That was not cosmetic: the episodic cue pass skips prior
+        # turns that look like questions, so it skipped the very episodes a
+        # cued recall was looking for, and the recall degenerated into
+        # echoing an unrelated turn — the same wrong episode for every query.
+        # Structural (interrogative syntax), not a per-topic rule.
+        for _i, _w in enumerate(_first[:3]):
             if _w in self._QUESTION_LEAD:
-                return True
+                if _w in self._QUESTION_WH:
+                    return True
+                # A yes/no auxiliary leads a question only in INITIAL
+                # position. A later one is a statement's predicate.
+                return _i == 0
         return False
 
     # D-fix (round 2026-08-22T0058Z): a disclosed entity is often recalled with a

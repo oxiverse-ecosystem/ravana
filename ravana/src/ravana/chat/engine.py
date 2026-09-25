@@ -5953,7 +5953,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _ov > _best_log_overlap:
                             _best_log_overlap = _ov
                             _best_entry = (_turn_num, _reply_text)
-                    if _best_entry and _best_log_overlap >= 1:
+                    # FIX-RV-13 (round auto/round-20260925T0823-fix-7): apply
+                    # the SAME _min_overlap the topic-keyed store above already
+                    # enforces, instead of accepting a single incidental shared
+                    # token. A threshold of 1 made this fallback a
+                    # most-recent-turn echo: every recall query shares at least
+                    # one ordinary content word with the most recent reply, so
+                    # an entity-cued recall that should have resolved ONE
+                    # episode ("about my cat") instead returned the SAME
+                    # unrelated turn as every other query ("about my dog",
+                    # "about hiking") — a confident quote of a memory the user
+                    # never asked about. RAVANA's bar is to fail CLOSED: with no
+                    # episode matching the cue the honest answer is no answer,
+                    # which lets the caller fall through to the episodic
+                    # retriever or to honest uncertainty. One shared token is
+                    # not evidence of the same topic.
+                    if _best_entry and _best_log_overlap >= _min_overlap:
                         _, _matched_text = _best_entry
                         _matched_text = _matched_text.strip()
                         if _matched_text:
