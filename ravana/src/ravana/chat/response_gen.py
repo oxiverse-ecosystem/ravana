@@ -5063,28 +5063,6 @@ class ResponseGenMixin(ChainWalkerMixin):
                     f"i'm here for you. do you want to talk about it?",
                     "emotional_empathy")
 
-        # ── Health disclosure schema (FIX-RV-01) ──
-        # Health disclosures ("my cat has been diagnosed with a chronic
-        # illness") have no lexical affect WORD, so they fall through to the
-        # valence-driven empathy path below. But naming the entity
-        # ("your cat") is structurally nicer than a generic "feeling rough is
-        # hard". Here, just before the general empathy, we inject the
-        # stored-entity acknowledgment when the disclosure was tagged with a
-        # "health:<entity>" marker.
-        if isinstance(word, str) and word.startswith("health:"):
-            _entity = word[len("health:"):].strip()
-            if _entity:
-                if has_stored_detail:
-                    return (f"that sounds rough. i know about your {_entity} — "
-                            f"what's the hardest part?",
-                            "emotional_empathy")
-                return (f"that sounds rough. i'm thinking of your {_entity}. "
-                        f"do you want to talk about it?",
-                        "emotional_empathy")
-            # Fallback when entity was not parsed
-            return (f"that sounds rough. i'm here if you want to talk about it.",
-                    "emotional_empathy")
-
         # Control/agency appraisal (VAD dominance) selects the PROBE
         # low-control state invites "what happened" (the cause is external and
         # unnamed), a higher-control state invites "what set it off" (the user
