@@ -11,7 +11,7 @@ from __future__ import annotations
 # trigger the Windows access-violation (numpy #27989). Must be the very first
 # import -- ahead of `import numpy as np` below.
 import ravana._numpy_threading  # noqa: F401  (side-effect: thread + faulthandler setup)
-import sys, os, time, random, json, re, threading, hashlib, operator
+import sys, os, time, random, json, re, threading, hashlib, operator, math
 import urllib.request
 import socket
 socket.setdefaulttimeout(4.0)
@@ -550,6 +550,39 @@ class MemoryMixin:
             _words = _words[1:]
         return " ".join(_words).strip()
 
+    def _bm25_rank(self, query: str, store: List[Dict[str, Any]],
+                   k1: float = 1.5, b: float = 0.75) -> List[Tuple[Dict[str, Any], float]]:
+        """Rank episodes with an independent lexical BM25 evidence tier."""
+        query_terms = [w for w in re.findall(r"[a-z0-9]+", (query or "").lower())
+                       if len(w) >= 2 and w not in STOP_WORDS]
+        if not query_terms or not store:
+            return []
+        docs = [re.findall(r"[a-z0-9]+", (rec.get("text", "") or "").lower())
+                for rec in store]
+        lengths = [len(doc) for doc in docs]
+        avg_len = sum(lengths) / len(lengths) if lengths else 0.0
+        doc_freq = Counter()
+        for doc in docs:
+            doc_freq.update(set(doc))
+        scored = []
+        for rec, doc, length in zip(store, docs, lengths):
+            if not doc:
+                continue
+            counts = Counter(doc)
+            score = 0.0
+            for term in query_terms:
+                tf = counts.get(term, 0)
+                if not tf:
+                    continue
+                df = doc_freq.get(term, 0)
+                idf = math.log(1.0 + (len(docs) - df + 0.5) / (df + 0.5))
+                denom = tf + k1 * (1.0 - b + b * (length / max(avg_len, 1.0)))
+                score += idf * (tf * (k1 + 1.0)) / max(denom, 1e-12)
+            if score > 0.0:
+                scored.append((rec, score))
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored
+
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
         """Brain-faithful episodic recall (Tulving encoding specificity).
@@ -912,24 +945,9 @@ class MemoryMixin:
                 _stem = lambda w: _stemmer.stem(w)
             except Exception:
                 _stem = (lambda w: w)  # graceful degrade: verbatim match only
-            _cue_stems = {_stem(c) for c in _cue_tokens}
-            _best_cue = None
-            _best_cue_score = 0
+            _eligible = []
             for rec in store:
                 _t = rec.get("text", "").lower()
-                # D1 (round 2026-08-08b-d): a prior RECALL QUERY ("remind me what
-                # i told you about the one that molted") carries no shareable
-                # content, but the old skip-regex only caught
-                # "remember/recall/what did i/what was i" + told/said/ask. A
-                # later semantically-overlapping recall ("what's the strongest
-                # read you've formed") matched the prior recall query's OWN
-                # text (it shares "told you"/"molted") and echoed it verbatim ->
-                # a recursive recall loop (the "you mentioned my tarantula
-                # before, remind me..." echo). Generalize the skip to ANY
-                # recall-scaffold query: remember/recall/remind/what i
-                # told|said|mentioned|asked you, so a query is never retrieved
-                # AS content. Structural (regex on recall syntax), not a
-                # per-topic guard.
                 if re.search(
                     r"\b(remember|recall|remind(?: me)?)\b"
                     r".*\b(told|said|ask|mention|tell|said you|mentioned|asked)\b",
@@ -937,53 +955,24 @@ class MemoryMixin:
                     r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
                     r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t) or \
                     self._is_question(_t):
-                    continue  # skip prior recall queries (no content)
-                # Count how many cue tokens' STEMS appear in this episode's
-                # stemmed token stream (morphology-invariant match).
-                _t_stems = {_stem(w) for w in re.findall(r"[a-z']+", _t)}
-                _hit = sum(1 for _cs in _cue_stems if _cs in _t_stems)
-                # weight by fraction of cue tokens present (a focused match
-                # beats a scattered one)
-                _frac = _hit / len(_cue_stems)
-                if _hit > 0 and _frac >= 0.34 and _hit > _best_cue_score:
-                    _best_cue_score = _hit
-                    _best_cue = rec
-            if _best_cue is not None:
-                # ROUND 2026-08-12T0613Z RELEVANCE FLOOR (source-monitoring
-                # fix). The stem-match above can score an episode purely on
-                # generic deictic/temporal filler that any prior turn shares
-                # ("came"/"back" in "if i never came back" matched "the relief
-                # boat went down ... i still hear ... in my sleep" via "back"),
-                # surfacing an UNRELATED memory as "you mentioned: <wrong turn>"
-                # (measured this round: T69 "if i never came back, what would
-                # you do with what i told you" echoed the boat-crash episode).
-                # Require the matched episode to contain at least one query
-                # cue token that is NOT a universal generic deictic/temporal
-                # filler (came/back/went/gone/thing/nothing/never/away...). This
-                # is a tiny universal seed set, NOT a per-topic deny-list — a
-                # genuine cued recall ("what did i tell you about the radio")
-                # carries a real content cue (radio) that still matches.
-                _GENERIC_CUE = {
-                    "came", "come", "back", "went", "gone", "go", "going",
-                    "thing", "things", "nothing", "never", "away", "still",
-                    "something", "everything", "anything", "everyone", "someone",
-                    "told", "tell", "said", "say", "mention", "mentioned",
-                    "ask", "asked", "what", "did", "do", "you", "your", "i",
-                    "my", "we", "our", "me", "about", "before", "earlier",
-                }
+                    continue
+                _eligible.append(rec)
+            _GENERIC_CUE = {
+                "came", "come", "back", "went", "gone", "go", "going",
+                "thing", "things", "nothing", "never", "away", "still",
+                "something", "everything", "anything", "everyone", "someone",
+                "told", "tell", "said", "say", "mention", "mentioned",
+                "ask", "asked", "what", "did", "do", "you", "your", "i",
+                "my", "we", "our", "me", "about", "before", "earlier",
+            }
+            _ranked = self._bm25_rank(q, _eligible)
+            if _ranked:
+                _best_cue, _bm25_score = _ranked[0]
                 _match_text = (_best_cue.get("text", "") or "").lower()
                 _match_stems = {_stem(w) for w in re.findall(r"[a-z']+", _match_text)}
-                _real_cue = [
-                    c for c in _cue_tokens
-                    if c not in _GENERIC_CUE
-                    and _stem(c) in _match_stems
-                ]
-                if not _real_cue:
-                    # only generic-filler overlapped -> do NOT echo an
-                    # unrelated episode; fall through to the semantic pass /
-                    # fail-closed below.
-                    _best_cue = None
-                else:
+                _real_cue = [c for c in _cue_tokens
+                             if c not in _GENERIC_CUE and _stem(c) in _match_stems]
+                if _real_cue:
                     return self._reconstruct_gist(_best_cue)
         # (a) fact-slot cue match — highest precision.
         for rec in store:
