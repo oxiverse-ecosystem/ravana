@@ -3658,6 +3658,18 @@ class UserModel:
                     "", _tail.strip(), flags=re.IGNORECASE)
                 _tail = re.sub(r"^(?:been|being)\s+", "", _tail.strip(),
                                flags=re.IGNORECASE)
+                # CLAUSE BOUNDARY: a disclosure often continues past the
+                # predicate into a second, unrelated clause ("my dog had
+                # surgery last month AND I AM WORRIED"). Absorbing the tail
+                # filed the user's emotional state as the animal's medical
+                # history, so recall answered "your dog is had surgery last
+                # month and i am worried". Cut at the coordinating
+                # conjunction / sentence break, which is where the predicate
+                # actually ends. Grammatical boundary, not a content list.
+                _tail = re.split(
+                    r"\s+(?:and|but|because|so|then|although|though|while|"
+                    r"which|who|that)\s+|[.!?;]",
+                    _tail, maxsplit=1)[0]
                 _pred_full = " ".join(_tail.split()[:8]).strip(" .,!?;:'\"")
                 if _pred_full and _pred_full not in _VALUE_STOP \
                         and not _pet_slots.species_of(_pred_full):

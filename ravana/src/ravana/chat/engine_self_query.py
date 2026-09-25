@@ -1763,6 +1763,28 @@ class SelfQueryMixin:
                 r"laptop|dog|cat|pet|house|home|job|favorite|favourite|"
                 r"broken|happened|friend|reboot|turn|drive|ride)\b", t):
             return None
+        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): a question about
+        # WHAT WAS SAID IN THIS CONVERSATION is a memory query, never a
+        # world-knowledge query — whatever word it happens to be cued on. The
+        # B2 guard above fires only when the query names a personal ATTRIBUTE
+        # ("what is my dog's name"), so a cued conversational recall whose
+        # subject is an ordinary topic word ("what did i just tell you about
+        # hiking") sailed through and was answered from the ConceptNet
+        # neighbourhood of the topic instead of the user's own transcript — a
+        # definition-shaped answer to a question about their own life, and a
+        # regression on the very retrieval path this round fixes.
+        #
+        # Keyed on the SPEECH ACT (a recall verb with a first-person object),
+        # not on any topic word. Adding "hiking" to the attribute list would
+        # fix this one query and break the next topic; matching the speech act
+        # fixes all of them. A genuine world question carries no such act
+        # ("what do you know about hiking") and still reaches grounding.
+        if re.search(
+                r"\b(?:what|which)\b.*\b(?:did|do|have|had|was|were)\s+"
+                r"(?:i|we|you)\b.*\b(?:tell|told|say|said|mention|mentioned|"
+                r"share|shared|ask|asked)\b"
+                r"|\b(?:remind|recall|remember)\b.*\b(?:what|which)\b", t):
+            return None
         # B1 (source monitoring / self-other boundary): self-knowledge RECALL
         # queries ("what do you remember about me", "what do you know about me",
         # "what have i told you") are about the USER's stored autobiographical

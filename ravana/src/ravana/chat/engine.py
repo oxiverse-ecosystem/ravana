@@ -3524,6 +3524,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             from .user_model import is_verb_phrase as _is_act
                         except Exception:
                             _is_act = lambda w: False
+                        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): a
+                        # pet slot holds ONE thing, so a query asking for a
+                        # specific ATTRIBUTE of the pet may only be answered
+                        # by a value that actually IS that attribute. Without
+                        # this gate "what is my cat's name" answered "your cat
+                        # is diagnosed with a chronic illness" — the right
+                        # animal, the wrong attribute, stated confidently. A
+                        # name is the short single token the user gave as the
+                        # animal's name; a predicate phrase is the animal's
+                        # STATE. Failing the gate we fall through so the
+                        # honest uncertainty path runs — the user was never
+                        # told a name, and saying so beats inventing one.
+                        # Structural (attribute agreement), not a per-topic
+                        # rule: it holds for any entity and any attribute.
+                        if re.search(
+                                r"\b(?:name|named|called)\b", q):
+                            _vs = (_v or "").strip()
+                            if not (_vs and len(_vs.split()) == 1
+                                    and _vs.isalpha() and len(_vs) > 1
+                                    and not _is_act(_vs)):
+                                continue
                         _vv = (_v or "").strip()
                         if _vv and _vv.split() and _is_act(_vv.split()[0]):
                             return f"your {_attr} {_v}."
