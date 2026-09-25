@@ -2589,6 +2589,19 @@ class MemoryMixin:
                 _cued = self._retrieve_episodic(user_input)
                 if _cued:
                     return _cued
+                # FIX-RV-13 (round auto/round-20260925T0823-fix-7): a query that
+                # NAMES a cue has already told us which memory it wants, so
+                # when nothing resolves that cue the honest answer is to say
+                # so — not to fall through and quote the most recent turn
+                # instead. The old fall-through did exactly that: "what did i
+                # just tell you about my ferret" (never disclosed) returned the
+                # user's remote-work opinion verbatim, a confident quote of a
+                # memory the user never asked about. Abstaining here is not a
+                # limitation dressed up — the user cued a specific episode, and
+                # answering with a different one is worse than silence. A query
+                # with NO cue ("what did i just say?") still legitimately means
+                # "the previous turn" and keeps the fall-through below.
+                return None
             last_turn = prior[-1].strip()
             # Pull the matching transcript record (highest turn_index = prev).
             matching = [r for r in self._episodic_transcript
