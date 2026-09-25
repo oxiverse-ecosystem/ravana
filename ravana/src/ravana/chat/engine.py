@@ -5387,6 +5387,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._us_obj_hold = None
         # Same-subject attitude frame (the user is the attitude holder). The
         # object clause after the attitude verb carries the topic.
+        # FIX-RV-12 (pre-existing crash, reproduced at the pre-fix commit): the
+        # shape-1/2 matchers below set `_fm_match` only on their *fallback*
+        # branches, so a query that matched shape 1 or 2 directly ("do you think
+        # i love jazz music?") reached the honest-abstain branch at line ~5515
+        # with `_fm_match` UNBOUND and raised
+        # `UnboundLocalError: cannot access local variable '_fm_match'` — the
+        # user-stance recall path crashed instead of answering honestly. Fixed
+        # by initializing the flag at the top of the frame match. The flag's
+        # meaning is unchanged: True only for the "for/against" polarity frame.
+        _fm_match = False
+        # Same-subject attitude frame (the user is the attitude holder). The
+        # object clause after the attitude verb carries the topic.
         # Two surface shapes for the SAME user-stance question:
         #   Shape 1: "<i> think <you> <like/dislike-verb> <topic>"  (topic after
         #            the attitude verb)

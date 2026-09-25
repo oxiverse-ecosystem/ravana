@@ -53,6 +53,16 @@ _SEED: Dict[str, list] = {
     # topic-key truncation so "cooking earlier" -> "cooking" and
     # "raise a kid to care about the ocean" keeps "ocean" (the real topic).
     # A seed list — grows at runtime via data/functional_lexicon.json.
+    # Leading salutation/age/status modifiers that never head a real concept.
+    # A relationship disclosure can carry them before the relationship word
+    # ("my OLD mentor", "my DEAR friend", "my LATE uncle"), and an opinion
+    # object can carry them too ("dear old jazz clubs"). Trimmed from the FRONT
+    # of a topic key so the stored slot is the concept, not the address form.
+    # Structural closed-class seed; removing an entry only re-admits one
+    # modifier shape. Grows at runtime via data/functional_lexicon.json.
+    "leading_modifiers": ["dear", "dearest", "old", "late", "former", "poor",
+                          "beloved", "cherished", "respected", "deceased",
+                          "belated"],
     "trailing_modifiers": ["earlier", "now", "then", "later", "soon",
                             "always", "never", "sometimes", "again",
                             "already", "still", "yet", "just", "even",
@@ -104,6 +114,11 @@ class FunctionalLexicon:
     @property
     def framing(self) -> Set[str]:
         return self._v.get("framing", set(_SEED["framing"]))
+
+    @property
+    def leading_modifiers(self) -> Set[str]:
+        return self._v.get("leading_modifiers",
+                           set(_SEED["leading_modifiers"]))
 
     @property
     def trailing_modifiers(self) -> Set[str]:

@@ -5753,6 +5753,26 @@ class UserModel:
         # Drop trailing closed-class/modifier words as a final safety.
         while len(head) > 1 and head[-1] in self._OPINION_STOP:
             head.pop()
+        # SHARED SLOT NAMING (FIX-RV-12): strip leading salutation/age
+        # modifiers ("dear old jazz clubs") and trailing temporal/degree
+        # modifiers ("cooking earlier", "jazz music recently") through the
+        # ONE shared chokepoint (`slot_naming`), so the stance MINER and every
+        # RECALL path name the same slot for the same concept. The vocabulary
+        # is the data-file seed in `data/functional_lexicon.json`
+        # (leading_modifiers / trailing_modifiers), not a hand-written
+        # per-topic `if 'earlier' in topic` chain — removing an entry only
+        # re-admits one modifier shape. Fails open to the seed sets.
+        #
+        # Before this, a disclosure "i love cooking earlier in the morning"
+        # mined the key "cooking earlier" while the later query "what are
+        # your thoughts on cooking?" resolved to "cooking" — the stance was
+        # stored under a key no query could reach.
+        from .slot_naming import (leading_modifiers as _lead_mods,
+                                  strip_leading_modifiers,
+                                  strip_trailing_modifiers,
+                                  trailing_modifiers as _trail_mods)
+        head = strip_trailing_modifiers(head, _trail_mods())
+        head = strip_leading_modifiers(head, _lead_mods())
         if not head:
             return None
         # CONTENT-ADEQUACY GATE (round 2026-08-17T1730Z): a resolved activity/
