@@ -404,6 +404,7 @@ from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .user_model import is_activity_attr as _is_activity_attr
 from .user_model import activity_role_objects, _activity_role_phrases
+from . import attribute_gate
 from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
@@ -3538,12 +3539,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # told a name, and saying so beats inventing one.
                         # Structural (attribute agreement), not a per-topic
                         # rule: it holds for any entity and any attribute.
-                        if re.search(
-                                r"\b(?:name|named|called)\b", q):
+                        # `asks_name_only` stands the gate down for a COMPOUND
+                        # question, which asks for more than the name.
+                        if attribute_gate.asks_name_only(q):
                             _vs = (_v or "").strip()
-                            if not (_vs and len(_vs.split()) == 1
-                                    and _vs.isalpha() and len(_vs) > 1
-                                    and not _is_act(_vs)):
+                            if not attribute_gate.is_name_shaped(_vs) \
+                                    or _is_act(_vs):
                                 continue
                         _vv = (_v or "").strip()
                         if _vv and _vv.split() and _is_act(_vv.split()[0]):
@@ -6769,15 +6770,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # bolted to a fact the user never stated. Fail the gate and the
             # turn falls through to honest uncertainty. Same
             # attribute-agreement rule the other two recall sites apply.
-            _pf_asked_name = bool(re.search(
-                r"\b(?:name|named|called|nickname)\b", user_input,
-                re.IGNORECASE))
+            # The gate stands down for a COMPOUND question, which asks for
+            # more than the name.
+            _pf_asked_name = attribute_gate.asks_name_only(user_input)
             _hit = self.user_model.personal_facts.get("i", _attr)
             if _hit is not None and _pf_asked_name:
-                _hv = (_hit.value or "").strip()
                 # A name is a short single token; a predicate phrase is state.
-                if not (_hv and len(_hv.split()) == 1 and _hv.isalpha()
-                        and len(_hv) > 1):
+                if not attribute_gate.is_name_shaped(_hit.value):
                     _hit = None
             if _hit is not None:
                 _val = _hit.value

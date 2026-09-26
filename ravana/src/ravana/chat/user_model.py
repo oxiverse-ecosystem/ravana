@@ -3611,6 +3611,26 @@ class UserModel:
             # equational path. Skipping it here stops one disclosure being
             # stored twice under two different shapes.
             _PP_COPULA = {"is", "are", "was", "were", "am"}
+            # The tokens that can legitimately OPEN A PREDICATE about a
+            # possessed entity. English puts the predicate immediately after
+            # the entity ("my dog HAD surgery", "my cat HAS BEEN diagnosed",
+            # "my dog LIKES the park"), so the token following the entity is
+            # the clause's verb or auxiliary -- never another noun.
+            #
+            # This closed class is what separates the shape this branch exists
+            # to mine from a bare NP that merely CONTAINS a species word. In
+            # "my pet rock collection is huge" the tokens after "pet" are
+            # "rock" and "collection" -- nouns, i.e. the species word is a
+            # MODIFIER inside a longer noun phrase, not the possessed entity
+            # itself. Storing ('i','pet','rock collection is huge') from that
+            # is a false positive: a rock collection is not a pet.
+            # Grammatical (closed-class function words), not a topic or
+            # species table.
+            _PP_PRED_LEAD = _PP_COPULA | {
+                "has", "have", "had", "been", "being",
+                "does", "do", "did", "will", "would", "can", "could",
+                "shall", "should", "may", "might", "must",
+            }
             _pp_ent = None
             for _j, _tk in enumerate(_rest):
                 if _tk in _PP_COPULA or _tk in _pet_slots._PRONOUN_STOP:
@@ -3633,8 +3653,29 @@ class UserModel:
                                       re.IGNORECASE):
                     _cand = _pet_slots.learn_species(_tk)
                 if _cand is not None:
-                    _pp_ent = (_cand, _j, _tk)
-                    break
+                    # LOOKAHEAD, at claim time. English puts the predicate
+                    # (a verb or auxiliary) straight after a possessed entity,
+                    # never another noun -- so a species word followed by a
+                    # plain noun is a MODIFIER inside a longer NP, not the
+                    # entity itself. In "my pet rock collection is huge" the
+                    # species word "pet" is modified by "rock collection";
+                    # storing ('i','pet','rock collection is huge') claims a
+                    # rock collection is a pet. "my dog likes the park" is the
+                    # same shape ("likes" is a lexical verb, not a function
+                    # word) and belongs to the activity miner, not here.
+                    #
+                    # The lookahead must happen HERE, at the moment of the
+                    # claim: this loop breaks the instant it resolves an
+                    # entity, so a guard placed after the claim never runs.
+                    # Closed-class function words, not a topic/species table.
+                    _nxt = _rest[_j + 1] if _j + 1 < len(_rest) else None
+                    if _nxt is not None and re.match(r"^[a-z][a-z'-]*$", _nxt) \
+                            and _nxt not in _PP_PRED_LEAD \
+                            and _pet_slots.species_of(_nxt) is None:
+                        _cand = None
+                    else:
+                        _pp_ent = (_cand, _j, _tk)
+                        break
             # The copula guard, at the position English actually puts it.
             # The in-loop `_PP_COPULA` break above is DEAD for this shape: it
             # tests each token BEFORE the entity is resolved, but in every

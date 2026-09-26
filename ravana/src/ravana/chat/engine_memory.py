@@ -48,6 +48,7 @@ from ravana_ml.nn.neural_decoder import NeuralDecoder
 from ravana.core import UserEmotionDetector, EmotionalMirrorEngine, MirrorConfig
 from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
 from ravana.core.proposition_parser import PropositionParser
+from . import attribute_gate
 from ravana.core.causal_schema import CausalSchemaLearner, CausalSchemaConfig
 from ravana.core.implicature_detector import ImplicatureDetector
 from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
@@ -926,11 +927,10 @@ class MemoryMixin:
                 # rather than substituting a different attribute for the one
                 # the user asked about. Same attribute-agreement rule the two
                 # other recall sites apply, so all three agree.
-                if re.search(r"\b(?:name|named|called|nickname)\b", q):
+                if attribute_gate.asks_name_only(q):
                     _name_only = {
                         _a: _v for _a, _v in _facts.items()
-                        if isinstance(_v, str) and len(_v.split()) == 1
-                        and _v.strip().isalpha() and len(_v.strip()) > 1}
+                        if attribute_gate.is_name_shaped(_v)}
                     _facts = _name_only
                 if _facts:
                     _bits = _reconstruct_entity(_ent_hit, _facts)
