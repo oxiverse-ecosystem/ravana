@@ -403,6 +403,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .user_model import is_activity_attr as _is_activity_attr
+from .user_model import drops_copula
 from .user_model import activity_role_objects, _activity_role_phrases
 from . import attribute_gate
 from .personal_fact_store import QuantityMemory, render_count
@@ -3182,8 +3183,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         from .user_model import is_verb_phrase as _is_act
                     except Exception:
                         _is_act = lambda w: False
+                    # FIX-RV-13: the copula decision goes through the ONE
+                    # shared grammar rule (drops_copula) rather than a local
+                    # re-implementation of it.
                     _vv = (_v or "").strip()
-                    if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                    if drops_copula(_vv):
                         return f"your {_attr} {_v}."
                     return f"your {_attr} is {_v}."
                 # weak match: require >=2 salient cue tokens to co-occur in the
@@ -3238,7 +3242,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
-                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                        if drops_copula(_vv):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
             return None
@@ -3546,8 +3550,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             if not attribute_gate.is_name_shaped(_vs) \
                                     or _is_act(_vs):
                                 continue
+                        # FIX-RV-13: shared grammar rule (drops_copula) — a
+                        # past-finite predicate this round's miner can store
+                        # ("had surgery last month") must not take a present
+                        # copula.
                         _vv = (_v or "").strip()
-                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                        if drops_copula(_vv):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
         # ── (1c-pet) PET ACTIVITY RECALL (round 2026-08-22T0703Z, DEFECT D1) ──

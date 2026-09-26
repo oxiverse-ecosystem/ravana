@@ -169,6 +169,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 
 from .user_model import UserModel
 from .user_model import is_verb_phrase as _mem_is_activity_verb
+from .user_model import drops_copula as _mem_drops_copula
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -770,7 +771,7 @@ class MemoryMixin:
                         # D7 cued-recall render rule; seed lexicon, no authored
                         # text). A plain noun value keeps the copula.
                         _val_str = (val or "").strip()
-                        if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
+                        if _mem_drops_copula(_val_str):
                             bits.append(f"your {attr} {_val_str}")
                         else:
                             bits.append(f"your {attr} is {_val_str}")
@@ -818,7 +819,7 @@ class MemoryMixin:
                     # self-profile dump above + D7 cued recall) so a mined
                     # activity reads "your cabin's roof <val>", not "is <val>".
                     _val_str = (val or "").strip()
-                    if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
+                    if _mem_drops_copula(_val_str):
                         bits.append(f"your {ent}'s {attr} {_val_str}")
                     else:
                         bits.append(f"your {ent}'s {attr} is {_val_str}")
@@ -2418,7 +2419,7 @@ class MemoryMixin:
                             # fixes bicycles", not "is fixes bicycles". A plain
                             # noun value keeps the copula.
                             _sv = (str(_val) or "").strip()
-                            if _sv and _mem_is_activity_verb(_sv.split()[0]):
+                            if _mem_drops_copula(_sv):
                                 _bits.append(
                                     f"your {_ent}'s {_attr} {_sv}" if not _is_user
                                     else f"your {_attr} {_sv}")

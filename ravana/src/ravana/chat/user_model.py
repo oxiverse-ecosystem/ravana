@@ -269,6 +269,52 @@ def is_verb_phrase(word: str) -> bool:
     return is_activity_verb(word) or is_relation_verb(word) or is_aux_verb(word)
 
 
+# FIX-RV-13 (round auto/round-20260925T0823-fix-7): the PAST-FINITE class of
+# verb-phrase heads. is_verb_phrase above recognizes activity/relation verbs and
+# the do/does/did auxiliaries, so every render site correctly drops the copula
+# for those. It had no member for a past-tense auxiliary, which is the head of
+# a predicate that already carries its own tense.
+#
+# That gap became visible when the possession+predicate miner learned to store
+# a name-less predicative disclosure: "my dog had surgery last month" stores
+# "had surgery last month", and the render site — which only asks
+# is_verb_phrase — treated it as a NOUN phrase and emitted "your dog IS HAD
+# surgery last month". Right content, ungrammatical, and the user sees it as
+# RAVANA's own voice, so it is a real defect rather than cosmetics.
+#
+# The fix is the missing grammatical class, not an exception for this verb: a
+# past-finite head is a verb head, so the same copula-drop rule applies and the
+# predicate stands alone ("your dog had surgery last month"). Closed-class
+# auxiliary vocabulary — the same seed-vocabulary shape as _AUX_VERB_LEXICON,
+# carrying no answers.
+_PAST_FINITE_AUX = frozenset({
+    "had", "has", "have", "was", "were",
+})
+
+
+def is_past_finite_aux(word: str) -> bool:
+    """True when `word` is a past-finite auxiliary heading a predicate that
+    already carries its own tense, so a present copula must not be added
+    ("your dog had surgery", not "your dog is had surgery"). Pure closed-class
+    vocabulary lookup — no content, no authored replies."""
+    return (word or "").strip().lower().strip(".,!?;:'\"") in _PAST_FINITE_AUX
+
+
+def drops_copula(value: str) -> bool:
+    """The ONE grammar rule every personal-fact render site must use to decide
+    between "your <entity> <value>" and "your <entity> is <value>".
+
+    A value whose first word is a VERB head is a predicate and stands alone; a
+    value headed by a noun is a complement and takes the copula. Centralized
+    here so the miner and all four render sites agree BY CONSTRUCTION — the
+    sites previously each re-implemented the test and drifted, which is how
+    "is had surgery" reached the user. Pure function of the stored value."""
+    _first = (value or "").strip().split()
+    if not _first:
+        return False
+    return is_verb_phrase(_first[0]) or is_past_finite_aux(_first[0])
+
+
 # ── canonical activity-attribute helper (round 2026-08-29T0659Z, GENERALIZE) ──
 # DEFECT (slot-key collapse, classic class): every first-person activity was
 # stored under ONE shared attribute ("does"), and every lived experience under

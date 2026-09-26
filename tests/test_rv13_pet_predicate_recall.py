@@ -155,6 +155,40 @@ def test_cued_recall_returns_the_asked_episode_not_a_sibling():
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Defect E (introduced by this round's own miner, caught in the cold run):
+# the possession+predicate miner can now store a PAST-FINITE predicate
+# ("had surgery last month"). Every render site decided the copula with
+# is_verb_phrase, whose auxiliary vocabulary covers do/does/did but not a
+# past-tense head, so the stored predicate was treated as a noun complement
+# and the user was shown RAVANA saying "your dog IS HAD surgery last month".
+# The content was right and the grammar was not — the user reads that as the
+# engine's own voice.
+
+def test_past_finite_predicate_renders_without_a_present_copula():
+    from ravana.chat.user_model import drops_copula
+
+    for value, copula_free in (
+            ("had surgery last month", True),
+            ("was sick last week", True),
+            ("diagnosed with a chronic illness", False),
+            ("a chronic illness", False),
+    ):
+        assert drops_copula(value) is copula_free, (
+            f"copula decision wrong for stored value {value!r}: a past-finite "
+            "head carries its own tense and must not take a present copula")
+
+
+def test_cold_recall_of_a_past_finite_pet_fact_is_grammatical():
+    eng = _clean("rv13_grammar")
+    eng.process_turn("my dog had surgery last month and i am worried")
+    reply = eng.process_turn("what did i just tell you about my dog").lower()
+    assert "is had" not in reply, (
+        f"ungrammatical present copula on a past-finite predicate: {reply!r}")
+    assert "had surgery" in reply, (
+        f"the stored predicate was not rendered: {reply!r}")
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Defect C — an unresolved cue abstains instead of quoting a sibling turn.
 # ─────────────────────────────────────────────────────────────────────
 
