@@ -3635,6 +3635,25 @@ class UserModel:
                 if _cand is not None:
                     _pp_ent = (_cand, _j, _tk)
                     break
+            # The copula guard, at the position English actually puts it.
+            # The in-loop `_PP_COPULA` break above is DEAD for this shape: it
+            # tests each token BEFORE the entity is resolved, but in every
+            # possessive predicate the entity comes FIRST and the copula
+            # after it ("my dog IS a lurcher", "my cat HAS been diagnosed").
+            # The loop resolved the entity at token 0 and broke out long
+            # before reaching the copula, so the tail kept its copula and the
+            # value was stored as ('i','dog','is a lurcher named wren') --
+            # which every renderer then prefixes with "your dog is", yielding
+            # the doubled "your dog is IS a lurcher named wren". The same
+            # disclosure was also stored TWICE (equational + here).
+            #
+            # A copula directly after the entity means this is an EQUATIONAL
+            # disclosure, which the equational path already owns -- so stand
+            # down and let it. A grammatical position test, not a per-verb or
+            # per-species table.
+            if _pp_ent is not None and _pp_ent[1] + 1 < len(_rest) \
+                    and _rest[_pp_ent[1] + 1] in _PP_COPULA:
+                _pp_ent = None
             if _pp_ent is not None and _pp_ent[1] + 1 < len(_rest):
                 _sp, _j, _ent_word = _pp_ent
                 # Value = the predicate the user actually said. A leading
