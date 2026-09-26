@@ -140,4 +140,24 @@ def render_pair(ent: str, attr: str, value: str) -> Optional[str]:
     entity-or-attribute dance.
     """
     sp = species_of(str(ent)) or (base_species(attr) if is_pet_attribute(attr) else None)
-    return f"your {sp} is {value}" if sp else None
+    if sp is None:
+        return None
+    # FIX-RV-13 (round auto/round-20260925T0823-fix-7): this is the LAST copula
+    # site and it was the unconditional one. It renders the species-keyed pet
+    # slot, which for an animal the user never NAMED holds the predicate they
+    # disclosed about it -- the possession+predicate miner on this branch puts
+    # 'had surgery last month' in exactly that slot. So a past-finite predicate
+    # came out as "your dog is had surgery last month".
+    #
+    # The copula belongs to the same shared grammar rule every other site uses.
+    # Importing it here (rather than passing it in) keeps pet_slots -- the
+    # module that owns the species vocabulary -- free of any dependency on the
+    # chat engine, and guarantees a value rendered as a pet clause and a value
+    # rendered as a generic fact get the SAME grammar.
+    try:
+        from .user_model import drops_copula as _dc
+    except Exception:  # import cycle / standalone use of this module
+        _dc = None
+    if _dc is not None and _dc(str(value).strip()):
+        return f"your {sp} {value}"
+    return f"your {sp} is {value}"

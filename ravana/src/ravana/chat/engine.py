@@ -403,7 +403,9 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .user_model import is_activity_attr as _is_activity_attr
+from .user_model import drops_copula
 from .user_model import activity_role_objects, _activity_role_phrases
+from . import attribute_gate
 from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
@@ -3181,8 +3183,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         from .user_model import is_verb_phrase as _is_act
                     except Exception:
                         _is_act = lambda w: False
+                    # FIX-RV-13: the copula decision goes through the ONE
+                    # shared grammar rule (drops_copula) rather than a local
+                    # re-implementation of it.
                     _vv = (_v or "").strip()
-                    if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                    if drops_copula(_vv):
                         return f"your {_attr} {_v}."
                     return f"your {_attr} is {_v}."
                 # weak match: require >=2 salient cue tokens to co-occur in the
@@ -3237,7 +3242,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
-                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                        if drops_copula(_vv):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
             return None
@@ -3524,8 +3529,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             from .user_model import is_verb_phrase as _is_act
                         except Exception:
                             _is_act = lambda w: False
+                        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): a
+                        # pet slot holds ONE thing, so a query asking for a
+                        # specific ATTRIBUTE of the pet may only be answered
+                        # by a value that actually IS that attribute. Without
+                        # this gate "what is my cat's name" answered "your cat
+                        # is diagnosed with a chronic illness" — the right
+                        # animal, the wrong attribute, stated confidently. A
+                        # name is the short single token the user gave as the
+                        # animal's name; a predicate phrase is the animal's
+                        # STATE. Failing the gate we fall through so the
+                        # honest uncertainty path runs — the user was never
+                        # told a name, and saying so beats inventing one.
+                        # Structural (attribute agreement), not a per-topic
+                        # rule: it holds for any entity and any attribute.
+                        # `asks_name_only` stands the gate down for a COMPOUND
+                        # question, which asks for more than the name.
+                        if attribute_gate.asks_name_only(q):
+                            _vs = (_v or "").strip()
+                            if not attribute_gate.is_name_shaped(_vs) \
+                                    or _is_act(_vs):
+                                continue
+                        # FIX-RV-13: shared grammar rule (drops_copula) — a
+                        # past-finite predicate this round's miner can store
+                        # ("had surgery last month") must not take a present
+                        # copula.
                         _vv = (_v or "").strip()
-                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                        if drops_copula(_vv):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
         # ── (1c-pet) PET ACTIVITY RECALL (round 2026-08-22T0703Z, DEFECT D1) ──
@@ -3671,7 +3701,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         or any(t.startswith("pet") for t in _q_set_g)
                     )
                     if _references_pet:
-                        return f"your {_sp} is {_nm}."
+                        # FIX-RV-13: the slot this branch reads is keyed by
+                        # SPECIES, not by "name". When the user gave the animal
+                        # no name, that slot holds whatever predicate they
+                        # disclosed about it — this round's possession+predicate
+                        # miner stores "my dog had surgery last month" there as
+                        # 'had surgery last month'. The NAME branch then
+                        # rendered the pet's medical history as its identity:
+                        # "your dog is had surgery last month".
+                        #
+                        # So a name answer may only be given by a NAME-SHAPED
+                        # value (the same attribute-agreement rule the other
+                        # three recall sites on this card enforce). A value that
+                        # is not name-shaped is the animal's PREDICATE, and it
+                        # renders through the shared grammar rule instead —
+                        # never as an identity the user never supplied.
+                        _nm_s = (_nm or "").strip()
+                        if (_nm_s and len(_nm_s.split()) == 1
+                                and _nm_s.isalpha() and len(_nm_s) > 1
+                                and not drops_copula(_nm_s)):
+                            return f"your {_sp} is {_nm}."
+                        if _nm_s and _references_pet:
+                            return (f"your {_sp} {_nm_s}." if drops_copula(_nm_s)
+                                    else f"your {_sp} is {_nm_s}.")
                 # otherwise fall through (no pet answer) — let empathy /
                 # disclosure / generic recall handle the query.
         # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
@@ -5953,7 +6005,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         if _ov > _best_log_overlap:
                             _best_log_overlap = _ov
                             _best_entry = (_turn_num, _reply_text)
-                    if _best_entry and _best_log_overlap >= 1:
+                    # FIX-RV-13 (round auto/round-20260925T0823-fix-7): apply
+                    # the SAME _min_overlap the topic-keyed store above already
+                    # enforces, instead of accepting a single incidental shared
+                    # token. A threshold of 1 made this fallback a
+                    # most-recent-turn echo: every recall query shares at least
+                    # one ordinary content word with the most recent reply, so
+                    # an entity-cued recall that should have resolved ONE
+                    # episode ("about my cat") instead returned the SAME
+                    # unrelated turn as every other query ("about my dog",
+                    # "about hiking") — a confident quote of a memory the user
+                    # never asked about. RAVANA's bar is to fail CLOSED: with no
+                    # episode matching the cue the honest answer is no answer,
+                    # which lets the caller fall through to the episodic
+                    # retriever or to honest uncertainty. One shared token is
+                    # not evidence of the same topic.
+                    if _best_entry and _best_log_overlap >= _min_overlap:
                         _, _matched_text = _best_entry
                         _matched_text = _matched_text.strip()
                         if _matched_text:
@@ -6724,7 +6791,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # "[\w'-]+" greedily eats the possessive: "my cat's name" captures
             # "cat's" — normalize to the bare attribute so the store lookup hits.
             _attr = re.sub(r"'s$", "", _attr)
+            # A name query may only be answered by a name. This block captures
+            # the entity but DISCARDS which attribute was asked for (the
+            # trailing group is non-capturing), so it looked the entity up and
+            # rendered whatever it found — "what is my cat's name" came back
+            # "your cat is diagnosed with a chronic illness (i'm 65% sure)",
+            # right animal and wrong attribute with a confidence figure
+            # bolted to a fact the user never stated. Fail the gate and the
+            # turn falls through to honest uncertainty. Same
+            # attribute-agreement rule the other two recall sites apply.
+            # The gate stands down for a COMPOUND question, which asks for
+            # more than the name.
+            _pf_asked_name = attribute_gate.asks_name_only(user_input)
             _hit = self.user_model.personal_facts.get("i", _attr)
+            if _hit is not None and _pf_asked_name:
+                # A name is a short single token; a predicate phrase is state.
+                if not attribute_gate.is_name_shaped(_hit.value):
+                    _hit = None
             if _hit is not None:
                 _val = _hit.value
                 _conf = _hit.confidence

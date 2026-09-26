@@ -269,6 +269,52 @@ def is_verb_phrase(word: str) -> bool:
     return is_activity_verb(word) or is_relation_verb(word) or is_aux_verb(word)
 
 
+# FIX-RV-13 (round auto/round-20260925T0823-fix-7): the PAST-FINITE class of
+# verb-phrase heads. is_verb_phrase above recognizes activity/relation verbs and
+# the do/does/did auxiliaries, so every render site correctly drops the copula
+# for those. It had no member for a past-tense auxiliary, which is the head of
+# a predicate that already carries its own tense.
+#
+# That gap became visible when the possession+predicate miner learned to store
+# a name-less predicative disclosure: "my dog had surgery last month" stores
+# "had surgery last month", and the render site — which only asks
+# is_verb_phrase — treated it as a NOUN phrase and emitted "your dog IS HAD
+# surgery last month". Right content, ungrammatical, and the user sees it as
+# RAVANA's own voice, so it is a real defect rather than cosmetics.
+#
+# The fix is the missing grammatical class, not an exception for this verb: a
+# past-finite head is a verb head, so the same copula-drop rule applies and the
+# predicate stands alone ("your dog had surgery last month"). Closed-class
+# auxiliary vocabulary — the same seed-vocabulary shape as _AUX_VERB_LEXICON,
+# carrying no answers.
+_PAST_FINITE_AUX = frozenset({
+    "had", "has", "have", "was", "were",
+})
+
+
+def is_past_finite_aux(word: str) -> bool:
+    """True when `word` is a past-finite auxiliary heading a predicate that
+    already carries its own tense, so a present copula must not be added
+    ("your dog had surgery", not "your dog is had surgery"). Pure closed-class
+    vocabulary lookup — no content, no authored replies."""
+    return (word or "").strip().lower().strip(".,!?;:'\"") in _PAST_FINITE_AUX
+
+
+def drops_copula(value: str) -> bool:
+    """The ONE grammar rule every personal-fact render site must use to decide
+    between "your <entity> <value>" and "your <entity> is <value>".
+
+    A value whose first word is a VERB head is a predicate and stands alone; a
+    value headed by a noun is a complement and takes the copula. Centralized
+    here so the miner and all four render sites agree BY CONSTRUCTION — the
+    sites previously each re-implemented the test and drifted, which is how
+    "is had surgery" reached the user. Pure function of the stored value."""
+    _first = (value or "").strip().split()
+    if not _first:
+        return False
+    return is_verb_phrase(_first[0]) or is_past_finite_aux(_first[0])
+
+
 # ── canonical activity-attribute helper (round 2026-08-29T0659Z, GENERALIZE) ──
 # DEFECT (slot-key collapse, classic class): every first-person activity was
 # stored under ONE shared attribute ("does"), and every lived experience under
@@ -3572,6 +3618,174 @@ class UserModel:
                 _final_val = _val if _val else _kin
                 if not _put_fact_done and _final_val != _kin and (_name or _val):
                     _put_fact(_attr, _final_val, 0.6)
+
+
+        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): POSSESSION +
+        # PREDICATE disclosures with no copula and no name were mined by
+        # NOTHING. Every existing branch needs one of three shapes: an
+        # equational copula ("my X is/are Y"), an explicit name keyword
+        # ("my <species> named/called N"), or a relationship head word
+        # ("my <kin> ..."). A perfectly canonical first-person disclosure
+        # that states a PREDICATE about a possession falls between all three:
+        #
+        #   "my cat has been diagnosed with a chronic illness"
+        #   "my dog had surgery last month"
+        #   "my rabbit has been missing since friday"
+        #
+        # Measured COLD on a clean suffix: four such disclosures mined ZERO
+        # facts. Every downstream recall failure was a symptom of that — with
+        # nothing stored, the recall path could only echo an unrelated turn.
+        # So this is the ROOT-cause branch, not another retrieval patch.
+        #
+        # SHAPE, NOT TOPIC (the deciding test from the seed-vs-hardcoding
+        # rule): the branch recognizes the grammatical SHAPE "possessive noun
+        # phrase + predicate" and stores the predicate in the USER'S OWN
+        # WORDS. There is no per-species branch, no per-verb answer table and
+        # no authored reply — swap the species or the predicate and the
+        # content still comes from the disclosure. The entity word is resolved
+        # through the SAME live pet_slots vocabulary every other miner and
+        # recall site uses (species_of / learn_species / slot_for), so the
+        # miner and the recaller agree on the key BY CONSTRUCTION.
+        #
+        # Storage shape mirrors the equational path exactly: ('i', <slot>,
+        # <predicate>), which the recall resolvers already render as a pet
+        # slot ("your cat is ...") — no new render branch needed.
+        _pp_toks = list(re.findall(r"[a-z][a-z'-]*", q_clean.lower()))
+        if "my" in _pp_toks:
+            _rest = _pp_toks[_pp_toks.index("my") + 1:]
+            # A copula-led clause ("my cat IS sick") is already owned by the
+            # equational path. Skipping it here stops one disclosure being
+            # stored twice under two different shapes.
+            _PP_COPULA = {"is", "are", "was", "were", "am"}
+            # The tokens that can legitimately OPEN A PREDICATE about a
+            # possessed entity. English puts the predicate immediately after
+            # the entity ("my dog HAD surgery", "my cat HAS BEEN diagnosed",
+            # "my dog LIKES the park"), so the token following the entity is
+            # the clause's verb or auxiliary -- never another noun.
+            #
+            # This closed class is what separates the shape this branch exists
+            # to mine from a bare NP that merely CONTAINS a species word. In
+            # "my pet rock collection is huge" the tokens after "pet" are
+            # "rock" and "collection" -- nouns, i.e. the species word is a
+            # MODIFIER inside a longer noun phrase, not the possessed entity
+            # itself. Storing ('i','pet','rock collection is huge') from that
+            # is a false positive: a rock collection is not a pet.
+            # Grammatical (closed-class function words), not a topic or
+            # species table.
+            _PP_PRED_LEAD = _PP_COPULA | {
+                "has", "have", "had", "been", "being",
+                "does", "do", "did", "will", "would", "can", "could",
+                "shall", "should", "may", "might", "must",
+            }
+            _pp_ent = None
+            for _j, _tk in enumerate(_rest):
+                if _tk in _PP_COPULA or _tk in _pet_slots._PRONOUN_STOP:
+                    break
+                # The entity is a token the LIVE pet vocabulary already knows.
+                # We deliberately do NOT learn a species from an arbitrary
+                # word here: "my laptop has been ..." / "my sister plays ..."
+                # would register "laptop"/"sister" as animals and create bogus
+                # slots that leak on unknown-entity recall (the documented
+                # confabulation bar). The growth path already exists on the
+                # explicit name-keyword paths ("i have an axolotl named nyx"),
+                # which key on "named/called" — an unambiguous animal context
+                # this branch cannot infer. A species RAVANA has never heard
+                # of is honestly NOT mined here until the user names it; that
+                # limitation is logged, not papered over with a wider regex.
+                _cand = _pet_slots.species_of(_tk)
+                if _cand is None and _tk.isalpha() \
+                        and _tk not in _pet_slots._PRONOUN_STOP \
+                        and re.search(r"\b(?:named|called)\b", q_clean,
+                                      re.IGNORECASE):
+                    _cand = _pet_slots.learn_species(_tk)
+                if _cand is not None:
+                    # LOOKAHEAD, at claim time. English puts the predicate
+                    # (a verb or auxiliary) straight after a possessed entity,
+                    # never another noun -- so a species word followed by a
+                    # plain noun is a MODIFIER inside a longer NP, not the
+                    # entity itself. In "my pet rock collection is huge" the
+                    # species word "pet" is modified by "rock collection";
+                    # storing ('i','pet','rock collection is huge') claims a
+                    # rock collection is a pet. "my dog likes the park" is the
+                    # same shape ("likes" is a lexical verb, not a function
+                    # word) and belongs to the activity miner, not here.
+                    #
+                    # The lookahead must happen HERE, at the moment of the
+                    # claim: this loop breaks the instant it resolves an
+                    # entity, so a guard placed after the claim never runs.
+                    # Closed-class function words, not a topic/species table.
+                    _nxt = _rest[_j + 1] if _j + 1 < len(_rest) else None
+                    if _nxt is not None and re.match(r"^[a-z][a-z'-]*$", _nxt) \
+                            and _nxt not in _PP_PRED_LEAD \
+                            and _pet_slots.species_of(_nxt) is None:
+                        _cand = None
+                    else:
+                        _pp_ent = (_cand, _j, _tk)
+                        break
+            # The copula guard, at the position English actually puts it.
+            # The in-loop `_PP_COPULA` break above is DEAD for this shape: it
+            # tests each token BEFORE the entity is resolved, but in every
+            # possessive predicate the entity comes FIRST and the copula
+            # after it ("my dog IS a lurcher", "my cat HAS been diagnosed").
+            # The loop resolved the entity at token 0 and broke out long
+            # before reaching the copula, so the tail kept its copula and the
+            # value was stored as ('i','dog','is a lurcher named wren') --
+            # which every renderer then prefixes with "your dog is", yielding
+            # the doubled "your dog is IS a lurcher named wren". The same
+            # disclosure was also stored TWICE (equational + here).
+            #
+            # A copula directly after the entity means this is an EQUATIONAL
+            # disclosure, which the equational path already owns -- so stand
+            # down and let it. A grammatical position test, not a per-verb or
+            # per-species table.
+            if _pp_ent is not None and _pp_ent[1] + 1 < len(_rest) \
+                    and _rest[_pp_ent[1] + 1] in _PP_COPULA:
+                _pp_ent = None
+            if _pp_ent is not None and _pp_ent[1] + 1 < len(_rest):
+                _sp, _j, _ent_word = _pp_ent
+                # Value = the predicate the user actually said. A leading
+                # AUXILIARY chain is stripped only when it is genuinely
+                # auxiliary, i.e. when followed by the perfect/passive marker
+                # ("my cat HAS BEEN diagnosed" -> "diagnosed ..."); a simple
+                # past auxiliary IS the lexical verb and carries content
+                # ("my dog HAD surgery last month"), so it is kept. A
+                # grammatical distinction, not a per-verb table.
+                #
+                # The rest of the clause is kept VERBATIM (bounded) rather than
+                # through _opinion_topic: that resolver drops closed-class
+                # words to isolate a content HEAD, which is right for a topic
+                # key but WRONG here — it shredded the disclosed condition
+                # ("... diagnosed with a chronic illness" stored just
+                # "diagnosed"), silently dropping the user's content and
+                # making recall answer a different question than the one asked.
+                _tail = " ".join(_rest[_j + 1:])
+                _tail = re.sub(
+                    r"^(?:has|have|had|is|are|was|were)\s+(?=been\b|being\b)",
+                    "", _tail.strip(), flags=re.IGNORECASE)
+                _tail = re.sub(r"^(?:been|being)\s+", "", _tail.strip(),
+                               flags=re.IGNORECASE)
+                # CLAUSE BOUNDARY: a disclosure often continues past the
+                # predicate into a second, unrelated clause ("my dog had
+                # surgery last month AND I AM WORRIED"). Absorbing the tail
+                # filed the user's emotional state as the animal's medical
+                # history, so recall answered "your dog is had surgery last
+                # month and i am worried". Cut at the coordinating
+                # conjunction / sentence break, which is where the predicate
+                # actually ends. Grammatical boundary, not a content list.
+                _tail = re.split(
+                    r"\s+(?:and|but|because|so|then|although|though|while|"
+                    r"which|who|that)\s+|[.!?;]",
+                    _tail, maxsplit=1)[0]
+                _pred_full = " ".join(_tail.split()[:8]).strip(" .,!?;:'\"")
+                if _pred_full and _pred_full not in _VALUE_STOP \
+                        and not _pet_slots.species_of(_pred_full):
+                    # Find a FREE slot for this species so a second animal of
+                    # the same species does not overwrite the first's record
+                    # (the same multiplicity discipline the name paths use).
+                    _i = 1
+                    while _pet_slots.slot_for(_sp, _i) in self.personal_facts.facts:
+                        _i += 1
+                    _put_fact(_pet_slots.slot_for(_sp, _i), _pred_full, 0.55)
 
 
         # D3 (round v3): capture self-disclosed ACTIVITIES / possessions that the
