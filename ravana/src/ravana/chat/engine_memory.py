@@ -786,7 +786,12 @@ class MemoryMixin:
                 elif attr.startswith("event"):
                     bits.append(f"you {val}")
                 elif attr == "is":
-                    bits.append(f"your {ent} is {val}")
+                    # FIX-RV-13: a predicate value carries its own tense, so
+                    # it must not take a second copula ("your dog is had
+                    # surgery"). Same shared grammar rule as every other site.
+                    bits.append(f"your {ent} {val}"
+                                if _mem_drops_copula((val or "").strip())
+                                else f"your {ent} is {val}")
                 elif attr == "location":
                     bits.append(f"you live in {val}")
                 elif attr == "background":

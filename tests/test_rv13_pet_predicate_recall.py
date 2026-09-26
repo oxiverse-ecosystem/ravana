@@ -181,11 +181,21 @@ def test_past_finite_predicate_renders_without_a_present_copula():
 def test_cold_recall_of_a_past_finite_pet_fact_is_grammatical():
     eng = _clean("rv13_grammar")
     eng.process_turn("my dog had surgery last month and i am worried")
-    reply = eng.process_turn("what did i just tell you about my dog").lower()
-    assert "is had" not in reply, (
-        f"ungrammatical present copula on a past-finite predicate: {reply!r}")
-    assert "had surgery" in reply, (
-        f"the stored predicate was not rendered: {reply!r}")
+    # Check EVERY retrieval surface, not just the top-level reply: the cue
+    # pass and the structured resolver render the same stored fact through
+    # different code, and a past-finite copula bug lived in one of them
+    # while the other was already correct.
+    surfaces = {
+        "structured": eng.process_turn("what did i just tell you about my dog"),
+        "episodic": eng._retrieve_episodic("what did i just tell you about my dog"),
+    }
+    for name, reply in surfaces.items():
+        reply = (reply or "").lower()
+        assert "is had" not in reply and "is was" not in reply, (
+            f"ungrammatical present copula on a past-finite predicate via the "
+            f"{name} surface: {reply!r}")
+        assert "had surgery" in reply, (
+            f"the stored predicate was not rendered via {name}: {reply!r}")
 
 
 # ─────────────────────────────────────────────────────────────────────
