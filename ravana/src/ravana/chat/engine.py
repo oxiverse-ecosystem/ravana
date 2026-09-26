@@ -3701,7 +3701,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         or any(t.startswith("pet") for t in _q_set_g)
                     )
                     if _references_pet:
-                        return f"your {_sp} is {_nm}."
+                        # FIX-RV-13: the slot this branch reads is keyed by
+                        # SPECIES, not by "name". When the user gave the animal
+                        # no name, that slot holds whatever predicate they
+                        # disclosed about it — this round's possession+predicate
+                        # miner stores "my dog had surgery last month" there as
+                        # 'had surgery last month'. The NAME branch then
+                        # rendered the pet's medical history as its identity:
+                        # "your dog is had surgery last month".
+                        #
+                        # So a name answer may only be given by a NAME-SHAPED
+                        # value (the same attribute-agreement rule the other
+                        # three recall sites on this card enforce). A value that
+                        # is not name-shaped is the animal's PREDICATE, and it
+                        # renders through the shared grammar rule instead —
+                        # never as an identity the user never supplied.
+                        _nm_s = (_nm or "").strip()
+                        if (_nm_s and len(_nm_s.split()) == 1
+                                and _nm_s.isalpha() and len(_nm_s) > 1
+                                and not drops_copula(_nm_s)):
+                            return f"your {_sp} is {_nm}."
+                        if _nm_s and _references_pet:
+                            return (f"your {_sp} {_nm_s}." if drops_copula(_nm_s)
+                                    else f"your {_sp} is {_nm_s}.")
                 # otherwise fall through (no pet answer) — let empathy /
                 # disclosure / generic recall handle the query.
         # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
