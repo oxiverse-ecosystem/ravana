@@ -5825,6 +5825,12 @@ class UserModel:
         self.opinions.express_stance(topic, polarity=_p, confidence=conf,
                                      valence=v, arousal=a,
                                      provenance=_prov)
+        # Record the mined attitude for THIS turn's realizer (FIX-RV-15). The
+        # realizer used to be handed only the clause subject, so a stance that
+        # formed perfectly here was never rendered. Recording it at the single
+        # point where a mined stance is stored means every mining route is
+        # covered by construction — the record cannot drift from the store.
+        self.opinions.note_mined_stance(topic, _p)
 
     def _opinion_provenance(self, phrase: str) -> List[str]:
         """Return the salient content nouns of an opinion-object phrase.

@@ -2594,6 +2594,85 @@ class ResponseGenMixin(ChainWalkerMixin):
         # (single source of truth, shared with the unit test) so the runtime and
         # the regression test cannot drift apart.
         _has_clean_topic = has_clean_topic(topic, t)
+        # FIX-RV-15: render the stance that ACTUALLY FORMED this turn.
+        #
+        # `has_clean_topic(topic, t)` vetoes on the ORIGINAL utterance's
+        # comparative/opinion markers, so an opinion disclosure ALWAYS fell to
+        # the topicless pool and answered "nice, noted. what made you think of
+        # that?" — even though the miner had just stored a real attitude. The
+        # gate is right for a CLAUSE subject ("believe nuclear energy" must
+        # never become "you're believe nuclear energy") and wrong here, because
+        # the stance key is not the clause subject: it is a clean noun phrase
+        # resolved by the miner, with the reporting frame already stripped
+        # (see slot_naming.strip_reporting_frame).
+        #
+        # So when this turn actually mined an attitude, render THAT instead. The
+        # content is real state — the topic and polarity the store holds — and
+        # the polarity contributes ONE vocabulary token via _polarity_word, not
+        # a sentence. A dyadic comparative contributes BOTH sides, so the
+        # comparison the user actually stated is the comparison that comes
+        # back; dropping the loser would reintroduce the same information loss
+        # the storage fix just repaired.
+        #
+        # This is a READ of the miner's record, not a second miner: it renders
+        # whatever was stored, so a new mining pattern needs no change here,
+        # and a turn that mined nothing keeps the existing (correct) fallback.
+        #
+        # Deliberately NOT gated on `is_about_user`. That flag is a SURFACE test
+        # on the utterance's first token (^(i|i'm|we|my|me)\b), and an opinion
+        # disclosure does not have to open with a pronoun — "to me tea beats
+        # coffee" and "honestly i prefer trains over planes" both mine real
+        # stances and both fail that regex, which is how the stance formed and
+        # the reply still came out flat. Every key in `UserStanceStore` is by
+        # construction an attitude the USER holds (it is the user-stance store,
+        # not a world-fact store), so a non-empty `last_mined` is already proof
+        # the stance belongs to the user and needs no surface confirmation.
+        _mined = list(getattr(self.user_model.opinions, "last_mined", None) or [])
+        if _mined:
+            _rendered = []
+            for _mt, _mp in _mined[:2]:
+                # A stance key is ALREADY the miner's resolved content head.
+                # Re-running the clause-subject garble guard
+                # (`has_clean_topic`, whose action-verb list is built to catch
+                # "believe nuclear energy") on it is the WRONG authority and
+                # measurably so: that list contains "work", so the legitimate
+                # key "remote work" was rejected and the reply fell back to
+                # flat — a garble guard causing the very degeneracy it exists
+                # to prevent.
+                #
+                # The one authority for "is this a reflectable noun phrase" is
+                # the SAME normalizer that produced the key: the realizer asks
+                # the miner rather than keeping a second opinion. This is the
+                # standing "one module owns slot naming, N call sites agree by
+                # construction" rule.
+                #
+                # MEASURED SCOPE, not assumed: re-applying `_opinion_topic` is
+                # idempotent on every well-formed key ("remote work",
+                # "filter coffee", "driving downtown") and CHANGES a key still
+                # carrying a determiner, a preposition, or a whole preposed
+                # frame ("the office work" -> "office work", "on trains" ->
+                # "trains", "i think remote work" -> "remote work"). Those are
+                # skipped.
+                #
+                # KNOWN LIMIT, stated rather than papered over: idempotency does
+                # NOT catch a bare fused verb — "think remote work" and
+                # "believing nuclear energy" both survive it, because the
+                # normalizer keys off the frame's PRONOUN, which a
+                # pronoun-less key does not have. That is not a hole this check
+                # can close: such a key can no longer be produced, because the
+                # reporting frame is stripped at mining time (verified by
+                # test_render_has_no_speech_act_verb_in_the_key, and by the
+                # `leaks=[]` assertion in the cold verification). The guard is
+                # defence in depth against a key arriving by another route, not
+                # the thing that fixes the defect.
+                try:
+                    if self.user_model._opinion_topic(_mt) != _mt:
+                        continue
+                except Exception:
+                    continue
+                _rendered.append(f"you're {self._polarity_word(_mp)} {_mt}")
+            if _rendered:
+                return "; ".join(_rendered) + ". i've kept that."
         if is_about_user:
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:

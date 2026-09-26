@@ -299,7 +299,29 @@ class UserStanceStore:
         # consumed by the ack composer and cleared, never serialized as truth).
         # topic -> (old_polarity, new_polarity)
         self.last_reversal: Optional[Tuple[str, float, float]] = None
-        # Idempotency guard keyed by the NORMALIZED UTTERANCE, not turn_num:
+        # Transient record of the stances MINED this turn, so the realizer can
+        # render the attitude that ACTUALLY formed instead of the clause
+        # subject it was handed (FIX-RV-15). Without this the miner formed a
+        # perfectly good stance on "remote work" and the reply still came out
+        # "nice, noted. what made you think of that?" — the state existed and
+        # simply was not read.
+        #
+        # A LIST, not a single value, because a comparative is a dyadic
+        # proposition: the miner now stores BOTH sides (winner positive, loser
+        # negative) in one pass, and the realizer must render both or it
+        # silently drops half the comparison the user just stated. Ordered by
+        # mining order, which is the order the evidence appeared in the
+        # utterance. Deduplicated by topic, so a proposition matched by two
+        # patterns (exactly the shredding defect this fixes) contributes once.
+        #
+        # Transient in the same sense as `last_reversal`: consumed by the ack
+        # composer within the turn and cleared at the top of the next
+        # process_turn. It is never serialized as truth — the durable record is
+        # `stances` itself. A RUNTIME EXTENSION POINT, not a vocabulary: the
+        # realizer reads whatever the miner put here, so a new mining pattern
+        # needs no realizer change.
+        self.last_mined: List[Tuple[str, float]] = []
+        # Idempotency guard keyed on the NORMALIZED UTTERANCE, not turn_num:
         # a concession/retraction is mined TWICE within one process_turn — once
         # by the early gate (mine_personal_facts @ engine.py:2977) and once by
         # the self_disclosure -> observe_user_query -> mine_personal_facts path
@@ -314,6 +336,30 @@ class UserStanceStore:
 
     def clear_last_reversal(self):
         self.last_reversal = None
+
+    def clear_last_mined(self):
+        """Reset the per-turn mined-stance record (see `last_mined`)."""
+        self.last_mined = []
+
+    def note_mined_stance(self, topic: str, polarity: float) -> None:
+        """Record that a stance on `topic` was mined THIS turn.
+
+        Called by the opinion miner for every stance it stores, so the
+        realizer can render the attitudes that actually formed. Dedupes by
+        topic: a single proposition matched by two patterns is ONE attitude,
+        and the shredding this guards against is exactly what produced
+        several keys for one proposition.
+        """
+        key = (topic or "").lower().strip()
+        if not key:
+            return
+        for _i, (_t, _p) in enumerate(self.last_mined):
+            if _t == key:
+                # Same proposition re-mined: keep the sign the latest evidence
+                # gave it, so a later, stronger pattern is not averaged away.
+                self.last_mined[_i] = (_t, float(polarity))
+                return
+        self.last_mined.append((key, float(polarity)))
 
     def clear_reversal_guard(self):
         """Reset the per-utterance idempotency guard at the START of a turn.

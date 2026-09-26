@@ -6598,6 +6598,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             self.user_model.opinions.clear_last_reversal()
             self.user_model.opinions.clear_reversal_guard()
+            self.user_model.opinions.clear_last_mined()
         except Exception:
             pass
         # C-fix (round 2026-08-12T1234Z): reset the prior turn's
