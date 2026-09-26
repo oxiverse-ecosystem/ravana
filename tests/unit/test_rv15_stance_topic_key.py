@@ -17,6 +17,7 @@ fix shape was chosen, and the frame-strip tests use verbs ("i figure",
 "she maintains") that appear in no miner pattern, to show the strip is
 grammatical rather than a lookup of the verbs the miner happens to know.
 """
+import inspect
 import os
 import sys
 
@@ -32,8 +33,67 @@ for _p in (_PROJ, os.path.join(_PROJ, "ravana", "src"),
 
 os.environ.setdefault("RAVANA_OFFLINE", "1")
 
+# The `ravana` package must be bound to THIS worktree for the whole test
+# module, and that is not defensive over-engineering — it is correctness.
+#
+# tests/unit/test_pre_registered.py inserts a HARD-CODED absolute path
+# (C:\Users\Likhith\Documents\Projects\ravana) at sys.path[0] at import time.
+# Whichever test module pytest collects first decides where `ravana` binds for
+# the WHOLE session, and alphabetically that module is test_pre_registered — so
+# by the time this file is imported, `ravana` is already bound to the MAIN
+# checkout, which sits on whatever branch was last checked out and may predate
+# this branch entirely.
+#
+# Two failure modes follow, and the second is the dangerous one:
+#   1. a new module added on this branch is INVISIBLE, and the error reads
+#      "No module named 'ravana.chat.slot_naming'" — which looks like an
+#      uncommitted file (it is committed; `git cat-file -p HEAD:<path>` proves
+#      it) rather than a path-ordering artifact;
+#   2. worse, `UserModel` would come from the MAIN checkout, which does NOT
+#      contain this fix, so the tests would pass or fail against code nobody
+#      is shipping — a verdict about the wrong tree.
+#
+# So: drop any `ravana` bound elsewhere, put this worktree's source first,
+# and ASSERT the binding before testing anything.
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
+_RAVANA_SRC = os.path.join(_REPO, "ravana", "src")
+
+# Drop any `ravana` bound to a different checkout, and put THIS worktree's
+# package source first.
+for _m in [k for k in sys.modules
+           if k == "ravana" or k.startswith("ravana.")]:
+    del sys.modules[_m]
+if _RAVANA_SRC in sys.path:
+    sys.path.remove(_RAVANA_SRC)
+sys.path.insert(0, _RAVANA_SRC)
+
+# Prove the binding is the worktree, so a future reordering fails loudly here
+# instead of quietly testing the wrong tree.
+import ravana as _ravana_pkg  # noqa: E402
+_expected = os.path.join(_RAVANA_SRC, "ravana")
+_bound = list(getattr(_ravana_pkg, "__path__", []))
+assert _expected in _bound, (
+    f"ravana bound to {_bound}, expected this worktree's {_expected} — "
+    "these tests would otherwise verify a different checkout's code")
+_ravana_pkg.__path__ = [_expected]
+
 from ravana.chat.user_model import UserModel  # noqa: E402
+from ravana.chat.personal_fact_store import UserStanceStore  # noqa: E402
+
+# Now that the package is provably bound to this worktree, the ordinary
+# package import is correct and sufficient — no separate file-path load, which
+# would create a SECOND module object for the same file and make identity
+# comparisons between the two misleading.
 from ravana.chat.slot_naming import strip_reporting_frame  # noqa: E402
+
+# Pin the provenance that matters: the function under test must come from THIS
+# worktree's file, not merely from some `slot_naming` that happened to import.
+assert os.path.normcase(inspect.getsourcefile(strip_reporting_frame)) == \
+    os.path.normcase(os.path.join(_RAVANA_SRC, "ravana", "chat",
+                                  "slot_naming.py")), (
+    f"strip_reporting_frame came from "
+    f"{inspect.getsourcefile(strip_reporting_frame)}, not this worktree")
 
 
 @pytest.fixture()

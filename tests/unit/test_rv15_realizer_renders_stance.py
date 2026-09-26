@@ -33,6 +33,27 @@ for _p in (_PROJ, os.path.join(_PROJ, "ravana", "src"),
 
 os.environ.setdefault("RAVANA_OFFLINE", "1")
 
+# The `ravana` package must be bound to THIS worktree, for the same reason and
+# with the same stakes as in test_rv15_stance_topic_key.py:
+# tests/unit/test_pre_registered.py inserts a hard-coded absolute path to the
+# MAIN checkout at sys.path[0], and alphabetically it is collected first, so
+# `ravana` is already bound elsewhere by the time this module is imported.
+# Binding to the main checkout would test a tree that does not contain this
+# fix — a verdict about code nobody is shipping, which is worse than a
+# collection error. Assert the binding rather than assume it.
+for _m in [k for k in sys.modules
+           if k == "ravana" or k.startswith("ravana.")]:
+    del sys.modules[_m]
+_RAVANA_SRC = os.path.join(_PROJ, "ravana", "src")
+if _RAVANA_SRC in sys.path:
+    sys.path.remove(_RAVANA_SRC)
+sys.path.insert(0, _RAVANA_SRC)
+
+import ravana as _ravana_pkg  # noqa: E402
+assert os.path.join(_RAVANA_SRC, "ravana") in list(_ravana_pkg.__path__), (
+    f"ravana bound to {list(_ravana_pkg.__path__)}, expected this worktree")
+_ravana_pkg.__path__ = [os.path.join(_RAVANA_SRC, "ravana")]
+
 from ravana.chat.user_model import UserModel  # noqa: E402
 from ravana.chat.personal_fact_store import UserStanceStore  # noqa: E402
 from ravana.chat.realizer_lexicon import has_clean_topic  # noqa: E402
