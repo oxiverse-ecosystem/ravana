@@ -63,7 +63,7 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | Adaptation | `core/adaptation.py` | `tests/unit/test_adaptation.py` | **GREEN** | Plasticity modulation |
 | Active epistemology | `core/active_epistemology.py` | `tests/unit/test_active_epistemology.py` | **GREEN** | VoI-driven action selection |
 | Human memory | `core/human_memory.py` | `tests/unit/test_grace_memory_sleep_state.py` | **GREEN** | Episodic + semantic split |
-| Meaning / intrinsic motivation | `core/meaning.py` | (covered by engine meaning tests) | **YELLOW** | No dedicated unit test; exercised via `MeaningEngine` in engine boot |
+| Meaning / intrinsic motivation | `core/meaning.py` | `tests/unit/test_meaning.py` | **GREEN** | 32 tests (added 2026-09-27, the first test file matching *meaning* anywhere under `tests/`). Imports through the engine's real path (`from ravana_grace.core.meaning import MeaningEngine, MeaningConfig`, same as `chat/engine.py:245`). Covers `compute_meaning` breakdown + all three weight-response branches, the `max(0, ...)` clamps, effort amplification, the predictive-gain EMA window, the stake/resolve round-trip, `get_expected_meaning` and `get_status`. This suite found a real dead-guard bug in the module — see "How this ledger was verified" |
 | Empathy | `core/empathy.py` | `tests/unit/test_empathy.py` | **GREEN** | VAD × cause → response frame |
 | Strategy | `core/strategy.py` | `tests/unit/test_grace_planning_intent.py` | **GREEN** | Exploration modes |
 | Occam layer | `core/occam_layer.py` | `tests/unit/test_occam_layer.py` | **GREEN** | Dedicated suite exists. Re-graded 2026-09-30: the previous "no standalone test" evidence was false. |
@@ -102,6 +102,67 @@ Notes (added 2026-09-30):
   is currently failing — see backlog task 9.
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
+
+---
+
+## How this ledger was verified
+
+The 2026-09-14 ledger carried three YELLOW grades whose stated evidence was
+**false**: it claimed "no standalone test" for `Occam layer` and
+`Predictive world model` and "no dedicated unit test" for `MonitorMixin`,
+while `tests/unit/test_occam_layer.py`, `tests/unit/test_predictive_world.py`,
+`tests/unit/test_predictive_coding_v2.py` and
+`tests/unit/test_monitor_observability.py` all existed in the tree. A grade
+whose evidence does not exist is worse than a YELLOW — it hides the coverage.
+
+Re-verified on 2026-09-27 (RAVANA_OFFLINE=1, `.venv-real`):
+
+```
+pytest tests/unit/test_occam_layer.py tests/unit/test_predictive_world.py \
+       tests/unit/test_predictive_coding_v2.py -q
+  -> 27 passed in 47.18s          (16 + 8 + 3 = 27, matches the ledger counts)
+
+pytest tests/unit/test_monitor_observability.py -q
+  -> 14 passed in 260.66s         (7 test functions; 2 are parametrized)
+```
+
+`Meaning / intrinsic motivation` was the one YELLOW that was **true** — no
+test file matching `meaning` existed anywhere under `tests/`
+(`find tests -iname '*meaning*'` returned nothing). It is now GREEN with
+`tests/unit/test_meaning.py` (32 tests).
+
+### The dead-guard bug the new meaning suite found
+
+Writing `test_meaning.py` from the module's contract — rather than fitting
+tests to current behaviour — immediately failed against unmodified source:
+`test_inauthentic_high_effort_is_penalised` (2 failed, 30 passed).
+
+`MeaningEngine.compute_meaning` gated its authenticity check on
+`effort_multiplier > 1.5`. `effort` is documented as 0–1 in that method's own
+docstring, and the multiplier is `1.0 + effort_kappa * effort`; at the default
+`effort_kappa=0.5` the maximum reachable multiplier over the entire
+documented effort range is **exactly 1.5**. A strict `>` therefore never
+matched. `MeaningRecord.authentic` was always `True`, the 0.5 inauthenticity
+penalty never fired, and `get_status()["authenticity_rate"]` was
+hard-wired to `1.0` in production.
+
+Measured over the effort range with default `MeaningConfig`:
+
+| effort | multiplier | `authentic` (before) | in documented 0–1 domain? |
+|--------|-----------|----------------------|---------------------------|
+| 0.0 | 1.00 | True | yes |
+| 0.5 | 1.25 | True | yes |
+| 0.9 | 1.45 | True | yes |
+| 1.0 | 1.50 | True | yes (maximum) |
+| 1.5 | 1.75 | False | **no** |
+| 2.0 | 2.00 | False | **no** |
+
+The guard could only fire outside the domain it was written for. Fixed by
+making the bound inclusive (`>= 1.5`); no other behaviour changed, and
+`tests/unit/test_grace_memory_sleep_state.py` (35 tests) stays green.
+
+This is the argument for a ledger that cites real nodes: the false YELLOW on
+`Meaning` is precisely what left that dead guard unexamined.
 
 ---
 
