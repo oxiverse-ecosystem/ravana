@@ -431,6 +431,7 @@ from ravana.language.register import RegisterController
 
 
 from .engine_graph import GraphMixin
+from .first_party_admission import FirstPartyAdmissionMixin, _FP_FLOOR_THRESHOLD
 from .engine_reasoning import ReasoningMixin
 from .engine_memory import MemoryMixin
 from .engine_web_search import WebSearchMixin
@@ -449,7 +450,7 @@ class _SkipEpisodicEcho(Exception):
     """
 
 
-class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMixin, WebSearchMixin, GenerationMixin, SelfQueryMixin, PersistenceMixin, MonitorMixin):
+class CognitiveChatEngine(WebLearningMixin, GraphMixin, FirstPartyAdmissionMixin, ReasoningMixin, MemoryMixin, WebSearchMixin, GenerationMixin, SelfQueryMixin, PersistenceMixin, MonitorMixin):
     """RAVANA cognitive chat engine -- starts as a baby, learns from the web.
 
     Composed of the mixins imported above; the methods defined inline
@@ -1806,6 +1807,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._provisional_nodes: Dict[str, Set[str]] = {}  # label -> set of source URLs
         self._junk_theta: float = 0.5        # junk_score threshold for admission
         self._promote_min_sources: int = 2   # distinct sources required to promote
+        # FIX-RV-16: the first-party (conversational) admission gate. Stricter
+        # than `_junk_theta` because a first-party token is admitted on a
+        # SINGLE utterance instead of waiting for 2-source corroboration, so it
+        # must be clean on its face. See first_party_admission.py.
+        self._fp_floor_threshold: float = _FP_FLOOR_THRESHOLD
         # Round 5 (D1): self-supervised junk_score — point the singleton at this
         # engine's data dir so weak labels + fitted model persist (junk_labels.jsonl,
         # junk_classifier.json). Cold-start reproduces the Round-4 formula exactly.
@@ -6591,6 +6597,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.rng.random()
         except Exception:
             pass
+        # FIX-RV-16: first-party vocabulary admission. This is the online
+        # learning path that was structurally dead: `_learn_from_text` is only
+        # reachable from the web fetchers, so nothing the user SAID ever
+        # reached the ConceptGraph and `_learning_count` stayed 0 forever
+        # (it was incremented only inside `learn_from_web`, after the offline
+        # early-return). It runs HERE — above every early-return path — so a
+        # novel word is admitted even on turns a short-circuit strategy claims.
+        # Wrapped because learning must never be able to break a reply.
+        try:
+            self._admit_first_party_utterance(user_input)
+            self._fp_reinforce(user_input)
+        except Exception as _fp_err:
+            if self._trace_enabled:
+                print(f"  [learn] first-party admission skipped: "
+                      f"{type(_fp_err).__name__}: {_fp_err}")
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
