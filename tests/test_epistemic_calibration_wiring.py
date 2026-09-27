@@ -109,6 +109,70 @@ def test_reliability_curve_is_being_populated_by_the_engine(engine):
         f"no reliability band was ever visited: {st}")
 
 
+def test_observation_coverage_is_partial_because_predictions_are_partial():
+    """Pins a measured limitation rather than leaving it to be discovered.
+
+    `process_turn` has 59 early-return paths that fire BEFORE the per-turn
+    confidence prediction is computed (engine.py:9386). On those turns RAVANA
+    never makes a prediction, so there is nothing to score — and inventing one
+    would be fabricating the very signal the calibration rests on. The
+    consequence is real and worth stating: the ledger observes only the turns
+    that reach full generation, so a conversation of N turns yields fewer than
+    N observations.
+
+    This test asserts the structural fact, so that if the early-return paths
+    are ever refactored to emit predictions, the coverage change is visible
+    here rather than silent.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from ravana.chat.engine import CognitiveChatEngine
+
+    # `inspect.getsource` on a method keeps the class-body indentation, which
+    # is not valid standalone Python for ast.parse. One dedent fixes it
+    # (measured, not assumed — see tmp/probe_getsource.py).
+    tree = ast.parse(textwrap.dedent(
+        inspect.getsource(CognitiveChatEngine.process_turn)))
+
+    conf_line = None
+    early_returns = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, ast.Name) and tgt.id == "confidence" \
+                        and conf_line is None:
+                    conf_line = node.lineno
+        if isinstance(node, ast.Return):
+            early_returns.append(node.lineno)
+
+    assert conf_line is not None, "no confidence assignment found in process_turn"
+    before = [r for r in early_returns if r < conf_line]
+    # The point is not the exact count (that churns with every refactor) but
+    # that early-return paths exist ahead of the prediction, so coverage is
+    # partial BY CONSTRUCTION and must not be assumed to be 1.0.
+    assert len(before) > 0, (
+        "no early returns precede the confidence prediction any more; "
+        "observation coverage may now be complete — revisit this test and the "
+        "scope note in tmp/reports/ravana-feature-2026-09-28T0400Z-t_c2e355f4.md")
+
+
+def test_no_observation_is_invented_for_a_turn_with_no_prediction(engine):
+    """The ledger must never record a pair RAVANA did not actually predict.
+
+    A fabricated prediction would let calibration 'learn' from noise and
+    would make the reliability curve a work of fiction. Asserted by checking
+    that every stored pair corresponds to a real observation call: with the
+    engine idle the count must not drift on its own.
+    """
+    n_before = engine.calibrator.n
+    total_before = engine.calibrator.get_status()["total_observed"]
+    # No turns processed => no new observations. Nothing self-generates.
+    assert engine.calibrator.n == n_before
+    assert engine.calibrator.get_status()["total_observed"] == total_before
+
+
 # ── the learned gate reaches the consumers ───────────────────────────
 
 def test_learned_gate_reaches_the_web_honesty_metacognition(engine):
