@@ -76,6 +76,51 @@ from ravana._import_guard import report_missing  # non-silent import-guard loggi
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss_attrs
 
+# SINGLE SOURCE OF TRUTH for "is this turn asking RAVANA for its OWN stance?".
+# Two independent routers need this judgement — `_route_self_query`'s
+# _agent_opinion gate and `_self_cued_episodic`'s source-monitoring gate — and
+# two hand-kept copies of the same phrase list is precisely how the two drift
+# apart and one of them starts stealing the other's turns. Defined once here
+# (the module that owns episodic/memory routing) and imported by the self-query
+# router.
+#
+# Also covers "are you still ..." (a self-opinion RECALL) and "do i <verb> ..."
+# (the user asking RAVANA to confirm THEIR OWN stance), both of which share the
+# user's content cues with the stored disclosure and would otherwise be
+# answered out of the episodic record instead of from the stance stores.
+_SELF_OPINION_SHAPE = (
+    r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
+    r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
+    r"|how\s+do\s+you\s+(feel|think)\s+about\b"
+    r"|what'?s\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
+    r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
+    r"|what\s+is\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
+    r"|give\s+me\s+your\s+(honest\s+)?(read|take|view|opinion)\s+(on|about)\b"
+    r"|your\s+(honest\s+)?(read|take|view)\s+(now|these\s+days)?\s*(on|about)\b"
+    r"|are\s+you\s+still\b"
+    r"|do\s+i\s+(like|love|hate|think|feel|believe)\b"
+    r"|what\s+do\s+you\s+make\s+of\b)"
+)
+
+# Closed-class + recall-scaffold vocabulary used to reduce a recall query to
+# its CONTENT CUE. This is a grammatical/scaffolding class, not a topic table:
+# it is identical in kind to the per-call _RECALL_SCAFFOLD / _GENERIC_CUE sets
+# already used by _retrieve_episodic, hoisted to module scope so every recall
+# entry point strips the same words (a second, divergent copy is how cue
+# drift bugs start).
+_RECALL_SCAFFOLD_CUES = {
+    "remember", "recall", "remind", "told", "said", "say", "say", "telling",
+    "tell", "mention", "mentioned", "ask", "asked", "what", "when", "where",
+    "which", "who", "whom", "whose", "why", "how", "earlier", "before",
+    "about", "thing", "things", "did", "do", "does", "you", "your", "yours",
+    "i", "me", "my", "mine", "we", "our", "the", "a", "an", "that", "this",
+    "these", "those", "is", "are", "was", "were", "be", "been", "have", "has",
+    "had", "and", "or", "but", "of", "on", "in", "at", "to", "for", "from",
+    "with", "there", "here", "any", "some", "again", "then", "than", "so",
+    "still", "also", "just", "very", "much", "more", "most", "can", "could",
+    "would", "should", "will", "shall", "may", "might", "must", "am",
+}
+
 # Defect F: learned structural-PE snippet model (contrastive gap). Imported
 # lazily-safe so a missing module degrades gracefully (the gate stays None and
 # the old heuristic floor remains the backstop, never weakened).
@@ -608,6 +653,146 @@ class MemoryMixin:
                 scored.append((rec, score))
         scored.sort(key=lambda item: item[1], reverse=True)
         return scored
+
+    def _self_cued_episodic(self, query: str) -> Optional[str]:
+        """Retrieve a user's OWN prior disclosure by CONTENT CUE, without
+        requiring an explicit "remember / what did i say" act.
+
+        RAVANA's hippocampal retrieval was gated on the SHAPE of a recall
+        request ("remember what i told you about X"). A follow-up question
+        about an entity the user JUST disclosed ("my cousin meera restores
+        antique clocks in pune" -> "where does meera restore clocks") is
+        cued by the same content, but carries no recall verb, so the gate
+        never fired: the turn fell through to the world-knowledge path,
+        web search fired, and RAVANA answered from the WORLD about a fact
+        it already held from the USER. This is a source-monitoring failure
+        (Mitchell & Johnson 2009) — RAVANA reached outside before checking
+        its own record.
+
+        This capability is the hippocampal check that runs BEFORE the
+        external hands: retrieval-by-cue rather than retrieval-by-act.
+
+        Evidence bar (all structural, no topic table, no answer strings):
+          * the input is a question (a new disclosure is never a recall);
+          * a content cue survives stopword/question-scaffold stripping;
+          * the winning store record is a USER TURN (not a question, not
+            a recall query) and is not the query itself;
+          * that cue is SPECIFIC in the live store — it appears in at most
+            a third of the records — so a word common to every disclosure
+            can never anchor a recall;
+          * the cue stem-matches the winning record (Porter), so
+            morphology variation ("restore"/"restores") still hits.
+
+        Online and incremental: the store is read live, so a disclosure made
+        this turn is retrievable on the next one. No retraining, no new
+        subsystem, and the answer text is rendered by the existing
+        `_reconstruct_gist` from the stored record — nothing authored here.
+        Fails CLOSED (None) whenever the evidence bar is not met.
+        """
+        q = (query or "").strip()
+        if not q or not self._is_question(q):
+            return None
+        qn = q.lower()
+        # ── SOURCE-MONITORING GATE: an ask about RAVANA's OWN stance is not a
+        # recall of the user's disclosure ─────────────────────────────────────
+        # "do you think i hate cold coffee?" shares every content cue with the
+        # stored disclosure "i hate cold coffee" — cue coverage alone therefore
+        # matched it, and this capability echoed the user's own words back
+        # instead of letting the stance machinery answer. The retrieval target
+        # is RAVANA's belief, not the user's record, so the episodic store is
+        # the wrong source and the turn must fall through.
+        #
+        # This consults the SINGLE shared self-opinion pattern
+        # (_SELF_OPINION_SHAPE below), the same constant
+        # `_route_self_query._agent_opinion` matches on
+        # (engine_self_query.py:1268) — one definition, two call sites, so the
+        # two routers cannot drift apart.
+        if re.search(_SELF_OPINION_SHAPE, qn):
+            return None
+        store = self._episodic_transcript or []
+        if not store:
+            try:
+                _idxr = getattr(self, "_episodic_indexer", None)
+                if _idxr is not None:
+                    store = [{"text": getattr(ep, "text", ""),
+                              "facts": getattr(ep, "facts", {}) or {}}
+                             for ep in _idxr.all()]
+            except Exception:
+                store = []
+        if not store:
+            return None
+        # Candidate pool: USER turns only (a question or a recall query is not
+        # shareable content), excluding the query itself.
+        eligible = []
+        for rec in store:
+            text = (rec.get("text", "") or "").lower()
+            if not text or text == qn:
+                continue
+            if self._is_question(text):
+                continue
+            if re.search(
+                r"\b(remember|recall|remind(?: me)?)\b"
+                r".*\b(told|said|ask|mention|tell|mentioned|asked)\b", text):
+                continue
+            eligible.append(rec)
+        if not eligible:
+            return None
+        # Content cues: strip question words and recall scaffolding so the
+        # cue is the subject matter the user actually disclosed.
+        cues = [w for w in re.findall(r"[a-z']+", qn)
+                if len(w) >= 3 and w not in _RECALL_SCAFFOLD_CUES]
+        if not cues:
+            return None
+        try:
+            from nltk.stem import PorterStemmer as _PS
+            _stem = _PS().stem
+        except Exception:
+            _stem = (lambda w: w)
+        # Cue coverage per stored user turn. Coverage is measured in DISTINCT
+        # query cues stem-matched by the record, so morphology variation
+        # ("restore"/"restores") counts as the same cue.
+        #
+        # COVERAGE is the source-monitoring discriminator, and it is what
+        # separates a question about the user's own life from a world question
+        # that merely shares a word with it:
+        #   "where does meera restore clocks" -> the record accounts for
+        #       meera + restore + clocks = 3/3 of the query's content. The
+        #       user is asking me to re-surface what they told me.
+        #   "what is cooking oil made of" -> the record accounts only for
+        #       "cooking" = 1/3. The question is really about oil and what it
+        #       is made of, which the user never told me; answering it from
+        #       the autobiographical record would be confabulation dressed as
+        #       recall. A single shared word is a coincidence, not a cue.
+        # A record must therefore account for a MAJORITY of the query's
+        # content cues. The threshold is structural (majority, not a tuned
+        # constant) and is recomputed against the live query every time.
+        n = len(eligible)
+        _stem_sets = []
+        for rec in eligible:
+            _stem_sets.append({
+                _stem(w) for w in re.findall(
+                    r"[a-z']+", (rec.get("text", "") or "").lower())})
+        # Rarity (idf-like): a cue carried by MOST of the store is a
+        # background word, not evidence. Computed live so it scales with the
+        # store: one qualifying record in a one-record store is legitimate
+        # evidence, while a word shared by every record in a large store is
+        # not. Coverage AND rarity are both required — either alone lets a
+        # coincidence through.
+        _max_df = max(1, n // 2)
+        _need = (len(cues) // 2) + 1
+        _cand = []
+        for _i, rec in enumerate(eligible):
+            _matched = [c for c in cues
+                        if _stem(c) in _stem_sets[_i]
+                        and sum(1 for _s in _stem_sets
+                                if _stem(c) in _s) <= _max_df]
+            if len(_matched) < _need:
+                continue
+            _cand.append((len(_matched), _i))
+        if not _cand:
+            return None
+        _cand.sort(reverse=True)
+        return self._reconstruct_gist(eligible[_cand[0][1]])
 
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
