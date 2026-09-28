@@ -3637,7 +3637,19 @@ class ResponseGenMixin(ChainWalkerMixin):
                         + (1.0 if bundle.get("has_definition") else 0.0)
                         + (0.5 if bundle.get("retrieval_succeeded") else 0.0))
         conf = fok_confidence(support, bundle.get("retrieval_succeeded", False))
-        may_assert, modality = should_assert(conf)
+        # Assert-gate from the engine's ONLINE calibration ledger, not the
+        # module default. `self.calibrator` learns this engine's signed
+        # calibration bias from its own (confidence, realized-quality) pairs
+        # and shifts the bar: an overconfident engine hedges more. At cold
+        # start the ledger returns the base exactly, so this is identical to
+        # the previous default-gate behaviour until real evidence accrues.
+        _theta = None
+        try:
+            _theta = self.calibrator.theta_withhold()
+        except Exception:
+            _theta = None      # no calibrator => fall back to the module default
+        may_assert, modality = (should_assert(conf) if _theta is None
+                                else should_assert(conf, _theta))
 
         # Assert real retrieved state when confidence clears the gate.
         if may_assert and (bundle.get("has_definition") or bundle.get("facts") or bundle.get("stance") is not None):

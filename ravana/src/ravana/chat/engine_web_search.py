@@ -536,6 +536,16 @@ class WebSearchMixin:
                     from ravana.chat.metacognition import Metacognition
                     _mc = getattr(self, "_metacognition", None) or Metacognition()
                     self._metacognition = _mc
+                    # Feed the ACC gate the engine's LEARNED assert-threshold
+                    # rather than the fixed module default, so the numeric-claim
+                    # honesty gate follows the same online calibration as the
+                    # rest of the surface. `_metacognition` is long-lived, so the
+                    # assignment must be refreshed each turn, not just at
+                    # construction. Absent calibrator => leave the default.
+                    try:
+                        _mc.theta_withhold = self.calibrator.theta_withhold()
+                    except Exception:
+                        pass
                     # support = how many graph edges / stored beliefs back the subject
                     _support = float(len(getattr(self, "_concept_keywords", {})
                                         .get(ctx.subject.lower(), [])))

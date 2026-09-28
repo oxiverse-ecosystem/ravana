@@ -1732,12 +1732,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
         self._calibration_error: float = 0.0
-        # P2-C: calibration signal (was dead state). Track recent response
-        # quality to derive a real error rate + adaptive window. Cold-start:
-        # buffer empty => error 0.0, window 15 (today's behavior). No
-        # theta_withhold modulation is wired because no prediction-vs-quality
-        # pair exists in the codebase to drive it; this makes the signal
-        # observable for future calibration work instead of leaving it dead.
+        # Online epistemic calibration. The pair this needed — a per-turn
+        # confidence prediction and a per-turn realized-quality outcome —
+        # was previously computed and discarded separately, which is why the
+        # comment below used to say no theta_withhold modulation was possible.
+        # process_turn now feeds both into this ledger, and the ledger's
+        # learned bias shifts the assert-gate. Cold start is the identity
+        # (bias 0.0 => theta unchanged), so this is behaviour-preserving
+        # until RAVANA has actually accumulated evidence.
+        from ravana.chat.calibration import EpistemicCalibrator
+        self.calibrator = EpistemicCalibrator()
+        # P2-C: calibration signal. Track recent response quality to derive a
+        # real error rate + adaptive window. Cold-start: buffer empty =>
+        # error 0.0, window 15 (today's behavior). This rolling window is the
+        # raw, unshrunk view; `calibrator` above is the shrunk, gated one and
+        # is what now drives behaviour.
         self._calib_buf: list = []
         self._calib_window: int = 15
         self._metacognitive_review_turn: int = 0
@@ -9812,8 +9821,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # quality into a short buffer; derive a real error rate (1 - quality)
         # and an adaptive window via rolling std (stable => wider, volatile
         # => narrower). At cold-start (buffer empty) error=0.0, window=15
-        # => identical to the legacy fixed behavior. No theta_withhold
-        # modulation: no prediction-vs-quality pair exists to drive it.
+        # => identical to the legacy fixed behavior. This rolling window is
+        # the raw view; the shrunk, gated view is `self.calibrator` below.
         self._calib_buf.append(quality_score)
         if len(self._calib_buf) > 60:
             self._calib_buf = self._calib_buf[-60:]
@@ -9830,6 +9839,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _target = 5
             # EMA toward target so the window drifts, never snaps.
             self._calib_window = int(round(0.9 * self._calib_window + 0.1 * _target))
+
+        # ─── Online epistemic calibration: the prediction/outcome pair ───
+        # This is the pair the code above used to say did not exist.
+        #
+        # `confidence` (set at the top of process_turn from identity strength)
+        # is RAVANA's PREDICTION for the turn. `quality_score` (just scored) is
+        # the realized OUTCOME. Feeding both to the calibrator lets RAVANA
+        # learn whether its own confidence tracks what it actually produces,
+        # and shifts its assert-gate off that learned bias.
+        #
+        # `confidence` is the last value bound in this frame; it is
+        # deliberately NOT recomputed here, so the recorded prediction is
+        # exactly the number the dual-process router acted on.
+        try:
+            self.calibrator.observe(float(confidence), float(quality_score))
+        except Exception:
+            # Calibration must never be able to break a turn. A failure here
+            # means the ledger is unchanged, i.e. the gate simply stays at its
+            # base value — the cold-start identity, which is safe.
+            pass
 
         # Phase 19g: if the generated response was flagged as word salad /
         # tautology (e.g. "gravity and time causes time"), do NOT emit it.
@@ -10436,6 +10465,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # Reflective monitoring
                 'episodic_edges': _episodic_edges,
                 'semantic_edges': _semantic_edges,
+                # Online epistemic calibration ledger: persist the accumulated
+                # (confidence, realized-quality) pairs and the per-band
+                # reliability accumulators, so a learned calibration curve
+                # survives a reload instead of resetting to cold start every
+                # session. Without this the capability would only ever learn
+                # within a single process lifetime.
+                'epistemic_calibration': (self.calibrator.get_state()
+                                         if getattr(self, 'calibrator', None) is not None
+                                         else None),
                 # ConnectorLearner state (Item 3, P1): persist the learned
                 # connector->relation mappings + prototype centroids so they
                 # survive reloads and accumulate across sessions (previously
@@ -11094,6 +11132,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _ti and getattr(self, 'triplet_op', None) is not None:
                 try:
                     self.triplet_op.from_dict(_ti)
+                except Exception:
+                    pass
+
+            # Restore the online epistemic calibration ledger so a learned
+            # reliability curve and assert-gate carry across sessions.
+            # `load_state` fails closed on unusable input, leaving the ledger
+            # at cold start (gate = base), which is the safe default.
+            _ec = state.get('epistemic_calibration')
+            if _ec and getattr(self, 'calibrator', None) is not None:
+                try:
+                    self.calibrator.load_state(_ec)
                 except Exception:
                     pass
 
