@@ -103,146 +103,99 @@ def _trim_url_match(url: str) -> str:
     return url
 
 
-# Personal-possessive entity words — seed vocabulary (expandable at runtime).
-# These are common nouns that, when combined with a possessive pronoun ("my",
-# "your"), indicate an autobiographical query rather than a world-knowledge
-# gap. This is seed data, not a hardcoded trigger: the set can be extended at
-# runtime via add_personal_entity_words() as new entity types are encountered.
+# --- Personal-possessive gate -------------------------------------------------
 #
-# The set is intentionally small — it bootstraps the routing check. RAVANA
-# grows it at runtime from personal disclosures in conversation (e.g. learning
-# that "my motorcycle" is a personal entity after the user mentions it).
+# Purpose: a query about the USER's own life/possessions ("what is wrong with
+# my car") can only be answered from episodic recall. Left ungated it falls
+# through to _consult_internal_knowledge and confabulates (2026-09-04). So the
+# gate must fire for genuine autobiography.
+#
+# It must NOT fire for ordinary world knowledge that merely happens to contain
+# a possessive. "how do i change a flat tire on my car" and "what is the best
+# way to clean my laptop keyboard" are procedure/recommendation questions —
+# they have the same surface possessive + entity noun as an autobiographical
+# query, so the noun vocabulary alone CANNOT separate them. Separating them
+# takes two structural signals, neither of which is a topic list:
+#
+#   1. POSSESSIVE PERSON. The query is addressed to RAVANA, so "my" is the
+#      user's own stuff and "your" is RAVANA's. RAVANA owns nothing, so a
+#      "your X" query is a question about RAVANA (handled by the self-subject
+#      gate further down) or a world-knowledge question — never a recall of
+#      the user's episodes. Only a first-person possessive is autobiographical.
+#
+#   2. QUESTION CONSTRUCTION. A present-tense mechanism / procedure / advice
+#      question ("how does X ...", "why does X ...", "what causes ...",
+#      "what is the best ...") asks for a general law that holds for any
+#      instance; the possessive is incidental. An autobiographical question
+#      asks about one particular thing ("what is wrong with my car", "why did
+#      my laptop die") — a specific state or a specific past event, so the
+#      construction is a copular/defective state question or a PAST-tense
+#      event question. This is grammar over function words, not vocabulary.
+#
+# The noun set below is a deliberately SMALL cold-start seed: only concrete
+# entity-denoting nouns a user could plausibly own, name, or be related to. The
+# generic-category block that used to live here (time, life, world, value,
+# form, level, type, part, group, brain, story, team, favourite, ...) matched
+# almost any English sentence, which made "my + any word => never search".
+# That enumeration was the hardcoding: nobody can grow 685 words through
+# experience, and the precision loss was invisible without a probe.
+#
+# The real growth path is wired at runtime: every personal DISCLOSURE the
+# miner accepts (questions are excluded upstream by the interrogative guard)
+# contributes the head noun of its possessive phrase via
+# add_personal_entity_words(). RAVANA therefore learns the vocabulary of the
+# user's own possessions and relationships from conversation, online, with no
+# retrain and no code change.
 _PERSONAL_ENTITY_WORDS = {
-    # Vehicles and personal possessions (most common in "what is wrong with my X")
-    "car", "cars", "gps", "phone", "phones", "computer", "computers",
-    "laptop", "laptops", "dog", "dogs", "cat", "cats", "pet", "pets",
-    "house", "home", "bike", "bicycle", "motorcycle", "truck", "vehicle",
-    "engine", "battery", "tire", "tires", "brake", "brakes", "transmission",
-    # Personal states and conditions (recall-gap terms that look like knowledge queries)
-    "broken", "happened", "reboot", "turn", "drive", "ride",
-    # Family and relationships
-    "sister", "brother", "mother", "father", "mom", "dad", "parent",
-    "parents", "child", "children", "kid", "kids", "son", "daughter",
-    "husband", "wife", "spouse", "partner", "boyfriend", "girlfriend",
-    "friend", "friends", "teacher", "professor", "boss", "manager",
-    "colleague", "coworker", "neighbor", "neighbour", "classmate",
-    "roommate", "landlord",
-    # Health and medical
-    "doctor", "dentist", "therapist", "counselor", "physician",
-    "hospital", "clinic", "pharmacy", "headache", "cold", "flu", "fever",
-    "cough", "sore", "pain", "injury", "wound", "bruise", "cut", "burn",
-    "rash", "allergy", "medication", "medicine", "pill", "pills",
-    "vitamin", "vitamins",
-    # Education and work
-    "school", "college", "university", "course", "class", "classes",
-    "grade", "grades", "exam", "exams", "test", "tests", "homework",
-    "assignment", "project", "thesis", "job", "jobs", "bank", "account",
-    "credit", "debt", "loan", "mortgage", "rent", "insurance", "tax",
-    "taxes", "salary", "wage", "income", "money",
-    # Personal items
-    "wallet", "purse", "bag", "backpack", "suitcase", "luggage",
-    "clothes", "clothing", "shirt", "pants", "shoes", "jacket", "coat",
-    "watch", "jewelry", "ring", "necklace", "glasses", "sunglasses",
-    "camera", "television", "tv", "radio", "speaker", "headphones",
-    "keyboard", "mouse", "monitor", "printer", "router", "modem",
-    "tablet", "ipad", "kindle", "console", "playstation", "xbox",
-    # Entertainment and leisure
-    "game", "games", "movie", "movies", "book", "books", "novel",
-    "song", "songs", "album", "band", "artist", "painting", "art",
-    "vacation", "holiday", "trip", "travel", "flight", "hotel",
-    "restaurant", "cafe", "coffee", "tea", "beer", "wine", "food",
-    "meal", "breakfast", "lunch", "dinner", "snack", "dessert",
+    # Vehicles
+    "car", "cars", "bike", "bicycle", "motorcycle", "scooter", "truck", "van",
+    "bus", "train", "boat", "plane", "drone", "tractor",
+    # Devices and electronics
+    "phone", "phones", "laptop", "computer", "tablet", "monitor", "keyboard",
+    "mouse", "printer", "router", "modem", "console", "camera", "television",
+    "tv", "radio", "speaker", "headphones", "watch", "charger", "battery",
+    "gps", "server", "router", "harddrive",
+    # Animals the user keeps
+    "dog", "dogs", "cat", "cats", "puppy", "kitten", "bird", "fish", "hamster",
+    "rabbit", "horse", "goat", "cow", "turtle", "ferret",
+    # People and relationships
+    "sister", "brother", "mother", "father", "mom", "dad", "parent", "parents",
+    "child", "children", "kid", "kids", "son", "daughter", "husband", "wife",
+    "spouse", "partner", "boyfriend", "girlfriend", "friend", "friends",
+    "teacher", "professor", "boss", "manager", "colleague", "coworker",
+    "neighbor", "neighbour", "classmate", "roommate", "landlord", "cousin",
+    "uncle", "aunt", "grandmother", "grandfather", "mentor", "coach",
+    "doctor", "dentist", "therapist", "counselor", "physician", "nurse",
     # Home and property
-    "garden", "yard", "lawn", "fence", "roof", "door", "window",
-    "kitchen", "bathroom", "bedroom", "living", "dining", "garage",
-    "apartment", "condo", "flat", "studio", "office", "workplace",
-    # Personal attributes and states
-    "favorite", "favourite", "habit", "routine", "hobby", "hobbies",
-    "interest", "interests", "skill", "skills", "talent", "ability",
-    "strength", "weakness", "problem", "problems", "issue", "issues",
-    "trouble", "concern", "worry", "worries", "fear", "fears", "anxiety",
-    "stress", "anger", "sadness", "happiness", "joy", "love", "hate",
-    "dislike", "preference", "opinion", "thought", "thoughts", "idea",
-    "ideas", "memory", "memories", "dream", "dreams", "goal", "goals",
-    "plan", "plans", "decision", "decisions", "choice", "choices",
-    "mistake", "mistakes", "regret", "success", "failure", "achievement",
-    "challenge", "challenges", "difficulty", "struggle", "effort",
-    "attempt", "try", "practice", "progress", "improvement", "growth",
-    "change", "changes", "transition", "shift", "move", "movement",
-    "journey", "path", "direction", "destination", "arrival", "departure",
-    "beginning", "start", "end", "finish", "completion", "result",
-    "results", "outcome", "consequence", "effect", "impact", "influence",
-    "cause", "reason", "purpose", "meaning", "significance", "value",
-    "worth", "importance", "priority", "urgency", "necessity", "need",
-    "needs", "want", "wants", "desire", "wish", "hope", "expectation",
-    "standard", "quality", "quantity", "amount", "number", "count",
-    "level", "degree", "extent", "range", "scope", "scale", "size",
-    "shape", "form", "structure", "pattern", "trend", "tendency",
-    "behavior", "behaviour", "action", "actions", "activity", "activities",
-    "event", "events", "incident", "occasion", "situation", "circumstance",
-    "condition", "conditions", "state", "status", "position", "place",
-    "location", "spot", "site", "area", "region", "zone", "sector",
-    "field", "domain", "realm", "world", "universe", "existence",
-    "life", "death", "birth", "age", "time", "period", "era", "epoch",
-    "moment", "minute", "hour", "day", "week", "month", "year",
-    "decade", "century", "millennium", "past", "present", "future",
-    "history", "story", "tale", "narrative", "account", "report",
-    "description", "explanation", "definition", "interpretation",
-    "understanding", "comprehension", "knowledge", "wisdom", "insight",
-    "intuition", "instinct", "feeling", "emotion", "sentiment", "mood",
-    "attitude", "disposition", "temperament", "personality", "character",
-    "nature", "essence", "core", "heart", "soul", "spirit", "mind",
-    "brain", "thinking", "reasoning", "logic", "rationality",
-    "intelligence", "intellect", "creativity", "imagination", "fantasy",
-    "reality", "truth", "fact", "facts", "information", "data",
-    "evidence", "proof", "verification", "confirmation", "validation",
-    "authentication", "certification", "qualification", "credential",
-    "license", "permit", "authorization", "approval", "consent",
-    "agreement", "contract", "treaty", "pact", "deal", "arrangement",
-    "compromise", "negotiation", "discussion", "debate",
-    "argument", "dispute", "conflict", "fight", "battle", "war", "peace",
-    "truce", "ceasefire", "surrender", "victory", "defeat", "win", "loss",
-    "triumph", "disaster", "catastrophe", "crisis",
-    "emergency", "demand",
-    "requirement", "specification", "criterion", "benchmark",
-    "measure", "measurement", "metric", "indicator", "signal", "sign",
-    "symbol", "token", "mark", "label", "tag", "category", "class",
-    "type", "kind", "sort", "variety", "version", "edition",
-    "release", "update", "upgrade", "patch", "fix", "repair", "correction",
-    "revision", "modification", "alteration", "adjustment", "adaptation",
-    "transformation", "conversion", "evolution", "revolution",
-    "innovation", "invention", "discovery", "finding",
-    "power", "force", "energy", "might",
-    "authority", "control", "command", "dominion", "rule", "governance",
-    "leadership", "management", "administration", "organization",
-    "institution", "establishment", "foundation", "association", "society",
-    "community", "group", "team", "crew", "squad", "unit", "division",
-    "department", "section", "branch", "segment", "part",
-    "piece", "portion", "fraction", "percentage", "ratio", "proportion",
-    "rate", "speed", "velocity", "acceleration", "momentum",
-    "pressure", "tension", "strain", "load", "weight", "mass",
-    "volume", "density", "concentration", "intensity", "magnitude",
-    "amplitude", "frequency", "wavelength", "cycle", "loop",
-    "circle", "ring", "sphere", "globe", "ball", "orb", "planet",
-    "star", "sun", "moon", "earth", "cosmos",
-    "galaxy", "nebula", "constellation", "asteroid", "comet", "meteor",
-    "satellite", "spacecraft", "rocket", "shuttle", "station", "base",
-    "colony", "settlement", "outpost", "camp", "tent", "cabin", "hut",
-    "shelter", "refuge", "haven", "sanctuary", "temple", "church",
-    "mosque", "synagogue", "shrine", "altar", "monastery", "convent",
-    "abbey", "cathedral", "basilica", "chapel", "oratory",
-    # Places and geography
-    "city", "town", "village", "country", "state", "province",
-    "street", "road", "avenue", "highway", "freeway", "bridge",
-    "park", "beach", "mountain", "river", "lake", "ocean", "forest",
-    # Weather and environment
-    "weather", "temperature", "rain", "snow", "wind", "storm",
-    # Fitness and activities
-    "diet", "exercise", "workout", "gym", "run", "running", "walk",
-    "walking", "swim", "swimming", "biking", "hike", "hiking",
-    # Events and occasions
-    "birthday", "anniversary", "wedding", "funeral", "party",
-    "meeting", "appointment", "interview", "deadline", "schedule",
+    "house", "home", "apartment", "condo", "room", "kitchen", "bedroom",
+    "bathroom", "garage", "garden", "yard", "roof", "door", "window", "fence",
+    "office", "desk", "chair", "bed", "sofa", "fridge", "stove", "oven",
+    # Documents, money, valuables
+    "passport", "wallet", "purse", "bag", "backpack", "suitcase", "luggage",
+    "keys", "ring", "necklace", "jewelry", "glasses", "medication", "medicine",
+    "pill", "pills", "prescription", "bank", "account", "credit", "debt",
+    "loan", "mortgage", "rent", "insurance", "salary", "wage", "income",
+    "money", "wallet",
+    # Clothing
+    "clothes", "clothing", "shirt", "pants", "shoes", "boots", "jacket",
+    "coat", "dress", "uniform",
+    # Health and body
+    "headache", "migraine", "cold", "flu", "fever", "cough", "sore", "pain",
+    "injury", "wound", "bruise", "rash", "allergy", "allergies", "infection",
+    "surgery", "appointment", "diagnosis", "symptom", "symptoms", "tooth",
+    "teeth", "back", "knee", "shoulder", "stomach", "eyes", "ears", "hand",
+    "foot", "leg", "arm", "heart", "skin", "hair",
+    # School and work
+    "school", "college", "university", "course", "grade", "grades", "exam",
+    "exams", "test", "homework", "assignment", "project", "thesis", "job",
+    "jobs", "career", "internship", "resume", "interview", "salary",
+    # Places
+    "city", "town", "village", "country", "street", "road", "park", "beach",
+    "mountain", "river", "lake", "gym", "clinic", "hospital", "pharmacy",
+    "store", "shop", "market", "restaurant", "cafe", "hotel", "library",
+    # Events with personal significance
+    "birthday", "anniversary", "wedding", "funeral", "graduation", "party",
+    "holiday", "vacation", "trip", "flight", "roadtrip", "gift", "present",
 }
 
 
@@ -255,31 +208,114 @@ def add_personal_entity_words(words: set) -> None:
     _PERSONAL_ENTITY_WORDS.update(words)
 
 
+# Closed-class words that can never BE the head of a possessive noun phrase.
+# Keeping this functional (not topical) means the head-noun extractor needs no
+# vocabulary list of its own and cannot rot the way the old seed did.
+_POSSESSIVE_HEAD_STOP = frozenset({
+    "a", "an", "the", "this", "that", "these", "those", "my", "your", "our",
+    "his", "her", "their", "its", "of", "and", "or", "but", "if", "so",
+    "very", "really", "quite", "too", "also", "just", "still", "already",
+    "own", "beloved", "dear", "late", "old", "new", "brand", "favourite",
+    "favorite", "little", "big", "huge", "tiny", "whole", "entire", "main",
+    "current", "usual", "own", "first", "second", "third", "last", "next",
+})
+
+# A possessive noun phrase is "my" + modifiers + ONE head noun, which ends at
+# the first word that cannot continue it: a verb, a preposition, a conjunction,
+# a determiner, punctuation, or the end of the clause.
+_POSSESSIVE_PHRASE_END = re.compile(
+    r"^$"
+    r"|\b(?:is|are|was|were|am|be|been|being|has|have|had|do|does|did|"
+    r"will|would|shall|should|can|could|may|might|must)\b"
+    r"|\b(?:of|in|on|at|to|for|with|from|by|about|into|onto|over|under|"
+    r"near|beside|behind|during|after|before|since|until|and|or|but|if|"
+    r"that|which|who|whom|whose|when|where|why|how|what|because|so)\b"
+    r"|[^a-z']"
+)
+
+
+def learn_personal_entities_from_disclosure(text: str) -> set:
+    """Learn the user's personal-entity vocabulary from a DISCLOSURE.
+
+    This is the growth path that makes the seed a seed. The user telling
+    RAVANA "my hovercraft has been leaking since march" establishes a new
+    personal entity; the head noun of that possessive phrase ("hovercraft")
+    joins the vocabulary, so a later "what is wrong with my hovercraft" is
+    correctly recognised as autobiographical and routed to episodic recall
+    instead of web_search. Online, from one conversation, no retrain, no code
+    change, and it works for a noun no seed list could have anticipated.
+
+    Only declarative disclosures should be passed in — the caller already
+    rejects questions upstream, so a knowledge query can never teach the gate
+    that the world is the user's personal property.
+
+    Returns the set of newly learned words.
+    """
+    if not text:
+        return set()
+    learned = set()
+    for m in re.finditer(r"\bmy\s+([a-z']+(?:[ -][a-z']+){0,3})", text.lower()):
+        for token in m.group(1).split():
+            if token in _POSSESSIVE_HEAD_STOP or not token.isalpha():
+                break
+            if len(token) < 3:
+                break
+            if _POSSESSIVE_PHRASE_END.search(token):
+                break
+            # A word that ends the phrase can still BE the head
+            # ("my car") — only a following non-noun ends it — so take the
+            # last alphabetic token of the phrase as the head.
+            learned.add(token)
+            break
+    _PERSONAL_ENTITY_WORDS.update(learned)
+    return learned
+
+
+# Function words, not vocabulary. A question whose interrogative clause asks
+# for a general law — a present-tense mechanism, a procedure, a duration, or
+# a recommendation — is answerable from the world, and any possessive inside it
+# is incidental ("how do i change a flat tire ON MY CAR"). Only a question
+# about one particular thing is autobiographical, so its interrogative is either
+# a state predicate ("what is wrong with my car") or a PAST-tense event
+# ("why did my laptop die"). This is grammar over closed-class function words,
+# so it cannot rot into a topic list and it generalises to nouns RAVANA has
+# never seen.
+_GENERAL_LAW_QUESTION = re.compile(
+    r"\bhow\s+(?:long|much|many|often|far|old|fast|deep|tall|heavy|"
+    r"do|does|can|could|should|would|to|is|are)\b"
+    r"|\bwhy\s+(?:do|does|is|are|can|could|would)\b"
+    r"|\bwhat\s+caus(?:e|es|ed|ing)\b"
+    r"|\bwhat\s+is\s+the\s+best\b"
+    r"|\bbest\s+way\s+to\b"
+)
+
+
 def _is_personal_possessive_query(query: str) -> bool:
-    """Detect autobiographical queries: personal possessive + entity word.
+    """Is this query about the USER's own life, which only recall can answer?
 
-    A query like "what is wrong with my car" contains a possessive pronoun
-    ("my") and an entity word ("car") — this is a personal disclosure, not a
-    world-knowledge gap. Such queries should route to episodic recall, not
-    web_search.
+    Three conditions, all necessary:
 
-    Returns True only when BOTH conditions hold:
-    1. The query contains a personal possessive pronoun ("my", "your")
-    2. The query contains an entity word (from the seed vocabulary)
+    1. A FIRST-PERSON possessive. The query is addressed to RAVANA, so "my"
+       is the user and "your" is RAVANA — and RAVANA owns nothing, so "what
+       is your favourite programming language" is a question about RAVANA (the
+       self-subject gate in decide_tool_use handles that) or world knowledge,
+       never a recall of the user's episodes.
+    2. Not a general-law question. "how long should i charge my phone" and
+       "why does my dog keep scratching its ear" ask for a law that holds for
+       any phone or dog; the possessive is incidental.
+    3. An entity word from the (runtime-growable) personal-entity vocabulary.
 
     This is a routing check, not a capability removal — genuine knowledge
     queries like "what is the capital of france" still fire web_search.
     """
-    q = query.lower()
-    # Check for personal possessive pronouns
-    has_possessive = bool(re.search(r"\b(my|your)\b", q))
-    if not has_possessive:
+    q = (query or "").lower()
+    if not re.search(r"\bmy\b", q):
         return False
-    # Check for entity words — use word boundaries to avoid partial matches
-    for word in _PERSONAL_ENTITY_WORDS:
-        if re.search(rf"\b{re.escape(word)}\b", q):
-            return True
-    return False
+    if _GENERAL_LAW_QUESTION.search(q):
+        return False
+    return any(re.search(rf"\b{re.escape(word)}\b", q)
+               for word in _PERSONAL_ENTITY_WORDS)
+
 
 
 def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None) -> Optional[ToolCall]:

@@ -1472,6 +1472,19 @@ class UserModel:
         # same leading-question-word vocabulary the recall resolvers use.
         if _is_query(q_clean):
             return
+        # Growth path for the agentic personal-possessive gate: this point is
+        # reached only by DECLARATIVE disclosures (questions returned above),
+        # so the head noun of a possessive phrase here is a word the user has
+        # claimed as their own — exactly the evidence the gate needs. Before
+        # this, add_personal_entity_words() had no caller and the seed was a
+        # frozen 685-word table. Import is local to keep the chat package free
+        # of a module-level dependency on the agentic layer.
+        try:
+            from ..agent.decision_gate import (
+                learn_personal_entities_from_disclosure as _learn_entities)
+            _learn_entities(q_clean)
+        except Exception:
+            pass
         # Correction cue (B4 wiring, investigation Gap 1): when the user is
         # correcting us ("no, my cat is milo", "actually i live in paris"),
         # a mined fact whose attribute already holds a DIFFERENT active value
