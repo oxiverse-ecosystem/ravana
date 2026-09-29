@@ -3374,19 +3374,86 @@ class UserModel:
                                 else:
                                     _put_fact_done = True
                         else:
+                            # NAME-SPAN BOUND (round 2026-09-29T0823Z, card
+                            # t_84311c95). The lowercase-name fallback used to
+                            # append EVERY remaining token, so a trailing
+                            # CLAUSE ("my friend rhea messaged me last week and
+                            # i can't stop thinking about it") became the
+                            # "name". Two things followed from that: the fact's
+                            # attribute held the whole clause, and (because
+                            # _name_toks stayed []) the _after slice below
+                            # re-read the same span, so the VALUE was a substring
+                            # of its own ATTRIBUTE and recall rendered
+                            # "<rel> <clause> is <clause>".
+                            #
+                            # A personal name is a BOUNDED noun phrase, so the
+                            # span closes at the first token that cannot be part
+                            # of one. The closers are grammatical, not topical:
+                            #   - a closed-class function word (pronoun,
+                            #     preposition, conjunction, negation, question
+                            #     word) — English never puts one inside a name;
+                            #   - a recognized predicate (the same
+                            #     activity/relation/auxiliary lexicons the
+                            #     verb scan above consults), so "rhea messaged"
+                            #     closes after "rhea" rather than absorbing
+                            #     the verb; and
+                            #   - a hard length bound, because a first name is
+                            #     short and a runaway clause is not. The bound
+                            #     is generous (a title + two name tokens still
+                            #     fits) so it never truncates a real name.
+                            # The NAME ITSELF is never dropped here: the span
+                            # only closes, so "my friend rhea" / "my cousin
+                            # tanvi" / "my roommate jo" still mine their name
+                            # (the prior attempt at this fix failed precisely
+                            # because bounding DISCARDED the name instead).
                             _name_candidate_toks = []
                             for _t in _toks:
                                 _tc = _t.strip(".,!?").lower()
                                 if not _tc:
                                     break
-                                if _tc in _skip_words:
-                                    continue  # skip leading possessives/articles
                                 if _tc in _REL_WORDS or _tc in _KIN:
                                     continue  # skip the relation word itself
+                                # Close the span at a token that cannot be part
+                                # of a personal name. Reuse the module's own
+                                # closed-class sets (_pet_slots._PRONOUN_STOP,
+                                # _OBJECT_STOP) and the live verb lexicons, so
+                                # this stays a seed vocabulary RAVANA grows
+                                # rather than a new hardcoded table. Regular
+                                # past/progressive morphology ("messaged",
+                                # "folding") is included because English verb
+                                # inflection is a grammatical marker, not a
+                                # topic list — without it an unrecognized verb
+                                # ("messaged", "repainted") gets absorbed into
+                                # the name, which is the exact shape this fix
+                                # exists to stop.
+                                _close = (
+                                    _tc in _pet_slots._PRONOUN_STOP
+                                    or _tc in _OBJECT_STOP
+                                    or is_activity_verb(_tc)
+                                    or is_relation_verb(_tc)
+                                    or is_aux_verb(_tc)
+                                    or (_name_candidate_toks
+                                        and _tc.endswith(("ed", "ing"))))
+                                if _close:
+                                    # A LEADING possessive/article is skipped
+                                    # rather than closing the span ("my
+                                    # friend rhea"); a closed-class token once
+                                    # the name has started ends it.
+                                    if not _name_candidate_toks and _tc in _skip_words:
+                                        continue
+                                    break
                                 _name_candidate_toks.append(_tc)
+                                if len(_name_candidate_toks) >= 3:
+                                    break
                             if _name_candidate_toks:
                                 _name = " ".join(_name_candidate_toks)
                                 _name = _name.strip(".,!?")
+                                # Record how many tokens the name actually
+                                # consumed so the _after slice below starts
+                                # AFTER the name instead of at index 0. This
+                                # is what stops the value from re-slicing the
+                                # name's own span.
+                                _name_toks = _name_candidate_toks
                     if not _name:
                         # Neither a recognized verb nor a proper-noun name:
                         # nothing informative to store (e.g. "my grandmother
@@ -3628,8 +3695,41 @@ class UserModel:
                 # verb produced a value, AND the value is not identical to the
                 # relationship word. Content comes from the user's own words;
                 # honest skip when there is nothing informative to store.
-                _final_val = _val if _val else _kin
-                if not _put_fact_done and _final_val != _kin and (_name or _val):
+                _final_val = _val if _val else (_name or _kin)
+                # INFORMATION INVARIANT (round 2026-09-29T0823Z, card
+                # t_84311c95). The guard above only compared the value to the
+                # RELATIONSHIP WORD, so a value that merely re-sliced its own
+                # attribute was still stored and recall rendered
+                # "<rel> <clause> is <clause>". A fact must say something its
+                # attribute does not already say: a value whose token sequence
+                # is already a contiguous run inside the attribute adds no
+                # information, whatever words it uses. This is deliberately
+                # about INFORMATION, not vocabulary, so it holds for every
+                # relationship word and any name RAVANA later learns, and it
+                # is a backstop behind the name-span bound above — an
+                # unanticipated shape degrades to an HONEST SKIP rather than a
+                # self-overlapping fact.
+                #
+                # The name-only fact is explicitly NOT degenerate: the
+                # attribute is the relationship LABEL ("friend rhea") and the
+                # value is the NAME, which is the payload the disclosure
+                # actually taught ("my friend rhea" -> ('friend rhea','rhea')).
+                # That is why the test is a contiguous-RUN check that exempts
+                # the name, and why the comparison is token-based rather than a
+                # raw substring test (a raw test false-positives on a short
+                # value that merely appears INSIDE an attribute word, e.g. the
+                # value "me" inside the attribute "friend rhea messaged").
+                def _tokrun(inner, outer):
+                    it, ot = inner.split(), outer.split()
+                    n = len(it)
+                    return bool(n) and any(
+                        ot[i:i + n] == it for i in range(len(ot) - n + 1))
+                _fv = re.sub(r"\s+", " ", str(_final_val).strip().lower())
+                _fa = re.sub(r"\s+", " ", str(_attr).strip().lower())
+                _fn = re.sub(r"\s+", " ", str(_name or "").strip().lower())
+                _self_overlapping = (_fv != _fn) and _tokrun(_fv, _fa)
+                if (not _put_fact_done and not _self_overlapping
+                        and _final_val != _kin and (_name or _val)):
                     _put_fact(_attr, _final_val, 0.6)
 
 
