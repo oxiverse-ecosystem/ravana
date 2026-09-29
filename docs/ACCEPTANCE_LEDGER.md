@@ -2,7 +2,7 @@
 
 Grades each cognitive module **GREEN / YELLOW / RED** with real numbers.
 A module is GREEN only when a named test file covers it AND the CI gate exercises it.
-Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
+Last refreshed: 2026-09-29 against the live test collection (`pytest --co -q` → **2639 tests collected**).
 
 ## Grade key
 
@@ -40,7 +40,7 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | Tool registry | `agent/tool_registry.py` | `tests/unit/test_decision_gate_noun_heuristic.py` | CI `unit-tests` | **GREEN** | web_search / read_website / run_script / github_cli registered |
 | Web learning | `chat/web_learning.py` | `tests/unit/test_yesno_web_routing.py` | CI `unit-tests` | **GREEN** | Web-routing guard for yes-no questions |
 | Reproducibility (spike log + fingerprint) | `chat/reproducibility.py` | `tests/ci/test_reproducibility.py` | CI `ci` suite | **GREEN** | 6 tests: same-seed same-fingerprint, spike log ordered, RNG state persists |
-| MonitorMixin | `chat/engine_monitor.py` | (exercised via engine tests) | CI `misc-tests` (trace-monitors) | **YELLOW** | `monitor_report()` exercised by `--trace-monitors` CLI flag; no dedicated unit test |
+| MonitorMixin | `chat/engine_monitor.py` | `tests/unit/test_monitor_observability.py` | CI `unit-tests` | **GREEN** | `monitor_report()` called directly at lines 39, 48, 79, 115; `test_monitor_report_empty` asserts its dict shape. Re-graded 2026-09-29 (was YELLOW "no dedicated unit test" — false) |
 | Hedges / epistemic frames | `chat/hedges.py` | (covered by generation tests) | CI `unit-tests` | **YELLOW** | Hardcoded `EPISEMIC_FRAMES` / `PRONOUNS_FALLBACK` in surface_realizer — dehardcode plan in progress |
 | Pet slots | `chat/pet_slots.py` | `tests/unit/test_round_2026_08f_regression.py`, `tests/unit/test_same_turn_profile.py` | CI `misc-tests` | **GREEN** | Ordinal/person-name fix verified |
 | Temporal grounding | `core/temporal_grounding.py` | `tests/unit/test_temporal_grounding.py` | CI `unit-tests` | **GREEN** | Relative-date grounding (4 years ago, last month) |
@@ -60,11 +60,11 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | Adaptation | `core/adaptation.py` | `tests/unit/test_adaptation.py` | **GREEN** | Plasticity modulation |
 | Active epistemology | `core/active_epistemology.py` | `tests/unit/test_active_epistemology.py` | **GREEN** | VoI-driven action selection |
 | Human memory | `core/human_memory.py` | `tests/unit/test_grace_memory_sleep_state.py` | **GREEN** | Episodic + semantic split |
-| Meaning / intrinsic motivation | `core/meaning.py` | (covered by engine meaning tests) | **YELLOW** | No dedicated unit test; exercised via `MeaningEngine` in engine boot |
+| Meaning / intrinsic motivation | `core/meaning.py` | `tests/unit/test_meaning.py` | **GREEN** | 20 tests: `compute_meaning` config-weight response, effort amplification, authenticity gate, predictive EMA, `stake_meaning`/`resolve_stake` round-trip, `get_expected_meaning` vs the compute formula, `get_status` keys, `max_history` bound. Suite added 2026-09-29 |
 | Empathy | `core/empathy.py` | `tests/unit/test_empathy.py` | **GREEN** | VAD × cause → response frame |
 | Strategy | `core/strategy.py` | `tests/unit/test_grace_planning_intent.py` | **GREEN** | Exploration modes |
-| Occam layer | `core/occam_layer.py` | (covered by reasoning tests) | **YELLOW** | Hypothesis discipline; no standalone test |
-| Predictive world model | `core/predictive_world.py` | (covered by reasoning tests) | **YELLOW** | False-world tester; no standalone test |
+| Occam layer | `core/occam_layer.py` | `tests/unit/test_occam_layer.py` | **GREEN** | 3 classes imported directly from `ravana_grace.core.occam_layer` (line 4): `TestOccamConfig`, `TestOccamLayer` (`test_score_hypothesis_object/dict`, `test_select_best_hypothesis`), `TestDisciplinedBeliefSystem` (`test_detect_overfitting_*`). Re-graded 2026-09-29 (was YELLOW "no standalone test" — false) |
+| Predictive world model | `core/predictive_world.py` | `tests/unit/test_predictive_world.py` | **GREEN** | 3 classes imported directly from `ravana_grace.core.predictive_world` (line 4): `TestWorldModelConfig`, `TestLearnedWorldModel` (`test_predict`, `test_observe`), `TestFalseWorldTester` (`test_inject_false_boundary`, `test_get_resistance_score_initial`). Re-graded 2026-09-29 (was YELLOW "no standalone test" — false) |
 
 ---
 
