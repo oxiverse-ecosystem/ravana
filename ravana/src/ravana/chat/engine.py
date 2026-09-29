@@ -6698,6 +6698,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
+        # `_pending_web_evidence` is stashed by the agentic pre-check and
+        # consumed by the end-of-turn block that appends it to the reply. Those
+        # two points are ~3400 lines apart and 55 early-return paths sit
+        # between them (every short-circuit strategy: emotional_empathy,
+        # self_disclosure, memory_recall, structured_recall, ...), so any of
+        # them leaves the slot populated and the NEXT turn that reaches the
+        # end-of-turn block appends evidence for a query the user never asked.
+        #
+        # Observed in the round probe: the user's "sediment cores" and
+        # "remind me what you said about sediment cores" turns both printed the
+        # payload for "do you get bored when i am quiet for a long time?". A
+        # grounded-evidence channel that answers a different question than the
+        # one asked is a confabulated citation, which is worse than no channel.
+        #
+        # Reset here, at the top, for the same reason `turn_count` is advanced
+        # above: it guarantees every turn starts with a clean slot regardless of
+        # which path it takes out.
+        self._pending_web_evidence = None
         # FIX (round 2026-09-14): advance turn_count and tick the RNG at the
         # TOP of process_turn, BEFORE any early return. Otherwise short-circuit
         # paths skip both, breaking the determinism contract.
