@@ -306,7 +306,8 @@ class UserStanceStore:
     # cap restores the defect and a small one makes attitude feel
     # overwritable by a single mention. 4 is chosen as the corroboration
     # horizon in the store's own terms: facts require rehearsal_count >= 2 to
-    # count as supported (get_strong_facts), so four corroborating turns is
+    # count as supported (get_consolidation_candidates), so four corroborating
+    # turns is
     # where "the user keeps saying this" saturates into "this is what the user
     # holds". One contrary mention still leaves an entrenched +1.0 at +0.655,
     # so a single passing utterance cannot flip a held attitude.
