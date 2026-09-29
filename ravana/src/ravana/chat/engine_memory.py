@@ -792,7 +792,112 @@ class MemoryMixin:
         if not _cand:
             return None
         _cand.sort(reverse=True)
-        return self._reconstruct_gist(eligible[_cand[0][1]])
+        # EVIDENCE FUSION decides the winner WITHIN the top coverage tier.
+        #
+        # Records are qualified above by how many of the query's content cues
+        # they account for (majority) AND how rare those cues are in the store.
+        # That gate is unchanged and still fails closed. But when two records
+        # tie on coverage, `sort` falls through to the store index — i.e.
+        # recency, which is not evidence about relevance, and measurably
+        # returned the wrong record on an exact 5v5 tie (see
+        # docs/SYNTHESIS_TOTAL_AGENT_MEMORY.md). The two independent channels
+        # RAVANA already owns (_bm25_rank at :624 and the GloVe tier) break
+        # that tie instead, by rank fusion.
+        _top = _cand[0][0]
+        _tied = [_i for _cov, _i in _cand if _cov == _top]
+        if len(_tied) > 1:
+            _winner = self._fuse_tied_candidates(q, cues, _tied, eligible)
+        else:
+            _winner = _tied[0]
+        return self._reconstruct_gist(eligible[_winner])
+
+    def _cue_semantic_ranks(self, cues: List[str],
+                            records: List[Dict[str, Any]]) -> Dict[int, int]:
+        """Rank `records` by summed GloVe cosine against the query's content cues.
+
+        This is an EVIDENCE CHANNEL, not a gate: a record sharing no token with
+        the query still receives a position, so a lexical tier cannot hide a
+        record that is topically related by meaning alone. Returns ``{}`` when
+        no projection is available, so the caller fuses the channels it does
+        have instead of acting on invented evidence.
+        """
+        qvecs = []
+        for w in cues:
+            wv = self._glove_vector(w)
+            if wv is not None:
+                qvecs.append(wv)
+        if not qvecs:
+            return {}
+        scored = []
+        for i, rec in enumerate(records):
+            total = 0.0
+            for tw in re.findall(r"[a-z']+", (rec.get("text", "") or "").lower()):
+                if tw in STOP_WORDS or len(tw) < 3:
+                    continue
+                tv = self._glove_vector(tw)
+                if tv is None:
+                    continue
+                for wv in qvecs:
+                    total += float(np.dot(wv, tv))
+            scored.append((i, total))
+        scored.sort(key=lambda kv: -kv[1])
+        return {i: rank for rank, (i, _s) in enumerate(scored)}
+
+    @staticmethod
+    def _rrf_fuse(channels: List[List[int]], k: int = 60) -> List[Tuple[int, float]]:
+        """Reciprocal Rank Fusion over independently ranked channels.
+
+        Combines channels by RANK POSITION only. The lexical and semantic
+        channels are not commensurable — BM25 here is an unbounded sum of
+        ``idf * tf`` and the semantic tier an unbounded sum of dot products — so
+        weighting them would require a normalisation constant fitted to one
+        conversation. Rank fusion needs none, and it rewards a record that
+        agrees with BOTH channels over one that tops a single channel.
+
+        Adopted from total-agent-memory `src/memory_core/episodes/retriever.py`
+        `_rrf_fuse`; see docs/SYNTHESIS_TOTAL_AGENT_MEMORY.md.
+        """
+        scores: Dict[int, float] = {}
+        for ranked in channels:
+            for rank, i in enumerate(ranked):
+                scores[i] = scores.get(i, 0.0) + 1.0 / (k + rank + 1)
+        return sorted(scores.items(), key=lambda kv: -kv[1])
+
+    def _fuse_tied_candidates(self, query: str, cues: List[str],
+                              indices: List[int],
+                              records: List[Dict[str, Any]]) -> int:
+        """Pick the winner among equally-qualifying records by evidence fusion.
+
+        The cue-coverage gate has already decided these records are equally
+        supported by the query's content. Ordering them by store index (i.e. by
+        recency) is not evidence about relevance, so the two independent
+        channels RAVANA already owns — lexical BM25 and GloVe cosine — decide
+        instead. Returns the winning position in `indices`.
+
+        Fails safe: with only one channel available (or none) this degrades to
+        the caller's ordering rather than guessing.
+        """
+        if len(indices) < 2:
+            return indices[0]
+        subset = [records[i] for i in indices]
+        by_id = {id(r): pos for pos, r in enumerate(subset)}
+        channels: List[List[int]] = []
+
+        ranked = self._bm25_rank(query, subset)
+        if ranked:
+            order = [by_id[id(r)] for r, _s in ranked if id(r) in by_id]
+            if order:
+                channels.append(order)
+
+        sem = self._cue_semantic_ranks(cues, subset)
+        if sem:
+            channels.append([pos for pos, _ in sorted(sem.items(),
+                                                      key=lambda kv: kv[1])])
+
+        if not channels:
+            return indices[0]
+        fused = self._rrf_fuse(channels)
+        return indices[fused[0][0]] if fused else indices[0]
 
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
