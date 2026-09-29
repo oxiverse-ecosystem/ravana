@@ -1498,6 +1498,23 @@ class UserModel:
     # _activity_roles; it holds category vocabulary, never a reply.
     _occupation_verbs: Set[str] = field(default_factory=set)
     _occupation_objects: Set[str] = field(default_factory=set)
+    # Evaluative-predicate polarity model (feature round t_e45928d1, D5). Reads
+    # the polarity of a predicative adjective the frozen word lists never
+    # listed, from its position in concept space. Lazily constructed because it
+    # needs the engine's GloVe lookup, which is INJECTED (the user model owns no
+    # GloVe table) — see _ensure_evaluative_polarity. None until first use, and
+    # a model with no vector_fn abstains on every word, so a bare UserModel()
+    # built outside the engine still behaves exactly as before.
+    _evaluative_polarity: Any = None
+    # stance topic -> the predicate word that produced it. Lets a later user
+    # retraction write the revised position back into the model (relearn), so
+    # a mis-signed predicate is corrected by the user talking. Runtime state,
+    # persisted alongside the model so the link survives a restart.
+    _evaluative_stance_preds: Dict[str, str] = field(default_factory=dict)
+    # The engine's GloVe lookup, INJECTED at boot (see engine.py). Declared
+    # here only so the injected attribute is part of the model's contract;
+    # it is a live bound method and is never serialized.
+    _glove_vector_fn: Any = None
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -4942,6 +4959,30 @@ class UserModel:
                                             valence=_v, arousal=_a,
                                             provenance=_prov)
 
+        # ── EVALUATIVE-PREDICATE MINING (feature round t_e45928d1, D5) ──────
+        # The alternation lists above are a FROZEN vocabulary: a predicate
+        # the curators never wrote down ("overpriced", "sturdy", "wretched")
+        # matched nothing, so NO stance was created and the retraction
+        # machinery later had nothing to recode — a user could state,
+        # retract and re-state an opinion and the store stayed empty
+        # (measured: three such turns, `stances: {}` before and after).
+        #
+        # This block is a SECOND, INDEPENDENT route to the same judgment:
+        # read the predicate's position in concept space via
+        # EvaluativePolarityModel. It runs AFTER the lexical loop so it only
+        # fills the gaps the word lists leave, and it is bounded by three
+        # conditions so it cannot manufacture opinions:
+        #   1. a COPULAR frame — "<subject> is/are <predicate>". A
+        #      predicative adjective slot is where an evaluation lives.
+        #   2. the model must return a read at all, which requires the word
+        #      to clear the EVALUATIVE axis (it is a judgment, not a name)
+        #      and the VALENCE axis (which pole) past their margins.
+        #   3. the subject must resolve to a real concept through the SAME
+        #      _opinion_topic chokepoint every other miner uses.
+        # A neutral noun ("the mug is blue") fails condition 2 and yields
+        # nothing at all. The model abstains rather than guessing.
+        self._mine_evaluative_predicate(text, q_clean, _v, _a)
+
         # Affect-verb attitude construction mining (feature round
         # 2026-08-21T1653Z residual #1): "X creeps me out" / "X grosses me out"
         # / "X freaks me out" / "X gets to me" were NOT mined as stances even
@@ -5092,6 +5133,128 @@ class UserModel:
             self.opinions.express_stance(_topic, polarity=_p, confidence=0.6,
                                         valence=_v, arousal=_a,
                                         provenance=_prov)
+
+    def _ensure_evaluative_polarity(self):
+        """Lazily build the evaluative-predicate model, wiring the engine's
+        GloVe lookup in on first use.
+
+        The user model owns no GloVe table; the engine does. The engine
+        injects ``_glove_vector_fn`` (same pattern as ``_episodic_index`` /
+        ``_concept_vocab``), and a user model built without one still works —
+        every lookup then returns None and no stance is minted, which is the
+        correct fail-closed behaviour, not a crash.
+        """
+        if getattr(self, "_evaluative_polarity", None) is None:
+            from .evaluative_polarity import EvaluativePolarityModel
+            self._evaluative_polarity = EvaluativePolarityModel(
+                vector_fn=getattr(self, "_glove_vector_fn", None))
+        return self._evaluative_polarity
+
+    def _mine_evaluative_predicate(self, text: str, q_clean: str,
+                                   valence: float, arousal: float) -> None:
+        """Mine a copular evaluative judgment the frozen word lists missed.
+
+        PATTERN (grammatical, not a topic list): a subject, a copula, and a
+        predicative word — "handmade mugs ARE overpriced". The copula is what
+        licenses the reading: a predicate adjective slot is where a value
+        judgment lives, whereas "i run a pottery studio" has no copula and
+        is a fact, not an opinion.
+
+        POLARITY comes from ``EvaluativePolarityModel`` — the predicate's
+        position in concept space — not from a lookup table, so a predicate
+        nobody anticipated ("overpriced", "sturdy", "wretched") is judged on
+        the same footing as one they did. When the model abstains (the word
+        is not evaluative, or its pole is too close to call) NOTHING is
+        minted: "the mug is blue" must leave the store untouched.
+
+        ONLINE GROWTH: every judgment this makes is passed to ``observe``,
+        so a predicate met twice is answered from RAVANA's own memory of
+        the read (and with higher confidence) rather than re-derived. The
+        memory is persisted in get_state/set_state, so it survives a
+        restart. ``mine_stance_reversal`` calls ``relearn`` when the user
+        later revises such a stance, so a mis-signed predicate is corrected
+        by the user talking. No retraining, no authored replies.
+        """
+        model = self._ensure_evaluative_polarity()
+        if model is None:
+            return
+        # A declarative self-report only — the same interrogative guard the
+        # lexical opinion loop applies above ("do you think X is Y?" is the
+        # user asking, not stating).
+        if not q_clean or q_clean.rstrip().endswith("?"):
+            return
+        # A predicative adjective may stand bare ("mugs are overpriced") or
+        # carry a degree adverb ("mugs are really overpriced"). The adverb is
+        # OPTIONAL — requiring one would miss the plain declarative, which is
+        # the commoner form. When present it is consumed so it cannot be
+        # mistaken for the predicate itself.
+        for _m in re.finditer(
+                r"\b([a-z][a-z' \-]{2,60}?)\s+(?:is|are|was|were)\s+"
+                r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|pretty\s+|highly\s+"
+                r"|absolutely\s+|completely\s+|rather\s+|fairly\s+|extremely\s+)?"
+                r"([a-z][a-z'-]{2,})\b", q_clean):
+            _raw_subj = _m.group(1).strip()
+            _pred = _m.group(2).strip()
+            if not _raw_subj or not _pred:
+                continue
+            # Strip a leading first-person opinion frame and any leading
+            # discourse filler from the subject, so the stance keys on the
+            # real concept. Without this, "i think handmade mugs are
+            # overpriced" keyed the stance on "think handmade mugs" — the
+            # reporting verb became part of the topic, and a later question
+            # about the topic could not resolve to it. This is the same
+            # frame-stripping the other opinion classes in this loop do; it
+            # is grammar, not a topic rule. The loop matters: a real
+            # utterance stacks several of these ("no actually i still think
+            # ..."), and stripping one token per pass would leave the rest
+            # glued onto the topic.
+            for _ in range(4):
+                _before = _raw_subj
+                _raw_subj = re.sub(
+                    r"^(?:and|but|so|well|actually|no|not|really|just|still|"
+                    r"honestly|frankly|also|then|now|okay|ok|alright|anyway|"
+                    r"i|we|it|that|this|there)\b[\s,]*", "", _raw_subj).strip()
+                _raw_subj = re.sub(
+                    r"^(?:think|thought|believe|feel|find|reckon|guess|suppose|"
+                    r"consider|know|said|say|mean|agree|disagree)\b"
+                    r"[\s,]*", "", _raw_subj).strip()
+                _raw_subj = re.sub(
+                    r"^(?:that|it|they|them|he|she|you)\b[\s,]*", "",
+                    _raw_subj).strip()
+                if _raw_subj == _before:
+                    break
+            if len(_raw_subj) < 2:
+                continue
+            _read = model.score(_pred)
+            if _read is None:
+                continue  # not an evaluative predicate -> say nothing
+            # The subject goes through the SAME chokepoint as every other
+            # opinion class, so the stance key is a real concept.
+            _topic = self._opinion_topic(_raw_subj)
+            if not _topic:
+                continue
+            _p = float(_read["polarity"])
+            # Sign-preserving affect blend, matching the discipline of the
+            # lexical miner: the geometric read is the ground truth; the
+            # turn-affect buffer may only reinforce, never reverse it.
+            if _p < -0.05 and valence < -0.1:
+                _p = min(_p, _p - 0.15)
+            elif _p > 0.05 and valence > 0.1:
+                _p = max(_p, _p + 0.15)
+            _p = max(-1.0, min(1.0, _p))
+            self.opinions.express_stance(
+                _topic, polarity=_p, confidence=float(_read["confidence"]),
+                valence=valence, arousal=arousal,
+                provenance=self._opinion_provenance(_raw_subj))
+            # Remember the judgment so the capability compounds with use.
+            model.observe(_pred, _p)
+            # Record which predicate produced this stance so a later
+            # retraction can write the user's revised position back into
+            # the model (relearn) instead of leaving a stale geometric read.
+            try:
+                self._evaluative_stance_preds[_topic] = _pred
+            except Exception:
+                pass
 
     def _vad_for_affect_verb(self, verb: str):
         """Return the VAD triple for an affect verb from the SHARED VAD matrix.
@@ -5621,6 +5784,22 @@ class UserModel:
         try:
             self.opinions._soft_reversal = _soft
             self.opinions.reverse_stance(target, utterance=text)
+        except Exception:
+            pass
+        # Write the user's revised position back into the evaluative-predicate
+        # model when the recoded topic was keyed from a geometric read
+        # (feature round t_e45928d1). The user is ground truth: if they just
+        # retracted a stance RAVANA derived from reading a predicate's
+        # position in concept space, and that read was wrong, the predicate
+        # must not be re-derived the same wrong way next turn. This is the
+        # correction path that makes the capability revisable by experience
+        # rather than frozen at whatever the geometry said — no retraining.
+        try:
+            _pred = (getattr(self, '_evaluative_stance_preds', {}) or {}).get(target)
+            if _pred:
+                _rev = self.opinions.stances.get(target)
+                if _rev is not None:
+                    self._ensure_evaluative_polarity().relearn(_pred, _rev.polarity)
         except Exception:
             pass
         # Mirror any count correction into the structured QuantityMemory store
@@ -6374,6 +6553,16 @@ class UserModel:
             '_occupation_verbs': list(getattr(self, '_occupation_verbs', set())),
             '_occupation_objects': list(
                 getattr(self, '_occupation_objects', set())),
+            # The evaluative-predicate model's experiential memory. Persisted
+            # so a predicate RAVANA judged before is still remembered after a
+            # restart — this is what makes the capability compound across
+            # sessions rather than resetting to bare seed geometry.
+            '_evaluative_polarity': (
+                self._evaluative_polarity.get_state()
+                if getattr(self, '_evaluative_polarity', None) is not None
+                else None),
+            '_evaluative_stance_preds': dict(
+                getattr(self, '_evaluative_stance_preds', {}) or {}),
         }
 
     def set_state(self, state: Dict):
@@ -6401,6 +6590,17 @@ class UserModel:
         self._activity_roles = set(state.get('_activity_roles', []))
         self._occupation_verbs = set(state.get('_occupation_verbs', []))
         self._occupation_objects = set(state.get('_occupation_objects', []))
+        # Restore the evaluative-predicate model's memory BEFORE it is first
+        # used, so the very first lookup after a load is answered from what
+        # RAVANA learned previously rather than re-derived from bare seed
+        # geometry. set_vector_fn is re-applied by the engine on every boot
+        # (the vector function is a live object, never serialized).
+        self._evaluative_stance_preds = dict(
+            state.get('_evaluative_stance_preds', {}) or {})
+        _ev = state.get('_evaluative_polarity')
+        if _ev:
+            self._evaluative_polarity = self._ensure_evaluative_polarity()
+            self._evaluative_polarity.set_state(_ev)
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)

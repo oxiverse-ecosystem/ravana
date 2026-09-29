@@ -1089,6 +1089,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # "anything"/"standing" that pollute the stance store). The vocabulary
         # is the engine's OWN learned concept set, not a per-topic deny-list.
         self.user_model._concept_vocab = self._concept_keywords
+        # Give the user model a route to the engine's concept vectors so the
+        # evaluative-predicate miner (feature round t_e45928d1) can read the
+        # polarity of a predicate the frozen word lists never listed, from
+        # where it sits in concept space. INJECTED, not imported: the user
+        # model owns no GloVe table and must not grow one. Bound method, so it
+        # always reads the CURRENT projection state and honours the
+        # `glove_ready` contract (returns None when no table is present, which
+        # the model treats as "abstain").
+        self.user_model._glove_vector_fn = self._glove_vector
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
