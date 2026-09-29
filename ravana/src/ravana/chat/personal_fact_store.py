@@ -289,6 +289,29 @@ class UserStanceStore:
     Stances decay FASTER than facts (halflife ~20 turns vs ~50) because social
     attitudes are more malleable than biographical memory.
     """
+    # BOUNDED INERTIA (round 2026-09-29T0823Z, residual defect D5). The
+    # rehearsal units of past evidence that a held stance carries into the next
+    # merge. Unbounded before, which made a stance accumulate history instead
+    # of tracking what the user currently holds: see the express_stance
+    # comment. Same kind of parameter as the store's `_decay_turns` (a retention
+    # horizon) applied to the merge weight.
+    #
+    # HONEST SCOPE OF THE CONSTANT: the cap bounds inertia, so a re-asserted
+    # view always converges geometrically to the user's new read — but the cap
+    # sets how FAST, and that is a real trade-off, not a free parameter.
+    # Measured on the merge formula (tmp/probe_math2.py), an entrenched +1.0
+    # read (rehearsal 8, confidence 0.599) after EIGHT assertions of the
+    # opposite: cap=2 -> -0.877, cap=4 -> -0.560, cap=8 -> -0.095,
+    # cap=16 -> +0.118 (the unbounded rule's result, since 8 < 16). So a large
+    # cap restores the defect and a small one makes attitude feel
+    # overwritable by a single mention. 4 is chosen as the corroboration
+    # horizon in the store's own terms: facts require rehearsal_count >= 2 to
+    # count as supported (get_strong_facts), so four corroborating turns is
+    # where "the user keeps saying this" saturates into "this is what the user
+    # holds". One contrary mention still leaves an entrenched +1.0 at +0.655,
+    # so a single passing utterance cannot flip a held attitude.
+    RETENTION_CAP: int = 4
+
     def __init__(self, decay_turns: int = 20):
         # topic.lower() -> Stance
         self.stances: Dict[str, Stance] = {}
@@ -358,7 +381,38 @@ class UserStanceStore:
                 provenance=list(_prov))
             return
         _n = existing.rehearsal_count + 1
-        _w_old = existing.confidence * existing.rehearsal_count
+        # BOUNDED INERTIA (round 2026-09-29T0823Z, residual defect D5).
+        #
+        # The old weight used to be `confidence * rehearsal_count`, which grows
+        # without bound. That makes a stance HISTORICALLY ACCUMULATED rather
+        # than CURRENTLY HELD: the longer a read had been rehearsed, the more
+        # inertia it carried, and no amount of later talk could move it. The
+        # user would state the opposite view repeatedly and RAVANA would still
+        # report a stale read, because the new signal had constant weight
+        # against an old term that grew forever.
+        #
+        # Measured on the exact merge rule (tmp/probe_math.py), an entrenched
+        # +1.0 stance at rehearsal 8 and confidence 0.6, then EIGHT explicit
+        # assertions of -1.0, moved only +1.0000 -> +0.1175. The user said
+        # "I hate it" eight times; RAVANA still read them as 88% in favour.
+        #
+        # Re-consolidation is the fix, and it is bounded: a trace that keeps
+        # being retrieved and re-encoded is REWRITTEN by the consistent signal
+        # rather than averaged against all of history, so the historical term
+        # saturates at RETENTION_CAP rehearsal units instead of diverging. This
+        # is the same shape as the store's existing decay model (decay_turns),
+        # applied to the merge weight instead of to retrieval ranking.
+        #
+        # Consequences, both intended:
+        #   * re-asserting the SAME view still converges to it (unchanged);
+        #   * re-asserting a CHANGED view now converges to IT too, instead of
+        #     asymptoting at a stale midpoint (measured above: -0.560 after
+        #     eight assertions, against +0.118 under the unbounded rule);
+        #   * the first counter-assertion still moves less than a flip, because
+        #     inertia saturates rather than vanishing, so one contrary mention
+        #     does not overturn an entrenched read.
+        _w_old = existing.confidence * min(existing.rehearsal_count,
+                                           self.RETENTION_CAP)
         _w_new = confidence
         existing.polarity = (_w_old * existing.polarity + _w_new * polarity) / max(1e-6, _w_old + _w_new)
         existing.confidence = min(1.0, (existing.confidence + confidence) / 2.0 + 0.05)
