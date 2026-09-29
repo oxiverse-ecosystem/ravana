@@ -426,6 +426,7 @@ from .user_model import (
 )
 from . import attribute_gate
 from .personal_fact_store import QuantityMemory, render_count
+from .retirement import RetirementLedger
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -1073,6 +1074,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
         self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
+        # RETIREMENT LEDGER (round 2026-09-29T1239Z). A record of what the user
+        # has told RAVANA and then taken back. It exists because a correction
+        # previously retired a value in the PersonalFactStore ONLY — the
+        # episodic transcript kept the original utterance verbatim and the
+        # recall paths answered from it, so a corrected fact kept being served
+        # (measured: "no, nikhil plays the surbahari, not the shehnai" then
+        # "which instrument does my brother play now?" answered shehnai).
+        # Empty until real conversations populate it; persisted with the rest of
+        # the engine's durable state. See ravana/chat/retirement.py.
+        self.retirement_ledger = RetirementLedger()
         # Share the hippocampal episodic entity index + raw transcript with the
         # user_model so the fact miner can enforce the self/other boundary on
         # OWNER re-attribution (a pet moved off the user must also drop the
@@ -10554,6 +10565,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'linggen_genconf_seq': list(getattr(self, '_linggen_genconf_seq', [])),
                 'source_trust': dict(getattr(self, '_source_trust', {})),
                 'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
+                # Retirement ledger (round 2026-09-29T1239Z): what the user has
+                # told RAVANA and then taken back. Durable for the same reason
+                # the belief store is -- a correction that is forgotten on
+                # restart would bring the retracted value straight back.
+                'retirement_ledger_state': getattr(
+                    self, 'retirement_ledger', RetirementLedger()).to_state(),
                 # Background learning state
                 'bg_learning_queue': list(self._bg_learning_queue),
                 'bg_search_count': self._bg_search_count,
@@ -11090,6 +11107,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self.rng.set_state(state['rng_state'])
             except Exception as _e:
                 print(f"  [Load partial] rng restore failed: {_e}")
+
+            # Restore the retirement ledger (round 2026-09-29T1239Z). Without
+            # this a correction learned in a previous session is forgotten and
+            # the retracted value comes straight back with the next recall.
+            #
+            # Deliberately placed EARLY, next to the RNG restore, and not beside
+            # the other stores further down: this load path already aborts with
+            # an exception partway through on a snapshot whose user_model was
+            # sanitized to a str ("[Load error] 'str' object has no attribute
+            # 'edge_reactivations'"), and every restore after that point is
+            # silently skipped. Durable memory that protects against answering
+            # from a retracted value must not sit behind a pre-existing crash.
+            try:
+                _rl_state = state.get('retirement_ledger_state', None)
+                if _rl_state:
+                    self.retirement_ledger = RetirementLedger.from_state(_rl_state)
+            except Exception as _e:
+                print(f"  [Load partial] retirement ledger restore failed: {_e}")
+            # _episodic_transcript is NOT persisted (it is rebuilt from the
+            # hippocampal indexer on load), so the per-record "retracted" flag
+            # written by _propagate_retirement does not survive either. That is
+            # why _record_is_retracted ALSO consults the ledger's values: the
+            # retirement outlives the transcript, which is the whole point of
+            # it being a ledger rather than a record attribute.
 
             # Restore teen state (optional â€” may not exist in old saves)
             self._sleep_pressure = state.get('sleep_pressure', 0.0)

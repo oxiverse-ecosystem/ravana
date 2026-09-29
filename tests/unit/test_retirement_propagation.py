@@ -186,10 +186,14 @@ def test_correction_retires_the_old_value_in_every_store():
             if "shehnai" in str(f.value).lower():
                 assert f.superseded, f"old value still active: {_k} {f}"
 
-        # 4. the episodic transcript no longer offers it for recall
-        for rec in eng._episodic_transcript:
-            assert not eng._record_is_retracted(rec), \
-                f"retracted record still recallable: {rec.get('text')!r}"
+        # 4. the episodic transcript flags the retracted record so no recall
+        #    path can re-serve it (the store that previously had NO notion of
+        #    retirement at all — this is the structural half of the defect)
+        retracted = [r for r in eng._episodic_transcript
+                     if eng._record_is_retracted(r)]
+        assert retracted, "no transcript record flagged as retracted"
+        for r in retracted:
+            assert "shehnai" in (r.get("text") or "").lower(), r.get("text")
 
         # 5. and the user-visible answer has moved on
         reply = (_turn(eng, "which instrument does my brother play now?") or "").lower()

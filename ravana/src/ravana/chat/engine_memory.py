@@ -238,8 +238,200 @@ from ravana.language.register import RegisterController
 
 
 
+# Retirement (round 2026-09-29T1239Z): a user retraction is a store-level event.
+from .retirement import (
+    RetirementLedger,
+    Retraction,
+    _stem,
+    _toks,
+    looks_like_retraction,
+    parse_contrast,
+)
+
+
+def _value_stems(text: str) -> set:
+    """Content stems of a value phrase, determiners excluded.
+
+    Used to decide whether a store record ACTUALLY HOLDS a value that the user
+    is now retracting. Subset/superset relations over these sets are the
+    grounding test in `_observe_retirement` -- "plays shehnai" must be
+    recognisable inside "my brother nikhil plays the shehnai, he is in his
+    thirties", and "the shehnai" must match a fact stored as "shehnai".
+    """
+    return {_stem(w) for w in _toks(text) if w not in _VALUE_STOP}
+
+
+_VALUE_STOP = {
+    "the", "a", "an", "my", "his", "her", "their", "its", "our", "your",
+    "is", "are", "was", "were", "be", "been", "am",
+    "of", "in", "on", "at", "to", "for", "with", "he", "she", "they",
+    "him", "her", "them", "and", "but", "not", "no", "so", "then",
+}
+
+
 class MemoryMixin:
     """Episodic & working-memory mixin — recall, retrieval, activation, user-model updates, forward simulation."""
+
+    # ── retirement (round 2026-09-29T1239Z) ────────────────────────────────
+    #
+    # RAVANA previously had no notion that "the user told me this and then took
+    # it back" is a property of the RECORD. A correction retired a value in the
+    # PersonalFactStore only; the episodic transcript kept the original
+    # utterance verbatim and the recall paths answered from it, so a corrected
+    # fact kept being served. Measured in scratch/_retire_probe.py:
+    #
+    #   "my brother nikhil plays the shehnai" then
+    #   "no, nikhil plays the surbahari, not the shehnai"
+    #   -> "which instrument does my brother play now?" still answered shehnai.
+    #
+    # `_observe_retirement` is the single place this runs. It is called from
+    # `_record_episode`, which is on the path of EVERY user turn (both the
+    # early-return and the main pipeline call it), so a correction can never be
+    # skipped by a short-circuit — the same bug class as the 2026-09-14
+    # determinism fix and the 2026-09-29 grounded-evidence fix.
+    #
+    # It MUTATES stores and records the event. It renders nothing; the reply is
+    # composed by the existing strategies from live state, so no reply string
+    # is authored here.
+    def _observe_retirement(self, text: str) -> Optional[Retraction]:
+        """Detect, GROUND and propagate one user retraction from `text`.
+
+        Grounding is what keeps this honest: the rejected phrase is only
+        retired if a live store actually holds that value. A retraction about
+        something RAVANA never recorded is a no-op, so this path cannot
+        manufacture a "correction" out of ordinary conversation.
+
+        Returns the grounded Retraction, or None.
+        """
+        led = getattr(self, "retirement_ledger", None)
+        if led is None:
+            led = RetirementLedger()
+            self.retirement_ledger = led
+        if not looks_like_retraction(text, led.all_markers()):
+            return None
+
+        parsed = parse_contrast(text, led.all_markers(), led.learned_markers)
+        if parsed is None:
+            return None
+        asserted, rejected, marker = parsed
+
+        # ── ground: find a live record that actually holds the rejected value
+        #    (and, when the utterance asserts a replacement, one that holds the
+        #    same subject — that is what makes it a revision of THAT claim
+        #    rather than an unrelated coincidence).
+        store = self._episodic_transcript or []
+        pf = getattr(getattr(self.user_model, "personal_facts", None), "facts", {}) or {}
+
+        _rej = _value_stems(rejected)
+        _ass = _value_stems(asserted)
+        hit_pf = None      # (subj_key, attr)
+        hit_rec = None     # transcript record
+
+        for key, f in pf.items():
+            fv = _value_stems(getattr(f, "value", "") or "")
+            if not fv or not _rej.issubset(fv):
+                continue
+            if _ass and _ass.intersection(fv):
+                # Holds BOTH values -> not a revision, it is a disjunction.
+                continue
+            hit_pf = key
+            break
+
+        if hit_pf is None:
+            for rec in store:
+                rv = _value_stems(rec.get("text", "") or "")
+                if rv and _rej.issubset(rv) and not (_ass & rv):
+                    hit_rec = rec
+                    break
+
+        if hit_pf is None and hit_rec is None:
+            # Nothing held it -> nothing to retire. Fail closed.
+            return None
+
+        slot_key = "|".join(str(x) for x in hit_pf) if hit_pf else "episodic"
+        retr = Retraction(
+            retired_value=rejected,
+            replaced_by=asserted or None,
+            marker=marker,
+            slot=tuple(str(x) for x in hit_pf) if hit_pf else None,
+            turn_index=int(self.turn_count),
+            evidence=text,
+        )
+        led.retire(retr, slot_key)
+
+        # ── propagate: retire the old value in EVERY store that holds it, not
+        #    just the fact store. This is the structural half of the fix.
+        self._propagate_retirement(retr, pf, store)
+        return retr
+
+    def _propagate_retirement(self, retr: Retraction, pf, store) -> None:
+        """Retire `retr.retired_value` in every store that holds it.
+
+        Each store has its own notion of retirement and its own readers, so
+        each is updated where it already filters — never by inventing a second
+        convention. The episodic transcript is the store that previously had
+        NO retirement at all, which is why the stale value kept being served.
+        """
+        rejected = retr.retired_value or ""
+
+        # 1. PersonalFactStore — use its own contradict() so the existing
+        #    `superseded` filter (engine_memory.py:973 and friends) does the
+        #    work, and the replacement is asserted as an active fact.
+        subj, attr = "i", None
+        if retr.slot:
+            subj, attr = retr.slot[0], retr.slot[1]
+        try:
+            if attr and (retr.slot[0], attr) in {
+                    (str(k[0]), str(k[1])) for k in pf.keys()}:
+                for (s, a, _v), f in list(pf.items()):
+                    if str(s) == str(retr.slot[0]) and str(a) == str(attr) \
+                            and self.retirement_ledger.is_retired(
+                                getattr(f, "value", ""), f"{s}|{a}"):
+                        f.superseded = True
+                if retr.replaced_by:
+                    self.user_model.personal_facts.assert_fact(
+                        subj, attr, retr.replaced_by,
+                        confidence=0.7, source="correction")
+        except Exception:
+            pass
+
+        # 2. Episodic transcript — mark the record RETRACTED so every recall
+        #    path can skip it. The record is kept, not deleted: it is real
+        #    conversational history, and `_reconstruct_gist` may legitimately
+        #    need it to answer "what did you use to think / what did i tell
+        #    you earlier". Retirement hides it from ORDINARY recall; it does
+        #    not erase the trace.
+        for rec in store:
+            txt = (rec.get("text") or "").lower()
+            if not txt:
+                continue
+            if retr.retired_value.lower() in txt or \
+                    self.retirement_ledger.is_retired(txt):
+                rec["retracted"] = True
+                rec["retracted_by"] = retr.turn_index
+
+    def _record_is_retracted(self, rec: Dict[str, Any]) -> bool:
+        """Is this transcript record superseded by a user retraction?
+
+        Read by the recall paths so an ordinary self-recall can never re-serve
+        a value the user took back. A record is retracted if it was flagged at
+        write time, OR if the value it uniquely carries is now in the ledger —
+        the second clause covers records written before the ledger existed and
+        keeps the two paths from drifting.
+        """
+        if rec.get("retracted"):
+            return True
+        led = getattr(self, "retirement_ledger", None)
+        if led is None or not led.retired:
+            return False
+        txt = (rec.get("text") or "").lower()
+        if not txt:
+            return False
+        for vals in led.retired.values():
+            for v in vals:
+                if v and v in txt:
+                    return True
+        return False
 
     def _record_episode(self, user_input: str) -> None:
         """Append a structured turn record to the gist-based episodic transcript.
@@ -262,6 +454,18 @@ class MemoryMixin:
         t = (user_input or "").strip()
         if not t:
             return
+        # Retirement runs BEFORE the turn is stored, so the retraction is learned
+        # from the state as it stood when the user spoke (the rejected value is
+        # still live) and the corrected utterance is recorded as the new truth.
+        # Placing it here -- the one function every turn passes through -- is what
+        # makes a correction unskippable by any short-circuit strategy.
+        try:
+            self._observe_retirement(t)
+        except Exception:
+            # Retirement must never take a turn down. A failure here means the
+            # capability is inert, which the tests catch; it must not become a
+            # silent crash that breaks conversation.
+            pass
         _topic = ""
         try:
             _topic = self._ground_query(t)[0] or ""
@@ -729,6 +933,13 @@ class MemoryMixin:
             if not text or text == qn:
                 continue
             if self._is_question(text):
+                continue
+            # A record the user has since RETRACTED must not be re-served by an
+            # ordinary self-recall ("what did i tell you about my brother?").
+            # Before this the transcript kept the original utterance verbatim with
+            # no retirement notion at all, so a corrected fact kept coming back
+            # from the one store the correction never reached.
+            if self._record_is_retracted(rec):
                 continue
             if re.search(
                 r"\b(remember|recall|remind(?: me)?)\b"
@@ -1298,6 +1509,11 @@ class MemoryMixin:
                     r"\b(what|do you remember|remind)\b.*\b(i|you)\b.*"
                     r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t) or \
                     self._is_question(_t):
+                    continue
+                # Same retirement gate as _self_cued_episodic: a record the
+                # user has taken back must not be re-served by an ordinary
+                # cued recall.
+                if self._record_is_retracted(rec):
                     continue
                 _eligible.append(rec)
             _GENERIC_CUE = {
