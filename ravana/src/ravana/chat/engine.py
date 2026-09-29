@@ -405,6 +405,11 @@ from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .user_model import is_activity_attr as _is_activity_attr
 from .user_model import drops_copula
 from .user_model import activity_role_objects, _activity_role_phrases
+from .user_model import (
+    is_occupation_query as _is_occupation_query,
+    is_livelihood_verb as _is_livelihood_verb,
+    is_livelihood_object as _is_livelihood_object,
+)
 from . import attribute_gate
 from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
@@ -4251,23 +4256,98 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             r"nine|ten|eleven|twelve)|\d+)\b\s+", _v)
                         if _m and _cn in _v:
                             return f"you have {_m.group(1)} {_cn}."
+        # Content nouns of the query, with the interrogative/function words
+        # removed. Computed before either branch below: the _ACT loop needs it to
+        # match a stored value, and the occupation bridge needs to know when a
+        # query named NO content at all ("what do i do"), which is the other
+        # shape of the same question.
+        _qnouns = set(re.findall(r"[a-z']+", q)) - {
+            "what", "do", "i", "my", "on", "the", "a", "an", "to", "you",
+            "of", "in", "for", "with", "and", "that", "this", "is", "are"}
+        if "rooftop" in q or "roof" in q:
+            _qnouns.add("rooftop")
+        # ── OCCUPATION / LIVELIHOOD ROLE BRIDGE (round 2026-09-29T0823Z,
+        # card t_af1e837d) ──────────────────────────────────────────────────
+        # DEFECT: the _ACT loop below returned the FIRST `does:` fact whose value
+        # matched, in dict INSERTION order, and matched on bare substring
+        # (`_verb in _val`). An OCCUPATION query carries no content noun and its
+        # verb is the near-empty "do", so the first-mined activity won whatever
+        # it was. MEASURED: seeding "i run a pottery studio" + "i adopted a stray
+        # dog yesterday" answered "you adopted stray dog yesterday." for
+        # "what do i do for a living" / "for work" / "what do i do". ("do" is even
+        # a substring of "adopted", so the substring test matched the wrong fact
+        # by luck.) It is a SELECTION defect: the right fact was in the store the
+        # whole time, under does:run.
+        #
+        # FIX: an occupation query asks for a SUSTAINED ROLE, so RANK the
+        # activity facts by how much each reads as a livelihood — its verb is a
+        # livelihood verb, or its object is a workplace / production unit — and
+        # answer with the best. The score comes from the seed lexicons in
+        # user_model merged with the words RAVANA learned ONLINE
+        # (learn_occupation_role), so the concept grows without a code edit or a
+        # retrain. The reply is still the LIVE fact VALUE: this SELECTS among real
+        # state and authors nothing.
+        #
+        # The trigger is TYPE-AGNOSTIC, not one phrasing: it fires on an
+        # occupation query ("for a living" / "for work" / "what's my job" /
+        # "my occupation") OR on an activity query that names no content at all
+        # ("what do i do"), because an unconstrained "what do i do" is asking
+        # for the same thing. It is a STANDALONE branch, not nested in _ACT,
+        # because "what's my job" never matches the _ACT regex (which requires
+        # "what do i <verb>") yet is the same class of question.
+        _occ_q = _is_occupation_query(q)
+        if pf is not None and (_occ_q or (_ACT and not _qnouns)):
+            # A stated role / job fact IS the occupation, stated outright.
+            for _okey in ("work", "role"):
+                _of = pf.get("i", _okey)
+                if _of is not None and not getattr(_of, "superseded", False):
+                    return f"you work as {_of.value}."
+            _lv = um.occupation_verbs() if um is not None else set()
+            _lo = um.occupation_objects() if um is not None else set()
+            _scored = []
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if not (_is_activity_attr(_k[1])
+                        and not _k[1].startswith("event")) \
+                        or getattr(_f, "superseded", False):
+                    continue
+                _val = _f.value.lower()
+                _words = re.findall(r"[a-z][a-z'-]*", _val)
+                _s = 0
+                if _words and _is_livelihood_verb(_words[0], _lv):
+                    _s += 2
+                if any(_is_livelihood_object(_w, _lo) for _w in _words[1:]):
+                    _s += 1
+                _scored.append((_s, _val))
+            # Answer only when something actually reads as a livelihood. With no
+            # livelihood fact stored we fall through to the honest
+            # "outside what i know" path rather than naming a one-off act as the
+            # user's job.
+            if _scored:
+                _best = max(_scored, key=lambda _p: _p[0])
+                if _best[0] > 0:
+                    return f"you {_best[1]}."
         # Activity / possession recall ("what do i keep/have/do", "where do i
         # keep X"). Hoisted out of the _TOLD block so it runs for ANY such
         # query, not only ones containing "tell me about".
         if _ACT and pf is not None:
             _verb = _ACT.group(1)
-            _qnouns = set(re.findall(r"[a-z']+", q)) - {
-                "what", "do", "i", "my", "on", "the", "a", "an", "to", "you",
-                "of", "in", "for", "with", "and", "that", "this", "is", "are"}
-            if "rooftop" in q or "roof" in q:
-                _qnouns.add("rooftop")
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _is_activity_attr(_k[1]) and not _k[1].startswith("event") \
                         and not getattr(_f, "superseded", False):
                     _val = _f.value.lower()
-                    if _verb in _val or any(n in _val for n in _qnouns):
+                    # Word-boundary verb match (the leading token IS the verb the
+                    # miner stored) and word-boundary noun match, so "do" no
+                    # longer matches "adopted" and "me" no longer matches
+                    # "mechanical" — the same correction the "where do i keep"
+                    # branch above already applies.
+                    _parts = _val.split()
+                    if any(_verb == _p for _p in _parts[:2]) \
+                            or any(re.search(r"\b" + re.escape(n) + r"\b", _val)
+                                   for n in _qnouns if len(n) > 2):
                         return f"you {_val}."
             # also try the work fact
             _w = pf.get("i", "work") if pf else None

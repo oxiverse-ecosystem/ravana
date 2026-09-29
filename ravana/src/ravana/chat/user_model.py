@@ -530,6 +530,93 @@ def _activity_role_phrases() -> frozenset:
     return frozenset(_ACTIVITY_ROLES.keys())
 
 
+# ── OCCUPATION / LIVELIHOOD role (round 2026-09-29T0823Z, card t_af1e837d) ──
+# SEED concept: the VERBS that express a LIVELIHOOD — a sustained professional
+# role — as opposed to a one-off act. "what do i do for a living" / "for work" /
+# "what's my job" ask for the ROLE, so the correct stored fact is the one whose
+# verb is a livelihood verb ("run pottery studio"), not the first `does:` fact
+# mined ("adopted stray dog yesterday").
+#
+# Why a seed LEXICON and not a branch: this is generic category vocabulary (the
+# same shape as _ACTIVITY_ROLES above), it contains no reply and no
+# question->answer mapping, and it is EXPANDABLE AT RUNTIME through
+# UserModel.learn_occupation_role — when the user says "i work as a <word>" the
+# miner calls it, so a profession RAVANA has never heard of becomes addressable
+# for a later livelihood query with no code edit and no retraining. Removing the
+# lexicon degrades to first-inserted selection (the defect), so this is seed
+# STRUCTURE, not authored answers.
+_LIVELIHOOD_VERBS = frozenset({
+    # running / operating a workplace or production unit
+    "run", "operate", "manage", "own", "found", "direct", "lead", "head",
+    "administer", "oversee", "maintain", "host", "serve",
+    # producing goods or services
+    "build", "make", "craft", "bake", "brew", "cook", "design", "code",
+    "write", "paint", "carve", "forge", "weave", "knit", "sew", "print",
+    "produce", "manufacture", "compose", "develop", "engineer", "publish",
+    # practicing a profession
+    "teach", "practice", "heal", "nurse", "drive", "fly", "sail", "farm",
+    "research", "study", "consult", "advise", "train", "coach", "sell",
+    "trade", "repair", "restore", "perform", "tour", "act", "sing", "play",
+})
+
+# A LIVELIHOOD is sustained, so its value carries a WORKPLACE / PRODUCTION
+# object. Seed object vocabulary, same rationale as _ACTIVITY_ROLES, grown
+# online via learn_occupation_role.
+_LIVELIHOOD_OBJECTS = frozenset({
+    "studio", "shop", "store", "firm", "company", "business", "practice",
+    "workshop", "bakery", "cafe", "restaurant", "bar", "salon", "clinic",
+    "hospital", "school", "college", "university", "factory", "farm",
+    "orchard", "gallery", "agency", "lab", "laboratory", "office",
+    "team", "band", "troupe", "market", "kitchen", "yard", "press", "mill",
+})
+
+
+def is_livelihood_verb(verb: str, learned: Optional[set] = None) -> bool:
+    """True when `verb` names a SUSTAINED livelihood/professional role rather
+    than a one-off act. Consults the seed lexicon merged with any RUNTIME-learned
+    occupation verbs (UserModel.occupation_verbs, grown by
+    learn_occupation_role — online, no retraining). Pure vocabulary test; the live
+    fact VALUE is what answers the query, so no reply is authored here."""
+    v = (verb or "").strip().lower()
+    if not v:
+        return False
+    if v in _LIVELIHOOD_VERBS:
+        return True
+    if learned and v in {str(x).strip().lower() for x in learned}:
+        return True
+    return False
+
+
+def is_livelihood_object(word: str, learned: Optional[set] = None) -> bool:
+    """True when `word` names a workplace / production unit — the object a
+    livelihood is performed AT. Seed vocabulary + runtime-learned objects."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _LIVELIHOOD_OBJECTS:
+        return True
+    if learned and w in {str(x).strip().lower() for x in learned}:
+        return True
+    return False
+
+
+def is_occupation_query(q: str) -> bool:
+    """True when the query asks for the user's OCCUPATION / livelihood rather
+    than a single activity: "what do i do for a living", "for work",
+    "what's my job", "what is my occupation". Type-agnostic — it keys on the
+    ROLE NOUN the user asked about, not on one phrasing, and it is a predicate
+    over a query, never a lookup of the answer (the answer always comes from the
+    live fact store)."""
+    t = (q or "").lower()
+    return bool(re.search(
+        r"\b(?:"
+        r"(?:for|make|making|earn|earning)\s+(?:a\s+|my\s+|our\s+|an?\s+)?"
+        r"(?:living|livelihood|work|money|income)|"
+        r"occupation|profession|career|vocation|"
+        r"(?:what(?:'s|\s+is|\s+are)?\s+(?:my|your|his|her|their)\s+)?"
+        r"job|day\s*job|line\s+of\s+work)\b", t))
+
+
 # First-person contraction expansion (round 2026-08-29T0659Z).
 # The activity/location/opinion miners key on the token boundary `\bi\s+`,
 # so an unexpanded "i'm"/"i've" never matches ("i'm training" -> nothing
@@ -1401,6 +1488,16 @@ class UserModel:
     # recall time so the category link keeps growing without code edits. Seed is
     # data, not a frozen table — RAVANA adds to it; nothing here is an authored reply.
     _activity_roles: Set[str] = field(default_factory=set)
+    # RUNTIME-EXPANDED occupation/livelihood vocabulary (round 2026-09-29T0823Z,
+    # card t_af1e837d). Seed lives in the module-level _LIVELIHOOD_VERBS /
+    # _LIVELIHOOD_OBJECTS lexicons; THIS set holds the profession / workplace
+    # words RAVANA learns ONLINE — when the user says "i work as a <word>" the
+    # miner calls learn_occupation_role, so an occupation RAVANA has never heard
+    # of becomes addressable for a later "what do i do for a living" query with
+    # no code edit and no retraining. Same seed+online contract as
+    # _activity_roles; it holds category vocabulary, never a reply.
+    _occupation_verbs: Set[str] = field(default_factory=set)
+    _occupation_objects: Set[str] = field(default_factory=set)
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -3036,6 +3133,23 @@ class UserModel:
                                 _put_fact(f"{_attr}_{_i}", _nm, 0.6)
                     else:
                         _put_fact(_attr, _val, 0.6)
+
+        # Online occupation growth (round 2026-09-29T0823Z, card t_af1e837d).
+        # The patterns above already capture a stated profession as a durable
+        # ('i', 'role'/'work', "<profession>") fact. Feed the profession WORD
+        # into the occupation vocabulary so a LATER occupation query ("what do
+        # i do for a living") can RANK this fact as the livelihood even when the
+        # profession is not in the seed lexicon ("i work as an apiarist"). This
+        # is the growth path that makes the seed a seed: no code edit, no
+        # retraining, and the recall loop still answers from the live fact store.
+        try:
+            for _okey in ("role", "work"):
+                _of = self.personal_facts.get("i", _okey)
+                if _of is not None and not getattr(_of, "superseded", False):
+                    for _w in re.findall(r"[a-z][a-z'-]*", str(_of.value).lower()):
+                        self.learn_occupation_role(_w)
+        except Exception:
+            pass
 
 
         # D7 (round 2026-08-16T1745Z): relationship-ACTIVITY disclosures were
@@ -6103,6 +6217,30 @@ class UserModel:
         if object_word:
             self._activity_roles.add(object_word.strip().lower())
 
+    def learn_occupation_role(self, word: str) -> None:
+        """Online-grow the occupation/livelihood vocabulary (round 2026-09-29T0823Z,
+        card t_af1e837d). Called by the miner when the user states a profession
+        ("i work as a <word>", "i am a <word>") so a livelihood RAVANA has never
+        heard of becomes addressable for a later occupation query without a code
+        edit. The word is recorded in BOTH the verb and object slots so it is
+        recognised whichever way it surfaces later. Pure data growth — no reply is
+        authored and the recall loop still answers from the live fact store.
+        """
+        w = (word or "").strip().lower().strip(".,!?;:'\"")
+        if not w or len(w) < 2:
+            return
+        self._occupation_verbs.add(w)
+        self._occupation_objects.add(w)
+
+    def occupation_verbs(self) -> Set[str]:
+        """Runtime-learned occupation words, for the seed-merge in the recall
+        ranker. A function so callers never reach into the private set directly."""
+        return set(getattr(self, "_occupation_verbs", set()) or set())
+
+    def occupation_objects(self) -> Set[str]:
+        """Runtime-learned workplace/production words for the seed merge."""
+        return set(getattr(self, "_occupation_objects", set()) or set())
+
     def get_state(self) -> Dict:
         return {
             'edge_reactivations': {str(k): v for k, v in self.edge_reactivations.items()},
@@ -6133,6 +6271,9 @@ class UserModel:
             'interaction_history': self.interaction_history,
             '_learned_relations': list(getattr(self, '_learned_relations', set())),
             '_activity_roles': list(getattr(self, '_activity_roles', set())),
+            '_occupation_verbs': list(getattr(self, '_occupation_verbs', set())),
+            '_occupation_objects': list(
+                getattr(self, '_occupation_objects', set())),
         }
 
     def set_state(self, state: Dict):
@@ -6158,6 +6299,8 @@ class UserModel:
         self.preferences = state.get('preferences', {})
         self._learned_relations = set(state.get('_learned_relations', []))
         self._activity_roles = set(state.get('_activity_roles', []))
+        self._occupation_verbs = set(state.get('_occupation_verbs', []))
+        self._occupation_objects = set(state.get('_occupation_objects', []))
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)
