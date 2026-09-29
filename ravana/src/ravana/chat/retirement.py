@@ -242,6 +242,22 @@ class RetirementLedger:
         m = (marker or "").strip().lower()
         return m in REVISION_MARKERS or m in self.learned_markers
 
+    def interjective_markers(self) -> set[str]:
+        """The full interjective class: the AUTHORED revision markers plus
+        every marker learned online.
+
+        Callers that pass an interjective set to :func:`parse_contrast` must
+        pass THIS, not :attr:`learned_markers`. ``parse_contrast`` replaces
+        its ``REVISION_MARKERS`` default whenever an explicit set is given, so
+        handing it the learned set alone (empty until something is learned)
+        silently reclassifies every authored interjection as a negation — which
+        inverts the direction of the parse and retires the value the user just
+        ASSERTED. Measured: "pune, actually he lives in patna" parsed as
+        rejected="pune" / asserted="he lives in patna" with the learned-only
+        set, and correctly as rejected="pune" / asserted="patna" with this one.
+        """
+        return set(REVISION_MARKERS) | self.learned_markers
+
     # ── query ─────────────────────────────────────────────────────────
     def _same_value(self, a: str, b: str) -> bool:
         """Do two value strings denote the same thing to RAVANA?

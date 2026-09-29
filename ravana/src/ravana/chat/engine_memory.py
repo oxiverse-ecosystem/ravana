@@ -310,7 +310,14 @@ class MemoryMixin:
         if not looks_like_retraction(text, led.all_markers()):
             return None
 
-        parsed = parse_contrast(text, led.all_markers(), led.learned_markers)
+        # The interjective set must be the AUTHORED revision class PLUS the
+        # learned one. Passing `learned_markers` alone (empty until something
+        # is learned) makes parse_contrast REPLACE its REVISION_MARKERS
+        # default, which reclassifies every authored interjection as a
+        # negation and inverts the direction — retiring the value the user
+        # just asserted. See RetirementLedger.interjective_markers.
+        parsed = parse_contrast(text, led.all_markers(),
+                                led.interjective_markers())
         if parsed is None:
             return None
         asserted, rejected, marker = parsed

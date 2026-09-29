@@ -151,10 +151,19 @@ def test_retraction_opener_detection():
 
 # ── engine: the user-visible symptom ───────────────────────────────────
 
-def _engine():
+def _engine(tag="retiretest"):
+    """One engine per tag.
+
+    The suffix ISOLATES persisted state, and these engine tests must not share
+    it: `stop_background_learning()` persists, so a single shared suffix let one
+    test's grounded retraction load into the next test's engine and fail it
+    (`test_ordinary_disclosure_is_never_retracted` asserting an empty ledger on
+    a ledger that already held a RETRACTION from its predecessor). Each test
+    gets its own tag, so the suite is order-independent.
+    """
     from ravana.chat.engine import CognitiveChatEngine
     return CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
-                               user_suffix="retiretest")
+                               user_suffix=tag)
 
 
 def _turn(eng, q):
@@ -167,7 +176,7 @@ def _turn(eng, q):
 
 
 def test_correction_retires_the_old_value_in_every_store():
-    eng = _engine()
+    eng = _engine("retire_t_correct")
     try:
         _turn(eng, "my brother nikhil plays the shehnai, he is in his thirties")
         _turn(eng, "no, nikhil plays the surbahari, not the shehnai")
@@ -204,7 +213,7 @@ def test_correction_retires_the_old_value_in_every_store():
 
 
 def test_self_recall_does_not_resurface_the_retracted_claim():
-    eng = _engine()
+    eng = _engine("retire_t_selfrecall")
     try:
         _turn(eng, "my brother nikhil plays the shehnai, he is in his thirties")
         _turn(eng, "no, nikhil plays the surbahari, not the shehnai")
@@ -215,9 +224,47 @@ def test_self_recall_does_not_resurface_the_retracted_claim():
         eng.stop_background_learning()
 
 
+def test_authored_interjection_retires_what_precedes_end_to_end():
+    """An AUTHORED revision marker must retire the PRECEDING value.
+
+    Regression for a wiring defect found while documenting: `_observe_retirement`
+    passed `led.learned_markers` as the interjective set. `parse_contrast`
+    REPLACES its `REVISION_MARKERS` default with any explicit set, and
+    `learned_markers` is empty until something is learned — so every authored
+    interjection ("actually", "sorry", "correction") was classified as a
+    NEGATION and the parse ran backwards, retiring the value the user had just
+    ASSERTED. Measured before the fix: "pune, actually he lives in patna" left
+    the ledger EMPTY (grounding then failed, because the "rejected" phrase was
+    the replacement the user was still asserting).
+    """
+    led = RetirementLedger()
+    assert "actually" in led.interjective_markers(), \
+        "authored interjection missing from the interjective class"
+    got = parse_contrast("pune, actually he lives in patna",
+                         led.all_markers(), led.interjective_markers())
+    assert got is not None, "authored interjection not parsed"
+    asserted, rejected, marker = got
+    assert rejected == "pune", f"interjection must reject what PRECEDES: {rejected!r}"
+    assert "patna" in asserted, asserted
+    assert marker == "actually", marker
+
+    eng = _engine("retire_t_interjection")
+    try:
+        _turn(eng, "my uncle ravi lives in pune")
+        _turn(eng, "pune, actually he lives in patna")
+        led_ = eng.retirement_ledger
+        assert led_.log, "authored-interjection retraction never grounded"
+        assert led_.is_retired("pune"), \
+            f"preceding value not retired: {led_.retired}"
+        assert not led_.is_retired("patna"), \
+            "the asserted replacement was retired — direction is inverted"
+    finally:
+        eng.stop_background_learning()
+
+
 def test_ordinary_disclosure_is_never_retracted():
     """The capability must not fire on normal conversation."""
-    eng = _engine()
+    eng = _engine("retire_t_ordinary")
     try:
         _turn(eng, "my brother nikhil plays the shehnai, he is in his thirties")
         _turn(eng, "i also have a dog named rocky")
@@ -228,7 +275,7 @@ def test_ordinary_disclosure_is_never_retracted():
 
 
 def test_retraction_survives_save_and_load():
-    eng = _engine()
+    eng = _engine("retire_t_persist")
     try:
         _turn(eng, "my brother nikhil plays the shehnai, he is in his thirties")
         _turn(eng, "no, nikhil plays the surbahari, not the shehnai")
@@ -236,7 +283,7 @@ def test_retraction_survives_save_and_load():
     finally:
         eng.stop_background_learning()
 
-    eng2 = _engine()
+    eng2 = _engine("retire_t_persist")
     try:
         eng2.load()
         led = getattr(eng2, "retirement_ledger", None)
