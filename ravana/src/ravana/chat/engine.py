@@ -400,6 +400,24 @@ except Exception:  # pragma: no cover - defensive
     _default_lexicon = None
     report_missing("ravana.chat.functional_lexicon", "data-driven functional lexicon", kind="internal")
 
+# Referent-head capability (round 2026-09-30T1031Z, task t_159df91e): the
+# shared "can this token denote anything?" class + clause-head reducer. A
+# failure here is a bug in RAVANA's own module, so it is reported at ERROR
+# severity rather than papered over (see the silent-import-guard doctrine).
+try:
+    from .topic_head import (default_function_class as _default_function_class,
+                             referent_head as _referent_head,
+                             _INTRANSITIVE_PREDICATE_SEED)
+    _HAS_TOPIC_HEAD = True
+except Exception as _exc:  # pragma: no cover - defensive
+    _HAS_TOPIC_HEAD = False
+    _default_function_class = None
+    _referent_head = None
+    _INTRANSITIVE_PREDICATE_SEED = frozenset()
+    report_missing("ravana.chat.topic_head",
+                   "referent-head extraction (function class + clause head)",
+                   kind="internal")
+
 import pickle
 from ravana.web.learner import SearchEngine
 from ravana.core.dual_code_space import DualCodeSpace
@@ -1276,6 +1294,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # loaded from data/functional_lexicon.json (seed-fallback if absent).
         self._func_lex = (_default_lexicon()
                           if _HAS_FUNC_LEX and _default_lexicon else None)
+        # Referent-head capability (round 2026-09-30T1031Z, task t_159df91e):
+        # the shared answer to "can this token denote anything?" that topic
+        # extraction previously re-derived (and got wrong) at each call site.
+        # The instance owns its own FunctionClass so the online growth path
+        # (observe_topic_token / learn) is per-engine and survives save/load
+        # through the normal state path; the module default is the fallback
+        # for engines built via __new__ (audit tests).
+        self._func_class = (_default_function_class()
+                            if _HAS_TOPIC_HEAD and _default_function_class
+                            else None)
+        # Fold the engine's EXISTING verb vocabularies into the referent
+        # class so clause-head reduction sees the same predicates the rest of
+        # the engine already knows, instead of a fourth private copy.
+        try:
+            self._seed_predicates_from_engine_vocab()
+        except Exception:
+            pass
         # Stage 3 (M-A): Semantic Prototype Router — OFF by default. When ON,
         # intent classification uses the learned centroid router
         # (data/intent_router.json) instead of the hardcoded routing regex;
@@ -2267,6 +2302,142 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
         return set()
+
+    # ── Referent-head capability API (round 2026-09-30T1031Z, t_159df91e) ──
+    def _function_class(self):
+        """The engine's referent-capability class (never None after __init__)."""
+        _fc = getattr(self, "_func_class", None)
+        if _fc is None:
+            _fc = _default_function_class() if _HAS_TOPIC_HEAD else None
+            try:
+                self._func_class = _fc
+            except Exception:
+                pass
+        return _fc
+
+    def _token_is_grounded(self, word: str) -> bool:
+        """Does RAVANA hold ANY evidence that ``word`` names something?
+
+        Three independent sources, so "grounded" means grounded in the world
+        model rather than "was in a list": a concept node in the graph, a
+        distributional embedding, or a stored personal fact. This is the
+        evidence signal the online growth path in ``topic_head`` consumes.
+        """
+        w = (word or "").strip().lower()
+        if not w:
+            return False
+        if w in getattr(self, "_concept_keywords", {}) or \
+                w in getattr(self, "_concept_labels", set()):
+            return True
+        _glove = getattr(self, "_glove_vector", None)
+        if callable(_glove):
+            try:
+                if _glove(w) is not None:
+                    return True
+            except Exception:
+                pass
+        try:
+            _facts = self.user_model.personal_facts.facts
+        except Exception:
+            _facts = {}
+        for key in _facts:
+            try:
+                if str(key[1]).lower() == w or str(key[2]).lower() == w:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _referent_head(self, phrase: str) -> Optional[str]:
+        """Reduce a clause to the head referent it is about, or None.
+
+        The shared reducer every topic-extraction call site routes through.
+        Fails open to the input phrase when the capability is unavailable, so
+        a missing module degrades to the previous behaviour rather than
+        silently returning nothing.
+        """
+        if not _HAS_TOPIC_HEAD or _referent_head is None:
+            return (phrase or "").strip() or None
+        try:
+            return _referent_head(
+                phrase,
+                pos_lookup=lambda w: (getattr(self, "_concept_pos", {}) or {}).get(w),
+                func=self._function_class())
+        except Exception:
+            return (phrase or "").strip() or None
+
+    def _observe_topic_token(self, word: str) -> bool:
+        """Feed one extraction outcome into the online growth path.
+
+        Returns True when the token may still be used as a referent. Called
+        from the grounding site so the class learns from RAVANA's own
+        extraction evidence — no retraining, no rebuild.
+        """
+        _fc = self._function_class()
+        if _fc is None:
+            return True
+        try:
+            return bool(_fc.observe_topic_token(
+                word, grounded=self._token_is_grounded(word)))
+        except Exception:
+            return True
+
+    def _learn_predicates_from(self, *word_groups) -> Set[str]:
+        """Register tokens with positive predicate evidence; return the new ones.
+
+        The online growth path for the predicate side of the referent
+        capability. Callers pass word groups they already hold — a POS-tagged
+        vocabulary, a mined activity verb, an occupation word — never an
+        authored list. Registration is permanent, so the class widens from
+        live language without a code edit.
+        """
+        _fc = self._function_class()
+        if _fc is None:
+            return set()
+        new = set()
+        try:
+            for group in word_groups:
+                if not group:
+                    continue
+                new |= _fc.learn_predicate(*[str(w) for w in group])
+        except Exception:
+            return new
+        return new
+
+    def _seed_predicates_from_engine_vocab(self) -> Set[str]:
+        """Consolidate the engine's EXISTING verb vocabularies into the class.
+
+        RAVANA already carries several verb vocabularies — the POS seed
+        (``KNOWN_VERBS``), the subject-context scaffold, the functional
+        lexicon's ``subject_context``, and the intransitive-predicate set used
+        by the clause-structure branch of the self-opinion extractor (which
+        already contains "matters"/"counts"/"happens"). This routes them into
+        the one referent class instead of adding a fourth copy of the same
+        knowledge: consolidation, not a new list. Everything discovered later
+        is added by :meth:`_learn_predicates_from` from live evidence.
+        """
+        groups = []
+        try:
+            from ravana.chat.constants import KNOWN_VERBS
+            groups.append(KNOWN_VERBS)
+        except Exception:
+            pass
+        for name in ("_SUBJECT_CONTEXT_WORDS",):
+            _g = getattr(self, name, None)
+            if _g:
+                groups.append(set(_g))
+        try:
+            _sc = self._closed_class("subject_context")
+            if _sc:
+                groups.append(set(_sc))
+        except Exception:
+            pass
+        # The self-opinion extractor's intransitive-predicate vocabulary: the
+        # verbs it already recognises as clause predicates when it narrows a
+        # clause tail. Same knowledge, now available to every call site.
+        if _INTRANSITIVE_PREDICATE_SEED:
+            groups.append(set(_INTRANSITIVE_PREDICATE_SEED))
+        return self._learn_predicates_from(*groups)
 
     def _ingest_episodic(self, user_input: str, subject: str = "") -> None:
         """Store a conversational statement in the hippocampal buffer so it can
@@ -10604,6 +10775,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'freq_models': {k: v.to_dict() for k, v in self._freq_models.items()},
                 # Learned lemma store (Item 5, P2) — novel past->base mappings.
                 'learned_lemmas': dict(self._learned_lemmas),
+                # Referent class growth (round 2026-09-30T1031Z, t_159df91e):
+                # the words RAVANA has learned are grammatical, the words it
+                # has learned are predicates, and the ungrounded-token counts.
+                # Persisted for the same reason the belief store is: a class
+                # that forgets its own evidence re-learns it from scratch every
+                # session, which makes the growth path decorative.
+                'func_class_state': (self._function_class().to_state()
+                                     if self._function_class() is not None
+                                     else None),
                 # Reflective monitoring
                 'episodic_edges': _episodic_edges,
                 'semantic_edges': _semantic_edges,
@@ -11338,6 +11518,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _ll = state.get('learned_lemmas')
             if _ll:
                 self._learned_lemmas = dict(_ll)
+
+            # Restore the referent class's learned membership (round
+            # 2026-09-30T1031Z, t_159df91e). Written at save() time; without
+            # this restore it would be the "saved but never loaded" class of
+            # bug — the growth path would re-learn the same words every boot
+            # and never actually accumulate.
+            _fc_state = state.get('func_class_state')
+            _fc = self._function_class()
+            if _fc_state and _fc is not None:
+                try:
+                    _fc.load_state(_fc_state)
+                except Exception:
+                    pass
 
             # Restore source-trust accumulator (Item 1, P0). Saved at save()
             # time but previously never reloaded -> the prefrontal credibility

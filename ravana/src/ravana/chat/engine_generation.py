@@ -1887,11 +1887,27 @@ class GenerationMixin:
         # legacy first-clause truncation is intentional and keeps "sky blue" from
         # "sky blue but sunsets red" while the second topic lives in _pending_subtopic).
         _phrase_for_words = _clauses[0] if _clauses else query_phrase
+        # REFERENT CAPABILITY (round 2026-09-30T1031Z, t_159df91e): the filter
+        # below decides which tokens may become the topic, and it previously
+        # let NEGATION/AUXILIARY particles through — "tell me something you
+        # don't know much about" grounded to the subject "don't", and the
+        # uncertainty frame then said "i don't have a solid grasp on don't".
+        # Route the closed-class test through the shared FunctionClass so one
+        # class answers "can this token denote anything?" for every extractor,
+        # and feed each surviving candidate back as extraction evidence so the
+        # class grows online from RAVANA's own world model.
+        _fc = self._function_class()
         words = [w.strip(".,!?") for w in _phrase_for_words.split()
                  if len(w.strip(".,!?")) > 2
                  and w.strip(".,!?") not in self.QUESTION_WORDS
                  and w.strip(".,!?") not in self.TOPIC_SKIP_WORDS
-                 and w.strip(".,!?") not in STOP_WORDS]
+                 and w.strip(".,!?") not in STOP_WORDS
+                 and not (_fc is not None and _fc.is_function(w.strip(".,!?")))]
+        # Growth path: a candidate topic RAVANA can ground (concept node,
+        # embedding, or stored fact) is a real referent; one it cannot is
+        # counted, and demoted to grammatical after repeated failures.
+        for _w in words:
+            self._observe_topic_token(_w.lower())
         print(f"  [ground_query] query_phrase={query_phrase!r} words={words!r}")
         if words:
             # Strip trailing temporal/adverbial modifiers that pollute topic

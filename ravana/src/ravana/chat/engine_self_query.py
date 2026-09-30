@@ -1590,7 +1590,20 @@ class SelfQueryMixin:
                         break
                     _target_toks.append(_w)
                     _j += 1
+                # REFERENT-HEAD CAPABILITY (round 2026-09-30T1031Z,
+                # t_159df91e): the accumulator above is a POSITION heuristic —
+                # it keeps every content token until a closed-class boundary,
+                # so a bare PREDICATE clause came through whole and was
+                # interpolated verbatim into the reply ("i'm still forming a
+                # view on naming things matters"). Reduce the accumulated
+                # phrase to the head referent it is actually about, using the
+                # shared reducer + the engine's part-of-speech state. Fails
+                # open to the accumulated phrase when the reduction returns
+                # nothing, so no topic is ever invented.
                 _target = " ".join(_target_toks)
+                _head = self._referent_head(_target)
+                if _head:
+                    _target = _head
                 _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
