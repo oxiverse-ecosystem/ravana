@@ -26,7 +26,7 @@ import urllib.request
 import urllib.parse
 import socket
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional, Callable, Tuple
 
 # ── Hard guards: patterns that must NEVER execute, even if RAVANA "decides" ──
 _FORBIDDEN_PATTERNS = [
@@ -41,13 +41,113 @@ _FORBIDDEN_PATTERNS = [
 _WORK_VOLUME = os.environ.get("RAVANA_WORK_VOLUME", "C:/Users/Likhith/Documents/Projects/ravana/_agent_work")
 
 
+class _RequireWorkVolume:
+    """Guard: the target must resolve INSIDE the sandboxed work volume."""
+
+    __slots__ = ()
+
+    def __call__(self, target: str) -> None:
+        if not target:
+            raise ValueError("empty work-volume target")
+        resolved = os.path.normpath(os.path.join(_WORK_VOLUME, target))
+        if not (resolved == os.path.normpath(_WORK_VOLUME)
+                or resolved.startswith(os.path.normpath(_WORK_VOLUME) + os.sep)):
+            raise PermissionError("target must live inside the work volume")
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostic only
+        return "work_volume"
+
+
+class _RequireGitSubcommand:
+    """Guard: only a safe, declared subset of git subcommands may run."""
+
+    __slots__ = ()
+
+    def __init__(self, allowed: Tuple[str, ...]) -> None:
+        self.allowed = tuple(allowed)
+
+    def __call__(self, args: str) -> None:
+        parts = shlex.split(args) if args and args.strip() else []
+        first = parts[0] if parts else ""
+        if first not in self.allowed:
+            raise PermissionError(f"git subcommand '{first}' not in safe allowlist")
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostic only
+        return "git_subcommand"
+
+
+@dataclass
+class SafetyClass:
+    """A tool's safety is DECLARED once here and projected onto every Tool.
+
+    `guards` names the per-tool guards the tool's own executor must enforce;
+    the registry-wide `patterns` guard is applied to every call in
+    ToolRegistry.execute and is therefore NOT repeated here. `destructive`
+    projects onto Tool.is_destructive so the flag and the guard set can never
+    disagree.
+    """
+    name: str
+    guards: Tuple[str, ...] = ()
+    destructive: bool = False
+
+
+# Seed safety classes. This is a RUNTIME-EXTENDABLE registry (see
+# register_safety_class) — it is structure RAVANA can grow, not a frozen
+# tool-name -> answer table. A tool is declared by CLASS, never by prose.
+SAFETY_CLASSES: Dict[str, SafetyClass] = {
+    "network_read": SafetyClass(
+        name="network_read", guards=("public_url",), destructive=False),
+    "network_proxy": SafetyClass(
+        name="network_proxy", guards=(), destructive=False),
+    "sandboxed_exec": SafetyClass(
+        name="sandboxed_exec", guards=("work_volume",), destructive=False),
+    "repo_write": SafetyClass(
+        name="repo_write", guards=("work_volume", "git_subcommand"),
+        destructive=True),
+}
+
+
+def register_safety_class(cls: SafetyClass, replace: bool = False) -> None:
+    """Add (or revise) a safety class at runtime. Structure, not content."""
+    if not cls.name:
+        raise ValueError("safety class needs a name")
+    if not replace and cls.name in SAFETY_CLASSES:
+        raise ValueError(f"safety class '{cls.name}' already declared")
+    unknown = [g for g in cls.guards if g not in _GUARD_IMPLS]
+    if unknown:
+        raise ValueError(f"unknown guard(s) declared: {unknown}")
+    SAFETY_CLASSES[cls.name] = cls
+
+
+def safety_class(name: str) -> SafetyClass:
+    """Look up a declared safety class or fail loudly (fail-closed)."""
+    try:
+        return SAFETY_CLASSES[name]
+    except KeyError:
+        raise ValueError(
+            f"undeclared safety class '{name}' — register it first") from None
+
+
 @dataclass
 class Tool:
-    """A capability RAVANA can invoke. run() is the executor; guarded."""
+    """A capability RAVANA can invoke. run() is the executor; guarded.
+
+    A tool cannot be constructed without a DECLARED safety class: the class is
+    projected onto is_destructive and required_guards mechanically, so the
+    declaration cannot drift from the flag a call site reads.
+    """
     name: str
     description: str
-    is_destructive: bool = False
+    safety_class: str = ""
+    is_destructive: Optional[bool] = None
     run: Optional[Callable[[str], str]] = None
+    required_guards: Tuple[str, ...] = field(default=(), init=False)
+    registry_wide_guards: Tuple[str, ...] = field(default=("patterns",), init=False)
+
+    def __post_init__(self) -> None:
+        cls = safety_class(self.safety_class)
+        self.required_guards = tuple(cls.guards)
+        self.is_destructive = cls.destructive
 
 
 @dataclass
