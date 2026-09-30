@@ -100,6 +100,20 @@ def _stem(t: str) -> str:
     return t
 
 
+def _has_word(needle: str, haystack: str) -> bool:
+    """True when `needle` occurs in `haystack` as a WHOLE word.
+
+    Substring containment is wrong for matching a short verb against a stored
+    value: "do" (from "what do i do for a living") occurs inside "sourDOugh",
+    so the activity resolver answered an occupation question with a confident
+    confabulation drawn from an unrelated fact. Callers pair this with
+    `_stem` when they need "study"/"studying" to agree.
+    """
+    if not needle or not haystack:
+        return False
+    return bool(re.search(r"\b" + re.escape(needle.strip().lower()) + r"\b",
+                          haystack.lower()))
+
 def _activity_query_overlap(stored_act: str, query: str, query_tokens) -> int:
     """Score how well a stored dated-activity (`stored_act`, e.g. 'study
     volcano') matches a date-recall query (`query`, e.g. 'what year did i
@@ -4267,12 +4281,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if _is_activity_attr(_k[1]) and not _k[1].startswith("event") \
                         and not getattr(_f, "superseded", False):
                     _val = _f.value.lower()
-                    if _verb in _val or any(n in _val for n in _qnouns):
+                    if _has_word(_verb, _val) or any(n in _val for n in _qnouns):
                         return f"you {_val}."
             # also try the work fact
             _w = pf.get("i", "work") if pf else None
             if _w is not None and not getattr(_w, "superseded", False) \
-                    and _verb in _w.value.lower():
+                    and _has_word(_verb, _w.value.lower()):
                 return f"you {_w.value}."
 
         # ── (1a-bis) ACTIVITY OBJECT-CATEGORY BRIDGE (round 2026-08-29T0659Z
