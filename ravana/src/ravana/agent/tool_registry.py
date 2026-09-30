@@ -61,7 +61,7 @@ class _RequireWorkVolume:
 class _RequireGitSubcommand:
     """Guard: only a safe, declared subset of git subcommands may run."""
 
-    __slots__ = ()
+    __slots__ = ("allowed",)
 
     def __init__(self, allowed: Tuple[str, ...]) -> None:
         self.allowed = tuple(allowed)
@@ -209,6 +209,35 @@ def _validate_public_url(url: str) -> None:
             raise PermissionError(f"website destination is not public: {ip}")
 
 
+# The guard IMPLEMENTATIONS, named once. A guard is a single-argument callable
+# that raises to block. `patterns` is the registry-wide guard applied to every
+# call in ToolRegistry.execute; the rest are the per-tool guards a SafetyClass
+# declares and its executor must enforce.
+_GUARD_PATTERNS = _guard
+_GUARD_PUBLIC_URL = _validate_public_url
+_GUARD_WORK_VOLUME = _RequireWorkVolume()
+_GUARD_GIT_SUBCOMMAND = _RequireGitSubcommand(
+    ("status", "diff", "log", "branch", "add", "commit",
+     "fetch", "pull", "checkout", "push", "clone", "remote", "show"))
+
+_GUARD_IMPLS: Dict[str, Callable[[str], None]] = {
+    "patterns": _GUARD_PATTERNS,
+    "public_url": _GUARD_PUBLIC_URL,
+    "work_volume": _GUARD_WORK_VOLUME,
+    "git_subcommand": _GUARD_GIT_SUBCOMMAND,
+}
+
+# An argument each guard is PROVEN to reject. Used by the contract test so a
+# guard cannot be declared-but-not-enforced (the drift this task exists to
+# prevent). Arguments are chosen per guard, not per tool.
+_GUARD_PROBES: Dict[str, str] = {
+    "patterns": "rm -rf /",
+    "public_url": "http://127.0.0.1:4000/search",
+    "work_volume": "../../../Windows/System32/drivers/etc/hosts",
+    "git_subcommand": "reset --hard HEAD",
+}
+
+
 class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Validate each redirect destination before urllib follows it."""
 
@@ -219,7 +248,7 @@ class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 def _read_website(url: str) -> str:
     """Fetch and trim a public web page for grounding."""
-    _validate_public_url(url)
+    _GUARD_PUBLIC_URL(url)
     opener = urllib.request.build_opener(_ValidatingRedirectHandler())
     with opener.open(url, timeout=8) as r:
         return f"[site] {r.read().decode('utf-8','replace')[:1500]}"
@@ -231,12 +260,9 @@ def _run_script(script: str) -> str:
     script is a path relative to RAVANA_WORK_VOLUME; never an absolute path
     outside it. Execution is guarded and timeboxed.
     """
-    if not script:
-        raise ValueError("empty script path")
+    _GUARD_WORK_VOLUME(script)
+    _GUARD_PATTERNS(script)
     target = os.path.normpath(os.path.join(_WORK_VOLUME, script))
-    if not target.startswith(os.path.normpath(_WORK_VOLUME)):
-        raise PermissionError("script must live inside the work volume")
-    _guard(script)
     proc = subprocess.run(["python", target], cwd=_WORK_VOLUME,
                           capture_output=True, text=True, timeout=60)
     return f"[script] rc={proc.returncode}\nstdout: {proc.stdout[:800]}\nstderr: {proc.stderr[:400]}"
@@ -248,13 +274,8 @@ def _github_cli(args: str) -> str:
     Hard-guarded: no force-push, no credential touch, no destructive reset.
     Read-only + safe local ops (status, diff, log, commit, push to a branch).
     """
-    _guard(args)
-    # Only allow a curated, safe subset of git subcommands.
-    allowed = ("status", "diff", "log", "branch", "add", "commit",
-               "fetch", "pull", "checkout", "push", "clone", "remote", "show")
-    first = shlex.split(args)[0] if args.strip() else ""
-    if first not in allowed:
-        raise PermissionError(f"git subcommand '{first}' not in safe allowlist")
+    _GUARD_PATTERNS(args)
+    _GUARD_GIT_SUBCOMMAND(args)
     proc = subprocess.run(["git"] + shlex.split(args), cwd=_WORK_VOLUME,
                           capture_output=True, text=True, timeout=60)
     return f"[git] rc={proc.returncode}\n{proc.stdout[:800]}{proc.stderr[:400]}"
@@ -266,19 +287,19 @@ def build_registry() -> Dict[str, Tool]:
         "web_search": Tool(
             name="web_search",
             description="Search the web / ground a claim via IntentForge API",
-            is_destructive=False, run=_web_search_via_intentforge),
+            safety_class="network_proxy", run=_web_search_via_intentforge),
         "read_website": Tool(
             name="read_website",
             description="Fetch a web page for grounding",
-            is_destructive=False, run=_read_website),
+            safety_class="network_read", run=_read_website),
         "run_script": Tool(
             name="run_script",
             description="Run a script in the sandboxed work volume",
-            is_destructive=False, run=_run_script),
+            safety_class="sandboxed_exec", run=_run_script),
         "github_cli": Tool(
             name="github_cli",
             description="Safe git ops on the loop-assigned repo (no force-push)",
-            is_destructive=False, run=_github_cli),
+            safety_class="repo_write", run=_github_cli),
     }
 
 
@@ -296,7 +317,8 @@ class ToolRegistry:
         if tool is None or tool.run is None:
             return f"[tool] unknown tool: {call.tool}"
         try:
-            _guard(call.arg)
+            for guard_name in tool.registry_wide_guards + tool.required_guards:
+                _GUARD_IMPLS[guard_name](call.arg)
             return tool.run(call.arg)
         except PermissionError as e:
             return f"[tool BLOCKED] {e}"
