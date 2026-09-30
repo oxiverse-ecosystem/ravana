@@ -81,12 +81,19 @@ Last refreshed: 2026-09-29 against the live test collection (`pytest --co -q` �
 
 ## Test infrastructure
 
-| Suite | File count | CI job | Grade |
-|-------|-----------|--------|-------|
-| `tests/unit/` | 187 test files (~2450 tests) | `unit-tests (1)-(5)` (sharded) | **GREEN** |
-| `tests/` (top-level) | 15 test files | `misc-tests` | **GREEN** |
-| `tests/ci/` | 5 test files | `ci` suite | **GREEN** |
-| **Total** | **207 test files** | 3 CI jobs | **GREEN** |
+| Suite | File count | Tests | CI job | Grade |
+|-------|-----------|-------|--------|-------|
+| `tests/unit/` | 198 test files | 2307 | `unit-tests (1)-(5)` (sharded) | **GREEN** |
+| `tests/` (top-level) | 23 test files | 160 | `misc-tests` | **GREEN** |
+| `tests/ci/` | 5 test files | 62 | `ci` suite | **GREEN** |
+| `tests/integration/` | 13 test files | 110 | (not sharded into a named job) | **YELLOW** — collected by the default `pytest tests/` run but not gated by a named CI job. `pytest tests/integration/` → 105 passed, 1 failed, 4 skipped. The failure (`test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`) is **pre-existing**: reproduced on clean `github/main` with this round's work stashed. The 4 skips are the two `test_live_web_c_lite_smoke` live-web tests (no `localhost:4000` engine, `RAVANA_OFFLINE=1`) plus two `slow`-marked suites. |
+| **Total** | **239 test files** | **2639** | 3 CI jobs | **GREEN** |
+
+Counts measured 2026-09-30 on the round branch: `pytest tests/ --co -q` → **2639 collected**,
+and the per-suite splits re-measured independently (`tests/unit/` 2307, `tests/ci/` 62,
+`tests/integration/` 110, top-level `tests/*.py` 160 — these sum to 2639, confirming the
+whole-tree number). The `tests/integration/` row is new: the suite existed but was absent
+from this table, which is why the earlier "207 test files" total could not be reproduced.
 
 ---
 
