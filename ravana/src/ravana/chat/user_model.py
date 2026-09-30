@@ -158,6 +158,21 @@ _RELATION_VERB_LEXICON = {
     "draws", "draw", "sings", "sing", "dances", "dance", "swims", "swim",
     "drives", "drive", "plays", "play", "learns", "learn", "learned",
     "learnt",
+    # task/charge verbs: a relative's assigned duty ("my sister devika HANDLES
+    # the glazing end", "my uncle MANAGES the accounts"). These name a
+    # RESPONSIBILITY rather than an activity or a bare ability, and were
+    # missing from both this lexicon and the activity lexicon — so the
+    # relationship miner's verb scan found no verb head, fell to the
+    # name-only path, and packed the entire clause ("devika handles the
+    # glazing end") into the fact's NAME slot. The recall renderer then
+    # emitted "<name> is <value>" and the predicate appeared twice
+    # ("your sister devika handles glazing end is devika handles the
+    # glazing end"). Seed vocabulary, same class as the entries above.
+    "handles", "handle", "oversees", "oversee",
+    "supervises", "supervise", "heads", "head", "leads", "lead",
+    "chairs", "chair", "coordinates", "coordinate", "administers",
+    "administer", "staffs", "staff", "covers", "cover", "fields",
+    "field", "sells", "sell", "buys", "buy", "orders", "order",
 }
 
 
