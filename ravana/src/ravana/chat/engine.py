@@ -432,7 +432,7 @@ from ravana.language.register import RegisterController
 
 from .engine_graph import GraphMixin
 from .engine_reasoning import ReasoningMixin
-from .engine_memory import MemoryMixin
+from .engine_memory import MemoryMixin, _SELF_OPINION_SHAPE
 from .engine_web_search import WebSearchMixin
 from .engine_generation import GenerationMixin
 from .engine_self_query import SelfQueryMixin
@@ -7090,15 +7090,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # own). Routing here lets _route_self_query answer from RAVANA's
             # value/stance store (grounded) or honestly abstain. Fail-open: if
             # _route_self_query returns None the normal pipeline runs.
-            _selfopinion = re.search(
-                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
-                r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
-                r"|how\s+do\s+you\s+(feel|think)\s+about\b"
-                r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
-                r"|what's\s+your\s+(opinion|take|view|stance)\s+on\b"
-                r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b"
-                r"|do\s+you\s+have\s+a\s+(view|opinion|take)\s+on\b)",
-                user_input, re.IGNORECASE)
+            # GATE DRIFT (FIX-RV-19). This gate was an INLINE COPY of the
+            # `_SELF_OPINION_SHAPE` that `engine_self_query._agent_opinion`
+            # uses, and the two had drifted: the copy omitted `prefer`, so
+            # "do you prefer A or B" matched nowhere and never reached the
+            # contrast path in `_route_self_query` -- it fell through to
+            # episodic recall and echoed the user's own disclosure back at them.
+            # Referencing the SAME shared constant removes the copy entirely, so
+            # the two routers can no longer disagree about what a self-opinion
+            # question looks like. `engine_memory` already uses this constant
+            # to SUPPRESS episodic recall for these questions, so the two sites
+            # were always meant to agree.
+            _selfopinion = re.search(_SELF_OPINION_SHAPE, user_input, re.IGNORECASE)
             if _selfceil or _selfopinion:
                 # EXPERIENTIAL FIRST: the _selfopinion gate above matches the
                 # broad "do you (think|feel|have|...)" frame, which also covers
