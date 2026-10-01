@@ -2234,6 +2234,134 @@ class UserModel:
                                                 confidence=conf,
                                                 source="seed_regex")
 
+        def _mine_derivation(text: str) -> bool:
+            """Mine a DERIVATION disclosure: "<thing> is named after <ref>".
+
+            A derivation relates TWO things — the subject the user owns and the
+            referent the naming points at — so it is stored ENTITY-keyed
+            ("sourdough starter", "named after", "uncle bartholomew"), never as a
+            fact about the user.
+
+            Returns True when the disclosure was a derivation (so the kin miner,
+            which would otherwise match the possessive INSIDE the referent
+            phrase and mis-file it under subject "i", must not also fire).
+
+            Structural, with no per-entity or per-person table:
+              * the relation is resolved by derivation_attrs.derivation_of, which
+                is morphological (a naming verb + an attribution preposition), so
+                "called after" / "inspired by" / an unseen "dubbed after" work
+                without a table entry, and both vocabularies grow at runtime via
+                learn_derivation / learn_naming_verb;
+              * the SUBJECT is the noun phrase before the copula, with a leading
+                determiner/possessive dropped ("the sourdough starter" ->
+                "sourdough starter"), which is what makes the subject the owned
+                thing rather than the user;
+              * the REFERENT keeps its relationship word ("uncle bartholomew") so
+                the person stays recallable by their relationship.
+
+            Every stored word is the user's own. Returns False (and stores
+            nothing) when the shape does not hold, so the honest path is a fall-
+            through to the existing miners, not an invented fact.
+            """
+            try:
+                from .derivation_attrs import (
+                    derivation_of as _dv_of,
+                    learn_derivation as _dv_learn,
+                    learn_naming_verb as _dv_learnverb,
+                    is_derivation_attr as _dv_isattr,
+                )
+            except Exception:
+                return False
+
+            # Split the utterance into "<subject> ... <derivation> <referent>".
+            # We look for the derivation predicate by scanning for the first
+            # naming verb that is followed by an attribution preposition, rather
+            # than matching a fixed phrase list.
+            _toks = text.split()
+            _n = len(_toks)
+            _best = None
+            for _i in range(1, _n - 1):
+                _w = _toks[_i].strip(".,!?").lower()
+                if _dv_learnverb(_w) is None:
+                    continue
+                # Try 3-, 2- and 1-token attribution prepositions, longest first
+                # so "in honor of" is not shadowed by a bare "of".
+                for _size in (3, 2, 1):
+                    if _i + 1 + _size >= _n + 1 and _size > 1:
+                        continue
+                    _prep = " ".join(
+                        t.strip(".,!?").lower() for t in _toks[_i + 1:_i + 1 + _size])
+                    _canon = _dv_of(f"{_w} {_prep}")
+                    if _canon:
+                        _best = (_i, _i + 1 + _size, _canon)
+                        break
+                if _best:
+                    break
+            if not _best:
+                return False
+            _di, _rstart, _canon = _best
+
+            # Referent: everything after the attribution preposition. Strip a
+            # leading possessive so "my uncle bartholomew" keeps only its
+            # relationship head, and bound the span to a noun phrase.
+            _ref_toks = [t.strip(".,!?").lower() for t in _toks[_rstart:]]
+            while _ref_toks and _ref_toks[0] in ("my", "our", "your", "his",
+                                                 "her", "their", "its"):
+                _ref_toks.pop(0)
+            # Drop a leading determiner left after the possessive ("the kettle").
+            if _ref_toks and _ref_toks[0] in ("the", "a", "an"):
+                _ref_toks.pop(0)
+            if not _ref_toks:
+                return False
+            # The referent is a bounded noun phrase: close it at a closed-class
+            # token or a verb, mirroring the name-span bound in the kin miner.
+            _ref_head = []
+            for _t in _ref_toks:
+                if _t in _pet_slots._PRONOUN_STOP or _t in _OBJECT_STOP \
+                        or _t in _REL_WORDS or _t in _KIN:
+                    if not _ref_head and (_t in _REL_WORDS or _t in _KIN):
+                        # a relationship word may legitimately START the
+                        # referent ("uncle bartholomew")
+                        _ref_head.append(_t)
+                        continue
+                    break
+                _ref_head.append(_t)
+                if len(_ref_head) >= 4:
+                    break
+            _ref = " ".join(_ref_head).strip()
+            if not _ref:
+                return False
+
+            # Subject: the noun phrase before the naming verb, minus a leading
+            # determiner/possessive. This is the step that makes the subject the
+            # OWNED THING instead of the user.
+            _subj_toks = [t.strip(".,!?").lower() for t in _toks[:_di]]
+            while _subj_toks and _subj_toks[0] in (
+                    "the", "a", "an", "my", "our", "your", "his", "her",
+                    "their", "its", "this", "that", "these", "those"):
+                _subj_toks.pop(0)
+            # The user themself is not a subject for a derivation ("i am named
+            # after my grandmother" is about the USER's own name, which the
+            # existing self-naming miner owns).
+            if not _subj_toks or _subj_toks[0] == "i":
+                return False
+            _subj = " ".join(_subj_toks[-4:]).strip()
+
+            # Register the predicate in the shared vocabulary so it is
+            # addressable on the NEXT disclosure too (online growth, no rebuild).
+            try:
+                _dv_learn(_canon)
+            except Exception:
+                pass
+
+            # An entity-keyed fact whose VALUE merely restates its own key
+            # carries no information, same invariant the kin miner applies.
+            if _ref == _subj or _ref in _subj.split():
+                return False
+
+            _put_fact_ent(_subj, _canon, _ref, 0.65)
+            return True
+
         m_name = re.search(
             r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"
             r"([^.,!?]+)",
@@ -3247,8 +3375,30 @@ class UserModel:
         # This is structural — one verb lexicon, no per-name table, no case
         # assumption — and generalizes to any name casing/length. Content comes
         # from the user's own words; no authored reply, no retraining.
+# DERIVATION DISCLOSURES (round 2026-09-30T1031Z, card t_159df91e).
+        # A derivation asserts a relation between TWO things: the subject the
+        # user owns ("the sourdough starter") and the referent the naming points
+        # at ("my uncle bartholomew"). The kin miner below matches the
+        # POSSESSIVE INSIDE that prepositional phrase ("my uncle"), so the whole
+        # disclosure was re-read as a statement about the USER and produced
+        # ('i','uncle bartholomew','bartholomew'): wrong subject, the "named
+        # after" relation discarded, and a value that restates its own key (which
+        # recall rendered as the broken "your uncle bartholomew is bartholomew.").
+        #
+        # The fix is a shared vocabulary for the derivation relation class, not a
+        # one-off for "named after": derivation_attrs.derivation_of resolves a
+        # naming verb (seed or RAVANA-learned) + an attribution preposition
+        # MORPHOLOGICALLY, so "called after" / "inspired by" / an unseen "dubbed
+        # after" all resolve without a table entry. The referent keeps its own
+        # relationship word ("uncle bartholomew"), so the person is still
+        # recallable by their relationship.
+        #
+        # Mining this BEFORE the kin miner is what keeps the two paths from
+        # fighting: a derivation disclosure returns here and never reaches the
+        # possessive-match branch below.
+        _deriv_done = _mine_derivation(q_clean)
         _mk = re.search(r"\bmy\s+([a-z][a-z-]+)\b\s*(.*)", q_clean)
-        if _mk:
+        if _mk and not _deriv_done:
             try:
                 from .relation_attrs import relation_of as _mk_rel_of
             except Exception:
