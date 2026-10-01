@@ -33,6 +33,8 @@ for _p in (_TREE,
            os.path.join(_TREE, "ravana-v2", "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+# A worktree must never import the MAIN checkout: the venv's editable install
+# puts a finder on sys.meta_path, which outranks sys.path.
 sys.meta_path = [f for f in sys.meta_path
                  if "editable" not in (type(f).__module__ or "").lower()
                  and "editable" not in (type(f).__name__ or "").lower()]
@@ -150,12 +152,24 @@ def test_contrastive_lean_names_the_winner_not_the_loser(engine):
 
 
 # ── Generality: not a fix tuned to this one sentence ─────────────────────────
+# NOTE ON PROBE CHOICE. Two things are MEASURED here, not guessed, because
+# both have bitten a test that assumed otherwise:
+#   * These probes must be long enough to clear the engine's gibberish guard,
+#     which rejects very short declaratives ("tea beats coffee" -> strategy
+#     `gibberish_guard`, zero stances). That rejection is PRE-EXISTING and was
+#     verified identical on the untouched baseline sha, so it is not this fix's
+#     business and must not be "fixed" here by weakening the guard --
+#     `test_short_comparative_is_gated_by_the_gibberish_guard` below pins it.
+#   * The expected keys are the store keys MEASURED from a real run. A stance key
+#     is the miner's content head, which keeps its modifiers ("small towns",
+#     not "towns"), so guessing the head noun here would fail for a reason
+#     unrelated to the relation being tested.
 @pytest.mark.parametrize("disclosure,winner,loser", [
-    ("tea beats coffee", "tea", "coffee"),
-    ("i believe trains are better than planes",
-     "trains", "planes"),
+    ("i believe trains are better than planes for daily work", "trains", "planes"),
     ("honestly i think the mountains are finer than the coast",
      "mountains", "coast"),
+    ("small towns make better humans than big cities",
+     "small towns", "big cities"),
 ])
 def test_comparatives_are_signed_relations_in_general(disclosure, winner, loser):
     """The fix must be grammatical, not keyed to 'remote work'."""
@@ -169,6 +183,30 @@ def test_comparatives_are_signed_relations_in_general(disclosure, winner, loser)
         assert st[winner].polarity > 0 and st[loser].polarity < 0, (
             f"{disclosure!r} -> winner {st[winner].polarity:+.2f}, "
             f"loser {st[loser].polarity:+.2f}")
+    finally:
+        try:
+            eng.stop_background_learning()
+        except Exception:
+            pass
+
+
+def test_short_comparative_is_gated_by_the_gibberish_guard():
+    """A very short comparative never reaches the miner at all.
+
+    Documents a PRE-EXISTING, unrelated behaviour so a future reader does not
+    mistake it for a regression of this fix, and so the probes above are not
+    quietly rewritten into unreachable no-ops. Verified identical on the
+    untouched baseline commit; this fix deliberately does not touch the guard.
+    """
+    eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                              user_suffix="rv19gib")
+    try:
+        eng.process_turn("tea beats coffee")
+        assert eng._last_strategy == "gibberish_guard", (
+            f"expected the gibberish guard to claim this short comparative, "
+            f"got strategy={eng._last_strategy!r}")
+        assert not eng.user_model.opinions.stances, (
+            "the miner should not run when the gibberish guard claims the turn")
     finally:
         try:
             eng.stop_background_learning()
