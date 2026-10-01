@@ -40,6 +40,17 @@ _FORBIDDEN_PATTERNS = [
 
 _WORK_VOLUME = os.environ.get("RAVANA_WORK_VOLUME", "C:/Users/Likhith/Documents/Projects/ravana/_agent_work")
 
+# Upper bound on a single tool payload, applied to the WHOLE document rather
+# than as a mid-document slice. Generous enough for a real IntentForge envelope
+# (which carries title/url/content per result) and small enough that a runaway
+# endpoint cannot hand the engine an unbounded string.
+_MAX_PAYLOAD_CHARS = 200_000
+
+# What the registry returns instead of a sliced envelope. It parses as nothing,
+# so the consumer records zero evidence and says so, rather than ingesting half
+# a JSON document as if it were a result.
+_TRUNCATED_JSON = '{"results": [], "truncated": true}'
+
 
 @dataclass
 class Tool:
@@ -66,14 +77,27 @@ def _guard(cmd: str) -> None:
 
 
 def _web_search_via_intentforge(query: str) -> str:
-    """Web/search grounding through the IntentForge API (founder-specified)."""
+    """Web/search grounding through the IntentForge API (founder-specified).
+
+    The payload is returned WHOLE, not as a fixed-length prefix. The old
+    ``data[:1200]`` cut a JSON envelope off mid-string, so the consumer could
+    never parse it and carried it as an opaque blob (FIX-RV-17). Parsing and
+    relevance-filtering happen in ``evidence.parse_tool_output``.
+
+    The whole document is still bounded: a hostile or runaway endpoint must not
+    be able to hand the engine an unbounded string. The bound is applied to the
+    DOCUMENT and reported honestly in the payload, so a truncated envelope is
+    recognisable as truncated rather than silently half-parsed.
+    """
     # IntentForge gateway listens locally; query its /search endpoint.
     url = f"http://localhost:4000/search?q={urllib.parse.quote(query)}"
     try:
         socket.setdefaulttimeout(8.0)
         with urllib.request.urlopen(url) as r:
             data = r.read().decode("utf-8", "replace")
-        return f"[web:intentforge] {data[:1200]}"
+        if len(data) > _MAX_PAYLOAD_CHARS:
+            return f"[web:intentforge] {_TRUNCATED_JSON}"
+        return f"[web:intentforge] {data}"
     except Exception as e:
         # Fall back to a direct web fetch if IntentForge is down (offline-safe)
         try:

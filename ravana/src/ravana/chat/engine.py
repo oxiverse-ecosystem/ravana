@@ -6547,21 +6547,59 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         #    recall query -> False.
         return False
 
-    def _record_agent_action(self, tool: str, arg: str, outcome: str) -> None:
+    def _ingest_agentic_evidence(self, call, records) -> Dict[str, int]:
+        """Write parsed tool evidence into cognitive state (FIX-RV-17).
+
+        This is the replacement for appending the tool's raw output to the
+        reply. The evidence's own words become concepts in the ConceptGraph and
+        the graph's own nearest-neighbour wiring decides which edges they earn;
+        the raw payload is not retained anywhere. A search that returned nothing
+        relevant contributes nothing, and the honest reply is the reply RAVANA
+        would have given with no web access at all.
+
+        Additive and fail-safe: a graph failure must not break the turn.
+        """
+        summary = {"records": 0, "concepts_added": 0}
+        try:
+            from ..agent.evidence import ingest_into_graph
+            summary = ingest_into_graph(
+                getattr(self, "_auto_expand_concepts", None), records)
+        except Exception:
+            return {"records": 0, "concepts_added": 0}
+        # Keep a bounded count so a turn's evidence is observable in stats
+        # without retaining the payload it came from.
+        try:
+            self._agentic_evidence_count = int(
+                getattr(self, "_agentic_evidence_count", 0)) + int(
+                    summary.get("concepts_added", 0))
+        except Exception:
+            pass
+        return summary
+
+    def _record_agent_action(self, tool: str, arg: str, outcome: str,
+                             records=None) -> None:
         """Record an agentic action as a GROUNDED experience (fix 'c').
 
         Experience-derived memory only — never authored prose. Lets the
         self-model / persona reference real actions later ("i looked that up",
         "i ran a script"). Bounded ring buffer; cheap.
+
+        FIX-RV-17: when parsed evidence records are supplied, the log stores
+        their structured summary (source, title, url, query coverage) instead
+        of a prefix of the raw payload. The raw text is not kept: a truncated
+        JSON envelope in the action log is the same defect as one in a reply,
+        one step further from the user.
         """
         try:
             if not hasattr(self, "_agent_action_log"):
                 self._agent_action_log = []
-            self._agent_action_log.append({
-                "tool": tool, "arg": arg,
-                "outcome_head": (outcome or "")[:200],
-                "turn": getattr(self, "turn_count", 0),
-            })
+            entry = {"tool": tool, "arg": arg,
+                     "turn": getattr(self, "turn_count", 0)}
+            if records is not None:
+                entry["evidence"] = [r.as_log() for r in records]
+            else:
+                entry["outcome_head"] = (outcome or "")[:200]
+            self._agent_action_log.append(entry)
             if len(self._agent_action_log) > 200:
                 self._agent_action_log = self._agent_action_log[-200:]
         except Exception:
@@ -6592,6 +6630,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # FIX-RV-17: reset the pending tool payload at the TOP of the turn, not
+        # at the end. The end-of-turn clear sat after the point where most
+        # early-return paths (structured recall, temporal recall, internal
+        # knowledge, the cued-episodic path) had already returned, so a payload
+        # set on one turn could survive into a LATER turn and be appended there
+        # by any turn that did reach the end. Per-turn state has to be reset
+        # before the turn can return, not after.
+        self._pending_web_evidence = None
         # FIX (round 2026-09-14): advance turn_count and tick the RNG at the
         # TOP of process_turn, BEFORE any early return. Otherwise short-circuit
         # paths skip both, breaking the determinism contract.
@@ -6749,27 +6795,41 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.notify_user_idle()
             return _cued_self
 
-        # ── Agentic pre-check (fix 'c'): if this is a knowledge gap RAVANA cannot
-        # answer from memory, USE ITS HANDS. State-driven (curiosity/recall-query/
-        # metacog), no keyword table. The tool result is stored as grounded
-        # evidence and APPENDED at the end of the turn — it does NOT early-return,
-        # so the normal learning pipeline (incl. N2 proposition mining) still runs.
-        # Early-returning here regressed the integration suite (novel utterance must
-        # spawn N2); we keep the pipeline intact and surface the evidence downstream.
+        # ── Agentic pre-check: if this is a knowledge gap RAVANA cannot answer
+        # from memory, USE ITS HANDS. State-driven (curiosity/recall-query/
+        # metacog), no keyword table. The tool result is PARSED into evidence
+        # records and written into the ConceptGraph (fix 'c' + FIX-RV-17); it
+        # does NOT early-return, so the normal learning pipeline (incl. N2
+        # proposition mining) still runs. Early-returning here regressed the
+        # integration suite (novel utterance must spawn N2).
+        #
+        # FIX-RV-17: the result used to be stashed as a string and concatenated
+        # onto the reply, which put a raw truncated IntentForge JSON envelope
+        # in front of the user. Tool output is INTERNAL evidence: it is parsed
+        # into cognitive state here and the raw payload is dropped. Nothing in
+        # this path produces reply text.
         try:
             from ..agent.decision_gate import decide_tool_use
+            from ..agent.evidence import parse_tool_output
             from ..agent.tool_registry import ToolRegistry
             _registry = getattr(self, "_tool_registry", None) or ToolRegistry()
             self._tool_registry = _registry
             _call = decide_tool_use(self, user_input, _registry)
             if _call is not None:
                 _tool_out = _registry.execute(_call)
+                # Parse into structured records, then into the graph. Both steps
+                # are best-effort: evidence is additive and must never break the
+                # turn.
                 try:
-                    self._record_agent_action(_call.tool, _call.arg, _tool_out)
+                    _records = parse_tool_output(_tool_out, _call.arg)
+                    self._ingest_agentic_evidence(_call, _records)
+                except Exception:
+                    _records = []
+                try:
+                    self._record_agent_action(_call.tool, _call.arg, _tool_out,
+                                              records=_records)
                 except Exception:
                     pass
-                # Stash evidence; appended to the reply at the end-of-turn block.
-                self._pending_web_evidence = f"[agentic:{_call.tool}] {_tool_out}"
                 self._last_strategy = f"agentic_{_call.tool}"
         except Exception as _e:
             if getattr(self, "_trace_enabled", False):
@@ -10164,14 +10224,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass  # Never break the pipeline for a greeting
 
         self._pending_quantity_result = None
-        # ── Agentic layer (fix 'c'): surface the tool evidence the pre-check
-        # stashed, so RAVANA's "hands" appear on the final reply. The decision +
-        # execution already happened at the top of process_turn (so the normal
-        # learning pipeline — incl. N2 proposition mining — ran first). Here we
-        # only append the grounded evidence; no re-decision, no double execution.
+        # ── Agentic layer (fix 'c' + FIX-RV-17): the tool evidence the
+        # pre-check gathered was ALREADY parsed into the ConceptGraph at the top
+        # of this turn, so there is deliberately nothing left to append here.
+        # This block used to do `response = f"{response}\n{_pending_web_evidence}"`,
+        # which pasted a raw, mid-string-truncated IntentForge JSON envelope
+        # onto the user's reply. Tool output is internal evidence for cognition;
+        # it is never part of the answer. The attribute is still cleared so a
+        # stale value from an earlier turn cannot leak into anything.
         _ev = getattr(self, "_pending_web_evidence", None)
         if _ev:
-            response = f"{response}\n{_ev}"
             self._pending_web_evidence = None
         # NOTE: previously this returned ``response.lower()``. That destroyed
         # proper-noun casing in the final output (e.g. "France" -> "france",

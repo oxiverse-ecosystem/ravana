@@ -317,6 +317,95 @@ def _is_personal_possessive_query(query: str) -> bool:
                for word in _PERSONAL_ENTITY_WORDS)
 
 
+# --- Self-attributive frame gate (FIX-RV-17) ---------------------------------
+#
+# A declarative utterance whose SUBJECT is the speaker is a disclosure: the
+# user is telling RAVANA a fact about themselves. "when i was a teenager i
+# lived in mumbai" asks the world nothing, so a world-web search cannot answer
+# it — the only correct destination is the user's own memory.
+#
+# This is decided on GRAMMAR, over closed-class function words, so it is not a
+# topic list and cannot rot into one:
+#
+#   1. SUBJECT PERSON. The utterance's subject is a first-person pronoun.
+#      Third person ("anant ambani went viral"), second person ("you should
+#      try python") and bare nominals ("mumbai is crowded") are about the
+#      world and are NOT gated. Grammatical person, not topic.
+#   2. NOT INTERROGATIVE. A question asks; a disclosure asserts. A wh-word, a
+#      question mark, or an auxiliary-led inversion marks the utterance as a
+#      question, so "what did i do in mumbai" still reaches the world.
+#   3. NOT IMPERATIVE. An instruction is a task, handled by the noun and
+#      social-intent paths below, so it must not be swallowed here.
+#
+# The personal-fact miner upstream already treats a disclosure as something to
+# store, so returning None routes this turn to the memory path — which is where
+# the content belonged in the first place.
+# The utterance's subject is a first-person pronoun. Alternation is ordered so
+# the longer contractions win over the bare "i" (otherwise "i'm" matches as
+# "i" and the apostrophe-tail of "i've"/"i'd" is left dangling).
+_FIRST_PERSON_SUBJECT = re.compile(
+    r"^\s*(?:"
+    r"(?:and|but|so|then|well|also|anyway|actually|honestly)\b[^,]{0,24}?"
+    r")?"
+    r"\b(?:i'm|im|i've|ive|i'd|ill|i'll|my|mine|myself|i|we're|weve|"
+    r"we've|our|ours|ourselves|we|us)\b"
+)
+
+# A subordinate temporal/causal opener followed by a first-person clause is
+# still a disclosure: "when i was a teenager i lived in mumbai".
+_SUBORDINATE_FIRST_PERSON = re.compile(
+    r"^\s*(?:when|while|before|after|since|until|if|whenever|as)\b"
+    r"[^,]{0,80}?\b(?:i|i'm|im|i've|ive|my)\b"
+)
+
+# Interrogative markers. Closed-class, so a new topic cannot defeat them.
+_QUESTION_MARK = re.compile(r"\?")
+# A wh-word that heads the WHOLE clause, i.e. a real question. "when i was a
+# teenager i lived in mumbai" opens with a wh-word but is a disclosure: "when"
+# is a subordinating conjunction here and the clause has a subject. A genuine
+# question's wh-clause has no subject of its own ("when did you move"), so it
+# is not followed by a subject pronoun. Without this the gate would read every
+# temporal disclosure as a question and never fire on one.
+_WH_QUESTION_HEAD = re.compile(
+    r"^\s*(?:what|who|whom|whose|where|when|why|which|how)\b(?![^,?]*?"
+    r"\b(?:i|i'm|im|i've|my|we|our|you|your|he|she|they|it)\b)"
+)
+# An auxiliary or question word anywhere ahead of the verb signals inversion.
+_AUX_INVERSION = re.compile(
+    r"^\s*(?:do|does|did|is|are|was|were|can|could|should|would|will|"
+    r"shall|have|has|had|am)\b"
+)
+
+
+def _is_self_attributive_disclosure(query: str) -> bool:
+    """Is this a first-person DECLARATIVE disclosure rather than a question?
+
+    True only when all three hold: the subject is first person, the utterance
+    is not interrogative, and it is not imperative. Anything the caller would
+    want to look up — a question about the world, an instruction to run a tool —
+    fails one of these and falls through to the normal routing.
+    """
+    q = (query or "").strip()
+    if not q:
+        return False
+    # 1) First-person subject => a disclosure about the speaker. Checked FIRST,
+    # because a disclosure's own subject pronoun is what distinguishes a
+    # subordinate clause ("when I ...") from a real wh-question ("when did ...").
+    is_disclosure = bool(_FIRST_PERSON_SUBJECT.search(q)
+                         or _SUBORDINATE_FIRST_PERSON.search(q))
+    if not is_disclosure:
+        return False
+    # 2) Interrogative => not a disclosure.
+    if _QUESTION_MARK.search(q) or _WH_QUESTION_HEAD.search(q):
+        return False
+    if _AUX_INVERSION.search(q):
+        return False
+    # 3) Imperative => a task, not a disclosure.
+    if _is_imperative_formed(q):
+        return False
+    return True
+
+
 
 def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None) -> Optional[ToolCall]:
     """Return a ToolCall plan if RAVANA's cognition justifies acting, else None.
@@ -337,6 +426,21 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
         url = _trim_url_match(url_match.group(1))
         return ToolCall(tool="read_website", arg=url,
                         reason=f"url_pattern_detected url={url}")
+
+    # 0a) SELF-ATTRIBUTIVE FRAME pre-gate (FIX-RV-17). A declarative utterance
+    # whose subject is the speaker is the user handing RAVANA a fact about
+    # themselves, not asking the world a question. "when i was a teenager i
+    # lived in mumbai" carries no information gap: the world cannot answer it,
+    # and the only correct destination is the user's own memory. The old gate
+    # fired web_search here and pasted an unrelated news item about a different
+    # teenager into the reply.
+    #
+    # The test is STRUCTURAL, on function words only — first/third-person
+    # subject pronoun, no interrogative, no imperative. It is not a topic
+    # blocklist, so it holds for a disclosure about a subject nobody
+    # anticipated, and it cannot swallow a real question.
+    if _is_self_attributive_disclosure(q):
+        return None
 
     # 0b) Personal-possessive pre-gate: if the query is autobiographical
     # (contains "my"/"your" + an entity word), SKIP web_search entirely.
