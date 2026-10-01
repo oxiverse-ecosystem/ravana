@@ -5175,7 +5175,7 @@ class UserModel:
                     # which the frame is indistinguishable from a bare
                     # verb-initial noun phrase. `slot_naming` needs no verb
                     # vocabulary to do this.
-                    _raw = strip_reporting_frame(_raw, self._OPINION_STOP)
+                    _raw = strip_reporting_frame(_raw)
                     # Resolve the content head so stances never land on a
                     # closed-class word (the/a/how/small/...). Returns None when
                     # the phrase has no usable content noun -> skip (don't seed
