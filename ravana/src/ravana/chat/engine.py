@@ -11331,13 +11331,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._contradiction_map = state.get('contradiction_map', {})
             # Restore user model
             loaded_user_model = state.get('user_model', UserModel())
+            # A poisoned snapshot (pre-2026-10-02 _safe_pickle_dump sanitizer)
+            # stores the whole user_model as the STRING "<unpicklable:UserModel>".
+            # Touching it here raised AttributeError, which aborted load() and
+            # silently discarded EVERY field restored after this point. Degrade
+            # instead: keep the fresh model, say so once, and carry on.
+            if not hasattr(loaded_user_model, 'edge_reactivations'):
+                print("  [Load partial] user_model was a placeholder/opaque value "
+                      "- keeping a fresh UserModel; learned user state NOT restored")
+                loaded_user_model = UserModel()
             # Upgrade old UserModel to new Theory of Mind version if needed
-            if not hasattr(loaded_user_model, 'topic_interaction_count'):
+            elif not hasattr(loaded_user_model, 'topic_interaction_count'):
                 # Old UserModel - upgrade it
                 upgraded = UserModel()
                 upgraded.edge_reactivations = loaded_user_model.edge_reactivations
                 upgraded.query_concepts = loaded_user_model.query_concepts
-                upgraded.user_name = getattr(loaded_user_model, 'user_name', "")
+                upgraded.user_name = getattr(loaded_user_model, "user_name", "")
                 loaded_user_model = upgraded
             # Ensure P1 ToM fields exist (backward-compatible migration)
             if not hasattr(loaded_user_model, 'user_name'):

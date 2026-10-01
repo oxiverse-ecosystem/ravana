@@ -234,6 +234,12 @@ class PersistenceMixin:
         return hashlib.sha256(blob).hexdigest()[:16]
 
     def _safe_pickle_dump(self, state, fpath):
+        """Pickle the snapshot, degrading gracefully if part of it cannot pickle.
+
+        A snapshot must never be silently replaced wholesale by placeholders: the
+        load path trusts these types. See the sanitizer notes below for the two
+        defects fixed on 2026-10-02.
+        """
         import pickle
         try:
             with open(fpath, 'wb') as _f:
@@ -244,27 +250,78 @@ class PersistenceMixin:
         # Best-effort: deep-copy the snapshot, replacing any unpicklable object
         # with a typed placeholder string, then retry.
         try:
+            import copy
             import sqlite3
 
-            def _sanitize(obj, _seen=None):
+            PLACEHOLDER = "<unpicklable:{}>"
+
+            def _sanitize(obj, _seen=None, _depth=0):
+                # Depth guard: a pathological/self-referential structure must not
+                # turn a save into a RecursionError, which would drop the whole
+                # snapshot instead of one leaf.
+                if _depth > 24:
+                    return PLACEHOLDER.format(type(obj).__name__)
                 if _seen is None:
                     _seen = set()
-                if id(obj) in _seen:
-                    return obj
-                _seen.add(id(obj))
+                # MEMOIZATION GUARD (fixed 2026-10-02): only memoize CONTAINERS,
+                # where identity really does imply a cycle. The original code
+                # memoized every visited object's id(), but small ints/floats/
+                # strings are interned process-wide, so unrelated scalars collided
+                # by id and short-circuited. Worse, once an object was repaired into
+                # a clone and its id memoized, a later sibling reference to the
+                # SAME original was returned un-repaired, so the unpicklable leaf
+                # came back and the parent repair failed wholesale - which is how a
+                # single bad attribute inside user_model still poisoned the whole
+                # model.
+                _is_container = isinstance(obj, (dict, list, tuple, set, frozenset))
+                if _is_container:
+                    if id(obj) in _seen:
+                        return obj
+                    _seen.add(id(obj))
                 if isinstance(obj, sqlite3.Connection):
-                    return f"<unpicklable:{type(obj).__name__}>"
+                    return PLACEHOLDER.format(type(obj).__name__)
                 if isinstance(obj, dict):
-                    return {k: _sanitize(v, _seen) for k, v in obj.items()}
+                    return {k: _sanitize(v, _seen, _depth + 1) for k, v in obj.items()}
                 if isinstance(obj, (list, tuple, set)):
                     _cls = type(obj)
-                    return _cls(_sanitize(v, _seen) for v in obj)
+                    return _cls(_sanitize(v, _seen, _depth + 1) for v in obj)
                 # Probe picklability of leaf-like scalars/objects cheaply.
                 try:
                     pickle.dumps(obj)
                     return obj
                 except Exception:
-                    return f"<unpicklable:{type(obj).__name__}>"
+                    pass
+                # THE FIX (2026-10-02): a NON-container object that fails to
+                # pickle used to be replaced ENTIRELY by a placeholder string.
+                # The big domain objects (UserModel is a dataclass, so it is not
+                # a dict/list/tuple/set and always fell through to this branch)
+                # were therefore converted wholesale, and every later load died
+                # on the first attribute access with "'str' object has no
+                # attribute 'edge_reactivations'" - aborting load() and discarding
+                # every field restored after that point.
+                #
+                # Instead: rebuild the object shallowly and sanitize its
+                # __dict__, so only the genuinely unpicklable leaf is dropped and
+                # the object's type and all its other state survive.
+                _d = getattr(obj, '__dict__', None)
+                if isinstance(_d, dict):
+                    try:
+                        clone = copy.copy(obj)
+                        clone.__dict__.update({
+                            k: _sanitize(v, _seen, _depth + 1)
+                            for k, v in _d.items()
+                        })
+                        # Prove the REPAIRED object pickles before accepting it,
+                        # else we would reintroduce the wholesale poisoning this
+                        # branch exists to prevent.
+                        pickle.dumps(clone)
+                        return clone
+                    except Exception:
+                        pass
+                # Last resort: genuinely opaque (no __dict__, or repair still
+                # fails). Placeholder it - the load path skips a placeholder
+                # rather than trusting it.
+                return PLACEHOLDER.format(type(obj).__name__)
 
             sane = _sanitize(state)
             with open(fpath, 'wb') as _f:
