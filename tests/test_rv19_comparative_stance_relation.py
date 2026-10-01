@@ -42,6 +42,8 @@ sys.meta_path = [f for f in sys.meta_path
 os.environ.setdefault("RAVANA_OFFLINE", "1")
 
 from ravana.chat.engine import CognitiveChatEngine  # noqa: E402
+from ravana.chat.slot_naming import (  # noqa: E402
+    is_subject_pronoun, learn_subject_pronoun, strip_reporting_frame)
 
 DISCLOSURE = "i think remote work is better than office work"
 WINNER, LOSER = "remote work", "office work"
@@ -212,3 +214,66 @@ def test_short_comparative_is_gated_by_the_gibberish_guard():
             eng.stop_background_learning()
         except Exception:
             pass
+
+
+# ── The frame stripper itself ────────────────────────────────────────────────
+# Pure-function tests. These pin BOTH what the stripper must do (remove a fused
+# reporting verb with no verb vocabulary) and what it must NOT do, the second
+# half being where a real regression was actually caught.
+@pytest.mark.parametrize("phrase,expected", [
+    ("i think remote work", "remote work"),
+    ("honestly i think the mountains", "the mountains"),
+    ("she prefers filter coffee", "filter coffee"),
+    ("they believe the sea", "the sea"),
+    ("we love hiking", "hiking"),
+    ("i suspect the quiet", "the quiet"),
+])
+def test_frame_is_stripped_for_any_reporting_verb(phrase, expected):
+    """The verb is whatever sits in the verb slot -- no verb is enumerated.
+
+    'suspect' and 'prefers' are here precisely because they are NOT part of any
+    reporting-verb list in the codebase: if a future change starts recognising
+    specific verbs, these two still have to work by shape alone.
+    """
+    assert strip_reporting_frame(phrase) == expected
+
+
+@pytest.mark.parametrize("phrase", [
+    "remote work",
+    "hiking",
+    "most modern music",     # regression: 'most' is a stop word, not a pronoun
+    "only the sea",
+    "just noise",
+    "like small talk",
+    "better weather",
+    "a lonely mountain",     # '-ly' topic with no pronoun after it
+    "lonely",
+])
+def test_bare_noun_phrases_are_left_alone(phrase):
+    """A span not opening with a PRONOUN is not a reporting frame.
+
+    "most modern music" is the measured regression: an earlier revision let any
+    token from the miner's closed-class stop set count as a subject, "most" was
+    in that set, so "modern" was read as a verb and the key became "music". A
+    function-word class is not a pronoun class.
+    """
+    assert strip_reporting_frame(phrase) == phrase
+
+
+def test_pronoun_class_is_runtime_extensible():
+    """The seed grammar must be widenable without a code change (no retraining)."""
+    # An unseen token is not yet a subject, so the span is left intact.
+    assert not is_subject_pronoun("thee")
+    assert strip_reporting_frame("thee prefer tea") == "thee prefer tea"
+    # ...and once learned, the same shape works with no further change: exactly
+    # the subject and the finite verb are dropped, leaving the complement.
+    assert learn_subject_pronoun("thee") is True
+    assert is_subject_pronoun("thee")
+    assert strip_reporting_frame("thee prefer tea") == "tea"
+    # Learning is idempotent: re-registering a seed pronoun changes nothing.
+    assert learn_subject_pronoun("i") is False
+
+
+def test_frame_strip_is_a_noop_when_there_is_no_complement():
+    """A bare "<pronoun> <verb>" span has no subject to recover -- leave it."""
+    assert strip_reporting_frame("i think") == "i think"
