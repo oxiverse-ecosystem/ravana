@@ -7,6 +7,7 @@ from .models import CorrectionType
 from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
+from .slot_naming import strip_reporting_frame
 from . import possession_attrs as _poss
 from .constants import STOP_WORDS
 
@@ -5056,10 +5057,22 @@ class UserModel:
             # force-negatived here — if the user holds a negative view of it
             # they state it, and the same miner captures it; we must not invent
             # a polarity RAVANA could not revise by talking.
+            #
+            # ARITY (FIX-RV-19). The comparative connective ("than"/"over"/
+            # "versus") introduces the LOSER, and the loser is part of the same
+            # proposition -- so it is captured as a SECOND group here. A pattern
+            # with two groups is a relation, and the miner signs its sides
+            # oppositely (winner +, loser -), which is what lets a later "do you
+            # prefer A or B" recover which side won. Previously this pattern
+            # captured only the subject, so the direction of every such
+            # comparison was discarded at the moment it was spoken. The loser
+            # group is OPTIONAL so a truncated comparative ("trains are better
+            # than") still records the winner rather than matching nothing.
             (r"\b(.+?)\s+(?:makes?|are?|is|make|produce[s]?|breed[s]?|build[s]?)\s+"
-             r"(?:better|finer|more human|more humane|healthier|stronger|"
-             r"happier|wiser|kinder)\s+(?:humans?|people|folk|neighbou?rs?|"
-             r"citizens?|communities?)?\s*(?:than|over|versus|vs\.?)\b", 0.7, 0.5),
+            r"(?:better|finer|more human|more humane|healthier|stronger|"
+            r"happier|wiser|kinder)\s+(?:humans?|people|folk|neighbou?rs?|"
+            r"citizens?|communities?)?\s*(?:than|over|versus|vs\.?)\b"
+            r"(?:\s+(.+?)(?:\.|\band\b|\bbut\b|$|,))?", 0.7, 0.5),
             (r"\b(.+?)\s+(?:beats|outshines|trumps|wins\s+over|is\s+finer\s+than|"
              r"is\s+better\s+than)\s+(.+?)(?:[.!?]|\band\b|\bbut\b|$|,)", 0.7, 0.5),
             # Round 2026-08-08f: broaden the comparative / superlative /
@@ -5082,13 +5095,21 @@ class UserModel:
             #     than Z' -> positive stance on X. The leading 'i think/
             #     i believe' frame is stripped so the captured subject is the
             #     real content head (e.g. 'sea'), never 'i think the sea'.
+            #     ARITY (FIX-RV-19): the trailing group captures the LOSER
+            #     introduced by "than"/"over"/"versus", making this a
+            #     two-group RELATION pattern. The miner then signs the two
+            #     sides oppositely, so the comparison's direction survives into
+            #     the store instead of being discarded when it was spoken. It is
+            #     optional so a truncated "trains are better than" still
+            #     records the winner rather than matching nothing.
             (r"(?:\bi\s+(?:think|believe|feel|find|reckon)\s+)?"
-             r"\b(.+?)\s+(?:is|are)\s+(?:a|an)?\s*(?:better|safer|finer|kinder|"
-             r"wiser|healthier|stronger|truer|freer|calmer|cleaner|warmer|"
-             r"cooler|sharper|kinder|more honest|more human|more real|"
-             r"more true|more free)\b"
-             r"(?:\s+(?:teacher|thing|place|way|part|kind|sort|type|version|"
-             r"form|bit|lot|deal))?\s+(?:than|over|versus|vs\.?\b)", 0.7, 0.55),
+            r"\b(.+?)\s+(?:is|are)\s+(?:a|an)?\s*(?:better|safer|finer|kinder|"
+            r"wiser|healthier|stronger|truer|freer|calmer|cleaner|warmer|"
+            r"cooler|sharper|kinder|more honest|more human|more real|"
+            r"more true|more free)\b"
+            r"(?:\s+(?:teacher|thing|place|way|part|kind|sort|type|version|"
+            r"form|bit|lot|deal))?\s+(?:than|over|versus|vs\.?\b)"
+            r"(?:\s+(.+?)(?:\.|\band\b|\bbut\b|$|,))?", 0.7, 0.55),
             # (b) sensory-comparative 'X sounds/feels/tastes/looks/reads WARMER
             #     than Y' -> positive stance on X (the WARMER-ER class). Strip
             #     a leading 'i think/believe' frame the same way.
@@ -5122,54 +5143,84 @@ class UserModel:
              r"(?:\s+(?:kind|sort|type|breed|example|form|version|bit))?", 0.7, 0.55),
         ):
             for _m in re.finditer(_pat, q_clean, re.IGNORECASE):
-                _raw = _m.group(_m.lastindex).strip().lower()
-                if not _raw:
-                    continue
-                # Resolve the content head so stances never land on a
-                # closed-class word (the/a/how/small/...). Returns None when
-                # the phrase has no usable content noun -> skip (don't seed a
-                # garbage stance).
-                _topic = self._opinion_topic(_raw)
-                if not _topic:
-                    continue
-                # Sign-PRESERVING affect blend (D3 fix, round v-aug06).
-                # Bug: the prior code used the RUNNING emotional buffer
-                # (_v = EMA of ALL prior turns) to modulate polarity via
-                # `max(0.3, _p + 0.2)` — so a clearly-negative lexical cue
-                # ("i can't stand cilantro", _pol=-0.8) spoken right after a
-                # happy stretch (_v>0.2) was flipped to +0.3, because the
-                # buffer leak beat the explicit attitude. That is backwards:
-                # the USER's stated verb is the ground-truth attitude signal;
-                # affect should only REINFORCE it, never reverse it.
-                # Fix: VAD now only strengthens the SAME signed pole (or
-                # widens a neutral cue), and can never cross the sign line.
-                # This matches vmPFC value integration: the lexical attitude
-                # is the delta-rule target; affect is a gain, not a sign.
-                _p = float(_pol)
-                if _p < -0.05 and _v < -0.1:
-                    _p = min(_p, _p - 0.15)          # more negative, same sign
-                elif _p > 0.05 and _v > 0.1:
-                    _p = max(_p, _p + 0.15)          # more positive, same sign
-                # neutral lexical cue (_p==0) may be steered by a strong signal
-                elif abs(_p) <= 0.05 and abs(_v) >= 0.3:
-                    _p = 0.6 if _v > 0 else -0.6
-                _p = max(-1.0, min(1.0, _p))
-                # PROVENANCE (round 2026-08-20T0701Z-followup, residual
-                # limitation #1). The keyed `_topic` ("silence") may be a
-                # SUBORDINATE concept while the utterance also names the
-                # SALIENT broader concept the user actually meant ("winter").
-                # Capture the salient content nouns of the FULL object phrase
-                # (`_raw`, before _opinion_topic collapsed it to the head), so
-                # the resolver + reversal miner can later bridge a co-mention
-                # of "winter"/"street art" to this stance even though the key
-                # differs. The set is GROWN ONLINE from the real utterance —
-                # seed is empty, nothing hardwired, RAVANA revises it by
-                # further talk. Generic: content-noun extraction reuses the
-                # same closed-class stop set the miner already routes through.
-                _prov = self._opinion_provenance(_raw)
-                self.opinions.express_stance(_topic, polarity=_p, confidence=_conf,
-                                            valence=_v, arousal=_a,
-                                            provenance=_prov)
+                # ARITY (FIX-RV-19). A pattern with TWO capture groups encodes a
+                # COMPARISON ("A beats B"), not two independent assertions, so
+                # its groups are the two SIDES of one relation and carry
+                # OPPOSITE signs. Reading only `_m.lastindex` (the loser) and
+                # applying the pattern's positive polarity stored the side the
+                # user had just REJECTED as endorsed, and the direction of the
+                # comparison existed nowhere in the store -- so a later
+                # contrastive query ("do you prefer A or B") saw two
+                # equally-positive stances and could not recover a winner.
+                #
+                # `re.groups` is a grammatical property of the PATTERN, not a
+                # topic, a comparative word, or a probe, so this generalizes to
+                # every dyadic comparative the miner recognizes.
+                if _m.re.groups >= 2:
+                    _sides = [(_m.group(1), float(_pol)),
+                              (_m.group(_m.re.groups), -float(_pol))]
+                else:
+                    _sides = [(_m.group(_m.lastindex), float(_pol))]
+                for _raw, _side_pol in _sides:
+                    _raw = (_raw or "").strip().lower()
+                    if not _raw:
+                        continue
+                    # FRAME (FIX-RV-19). Pattern 13's subject group is lazy and
+                    # unanchored, so it starts at position 0 and swallows the
+                    # reporting clause ("i think remote work" -> the key "think
+                    # remote work"). Strip the `<subject-pronoun> <finite-verb>`
+                    # frame before resolving the content head, so the key names
+                    # the SUBJECT of the attitude. Must run BEFORE
+                    # `_opinion_topic` drops the subject pronoun itself, after
+                    # which the frame is indistinguishable from a bare
+                    # verb-initial noun phrase. `slot_naming` needs no verb
+                    # vocabulary to do this.
+                    _raw = strip_reporting_frame(_raw, self._OPINION_STOP)
+                    # Resolve the content head so stances never land on a
+                    # closed-class word (the/a/how/small/...). Returns None when
+                    # the phrase has no usable content noun -> skip (don't seed
+                    # a garbage stance).
+                    _topic = self._opinion_topic(_raw)
+                    if not _topic:
+                        continue
+                    # Sign-PRESERVING affect blend (D3 fix, round v-aug06).
+                    # Bug: the prior code used the RUNNING emotional buffer
+                    # (_v = EMA of ALL prior turns) to modulate polarity via
+                    # `max(0.3, _p + 0.2)` — so a clearly-negative lexical cue
+                    # ("i can't stand cilantro", _p=-0.8) spoken right after a
+                    # happy stretch (_v>0.2) was flipped to +0.3, because the
+                    # buffer leak beat the explicit attitude. That is backwards:
+                    # the USER's stated verb is the ground-truth attitude signal;
+                    # affect should only REINFORCE it, never reverse it.
+                    # Fix: VAD now only strengthens the SAME signed pole (or
+                    # widens a neutral cue), and can never cross the sign line.
+                    # This matches vmPFC value integration: the lexical attitude
+                    # is the delta-rule target; affect is a gain, not a sign.
+                    _p = _side_pol
+                    if _p < -0.05 and _v < -0.1:
+                        _p = min(_p, _p - 0.15)      # more negative, same sign
+                    elif _p > 0.05 and _v > 0.1:
+                        _p = max(_p, _p + 0.15)      # more positive, same sign
+                    # neutral lexical cue (_p==0) may be steered by a strong signal
+                    elif abs(_p) <= 0.05 and abs(_v) >= 0.3:
+                        _p = 0.6 if _v > 0 else -0.6
+                    _p = max(-1.0, min(1.0, _p))
+                    # PROVENANCE (round 2026-08-20T0701Z-followup, residual
+                    # limitation #1). The keyed `_topic` ("silence") may be a
+                    # SUBORDINATE concept while the utterance also names the
+                    # SALIENT broader concept the user actually meant ("winter").
+                    # Capture the salient content nouns of the FULL object phrase
+                    # (`_raw`, before _opinion_topic collapsed it to the head), so
+                    # the resolver + reversal miner can later bridge a co-mention
+                    # of "winter"/"street art" to this stance even though the key
+                    # differs. The set is GROWN ONLINE from the real utterance —
+                    # seed is empty, nothing hardwired, RAVANA revises it by
+                    # further talk. Generic: content-noun extraction reuses the
+                    # same closed-class stop set the miner already routes through.
+                    _prov = self._opinion_provenance(_raw)
+                    self.opinions.express_stance(_topic, polarity=_p, confidence=_conf,
+                                                valence=_v, arousal=_a,
+                                                provenance=_prov)
 
         # ── EVALUATIVE-PREDICATE MINING (feature round t_e45928d1, D5) ──────
         # The alternation lists above are a FROZEN vocabulary: a predicate
