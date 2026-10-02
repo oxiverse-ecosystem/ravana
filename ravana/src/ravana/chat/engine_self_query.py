@@ -1601,9 +1601,27 @@ class SelfQueryMixin:
                 # open to the accumulated phrase when the reduction returns
                 # nothing, so no topic is ever invented.
                 _target = " ".join(_target_toks)
-                _head = self._referent_head(_target)
-                if _head:
-                    _target = _head
+                # REFERENT-HEAD REDUCTION (round 2026-09-30T1031Z, t_159df91e):
+                # the accumulator keeps every content token until a
+                # closed-class boundary, so a bare PREDICATE clause came
+                # through whole and was interpolated verbatim ("i'm still
+                # forming a view on naming things matters").
+                #
+                # It must NOT be applied to a BOUND relative clause. The
+                # reducer segments a clause at the relative pronoun (it
+                # answers "which NOUN is this about?", so "people who talk in
+                # theatres" reduces to "people"), but a relative clause is one
+                # referent DESCRIPTION here, not a predicate about its head:
+                # reducing it discarded the clause that distinguishes the topic,
+                # collapsing "people who talk in theatres" and "people who jog
+                # at midnight" onto the same single-token key (the round's D-B
+                # regression) and losing the multi-token head the D-B fix
+                # resolved. Detect the bound clause structurally (a relative
+                # pronoun inside the accumulated span) and leave it whole.
+                if not any(_w in _REL_PRON for _w in _target_toks[1:]):
+                    _head = self._referent_head(_target)
+                    if _head:
+                        _target = _head
                 _stance, _reason = self._agent_stance_on(_target)
             _reason = (_reason or "").rstrip()
             if _reason and not _reason.endswith((".", "!", "?")):
