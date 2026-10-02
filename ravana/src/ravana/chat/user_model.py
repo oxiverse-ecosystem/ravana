@@ -7,7 +7,7 @@ from .models import CorrectionType
 from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
-from .slot_naming import strip_reporting_frame
+from .slot_naming import strip_reporting_frame, is_vacuous_subject
 from . import possession_attrs as _poss
 from .constants import STOP_WORDS
 
@@ -4776,10 +4776,26 @@ class UserModel:
                 # topic, a comparative word, or a probe, so this generalizes to
                 # every dyadic comparative the miner recognizes.
                 if _m.re.groups >= 2:
-                    _sides = [(_m.group(1), float(_pol)),
-                              (_m.group(_m.re.groups), -float(_pol))]
+                    # FIX-RV-24. A QUANTIFIED subject ("nothing beats X",
+                    # "nobody sings better than Y") is grammatical in the
+                    # subject slot but denotes no referent, so the match is not
+                    # a two-sided comparison: there is no winner to sign +.
+                    # Before this the quantifier itself was mined as the
+                    # winner and the real subject was forced to the loser sign,
+                    # producing a stance on "nothing" AND negating the very
+                    # thing the user was endorsing -- which broke the D5 run-on
+                    # key test on this branch (mined ['nothing',
+                    # 'cold water swimming'] where main mined
+                    # ['cold water swimming']). Dropping the vacuous side leaves
+                    # the loser side carrying the pattern's own positive
+                    # polarity, which is what the utterance actually asserts.
+                    if is_vacuous_subject(_m.group(1) or ""):
+                        _sides = [(_m.group(_m.re.groups), float(_pol))]
+                    else:
+                        _sides = [(_m.group(1), float(_pol)),
+                                  (_m.group(_m.re.groups), -float(_pol))]
                 else:
-                    _sides = [(_m.group(_m.lastindex), float(_pol))]
+                                    _sides = [(_m.group(_m.lastindex), float(_pol))]
                 for _raw, _side_pol in _sides:
                     _raw = (_raw or "").strip().lower()
                     if not _raw:
