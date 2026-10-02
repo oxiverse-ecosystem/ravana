@@ -192,23 +192,55 @@ def test_comparatives_are_signed_relations_in_general(disclosure, winner, loser)
             pass
 
 
-def test_short_comparative_is_gated_by_the_gibberish_guard():
-    """A very short comparative never reaches the miner at all.
+def test_short_comparative_reaches_the_miner_when_its_words_are_real():
+    """A short comparative is gated by the gibberish guard only when the guard
+    has grounds to reject it.
 
-    Documents a PRE-EXISTING, unrelated behaviour so a future reader does not
-    mistake it for a regression of this fix, and so the probes above are not
-    quietly rewritten into unreachable no-ops. Verified identical on the
-    untouched baseline commit; this fix deliberately does not touch the guard.
+    FIX-RV-24. This test previously asserted the UNCONDITIONAL
+    `strategy == "gibberish_guard"` for "tea beats coffee", claiming that
+    rejection was "verified identical on the untouched baseline commit". That
+    claim was measured only on a box with no GloVe data, where the guard cannot
+    see that "tea" and "coffee" are real words. It is not a property of the
+    guard and it is not what happens where GloVe is available:
+
+      cold GloVe (no vectors)  guard=True   strategy=gibberish_guard  no stance
+      warm GloVe (CI)          guard=False  strategy=chitchat
+                                        -> {'tea': +0.70, 'coffee': -0.70}
+
+    `github/main` behaves the same way (measured: main under warm GloVe gives
+    strategy='chitchat'), so the unconditional assertion could never have held
+    in CI -- it encoded a local environment artefact as a specification.
+
+    The invariant that IS true in both environments is the one worth pinning:
+    the guard rejects genuine letter-salad unconditionally, and a comparative
+    whose content words are real is never confabulated about as gibberish.
+    Asserting a specific strategy name instead would freeze whichever
+    resource state the author happened to be holding.
     """
     eng = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
                               user_suffix="rv19gib")
     try:
-        eng.process_turn("tea beats coffee")
+        # Real gibberish is rejected in every environment.
+        eng.process_turn("asdf qwer zxcv")
         assert eng._last_strategy == "gibberish_guard", (
-            f"expected the gibberish guard to claim this short comparative, "
-            f"got strategy={eng._last_strategy!r}")
+            f"letter-salad must be rejected, got strategy={eng._last_strategy!r}")
         assert not eng.user_model.opinions.stances, (
-            "the miner should not run when the gibberish guard claims the turn")
+            "the miner must not run on letter-salad")
+
+        # A real comparative is either mined as a signed relation or held by
+        # the guard -- but it is never answered as nonsense.
+        eng.user_model.opinions.stances.clear()
+        eng.process_turn("tea beats coffee")
+        assert eng._last_strategy != "gibberish_guard" or not eng.glove_ready, (
+            "with GloVe available, 'tea beats coffee' must not be rejected as "
+            f"gibberish (got strategy={eng._last_strategy!r})")
+        if eng._last_strategy != "gibberish_guard":
+            st = eng.user_model.opinions.stances
+            assert "tea" in st and "coffee" in st, (
+                f"a real comparative must mine both sides: {sorted(st)}")
+            assert st["tea"].polarity > 0 > st["coffee"].polarity, (
+                f"loser sign inverted: tea {st['tea'].polarity:+.2f}, "
+                f"coffee {st['coffee'].polarity:+.2f}")
     finally:
         try:
             eng.stop_background_learning()
