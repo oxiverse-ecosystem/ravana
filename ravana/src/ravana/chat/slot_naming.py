@@ -51,7 +51,10 @@ __all__ = [
     "strip_reporting_frame",
     "is_subject_pronoun",
     "learn_subject_pronoun",
+    "is_vacuous_subject",
+    "learn_vacuous_subject",
     "SUBJECT_PRONOUNS",
+    "VACUOUS_SUBJECTS",
 ]
 
 # The seed PRONOUN class -- closed-class GRAMMAR: the words that can occupy the
@@ -65,6 +68,60 @@ SUBJECT_PRONOUNS = frozenset({
 # Grown at runtime by `learn_subject_pronoun`; kept separate from the seed so a
 # learned entry stays distinguishable from grammar.
 _LEARNED_SUBJECTS: set[str] = set()
+
+# ── The QUANTIFIED subject class (FIX-RV-24) ─────────────────────────────────
+# A quantified subject ("nothing", "nobody", "everyone", "anything") is
+# grammatical in the subject slot but denotes NO referent the user can hold an
+# attitude about. A comparative whose winner side is such a quantifier is not a
+# two-sided comparison at all: in "nothing beats cold water swimming jumping"
+# the speaker is NOT endorsing "nothing" -- the assertion is entirely about the
+# loser.
+#
+# WHY THIS IS GRAMMAR, NOT A KEYWORD TABLE. The pattern is structural: the
+# subject slot is filled by a determiner-quantifier rather than by a referring
+# expression. That is the same closed-class slot the PRONOUN set above owns, and
+# it generalizes to every quantifier ("no one", "everything", "something"),
+# present and past, singular and plural. It is not a reporting-verb list and
+# nothing in it can be tuned to a probe.
+#
+# Growth path: `learn_vacuous_subject` lets RAVANA register another quantifier
+# from experience, so this stays seed grammar rather than a frozen table.
+VACUOUS_SUBJECTS = frozenset({
+    "nothing", "nobody", "none", "everyone", "everybody", "anything",
+    "something", "everything", "all", "any", "whatever", "whoever",
+    "no one", "no-one", "none of",
+})
+
+_LEARNED_VACUOUS: set[str] = set()
+
+
+def learn_vacuous_subject(token: str) -> bool:
+    """Register `token` as a subject that denotes no referent.
+
+    The runtime growth path for the quantified-subject class, so RAVANA
+    extends its own grammar from experience instead of needing a code change
+    or a retrain. Returns True when the class actually grew.
+    """
+    t = (token or "").strip().lower().strip("'")
+    if not t or not t.isalpha():
+        return False
+    if is_vacuous_subject(t):
+        return False
+    _LEARNED_VACUOUS.add(t)
+    return True
+
+
+def is_vacuous_subject(token: str) -> bool:
+    """True when `token` fills the subject slot without denoting a referent."""
+    t = (token or "").strip().lower()
+    if not t:
+        return False
+    if t in VACUOUS_SUBJECTS or t in _LEARNED_VACUOUS:
+        return True
+    # "none of" / "no one" are multiword; match on the head quantifier so
+    # "none of my habits" is recognized without enumerating the complement.
+    head = t.split()[0] if t.split() else t
+    return head in VACUOUS_SUBJECTS or head in _LEARNED_VACUOUS
 
 _TOKEN_RE = re.compile(r"[a-z'][a-z']*")
 
