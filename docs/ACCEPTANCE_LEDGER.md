@@ -29,6 +29,8 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | Belief store | `chat/belief_store.py` | `tests/unit/test_belief_reasoner.py` | CI `unit-tests` | **GREEN** | Hypothesis update/decay/compute-weight |
 | User model (stances / opinions) | `chat/user_model.py` | `tests/unit/test_user_stance_recall.py`, `tests/unit/test_agent_opinion_frame_coverage.py` | CI `unit-tests` | **GREEN** | Stance polarity recall + opinion-frame coverage tested |
 | Consistency monitor | `chat/consistency_monitor.py` | `tests/unit/test_consistency_monitor.py` | CI `unit-tests` | **GREEN** | Cross-turn claim contradiction detection |
+| Epistemic calibrator | `chat/calibration.py` | `tests/unit/test_epistemic_calibration.py` (28), `tests/test_epistemic_calibration_wiring.py` (15) | CI `unit-tests` + `misc-tests` | **GREEN** | 43 passed in 125.19s. Signed bias, per-band reliability curve, adaptive `theta_withhold` verified against the live engine; audit grep for authored strings returns 0 hits. Known limit (pinned by `test_observation_coverage_is_partial_because_predictions_are_partial`): `process_turn` has 60 returns before the prediction, so a 20-turn conversation yields 10 observations |
+| Metacognition / ACC | `chat/metacognition.py` | `tests/unit/test_metacognition_acc.py` (20, dedicated), `tests/test_epistemic_calibration_wiring.py` | CI `unit-tests` | **GREEN** | `fok_confidence` curve + `should_assert` gate + `modality_from_support` ladder covered directly. Previously YELLOW: the wiring suite was the module's only importer and was written for the calibrator, leaving these two functions with no coverage of their own. Gate now driven by the online calibrator rather than the fixed `THETA_WITHDHOLD = 0.30` default (`engine_web_search.py:546`, `response_gen.py:3641`). Sabotage-verified: 5 behavioural breaks (gate inversion, boost removal, curve inversion, gate-ignored-by-`read`, unbounded buffer) each turn the suite red |
 | Coherence gate / junk scorer | `chat/coherence_gate.py`, `chat/junk_scorer.py` | `tests/unit/test_coherence_v2.py`, `tests/unit/test_degenerate_gate.py` | CI `unit-tests` | **GREEN** | Coherence threshold + degenerate-topic gating |
 | Intent router | `chat/intent_router.py` | `tests/unit/test_cognition_driven_generation.py` | CI `unit-tests` | **GREEN** | Intent → decoder path verified |
 | Self-model router | `chat/self_model_router.py` | `tests/unit/test_self_opinion_query_head.py` | CI `unit-tests` | **GREEN** | Self/other boundary routing |
@@ -40,8 +42,9 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | Tool registry | `agent/tool_registry.py` | `tests/unit/test_decision_gate_noun_heuristic.py` | CI `unit-tests` | **GREEN** | web_search / read_website / run_script / github_cli registered |
 | Web learning | `chat/web_learning.py` | `tests/unit/test_yesno_web_routing.py` | CI `unit-tests` | **GREEN** | Web-routing guard for yes-no questions |
 | Reproducibility (spike log + fingerprint) | `chat/reproducibility.py` | `tests/ci/test_reproducibility.py` | CI `ci` suite | **GREEN** | 6 tests: same-seed same-fingerprint, spike log ordered, RNG state persists |
-| MonitorMixin | `chat/engine_monitor.py` | (exercised via engine tests) | CI `misc-tests` (trace-monitors) | **YELLOW** | `monitor_report()` exercised by `--trace-monitors` CLI flag; no dedicated unit test |
-| Hedges / epistemic frames | `chat/hedges.py` | (covered by generation tests) | CI `unit-tests` | **YELLOW** | Hardcoded `EPISEMIC_FRAMES` / `PRONOUNS_FALLBACK` in surface_realizer — dehardcode plan in progress |
+| MonitorMixin | `chat/engine_monitor.py` | `tests/unit/test_monitor_observability.py` | CI `unit-tests` | **GREEN** | `test_monitor_report_empty` (line 37) and `test_monitor_report_*` (line 48) call `eng.monitor_report()` directly. Re-graded 2026-09-30: the previous "no dedicated unit test" evidence was false. |
+| Hedges / epistemic frames | `chat/hedges.py` | `tests/unit/test_hedge_frames_dehardcoded.py` | CI `unit-tests` | **GREEN** | Dedicated de-hardcoding guard pins the contract so `_HEDGE_FRAMES` cannot return. Re-graded 2026-09-30: the previous evidence cited `EPISEMIC_FRAMES`, a symbol that does not exist anywhere in `ravana/src` or `ravana-v2/src` (`grep -rn "EPISEMIC_FRAMES" --include=*.py` returns nothing). |
+| Pronoun fallback map | `language/surface_realizer.py` | `tests/unit/test_human_likeness_fixes.py` | CI `unit-tests` | **YELLOW** | `SurfaceRealizer.PRONOUNS_FALLBACK` (line 81), consumed at line 858. Split into its own row 2026-09-30 — the prior row attached it to hedges with a wrong path and a non-existent symbol. |
 | Pet slots | `chat/pet_slots.py` | `tests/unit/test_round_2026_08f_regression.py`, `tests/unit/test_same_turn_profile.py` | CI `misc-tests` | **GREEN** | Ordinal/person-name fix verified |
 | Temporal grounding | `core/temporal_grounding.py` | `tests/unit/test_temporal_grounding.py` | CI `unit-tests` | **GREEN** | Relative-date grounding (4 years ago, last month) |
 | Deductive extractor | `core/deductive_extractor.py` | `tests/unit/test_deductive_extractor.py` | CI `unit-tests` | **GREEN** | Open-class verb extraction |
@@ -63,8 +66,8 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | Meaning / intrinsic motivation | `core/meaning.py` | (covered by engine meaning tests) | **YELLOW** | No dedicated unit test; exercised via `MeaningEngine` in engine boot |
 | Empathy | `core/empathy.py` | `tests/unit/test_empathy.py` | **GREEN** | VAD × cause → response frame |
 | Strategy | `core/strategy.py` | `tests/unit/test_grace_planning_intent.py` | **GREEN** | Exploration modes |
-| Occam layer | `core/occam_layer.py` | (covered by reasoning tests) | **YELLOW** | Hypothesis discipline; no standalone test |
-| Predictive world model | `core/predictive_world.py` | (covered by reasoning tests) | **YELLOW** | False-world tester; no standalone test |
+| Occam layer | `core/occam_layer.py` | `tests/unit/test_occam_layer.py` | **GREEN** | Dedicated suite exists. Re-graded 2026-09-30: the previous "no standalone test" evidence was false. |
+| Predictive world model | `core/predictive_world.py` | `tests/unit/test_predictive_world.py`, `tests/unit/test_predictive_coding_v2.py` | **GREEN** | Two dedicated suites exist. Re-graded 2026-09-30: the previous "no standalone test" evidence was false. |
 
 ---
 
@@ -83,10 +86,22 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 
 | Suite | File count | CI job | Grade |
 |-------|-----------|--------|-------|
-| `tests/unit/` | 187 test files (~2450 tests) | `unit-tests (1)-(5)` (sharded) | **GREEN** |
-| `tests/` (top-level) | 15 test files | `misc-tests` | **GREEN** |
-| `tests/ci/` | 5 test files | `ci` suite | **GREEN** |
-| **Total** | **207 test files** | 3 CI jobs | **GREEN** |
+| `tests/unit/` | 198 test files | `unit-tests` (4 shards) | **GREEN** |
+| `tests/` (top-level) | 23 test files | `misc-tests` | **GREEN** |
+| `tests/integration/` | 13 test files | `integration-tests` | **YELLOW** |
+| `tests/ci/` | 5 test files | `ci-critical` | **GREEN** |
+| **Total** | **239 test files** | 4 CI jobs | — |
+
+Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
+
+Notes (added 2026-09-30):
+- `tests/integration/` was previously absent from this table. It is gated by the named
+  `integration-tests` job (`.github/workflows/ci.yml` line 153), and that job is a
+  required gate via `ci-status` (line 261). It is graded YELLOW, not GREEN, solely because
+  `tests/integration/test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`
+  is currently failing — see backlog task 9.
+- `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
+  `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 
 ---
 
