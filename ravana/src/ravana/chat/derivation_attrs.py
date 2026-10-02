@@ -100,7 +100,25 @@ _NAMING_STOP = {
     "before", "because", "about",
 }
 
-_NAMING_MORPH = re.compile(r"^(.+?)(?:ed|d)$")
+# (stem, prep) -> canonical relation, derived from the seed table itself so the
+# canonical form of an inflected seed verb ("named after" -> "name" + "after")
+# folds back onto the seed KEY a later surface question can resolve.
+_SEED_BY_STEM_PREP: Dict[tuple, str] = {}
+
+
+def _build_seed_index() -> None:
+    for phrase, canon in _DERIVATION_SEED.items():
+        for size in (3, 2, 1):
+            toks = phrase.split()
+            if len(toks) <= size:
+                continue
+            prep = " ".join(toks[-size:])
+            if prep not in _ATTRIBUTION_PREPS:
+                continue
+            stem = naming_verb_of(toks[-size - 1])
+            if stem:
+                _SEED_BY_STEM_PREP.setdefault((stem, prep), canon)
+            break
 
 
 def learn_naming_verb(word: str) -> Optional[str]:
@@ -108,10 +126,11 @@ def learn_naming_verb(word: str) -> Optional[str]:
 
     Growth path for the naming-verb seed. A naming verb RAVANA has not heard of
     ("my track is DUBBED after my cousin ...") becomes addressable for later
-    recall without a code change. Regular past / -ed morphology is folded onto
-    the stem so "dubs"/"dubbed" resolve to one relation. Returns None when the
-    word cannot be a naming verb (empty, a pronoun, or a closed-class token), so
-    every call site can refuse to build a derivation from it.
+    recall without a code change. Regular verb morphology is folded onto the
+    stem so "tags"/"tagged"/"tagging" resolve to one relation. Returns None when
+    the word cannot be a naming verb (empty, a pronoun, a closed-class token, or
+    a bare noun carrying no verb inflection), so every call site can refuse to
+    build a derivation from it.
     """
     w = (word or "").strip().lower()
     if not w:
@@ -121,16 +140,47 @@ def learn_naming_verb(word: str) -> Optional[str]:
     known = naming_verb_of(w)
     if known:
         return known
-    m = _NAMING_MORPH.match(w)
-    stem = m.group(1) if m else w
-    # Only fold to a stem that is itself a plausible word (length bounded), so
-    # we do not manufacture stems from arbitrary short tokens.
-    if len(stem) >= 3:
-        _NAMING_VERB_LEARNED.add(w)
-        _NAMING_VERB_LEARNED.add(stem)
+    # An unseen token may only be learned when it is MORPHOLOGICALLY a verb
+    # form — it carries a verb inflection. A bare noun carries none, so being
+    # scanned by the miner is not enough to register it ("starter" stays out).
+    # Decidable from morphology alone, so an unseen verb is still learnable.
+    stem = _inflected_stem(w)
+    if stem is None or len(stem) < 3:
+        return None
+    _NAMING_VERB_LEARNED.add(stem)
+    return stem
+
+
+def _known_naming_verbs() -> set:
+    """Seed + runtime-learned naming verbs (the resolvable vocabulary)."""
+    return _NAMING_VERB_SEED | _NAMING_VERB_LEARNED
+
+
+def _inflected_stem(word: str) -> Optional[str]:
+    """Strip a verb inflection off a token, or None if it carries none.
+
+    Handles the orthographic final-consonant doubling of a short CVC stem:
+    "dub" -> "dubbed" / "tag" -> "tagged" double the last letter before the
+    suffix, so the -ed/-ing rules have to try the shorter stem too.
+    """
+    w = (word or "").strip().lower()
+    if not w:
+        return None
+    for suf, plain in (("ed", 2), ("ing", 3)):
+        if not w.endswith(suf) or len(w) <= plain:
+            continue
+        stem = w[:-plain]
+        # Doubled final consonant ("dubbed" -> "dub", not "dubb").
+        if len(stem) > 1 and stem[-1] == stem[-2]:
+            stem = stem[:-1]
         return stem
-    _NAMING_VERB_LEARNED.add(w)
-    return w
+    if w.endswith("d") and len(w) > 2:
+        return w[:-1]
+    if w.endswith("es") and len(w) > 3:
+        return w[:-2]
+    if w.endswith("s") and len(w) > 2:
+        return w[:-1]
+    return None
 
 
 def naming_verb_of(word: str) -> Optional[str]:
@@ -138,23 +188,17 @@ def naming_verb_of(word: str) -> Optional[str]:
     w = (word or "").strip().lower()
     if not w:
         return None
-    if w in _NAMING_VERB_SEED:
+    known = _known_naming_verbs()
+    if w in known:
         return w
-    if w in _NAMING_VERB_LEARNED:
-        return w
-    # 3rd-person -s: "names" -> "name"; -es after a sibilant: "names"/"watches".
-    if w.endswith("es") and w[:-2] in _NAMING_VERB_SEED:
-        return w[:-2]
-    if w.endswith("s") and w[:-1] in _NAMING_VERB_SEED:
-        return w[:-1]
-    if w.endswith("ed") and w[:-2] in _NAMING_VERB_SEED:
-        return w[:-2]
-    if w.endswith("ed") and w[:-1] in _NAMING_VERB_SEED:
-        return w[:-1]
-    if w.endswith("ing") and w[:-3] in _NAMING_VERB_SEED:
-        return w[:-3]
-    if w.endswith("ing") and (w[:-3] + "e") in _NAMING_VERB_SEED:
-        return w[:-3] + "e"
+    stem = _inflected_stem(w)
+    if stem is None:
+        return None
+    if stem in known:
+        return stem
+    # A dropped silent -e ("naming" -> "name").
+    if (stem + "e") in known:
+        return stem + "e"
     return None
 
 
@@ -209,8 +253,14 @@ def derivation_of(phrase: str) -> Optional[str]:
         if stem is None:
             return None
         # Canonicalize the whole predicate under its own surface so an unseen
-        # combination still yields ONE stable attribute key.
-        canon = _DERIVATION_SEED.get(p) or f"{stem} {prep}"
+        # combination still yields ONE stable attribute key. When the stem is a
+        # SEED naming verb the canonical form is the SEED KEY ("named after"),
+        # never the stem ("name after") — a stem-folded attribute is one no later
+        # surface question can resolve, so the fact would be written and never
+        # recalled. Only a verb RAVANA has not seen keeps its de-inflected stem.
+        canon = (_DERIVATION_SEED.get(p)
+                 or _SEED_BY_STEM_PREP.get((stem, prep))
+                 or f"{stem} {prep}")
         _DERIVATION_LEARNED.setdefault(p, canon)
         return canon
     return None
@@ -239,3 +289,6 @@ def render_derivation(subject: str, relation: str, value: str) -> str:
     if not s or not v:
         return ""
     return f"your {s} is {r} {v}"
+
+
+_build_seed_index()
