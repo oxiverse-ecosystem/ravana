@@ -281,7 +281,53 @@ class PersistenceMixin:
                 if isinstance(obj, sqlite3.Connection):
                     return PLACEHOLDER.format(type(obj).__name__)
                 if isinstance(obj, dict):
-                    return {k: _sanitize(v, _seen, _depth + 1) for k, v in obj.items()}
+                    items = {k: _sanitize(v, _seen, _depth + 1)
+                             for k, v in obj.items()}
+                    # PRESERVE THE MAPPING SUBCLASS (fixed 2026-10-02,
+                    # FIX-RV-23). Rebuilding every dict as a literal `{...}`
+                    # silently demotes a defaultdict/OrderedDict/Counter to a
+                    # plain dict, and that is a TYPE change the load path
+                    # depends on -- not a cosmetic one.
+                    #
+                    # Measured on the concept graph: `pickle.dumps(graph)`
+                    # fails (the graph reaches a sqlite3.Connection through
+                    # the engine's fact-encode/sensorimotor hooks), so the
+                    # whole snapshot takes this sanitizer path. ConceptGraph
+                    # is not a dict/list/tuple/set, so it reached the
+                    # shallow-clone branch, whose per-attribute rebuild turned
+                    # `graph._outgoing` from a defaultdict(list) into a plain
+                    # dict. `add_edge` then does `self._outgoing[source]
+                    # .append(...)`, which is only legal on a defaultdict, so
+                    # every graph write on a RESUMED engine raised KeyError and
+                    # was swallowed by the caller's `except: continue`.
+                    #
+                    # Symptom (tests/integration/test_sleep_episodic_replay.py::
+                    # test_sleep_consolidation_survives_repeated_runs): the
+                    # first sleep cycle graduated its pair, the resumed engine
+                    # reported episodic_pairs_graduated=0 for a freshly
+                    # rehearsed pair -- the learning looked like it had stopped
+                    # surviving a restart, when in fact the graph could no
+                    # longer be written at all.
+                    #
+                    # This was invisible on main for the opposite reason:
+                    # main's sanitizer replaced the whole graph with a
+                    # "<unpicklable:ConceptGraph>" string and load() rebuilt a
+                    # FRESH graph (correct types, empty contents). f1fffc5d
+                    # correctly stopped discarding the graph, and that is what
+                    # exposed the type-flattening underneath it. Preserving the
+                    # graph's contents is only safe if its types survive too.
+                    if type(obj) is dict:
+                        return items
+                    _factory = getattr(obj, "default_factory", None)
+                    try:
+                        if _factory is not None:
+                            return type(obj)(_factory, items)
+                        return type(obj)(items)
+                    except Exception:
+                        # An exotic mapping subclass we cannot reconstruct --
+                        # a plain dict is still a superset of its items, so it
+                        # beats dropping the whole subtree.
+                        return items
                 if isinstance(obj, (list, tuple, set)):
                     _cls = type(obj)
                     return _cls(_sanitize(v, _seen, _depth + 1) for v in obj)
