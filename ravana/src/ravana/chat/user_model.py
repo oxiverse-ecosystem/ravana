@@ -5490,7 +5490,35 @@ class UserModel:
             # is allowed to merge -- that is the online-growth path, and it
             # keeps compounding rather than being frozen out.
             _established = self.opinions.stances.get(_topic)
-            if _established is not None and _read.get("source") == "geometry":
+            # The abstain is on REDUNDANT reads, not on all reads (round
+            # 2026-09-30T1031Z, FIX-RV-23). Sign-blind abstention conflated
+            # two utterances that look alike to this loop and mean opposite
+            # things to the user:
+            #
+            #   * "street art is interesting to think about" against a held
+            #     +0.95 -- a same-sign, WEAKER mention. Merging it can only
+            #     dilute a read the user already stated directly, and adds no
+            #     information. This is the case the gate exists for.
+            #   * "long evening walks are really bad" against a held +0.95 --
+            #     an assertion of the OPPOSITE view. Measured: the stance sat
+            #     at exactly +0.9500, unrehearsed, through eight repetitions
+            #     (test_stance_reconsolidation_engine::
+            #     test_a_reversed_view_is_followed_on_the_live_path), i.e. the
+            #     user contradicting themselves eight times and RAVANA
+            #     reporting the stale read forever.
+            #
+            # The distinction is the sign of the read against the stance it
+            # would revise, which is state, not a word or phrase list. Note
+            # this does not hand the miner unbounded authority over an
+            # entrenched read: the store's bounded inertia already governs
+            # how far ONE contrary mention can move it (an entrenched +1.0
+            # sits at +0.655 after one), and a genuine reversal with a
+            # retraction cue/concession still has its own provenance-linked
+            # operator (mine_stance_reversal). What this restores is that an
+            # opposite assertion is admissible evidence at all.
+            if (_established is not None
+                    and _read.get("source") == "geometry"
+                    and _p * _established.polarity > 0.0):
                 continue
 
             _utt_key = " ".join(q_clean.lower().split())
