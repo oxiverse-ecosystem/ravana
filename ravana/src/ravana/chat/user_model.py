@@ -530,6 +530,93 @@ def _activity_role_phrases() -> frozenset:
     return frozenset(_ACTIVITY_ROLES.keys())
 
 
+# ── OCCUPATION / LIVELIHOOD role (round 2026-09-29T0823Z, card t_af1e837d) ──
+# SEED concept: the VERBS that express a LIVELIHOOD — a sustained professional
+# role — as opposed to a one-off act. "what do i do for a living" / "for work" /
+# "what's my job" ask for the ROLE, so the correct stored fact is the one whose
+# verb is a livelihood verb ("run pottery studio"), not the first `does:` fact
+# mined ("adopted stray dog yesterday").
+#
+# Why a seed LEXICON and not a branch: this is generic category vocabulary (the
+# same shape as _ACTIVITY_ROLES above), it contains no reply and no
+# question->answer mapping, and it is EXPANDABLE AT RUNTIME through
+# UserModel.learn_occupation_role — when the user says "i work as a <word>" the
+# miner calls it, so a profession RAVANA has never heard of becomes addressable
+# for a later livelihood query with no code edit and no retraining. Removing the
+# lexicon degrades to first-inserted selection (the defect), so this is seed
+# STRUCTURE, not authored answers.
+_LIVELIHOOD_VERBS = frozenset({
+    # running / operating a workplace or production unit
+    "run", "operate", "manage", "own", "found", "direct", "lead", "head",
+    "administer", "oversee", "maintain", "host", "serve",
+    # producing goods or services
+    "build", "make", "craft", "bake", "brew", "cook", "design", "code",
+    "write", "paint", "carve", "forge", "weave", "knit", "sew", "print",
+    "produce", "manufacture", "compose", "develop", "engineer", "publish",
+    # practicing a profession
+    "teach", "practice", "heal", "nurse", "drive", "fly", "sail", "farm",
+    "research", "study", "consult", "advise", "train", "coach", "sell",
+    "trade", "repair", "restore", "perform", "tour", "act", "sing", "play",
+})
+
+# A LIVELIHOOD is sustained, so its value carries a WORKPLACE / PRODUCTION
+# object. Seed object vocabulary, same rationale as _ACTIVITY_ROLES, grown
+# online via learn_occupation_role.
+_LIVELIHOOD_OBJECTS = frozenset({
+    "studio", "shop", "store", "firm", "company", "business", "practice",
+    "workshop", "bakery", "cafe", "restaurant", "bar", "salon", "clinic",
+    "hospital", "school", "college", "university", "factory", "farm",
+    "orchard", "gallery", "agency", "lab", "laboratory", "office",
+    "team", "band", "troupe", "market", "kitchen", "yard", "press", "mill",
+})
+
+
+def is_livelihood_verb(verb: str, learned: Optional[set] = None) -> bool:
+    """True when `verb` names a SUSTAINED livelihood/professional role rather
+    than a one-off act. Consults the seed lexicon merged with any RUNTIME-learned
+    occupation verbs (UserModel.occupation_verbs, grown by
+    learn_occupation_role — online, no retraining). Pure vocabulary test; the live
+    fact VALUE is what answers the query, so no reply is authored here."""
+    v = (verb or "").strip().lower()
+    if not v:
+        return False
+    if v in _LIVELIHOOD_VERBS:
+        return True
+    if learned and v in {str(x).strip().lower() for x in learned}:
+        return True
+    return False
+
+
+def is_livelihood_object(word: str, learned: Optional[set] = None) -> bool:
+    """True when `word` names a workplace / production unit — the object a
+    livelihood is performed AT. Seed vocabulary + runtime-learned objects."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _LIVELIHOOD_OBJECTS:
+        return True
+    if learned and w in {str(x).strip().lower() for x in learned}:
+        return True
+    return False
+
+
+def is_occupation_query(q: str) -> bool:
+    """True when the query asks for the user's OCCUPATION / livelihood rather
+    than a single activity: "what do i do for a living", "for work",
+    "what's my job", "what is my occupation". Type-agnostic — it keys on the
+    ROLE NOUN the user asked about, not on one phrasing, and it is a predicate
+    over a query, never a lookup of the answer (the answer always comes from the
+    live fact store)."""
+    t = (q or "").lower()
+    return bool(re.search(
+        r"\b(?:"
+        r"(?:for|make|making|earn|earning)\s+(?:a\s+|my\s+|our\s+|an?\s+)?"
+        r"(?:living|livelihood|work|money|income)|"
+        r"occupation|profession|career|vocation|"
+        r"(?:what(?:'s|\s+is|\s+are)?\s+(?:my|your|his|her|their)\s+)?"
+        r"job|day\s*job|line\s+of\s+work)\b", t))
+
+
 # First-person contraction expansion (round 2026-08-29T0659Z).
 # The activity/location/opinion miners key on the token boundary `\bi\s+`,
 # so an unexpanded "i'm"/"i've" never matches ("i'm training" -> nothing
@@ -1415,6 +1502,33 @@ class UserModel:
     # recall time so the category link keeps growing without code edits. Seed is
     # data, not a frozen table — RAVANA adds to it; nothing here is an authored reply.
     _activity_roles: Set[str] = field(default_factory=set)
+    # RUNTIME-EXPANDED occupation/livelihood vocabulary (round 2026-09-29T0823Z,
+    # card t_af1e837d). Seed lives in the module-level _LIVELIHOOD_VERBS /
+    # _LIVELIHOOD_OBJECTS lexicons; THIS set holds the profession / workplace
+    # words RAVANA learns ONLINE — when the user says "i work as a <word>" the
+    # miner calls learn_occupation_role, so an occupation RAVANA has never heard
+    # of becomes addressable for a later "what do i do for a living" query with
+    # no code edit and no retraining. Same seed+online contract as
+    # _activity_roles; it holds category vocabulary, never a reply.
+    _occupation_verbs: Set[str] = field(default_factory=set)
+    _occupation_objects: Set[str] = field(default_factory=set)
+    # Evaluative-predicate polarity model (feature round t_e45928d1, D5). Reads
+    # the polarity of a predicative adjective the frozen word lists never
+    # listed, from its position in concept space. Lazily constructed because it
+    # needs the engine's GloVe lookup, which is INJECTED (the user model owns no
+    # GloVe table) — see _ensure_evaluative_polarity. None until first use, and
+    # a model with no vector_fn abstains on every word, so a bare UserModel()
+    # built outside the engine still behaves exactly as before.
+    _evaluative_polarity: Any = None
+    # stance topic -> the predicate word that produced it. Lets a later user
+    # retraction write the revised position back into the model (relearn), so
+    # a mis-signed predicate is corrected by the user talking. Runtime state,
+    # persisted alongside the model so the link survives a restart.
+    _evaluative_stance_preds: Dict[str, str] = field(default_factory=dict)
+    # The engine's GloVe lookup, INJECTED at boot (see engine.py). Declared
+    # here only so the injected attribute is part of the model's contract;
+    # it is a live bound method and is never serialized.
+    _glove_vector_fn: Any = None
 
     knowledge_model: Dict[str, float] = field(default_factory=dict)
     learning_goals: Dict[str, int] = field(default_factory=dict)
@@ -2133,6 +2247,134 @@ class UserModel:
                 self.personal_facts.assert_fact(_subj, attr, _val,
                                                 confidence=conf,
                                                 source="seed_regex")
+
+        def _mine_derivation(text: str) -> bool:
+            """Mine a DERIVATION disclosure: "<thing> is named after <ref>".
+
+            A derivation relates TWO things — the subject the user owns and the
+            referent the naming points at — so it is stored ENTITY-keyed
+            ("sourdough starter", "named after", "uncle bartholomew"), never as a
+            fact about the user.
+
+            Returns True when the disclosure was a derivation (so the kin miner,
+            which would otherwise match the possessive INSIDE the referent
+            phrase and mis-file it under subject "i", must not also fire).
+
+            Structural, with no per-entity or per-person table:
+              * the relation is resolved by derivation_attrs.derivation_of, which
+                is morphological (a naming verb + an attribution preposition), so
+                "called after" / "inspired by" / an unseen "dubbed after" work
+                without a table entry, and both vocabularies grow at runtime via
+                learn_derivation / learn_naming_verb;
+              * the SUBJECT is the noun phrase before the copula, with a leading
+                determiner/possessive dropped ("the sourdough starter" ->
+                "sourdough starter"), which is what makes the subject the owned
+                thing rather than the user;
+              * the REFERENT keeps its relationship word ("uncle bartholomew") so
+                the person stays recallable by their relationship.
+
+            Every stored word is the user's own. Returns False (and stores
+            nothing) when the shape does not hold, so the honest path is a fall-
+            through to the existing miners, not an invented fact.
+            """
+            try:
+                from .derivation_attrs import (
+                    derivation_of as _dv_of,
+                    learn_derivation as _dv_learn,
+                    learn_naming_verb as _dv_learnverb,
+                    is_derivation_attr as _dv_isattr,
+                )
+            except Exception:
+                return False
+
+            # Split the utterance into "<subject> ... <derivation> <referent>".
+            # We look for the derivation predicate by scanning for the first
+            # naming verb that is followed by an attribution preposition, rather
+            # than matching a fixed phrase list.
+            _toks = text.split()
+            _n = len(_toks)
+            _best = None
+            for _i in range(1, _n - 1):
+                _w = _toks[_i].strip(".,!?").lower()
+                if _dv_learnverb(_w) is None:
+                    continue
+                # Try 3-, 2- and 1-token attribution prepositions, longest first
+                # so "in honor of" is not shadowed by a bare "of".
+                for _size in (3, 2, 1):
+                    if _i + 1 + _size >= _n + 1 and _size > 1:
+                        continue
+                    _prep = " ".join(
+                        t.strip(".,!?").lower() for t in _toks[_i + 1:_i + 1 + _size])
+                    _canon = _dv_of(f"{_w} {_prep}")
+                    if _canon:
+                        _best = (_i, _i + 1 + _size, _canon)
+                        break
+                if _best:
+                    break
+            if not _best:
+                return False
+            _di, _rstart, _canon = _best
+
+            # Referent: everything after the attribution preposition. Strip a
+            # leading possessive so "my uncle bartholomew" keeps only its
+            # relationship head, and bound the span to a noun phrase.
+            _ref_toks = [t.strip(".,!?").lower() for t in _toks[_rstart:]]
+            while _ref_toks and _ref_toks[0] in ("my", "our", "your", "his",
+                                                 "her", "their", "its"):
+                _ref_toks.pop(0)
+            # Drop a leading determiner left after the possessive ("the kettle").
+            if _ref_toks and _ref_toks[0] in ("the", "a", "an"):
+                _ref_toks.pop(0)
+            if not _ref_toks:
+                return False
+            # The referent is a bounded noun phrase: close it at a closed-class
+            # token or a verb, mirroring the name-span bound in the kin miner.
+            _ref_head = []
+            for _t in _ref_toks:
+                if _t in _pet_slots._PRONOUN_STOP or _t in _OBJECT_STOP \
+                        or _t in _REL_WORDS or _t in _KIN:
+                    if not _ref_head and (_t in _REL_WORDS or _t in _KIN):
+                        # a relationship word may legitimately START the
+                        # referent ("uncle bartholomew")
+                        _ref_head.append(_t)
+                        continue
+                    break
+                _ref_head.append(_t)
+                if len(_ref_head) >= 4:
+                    break
+            _ref = " ".join(_ref_head).strip()
+            if not _ref:
+                return False
+
+            # Subject: the noun phrase before the naming verb, minus a leading
+            # determiner/possessive. This is the step that makes the subject the
+            # OWNED THING instead of the user.
+            _subj_toks = [t.strip(".,!?").lower() for t in _toks[:_di]]
+            while _subj_toks and _subj_toks[0] in (
+                    "the", "a", "an", "my", "our", "your", "his", "her",
+                    "their", "its", "this", "that", "these", "those"):
+                _subj_toks.pop(0)
+            # The user themself is not a subject for a derivation ("i am named
+            # after my grandmother" is about the USER's own name, which the
+            # existing self-naming miner owns).
+            if not _subj_toks or _subj_toks[0] == "i":
+                return False
+            _subj = " ".join(_subj_toks[-4:]).strip()
+
+            # Register the predicate in the shared vocabulary so it is
+            # addressable on the NEXT disclosure too (online growth, no rebuild).
+            try:
+                _dv_learn(_canon)
+            except Exception:
+                pass
+
+            # An entity-keyed fact whose VALUE merely restates its own key
+            # carries no information, same invariant the kin miner applies.
+            if _ref == _subj or _ref in _subj.split():
+                return False
+
+            _put_fact_ent(_subj, _canon, _ref, 0.65)
+            return True
 
         m_name = re.search(
             r"\b(?:my\s+name\s+is|i\s+am\s+called|call\s+me)\s+"
@@ -3060,6 +3302,23 @@ class UserModel:
                     else:
                         _put_fact(_attr, _val, 0.6)
 
+        # Online occupation growth (round 2026-09-29T0823Z, card t_af1e837d).
+        # The patterns above already capture a stated profession as a durable
+        # ('i', 'role'/'work', "<profession>") fact. Feed the profession WORD
+        # into the occupation vocabulary so a LATER occupation query ("what do
+        # i do for a living") can RANK this fact as the livelihood even when the
+        # profession is not in the seed lexicon ("i work as an apiarist"). This
+        # is the growth path that makes the seed a seed: no code edit, no
+        # retraining, and the recall loop still answers from the live fact store.
+        try:
+            for _okey in ("role", "work"):
+                _of = self.personal_facts.get("i", _okey)
+                if _of is not None and not getattr(_of, "superseded", False):
+                    for _w in re.findall(r"[a-z][a-z'-]*", str(_of.value).lower()):
+                        self.learn_occupation_role(_w)
+        except Exception:
+            pass
+
 
         # D7 (round 2026-08-16T1745Z): relationship-ACTIVITY disclosures were
         # never mined. "my X is Y" (equational) was captured, but the dominant
@@ -3139,8 +3398,30 @@ class UserModel:
         # This is structural — one verb lexicon, no per-name table, no case
         # assumption — and generalizes to any name casing/length. Content comes
         # from the user's own words; no authored reply, no retraining.
+# DERIVATION DISCLOSURES (round 2026-09-30T1031Z, card t_159df91e).
+        # A derivation asserts a relation between TWO things: the subject the
+        # user owns ("the sourdough starter") and the referent the naming points
+        # at ("my uncle bartholomew"). The kin miner below matches the
+        # POSSESSIVE INSIDE that prepositional phrase ("my uncle"), so the whole
+        # disclosure was re-read as a statement about the USER and produced
+        # ('i','uncle bartholomew','bartholomew'): wrong subject, the "named
+        # after" relation discarded, and a value that restates its own key (which
+        # recall rendered as the broken "your uncle bartholomew is bartholomew.").
+        #
+        # The fix is a shared vocabulary for the derivation relation class, not a
+        # one-off for "named after": derivation_attrs.derivation_of resolves a
+        # naming verb (seed or RAVANA-learned) + an attribution preposition
+        # MORPHOLOGICALLY, so "called after" / "inspired by" / an unseen "dubbed
+        # after" all resolve without a table entry. The referent keeps its own
+        # relationship word ("uncle bartholomew"), so the person is still
+        # recallable by their relationship.
+        #
+        # Mining this BEFORE the kin miner is what keeps the two paths from
+        # fighting: a derivation disclosure returns here and never reaches the
+        # possessive-match branch below.
+        _deriv_done = _mine_derivation(q_clean)
         _mk = re.search(r"\bmy\s+([a-z][a-z-]+)\b\s*(.*)", q_clean)
-        if _mk:
+        if _mk and not _deriv_done:
             try:
                 from .relation_attrs import relation_of as _mk_rel_of
             except Exception:
@@ -3397,19 +3678,86 @@ class UserModel:
                                 else:
                                     _put_fact_done = True
                         else:
+                            # NAME-SPAN BOUND (round 2026-09-29T0823Z, card
+                            # t_84311c95). The lowercase-name fallback used to
+                            # append EVERY remaining token, so a trailing
+                            # CLAUSE ("my friend rhea messaged me last week and
+                            # i can't stop thinking about it") became the
+                            # "name". Two things followed from that: the fact's
+                            # attribute held the whole clause, and (because
+                            # _name_toks stayed []) the _after slice below
+                            # re-read the same span, so the VALUE was a substring
+                            # of its own ATTRIBUTE and recall rendered
+                            # "<rel> <clause> is <clause>".
+                            #
+                            # A personal name is a BOUNDED noun phrase, so the
+                            # span closes at the first token that cannot be part
+                            # of one. The closers are grammatical, not topical:
+                            #   - a closed-class function word (pronoun,
+                            #     preposition, conjunction, negation, question
+                            #     word) — English never puts one inside a name;
+                            #   - a recognized predicate (the same
+                            #     activity/relation/auxiliary lexicons the
+                            #     verb scan above consults), so "rhea messaged"
+                            #     closes after "rhea" rather than absorbing
+                            #     the verb; and
+                            #   - a hard length bound, because a first name is
+                            #     short and a runaway clause is not. The bound
+                            #     is generous (a title + two name tokens still
+                            #     fits) so it never truncates a real name.
+                            # The NAME ITSELF is never dropped here: the span
+                            # only closes, so "my friend rhea" / "my cousin
+                            # tanvi" / "my roommate jo" still mine their name
+                            # (the prior attempt at this fix failed precisely
+                            # because bounding DISCARDED the name instead).
                             _name_candidate_toks = []
                             for _t in _toks:
                                 _tc = _t.strip(".,!?").lower()
                                 if not _tc:
                                     break
-                                if _tc in _skip_words:
-                                    continue  # skip leading possessives/articles
                                 if _tc in _REL_WORDS or _tc in _KIN:
                                     continue  # skip the relation word itself
+                                # Close the span at a token that cannot be part
+                                # of a personal name. Reuse the module's own
+                                # closed-class sets (_pet_slots._PRONOUN_STOP,
+                                # _OBJECT_STOP) and the live verb lexicons, so
+                                # this stays a seed vocabulary RAVANA grows
+                                # rather than a new hardcoded table. Regular
+                                # past/progressive morphology ("messaged",
+                                # "folding") is included because English verb
+                                # inflection is a grammatical marker, not a
+                                # topic list — without it an unrecognized verb
+                                # ("messaged", "repainted") gets absorbed into
+                                # the name, which is the exact shape this fix
+                                # exists to stop.
+                                _close = (
+                                    _tc in _pet_slots._PRONOUN_STOP
+                                    or _tc in _OBJECT_STOP
+                                    or is_activity_verb(_tc)
+                                    or is_relation_verb(_tc)
+                                    or is_aux_verb(_tc)
+                                    or (_name_candidate_toks
+                                        and _tc.endswith(("ed", "ing"))))
+                                if _close:
+                                    # A LEADING possessive/article is skipped
+                                    # rather than closing the span ("my
+                                    # friend rhea"); a closed-class token once
+                                    # the name has started ends it.
+                                    if not _name_candidate_toks and _tc in _skip_words:
+                                        continue
+                                    break
                                 _name_candidate_toks.append(_tc)
+                                if len(_name_candidate_toks) >= 3:
+                                    break
                             if _name_candidate_toks:
                                 _name = " ".join(_name_candidate_toks)
                                 _name = _name.strip(".,!?")
+                                # Record how many tokens the name actually
+                                # consumed so the _after slice below starts
+                                # AFTER the name instead of at index 0. This
+                                # is what stops the value from re-slicing the
+                                # name's own span.
+                                _name_toks = _name_candidate_toks
                     if not _name:
                         # Neither a recognized verb nor a proper-noun name:
                         # nothing informative to store (e.g. "my grandmother
@@ -3651,8 +3999,41 @@ class UserModel:
                 # verb produced a value, AND the value is not identical to the
                 # relationship word. Content comes from the user's own words;
                 # honest skip when there is nothing informative to store.
-                _final_val = _val if _val else _kin
-                if not _put_fact_done and _final_val != _kin and (_name or _val):
+                _final_val = _val if _val else (_name or _kin)
+                # INFORMATION INVARIANT (round 2026-09-29T0823Z, card
+                # t_84311c95). The guard above only compared the value to the
+                # RELATIONSHIP WORD, so a value that merely re-sliced its own
+                # attribute was still stored and recall rendered
+                # "<rel> <clause> is <clause>". A fact must say something its
+                # attribute does not already say: a value whose token sequence
+                # is already a contiguous run inside the attribute adds no
+                # information, whatever words it uses. This is deliberately
+                # about INFORMATION, not vocabulary, so it holds for every
+                # relationship word and any name RAVANA later learns, and it
+                # is a backstop behind the name-span bound above — an
+                # unanticipated shape degrades to an HONEST SKIP rather than a
+                # self-overlapping fact.
+                #
+                # The name-only fact is explicitly NOT degenerate: the
+                # attribute is the relationship LABEL ("friend rhea") and the
+                # value is the NAME, which is the payload the disclosure
+                # actually taught ("my friend rhea" -> ('friend rhea','rhea')).
+                # That is why the test is a contiguous-RUN check that exempts
+                # the name, and why the comparison is token-based rather than a
+                # raw substring test (a raw test false-positives on a short
+                # value that merely appears INSIDE an attribute word, e.g. the
+                # value "me" inside the attribute "friend rhea messaged").
+                def _tokrun(inner, outer):
+                    it, ot = inner.split(), outer.split()
+                    n = len(it)
+                    return bool(n) and any(
+                        ot[i:i + n] == it for i in range(len(ot) - n + 1))
+                _fv = re.sub(r"\s+", " ", str(_final_val).strip().lower())
+                _fa = re.sub(r"\s+", " ", str(_attr).strip().lower())
+                _fn = re.sub(r"\s+", " ", str(_name or "").strip().lower())
+                _self_overlapping = (_fv != _fn) and _tokrun(_fv, _fa)
+                if (not _put_fact_done and not _self_overlapping
+                        and _final_val != _kin and (_name or _val)):
                     _put_fact(_attr, _final_val, 0.6)
 
 
@@ -4790,6 +5171,30 @@ class UserModel:
                                             valence=_v, arousal=_a,
                                             provenance=_prov)
 
+        # ── EVALUATIVE-PREDICATE MINING (feature round t_e45928d1, D5) ──────
+        # The alternation lists above are a FROZEN vocabulary: a predicate
+        # the curators never wrote down ("overpriced", "sturdy", "wretched")
+        # matched nothing, so NO stance was created and the retraction
+        # machinery later had nothing to recode — a user could state,
+        # retract and re-state an opinion and the store stayed empty
+        # (measured: three such turns, `stances: {}` before and after).
+        #
+        # This block is a SECOND, INDEPENDENT route to the same judgment:
+        # read the predicate's position in concept space via
+        # EvaluativePolarityModel. It runs AFTER the lexical loop so it only
+        # fills the gaps the word lists leave, and it is bounded by three
+        # conditions so it cannot manufacture opinions:
+        #   1. a COPULAR frame — "<subject> is/are <predicate>". A
+        #      predicative adjective slot is where an evaluation lives.
+        #   2. the model must return a read at all, which requires the word
+        #      to clear the EVALUATIVE axis (it is a judgment, not a name)
+        #      and the VALENCE axis (which pole) past their margins.
+        #   3. the subject must resolve to a real concept through the SAME
+        #      _opinion_topic chokepoint every other miner uses.
+        # A neutral noun ("the mug is blue") fails condition 2 and yields
+        # nothing at all. The model abstains rather than guessing.
+        self._mine_evaluative_predicate(text, q_clean, _v, _a)
+
         # Affect-verb attitude construction mining (feature round
         # 2026-08-21T1653Z residual #1): "X creeps me out" / "X grosses me out"
         # / "X freaks me out" / "X gets to me" were NOT mined as stances even
@@ -4940,6 +5345,200 @@ class UserModel:
             self.opinions.express_stance(_topic, polarity=_p, confidence=0.6,
                                         valence=_v, arousal=_a,
                                         provenance=_prov)
+
+    def _ensure_evaluative_polarity(self):
+        """Lazily build the evaluative-predicate model, wiring the engine's
+        GloVe lookup in on first use.
+
+        The user model owns no GloVe table; the engine does. The engine
+        injects ``_glove_vector_fn`` (same pattern as ``_episodic_index`` /
+        ``_concept_vocab``), and a user model built without one still works —
+        every lookup then returns None and no stance is minted, which is the
+        correct fail-closed behaviour, not a crash.
+        """
+        if getattr(self, "_evaluative_polarity", None) is None:
+            from .evaluative_polarity import EvaluativePolarityModel
+            self._evaluative_polarity = EvaluativePolarityModel(
+                vector_fn=getattr(self, "_glove_vector_fn", None))
+        return self._evaluative_polarity
+
+    def _mine_evaluative_predicate(self, text: str, q_clean: str,
+                                   valence: float, arousal: float) -> None:
+        """Mine a copular evaluative judgment the frozen word lists missed.
+
+        PATTERN (grammatical, not a topic list): a subject, a copula, and a
+        predicative word — "handmade mugs ARE overpriced". The copula is what
+        licenses the reading: a predicate adjective slot is where a value
+        judgment lives, whereas "i run a pottery studio" has no copula and
+        is a fact, not an opinion.
+
+        POLARITY comes from ``EvaluativePolarityModel`` — the predicate's
+        position in concept space — not from a lookup table, so a predicate
+        nobody anticipated ("overpriced", "sturdy", "wretched") is judged on
+        the same footing as one they did. When the model abstains (the word
+        is not evaluative, or its pole is too close to call) NOTHING is
+        minted: "the mug is blue" must leave the store untouched.
+
+        ONLINE GROWTH: every judgment this makes is passed to ``observe``,
+        so a predicate met twice is answered from RAVANA's own memory of
+        the read (and with higher confidence) rather than re-derived. The
+        memory is persisted in get_state/set_state, so it survives a
+        restart. ``mine_stance_reversal`` calls ``relearn`` when the user
+        later revises such a stance, so a mis-signed predicate is corrected
+        by the user talking. No retraining, no authored replies.
+        """
+        model = self._ensure_evaluative_polarity()
+        if model is None:
+            return
+        # A declarative self-report only — the same interrogative guard the
+        # lexical opinion loop applies above ("do you think X is Y?" is the
+        # user asking, not stating).
+        if not q_clean or q_clean.rstrip().endswith("?"):
+            return
+        # A predicative adjective may stand bare ("mugs are overpriced") or
+        # carry a degree adverb ("mugs are really overpriced"). The adverb is
+        # OPTIONAL — requiring one would miss the plain declarative, which is
+        # the commoner form. When present it is consumed so it cannot be
+        # mistaken for the predicate itself.
+        for _m in re.finditer(
+                r"\b([a-z][a-z' \-]{2,60}?)\s+(?:is|are|was|were)\s+"
+                r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|pretty\s+|highly\s+"
+                r"|absolutely\s+|completely\s+|rather\s+|fairly\s+|extremely\s+)?"
+                r"([a-z][a-z'-]{2,})\b", q_clean):
+            _raw_subj = _m.group(1).strip()
+            _pred = _m.group(2).strip()
+            if not _raw_subj or not _pred:
+                continue
+            # Strip a leading first-person opinion frame and any leading
+            # discourse filler from the subject, so the stance keys on the
+            # real concept. Without this, "i think handmade mugs are
+            # overpriced" keyed the stance on "think handmade mugs" — the
+            # reporting verb became part of the topic, and a later question
+            # about the topic could not resolve to it. This is the same
+            # frame-stripping the other opinion classes in this loop do; it
+            # is grammar, not a topic rule. The loop matters: a real
+            # utterance stacks several of these ("no actually i still think
+            # ..."), and stripping one token per pass would leave the rest
+            # glued onto the topic.
+            for _ in range(4):
+                _before = _raw_subj
+                _raw_subj = re.sub(
+                    r"^(?:and|but|so|well|actually|no|not|really|just|still|"
+                    r"honestly|frankly|also|then|now|okay|ok|alright|anyway|"
+                    r"i|we|it|that|this|there)\b[\s,]*", "", _raw_subj).strip()
+                _raw_subj = re.sub(
+                    r"^(?:think|thought|believe|feel|find|reckon|guess|suppose|"
+                    r"consider|know|said|say|mean|agree|disagree)\b"
+                    r"[\s,]*", "", _raw_subj).strip()
+                _raw_subj = re.sub(
+                    r"^(?:that|it|they|them|he|she|you)\b[\s,]*", "",
+                    _raw_subj).strip()
+                if _raw_subj == _before:
+                    break
+            if len(_raw_subj) < 2:
+                continue
+            _read = model.score(_pred)
+            if _read is None:
+                continue  # not an evaluative predicate -> say nothing
+            # The subject goes through the SAME chokepoint as every other
+            # opinion class, so the stance key is a real concept.
+            _topic = self._opinion_topic(_raw_subj)
+            if not _topic:
+                continue
+            _p = float(_read["polarity"])
+            # Sign-preserving affect blend, matching the discipline of the
+            # lexical miner: the geometric read is the ground truth; the
+            # turn-affect buffer may only reinforce, never reverse it.
+            if _p < -0.05 and valence < -0.1:
+                _p = min(_p, _p - 0.15)
+            elif _p > 0.05 and valence > 0.1:
+                _p = max(_p, _p + 0.15)
+            _p = max(-1.0, min(1.0, _p))
+            # ONE UTTERANCE COUNTS ONCE (round 2026-09-30T1031Z, FIX-RV-24).
+            # mine_personal_facts runs at several call sites inside a single
+            # process_turn, so without this guard the same spoken clause merged
+            # its read into the store three times: "street art is interesting
+            # to think about" moved a HELD +0.95 stance to +0.83 and rehearsed it
+            # 3x. The store's own reversal path already carries an
+            # utterance-keyed guard for exactly this double-mining hazard
+            # (_reversed_utterance / clear_reversal_guard); this is the same
+            # discipline applied to the copular evaluator, so one clause is one
+            # expression no matter how many times the miner is reached.
+            # A FIRST-TIME GEOMETRIC READ DOES NOT REVISE AN ESTABLISHED
+            # STANCE (round 2026-09-30T1031Z, FIX-RV-24). The capability this
+            # miner adds is CREATION: an evaluative predicate the frozen word
+            # lists never carried must still produce a stance, so there is
+            # something for a later retraction to recode. What it is not is a
+            # second, weaker channel for silently REVISING a stance the user
+            # already expressed directly.
+            #
+            # Measured: after "i really love street art" (a direct expression,
+            # held at +0.95), the incidental mention "street art is interesting
+            # to think about" dragged it to +0.83 -- a claim the user never
+            # made, produced by a low-confidence geometric read of one
+            # adjective (BASE_CONFIDENCE) merging against the direct
+            # expression. Genuine attitude CHANGE already has a provenance-
+            # linked operator (mine_stance_reversal: retraction cue, concession,
+            # limitation, free-form contradiction), which resolves against the
+            # live store and is guarded to prior-turn stances. So an
+            # established stance is left to THAT path, and this miner abstains.
+            #
+            # The abstain is conditional on the read being a FIRST-TIME GEOMETRIC
+            # one (`source == "geometry"`). Once RAVANA has judged this
+            # predicate before, the read comes from its own memory
+            # (`source == "remembered"`) at a confidence earned by use, and it
+            # is allowed to merge -- that is the online-growth path, and it
+            # keeps compounding rather than being frozen out.
+            _established = self.opinions.stances.get(_topic)
+            # The abstain is on REDUNDANT reads, not on all reads (round
+            # 2026-09-30T1031Z, FIX-RV-23). Sign-blind abstention conflated
+            # two utterances that look alike to this loop and mean opposite
+            # things to the user:
+            #
+            #   * "street art is interesting to think about" against a held
+            #     +0.95 -- a same-sign, WEAKER mention. Merging it can only
+            #     dilute a read the user already stated directly, and adds no
+            #     information. This is the case the gate exists for.
+            #   * "long evening walks are really bad" against a held +0.95 --
+            #     an assertion of the OPPOSITE view. Measured: the stance sat
+            #     at exactly +0.9500, unrehearsed, through eight repetitions
+            #     (test_stance_reconsolidation_engine::
+            #     test_a_reversed_view_is_followed_on_the_live_path), i.e. the
+            #     user contradicting themselves eight times and RAVANA
+            #     reporting the stale read forever.
+            #
+            # The distinction is the sign of the read against the stance it
+            # would revise, which is state, not a word or phrase list. Note
+            # this does not hand the miner unbounded authority over an
+            # entrenched read: the store's bounded inertia already governs
+            # how far ONE contrary mention can move it (an entrenched +1.0
+            # sits at +0.655 after one), and a genuine reversal with a
+            # retraction cue/concession still has its own provenance-linked
+            # operator (mine_stance_reversal). What this restores is that an
+            # opposite assertion is admissible evidence at all.
+            if (_established is not None
+                    and _read.get("source") == "geometry"
+                    and _p * _established.polarity > 0.0):
+                continue
+
+            _utt_key = " ".join(q_clean.lower().split())
+            _once = (_utt_key, _topic)
+            if _once in self.opinions._evaluative_utterance:
+                continue
+            self.opinions._evaluative_utterance.add(_once)
+            self.opinions.express_stance(
+                _topic, polarity=_p, confidence=float(_read["confidence"]),
+                valence=valence, arousal=arousal,
+                provenance=self._opinion_provenance(_raw_subj))
+            # Remember the judgment so the capability compounds with use.
+            model.observe(_pred, _p)
+            # Record which predicate produced this stance so a later
+            # retraction can write the user's revised position back into
+            # the model (relearn) instead of leaving a stale geometric read.
+            try:
+                self._evaluative_stance_preds[_topic] = _pred
+            except Exception:
+                pass
 
     def _vad_for_affect_verb(self, verb: str):
         """Return the VAD triple for an affect verb from the SHARED VAD matrix.
@@ -5469,6 +6068,22 @@ class UserModel:
         try:
             self.opinions._soft_reversal = _soft
             self.opinions.reverse_stance(target, utterance=text)
+        except Exception:
+            pass
+        # Write the user's revised position back into the evaluative-predicate
+        # model when the recoded topic was keyed from a geometric read
+        # (feature round t_e45928d1). The user is ground truth: if they just
+        # retracted a stance RAVANA derived from reading a predicate's
+        # position in concept space, and that read was wrong, the predicate
+        # must not be re-derived the same wrong way next turn. This is the
+        # correction path that makes the capability revisable by experience
+        # rather than frozen at whatever the geometry said — no retraining.
+        try:
+            _pred = (getattr(self, '_evaluative_stance_preds', {}) or {}).get(target)
+            if _pred:
+                _rev = self.opinions.stances.get(target)
+                if _rev is not None:
+                    self._ensure_evaluative_polarity().relearn(_pred, _rev.polarity)
         except Exception:
             pass
         # Mirror any count correction into the structured QuantityMemory store
@@ -6165,6 +6780,30 @@ class UserModel:
         if object_word:
             self._activity_roles.add(object_word.strip().lower())
 
+    def learn_occupation_role(self, word: str) -> None:
+        """Online-grow the occupation/livelihood vocabulary (round 2026-09-29T0823Z,
+        card t_af1e837d). Called by the miner when the user states a profession
+        ("i work as a <word>", "i am a <word>") so a livelihood RAVANA has never
+        heard of becomes addressable for a later occupation query without a code
+        edit. The word is recorded in BOTH the verb and object slots so it is
+        recognised whichever way it surfaces later. Pure data growth — no reply is
+        authored and the recall loop still answers from the live fact store.
+        """
+        w = (word or "").strip().lower().strip(".,!?;:'\"")
+        if not w or len(w) < 2:
+            return
+        self._occupation_verbs.add(w)
+        self._occupation_objects.add(w)
+
+    def occupation_verbs(self) -> Set[str]:
+        """Runtime-learned occupation words, for the seed-merge in the recall
+        ranker. A function so callers never reach into the private set directly."""
+        return set(getattr(self, "_occupation_verbs", set()) or set())
+
+    def occupation_objects(self) -> Set[str]:
+        """Runtime-learned workplace/production words for the seed merge."""
+        return set(getattr(self, "_occupation_objects", set()) or set())
+
     def get_state(self) -> Dict:
         return {
             'edge_reactivations': {str(k): v for k, v in self.edge_reactivations.items()},
@@ -6195,6 +6834,19 @@ class UserModel:
             'interaction_history': self.interaction_history,
             '_learned_relations': list(getattr(self, '_learned_relations', set())),
             '_activity_roles': list(getattr(self, '_activity_roles', set())),
+            '_occupation_verbs': list(getattr(self, '_occupation_verbs', set())),
+            '_occupation_objects': list(
+                getattr(self, '_occupation_objects', set())),
+            # The evaluative-predicate model's experiential memory. Persisted
+            # so a predicate RAVANA judged before is still remembered after a
+            # restart — this is what makes the capability compound across
+            # sessions rather than resetting to bare seed geometry.
+            '_evaluative_polarity': (
+                self._evaluative_polarity.get_state()
+                if getattr(self, '_evaluative_polarity', None) is not None
+                else None),
+            '_evaluative_stance_preds': dict(
+                getattr(self, '_evaluative_stance_preds', {}) or {}),
         }
 
     def set_state(self, state: Dict):
@@ -6220,6 +6872,19 @@ class UserModel:
         self.preferences = state.get('preferences', {})
         self._learned_relations = set(state.get('_learned_relations', []))
         self._activity_roles = set(state.get('_activity_roles', []))
+        self._occupation_verbs = set(state.get('_occupation_verbs', []))
+        self._occupation_objects = set(state.get('_occupation_objects', []))
+        # Restore the evaluative-predicate model's memory BEFORE it is first
+        # used, so the very first lookup after a load is answered from what
+        # RAVANA learned previously rather than re-derived from bare seed
+        # geometry. set_vector_fn is re-applied by the engine on every boot
+        # (the vector function is a live object, never serialized).
+        self._evaluative_stance_preds = dict(
+            state.get('_evaluative_stance_preds', {}) or {})
+        _ev = state.get('_evaluative_polarity')
+        if _ev:
+            self._evaluative_polarity = self._ensure_evaluative_polarity()
+            self._evaluative_polarity.set_state(_ev)
         _pf = state.get('personal_facts')
         if _pf:
             self.personal_facts.set_state(_pf)
