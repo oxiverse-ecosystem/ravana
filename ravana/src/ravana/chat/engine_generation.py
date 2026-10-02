@@ -1209,48 +1209,6 @@ class GenerationMixin:
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [sleep] prune_low_quality_edges error: {e}")
-        # Round 4 (C1): sleep-time junk-NODE pruning (synaptic homeostasis).
-        # Edge-only prune leaves low-degree junk singletons behind; this removes
-        # them (unless adjacent to a hub or in the protected core set). Count
-        # folded into the sleep metrics for observability.
-        try:
-            _tau_low = getattr(self, "_sleep_prune_tau_low", 1)
-            _tau_high = getattr(self, "_sleep_prune_tau_high", 8)
-            _pruned = self.graph.prune_low_degree_junk_nodes(
-                tau_low=_tau_low, tau_high=_tau_high)
-            nodes_pruned, removed_labels, hub_labels = _pruned
-            result['junk_nodes_pruned'] = nodes_pruned
-            if getattr(self, '_trace_enabled', False) and nodes_pruned:
-                print(f"  [sleep] pruned {nodes_pruned} low-degree junk nodes")
-            # Round 5 (D1): self-label the sleep oracle. Removed nodes = decayed
-            # traces (negative); surviving hubs = consolidated (positive). These
-            # feed the self-supervised junk classifier's weak-label buffer.
-            try:
-                from ravana.chat.junk_scorer import record_label, get_buffer, refit_now
-                for _lbl in removed_labels:
-                    record_label(_lbl, "pruned",
-                                 meta={"degree": 0, "source_count": 1, "glove_mag": None})
-                # Sample a few surviving hubs as positives (avoid label flood).
-                for _lbl in hub_labels[:50]:
-                    record_label(_lbl, "hub",
-                                 meta={"degree": _tau_high, "source_count": 5,
-                                       "glove_mag": 1.0})
-                # Advance the consolidation cycle and refit periodically.
-                _buf = get_buffer(getattr(self, "data_dir", None))
-                _buf.tick()
-                _refit_every = getattr(self, "_junk_refit_every", 1)
-                if self.sleep_cycles_completed % _refit_every == 0:
-                    _delta = refit_now()
-                    if _delta and getattr(self, '_trace_enabled', False):
-                        print(f"  [junk-clf] refit n={_delta['n']} "
-                              f"brier={_delta['brier_after']:.3f} "
-                              f"theta={_delta['theta']:.3f} kappa={_delta['kappa']:.3f}")
-            except Exception as e:
-                if getattr(self, '_trace_enabled', False):
-                    print(f"  [sleep] junk-self-label error: {e}")
-        except Exception as e:
-            if getattr(self, '_trace_enabled', False):
-                print(f"  [sleep] prune_low_degree_junk_nodes error: {e}")
         # P7: reconcile & prune beliefs — close the web-grounding loop.
         # The grace sleep engine ignores the chat BeliefStore, so drive
         # belief maintenance here: reconcile contradictions (recency-decayed
@@ -1403,6 +1361,64 @@ class GenerationMixin:
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] episodic pair consolidation error: {e}")
+        # Round 4 (C1): sleep-time junk-NODE pruning (synaptic homeostasis).
+        #
+        # ORDERING (round 2026-09-30T1031Z, FIX-RV-24). This prune used to run
+        # BEFORE the consolidation drains below-to-above (hippocampal replay,
+        # personal facts, opinions, episodic pairs). A concept a pair was bound
+        # to in THIS cycle is a brand-new node whose degree is still 0 — the
+        # edge that would make it non-junk is exactly what the drain has not
+        # created yet. So homeostasis deleted the node first, the drain then
+        # resolved a dead node id, and the pair silently never graduated
+        # (measured: a resumed engine rehearsing kiln/cracked reported
+        # episodic_pairs_graduated=0 with junk_nodes_pruned=2, having removed
+        # precisely the two concepts it had just bound).
+        #
+        # Rehearsal and consolidation run first; forgetting-by-homeostasis runs
+        # on what did NOT consolidate. That is both the biologically
+        # defensible order and the one that cannot prune a node the same
+        # cycle's own learning is about to connect.
+        # Edge-only prune leaves low-degree junk singletons behind; this removes
+        # them (unless adjacent to a hub or in the protected core set). Count
+        # folded into the sleep metrics for observability.
+        try:
+            _tau_low = getattr(self, "_sleep_prune_tau_low", 1)
+            _tau_high = getattr(self, "_sleep_prune_tau_high", 8)
+            _pruned = self.graph.prune_low_degree_junk_nodes(
+                tau_low=_tau_low, tau_high=_tau_high)
+            nodes_pruned, removed_labels, hub_labels = _pruned
+            result['junk_nodes_pruned'] = nodes_pruned
+            if getattr(self, '_trace_enabled', False) and nodes_pruned:
+                print(f"  [sleep] pruned {nodes_pruned} low-degree junk nodes")
+            # Round 5 (D1): self-label the sleep oracle. Removed nodes = decayed
+            # traces (negative); surviving hubs = consolidated (positive). These
+            # feed the self-supervised junk classifier's weak-label buffer.
+            try:
+                from ravana.chat.junk_scorer import record_label, get_buffer, refit_now
+                for _lbl in removed_labels:
+                    record_label(_lbl, "pruned",
+                                 meta={"degree": 0, "source_count": 1, "glove_mag": None})
+                # Sample a few surviving hubs as positives (avoid label flood).
+                for _lbl in hub_labels[:50]:
+                    record_label(_lbl, "hub",
+                                 meta={"degree": _tau_high, "source_count": 5,
+                                       "glove_mag": 1.0})
+                # Advance the consolidation cycle and refit periodically.
+                _buf = get_buffer(getattr(self, "data_dir", None))
+                _buf.tick()
+                _refit_every = getattr(self, "_junk_refit_every", 1)
+                if self.sleep_cycles_completed % _refit_every == 0:
+                    _delta = refit_now()
+                    if _delta and getattr(self, '_trace_enabled', False):
+                        print(f"  [junk-clf] refit n={_delta['n']} "
+                              f"brier={_delta['brier_after']:.3f} "
+                              f"theta={_delta['theta']:.3f} kappa={_delta['kappa']:.3f}")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [sleep] junk-self-label error: {e}")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [sleep] prune_low_degree_junk_nodes error: {e}")
         # Phase 3c: Hebbian reinforcement of the ConnectorLearner (Item 3, P1).
         # Re-affirm each confirmed connector->relation association from the
         # learner's own discovered set, nudging prototype centroids toward the
