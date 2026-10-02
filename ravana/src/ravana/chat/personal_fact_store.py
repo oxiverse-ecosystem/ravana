@@ -335,6 +335,14 @@ class UserStanceStore:
         # repeated mining of the SAME utterance idempotent regardless of when in
         # the turn it is seen (matches the docstring on reverse_stance).
         self._reversed_utterance: Dict[str, str] = {}
+        # Same idempotency discipline for the COPULAR EVALUATIVE miner:
+        # one utterance is mined by mine_personal_facts at several call
+        # sites in a single process_turn (early gate + the self_disclosure
+        # observe path + the fact-persist path), so a single spoken clause
+        # merged its read into the store THREE times -- one utterance
+        # counted as three separate expressions, which is exactly the
+        # weighting error the bounded-inertia merge model exists to stop.
+        self._evaluative_utterance: set = set()
 
     def clear_last_reversal(self):
         self.last_reversal = None
@@ -350,6 +358,7 @@ class UserStanceStore:
         once per user turn, correctly scopes the guard to a single turn.
         """
         self._reversed_utterance = {}
+        self._evaluative_utterance = set()
 
     def advance_turn(self):
         self.turn_num += 1

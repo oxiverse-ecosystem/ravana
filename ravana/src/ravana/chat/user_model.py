@@ -5454,6 +5454,50 @@ class UserModel:
             elif _p > 0.05 and valence > 0.1:
                 _p = max(_p, _p + 0.15)
             _p = max(-1.0, min(1.0, _p))
+            # ONE UTTERANCE COUNTS ONCE (round 2026-09-30T1031Z, FIX-RV-24).
+            # mine_personal_facts runs at several call sites inside a single
+            # process_turn, so without this guard the same spoken clause merged
+            # its read into the store three times: "street art is interesting
+            # to think about" moved a HELD +0.95 stance to +0.83 and rehearsed it
+            # 3x. The store's own reversal path already carries an
+            # utterance-keyed guard for exactly this double-mining hazard
+            # (_reversed_utterance / clear_reversal_guard); this is the same
+            # discipline applied to the copular evaluator, so one clause is one
+            # expression no matter how many times the miner is reached.
+            # A FIRST-TIME GEOMETRIC READ DOES NOT REVISE AN ESTABLISHED
+            # STANCE (round 2026-09-30T1031Z, FIX-RV-24). The capability this
+            # miner adds is CREATION: an evaluative predicate the frozen word
+            # lists never carried must still produce a stance, so there is
+            # something for a later retraction to recode. What it is not is a
+            # second, weaker channel for silently REVISING a stance the user
+            # already expressed directly.
+            #
+            # Measured: after "i really love street art" (a direct expression,
+            # held at +0.95), the incidental mention "street art is interesting
+            # to think about" dragged it to +0.83 -- a claim the user never
+            # made, produced by a low-confidence geometric read of one
+            # adjective (BASE_CONFIDENCE) merging against the direct
+            # expression. Genuine attitude CHANGE already has a provenance-
+            # linked operator (mine_stance_reversal: retraction cue, concession,
+            # limitation, free-form contradiction), which resolves against the
+            # live store and is guarded to prior-turn stances. So an
+            # established stance is left to THAT path, and this miner abstains.
+            #
+            # The abstain is conditional on the read being a FIRST-TIME GEOMETRIC
+            # one (`source == "geometry"`). Once RAVANA has judged this
+            # predicate before, the read comes from its own memory
+            # (`source == "remembered"`) at a confidence earned by use, and it
+            # is allowed to merge -- that is the online-growth path, and it
+            # keeps compounding rather than being frozen out.
+            _established = self.opinions.stances.get(_topic)
+            if _established is not None and _read.get("source") == "geometry":
+                continue
+
+            _utt_key = " ".join(q_clean.lower().split())
+            _once = (_utt_key, _topic)
+            if _once in self.opinions._evaluative_utterance:
+                continue
+            self.opinions._evaluative_utterance.add(_once)
             self.opinions.express_stance(
                 _topic, polarity=_p, confidence=float(_read["confidence"]),
                 valence=valence, arousal=arousal,
