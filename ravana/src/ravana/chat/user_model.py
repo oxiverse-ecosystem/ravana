@@ -1139,6 +1139,20 @@ def _activity_verb_ok(verb: str) -> bool:
         return False
     if v.startswith("n't") or v == "not":
         return False
+    # FIX-RV-18: a closed-class FUNCTION word — an article, pronoun, preposition,
+    # conjunction, or SUPPORT/AUXILIARY verb ("do/does/did", "was", "has") —
+    # is never the predicate of a disclosure, so it may not occupy a
+    # relation/activity head slot. The class lives in pet_slots (the ONE shared
+    # slot-naming module) and is runtime-extensible via learn_function_word, so
+    # miner and recall sites agree by construction. Before this gate,
+    # "when i was a teenager i lived in mumbai" seated the ARTICLE "a" in the
+    # head slot and stored the relation-less fact ("i", "does:a", "a teenager"),
+    # consuming the clause and DROPPING the disclosed location (mumbai)
+    # entirely. Rejecting the function word lets the miner skip past it and
+    # reach the real predicate.
+    from .pet_slots import is_function_word as _is_fn
+    if _is_fn(v):
+        return False
     return v not in _ACTIVITY_DENY
 
 
@@ -2391,8 +2405,17 @@ class UserModel:
             # accepted as a name ONLY when it survives those guards.
         if not m_name:
             m_name = re.search(r"\b(?:do\s+you\s+know\s+my\s+name|know\s+my\s+name|is\s+my\s+name)\s+is\s+(.+)", q_clean, re.IGNORECASE)
+        # FIX-RV-18: the residence-verb class is STEM + optional inflection, so
+        # "i lived in mumbai" / "i am staying in kyoto" / "i moved to porto" all
+        # reach the SAME location path as "i live in berlin". Previously only
+        # "live|lives|move|stay|stayed" (and the copulas) matched, so a PAST-tense
+        # residence disclosure fell through to the open-class verb miner, which
+        # seated a support word in the head slot and dropped the place entirely.
+        # Structural: stems + a regular inflection suffix — no per-verb or
+        # per-city enumeration, and adding a stem covers all its forms.
         m_loc = re.search(
-            r"\bi\s+(?:live|lives|am|was|were|grew\s+up|moved|move|stay|stayed)\s+"
+            r"\bi\s+(?:live|stay|am|is|are|was|were|been|move|remain|"
+            r"reside|settle|relocate|born|grow\s+up)(?:s|es|d|ed|ing)?\s+"
             r"(?:in|near|at|from|to|onto)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
             q_clean, re.IGNORECASE)
@@ -4507,7 +4530,20 @@ class UserModel:
             r"five\s+|six\s+|seven\s+|eight\s+|nine\s+|ten\s+)?"
             r"(.+?)(?:\s*(?:\.|!|\?|,|-{1,3}|$|\s+and\s+|\s+but\s+|\s+because\s+|\s+so\s+|\s+which\s+|\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+))",
             re.IGNORECASE)
-        for _gm in _gen_verb_pat.finditer(q_clean):
+        # FIX-RV-18: scan with an explicit cursor instead of finditer. A match
+        # whose head is a closed-class FUNCTION word (article / support verb /
+        # pronoun / preposition) is REJECTED WITHOUT consuming the clause, so
+        # the next "i <predicate>" in the same sentence still gets its own
+        # match. finditer advanced past the whole span, which is exactly how the
+        # real predicate and its object were lost.
+        _gen_from = 0
+        _gen_seen = 0
+        while _gen_seen < 8:
+            _gm = _gen_verb_pat.search(q_clean, _gen_from)
+            if not _gm:
+                break
+            _gen_seen += 1
+            _gen_from = _gm.end() if _gm.end() > _gm.start() else _gm.start() + 1
             _verb = _gm.group(1).lower().replace("'t", "")
             if _verb in _STATIVE_DENY:
                 continue
@@ -4518,6 +4554,17 @@ class UserModel:
             # checked _STATIVE_DENY (which lacks "once", "afraid", "twice" etc.),
             # so "i once stayed" stored junk fact ("does:once once stayed").
             # _activity_verb_ok reads _ACTIVITY_DENY — single source of truth.
+            #
+            # FIX-RV-18 (support-verb-as-head, "leading modifier / wrong head"):
+            # a support verb or ARTICLE seated in the head slot means the REAL
+            # predicate is further along the clause. "when i was a teenager i
+            # lived in mumbai" seats "a" (the determiner after the auxiliary
+            # "was"), so nothing about that clause is a predicate — rewind the
+            # cursor past the rejected head and keep scanning for the real one.
+            from .pet_slots import is_function_word as _is_fn
+            if _is_fn(_verb):
+                _gen_from = _gm.start() + 1
+                continue
             if not _activity_verb_ok(_verb):
                 continue
             # Meta-reflection / self-error clauses ("i lose track of whether...",
@@ -4525,6 +4572,21 @@ class UserModel:
             # activity — skip them so they are not stored as facts (round
             # 2026-08-10T0813Z fix C — junk-minim).
             if _verb in _META_REFLECTION_DENY or "lose track" in q_clean.lower():
+                continue
+            # FIX-RV-18: a RESIDENCE verb + a locative preposition is owned by the
+            # location miner (m_loc), which already stored it as
+            # ("i", "location", "<place>"). Storing it AGAIN here as
+            # ("i", "does:lived", "lived mumbai") would double-count one
+            # disclosure and put a half-fact ("lived mumbai") in the activity
+            # slot. Same ownership rule the module already applies to the
+            # relationship lexicon ("pure-location verbs ... are owned by the
+            # dedicated location miner"). Structural: verb class + preposition
+            # class, never a place name.
+            from .pet_slots import (is_residence_verb as _is_residence_verb,
+                                    is_locative_preposition as _is_loc_prep)
+            _obj_toks = _gm.group(2).strip().lower().split()
+            if (_obj_toks and _is_residence_verb(_verb)
+                    and _is_loc_prep(_obj_toks[0])):
                 continue
             _obj = self._opinion_topic(_gm.group(2).strip().lower())
             if _obj and 1 <= len(_obj.split()) <= 5:

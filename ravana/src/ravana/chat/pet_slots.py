@@ -63,6 +63,163 @@ _PRONOUN_STOP = frozenset({
 })
 
 
+# ── CLOSED-CLASS FUNCTION WORDS (FIX-RV-18) ───────────────────────────────────
+# A FUNCTION WORD carries no content of its own: it is an article, a pronoun,
+# a preposition, a conjunction, or a SUPPORT/AUXILIARY verb ("is/was/was being",
+# "do/does/did", "have/has/had", "will/can/would/should"). None of them can be
+# the PREDICATE of a disclosure.
+#
+# Why this class exists (the defect): an open-class miner that takes "the token
+# after the subject pronoun" as the relation head will happily seat a support
+# verb in that slot. "when i WAS A teenager i lived in mumbai" put "a" — an
+# ARTICLE — in the head slot, stored the relation-less fact ("i", "does:a",
+# "a teenager"), and in doing so CONSUMED the rest of the clause, so the real
+# predicate ("lived") and the real disclosed content ("mumbai") were dropped
+# from the store entirely. The user's location — the most recallable fact in
+# the sentence — was silently lost.
+#
+# This is STRUCTURAL VOCABULARY (a closed class of function words), which is
+# legitimate: it names grammatical word classes, not answers. It lives HERE,
+# in the one shared slot-naming module, so the miner and every recall site
+# agree on what may occupy a head slot BY CONSTRUCTION rather than through N
+# hand-kept copies of a synonym table. It is a SEED: :func:`learn_function_word`
+# grows it at runtime, so a function word RAVANA meets in the wild joins the
+# class without a code change.
+_FUNCTION_SEED: frozenset = frozenset({
+    # articles / determiners / quantifiers
+    "a", "an", "the", "this", "that", "these", "those", "some", "any",
+    "each", "every", "all", "both", "few", "many", "much", "more", "most",
+    "other", "another", "such", "no", "nor", "one", "ones", "several",
+    # pronouns
+    "i", "me", "my", "mine", "myself", "we", "us", "our", "ours",
+    "you", "your", "yours", "yourself", "he", "him", "his", "she", "her",
+    "hers", "it", "its", "they", "them", "their", "theirs", "who", "whom",
+    "whose", "what", "which", "there", "here",
+    # prepositions / particles
+    "in", "on", "at", "by", "for", "with", "about", "against", "between",
+    "into", "through", "during", "before", "after", "above", "below", "to",
+    "from", "up", "down", "of", "off", "over", "under", "near", "behind",
+    "beyond", "among", "onto", "upon", "across", "throughout", "via",
+    # conjunctions / discourse markers
+    "and", "or", "but", "nor", "so", "because", "although", "though",
+    "while", "whereas", "if", "unless", "since", "when", "whenever", "where",
+    "whether", "than", "then", "also", "plus", "however", "though",
+    # SUPPORT / AUXILIARY VERBS + COPULAS (the RV-18 defect class)
+    "be", "am", "is", "are", "was", "were", "been", "being",
+    "do", "does", "did", "done", "doing",
+    "have", "has", "had", "having",
+    "will", "would", "shall", "should", "can", "could", "may", "might",
+    "must", "ought", "need", "dare",
+    # interrogative / relativiser / negation function words
+    "not", "n't", "never", "if", "than", "as",
+})
+
+# Runtime-grown extension of the function-word seed.
+_FUNCTION_LEARNED: set = set()
+
+
+def learn_function_word(word: str) -> bool:
+    """Register a closed-class function word seen in a live disclosure.
+
+    Growth path for the seed class, exactly as :func:`learn_species` is the
+    growth path for the species seed: a function word RAVANA has never had
+    classified joins the class at runtime, so a miner that consults
+    :func:`is_function_word` stops seating it in a relation-head slot without
+    any code change. Returns True when the word is (now) a known function word.
+
+    This is a WORD-CLASS learner, not an answer table: it records that a token
+    belongs to a grammatical class, never what to say about it.
+    """
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _FUNCTION_SEED or w in _FUNCTION_LEARNED:
+        return True
+    _FUNCTION_LEARNED.add(w)
+    return True
+
+
+def is_function_word(word: str) -> bool:
+    """True when `word` is a closed-class function word.
+
+    The single gate every relation/activity/attribute head slot consults before
+    storing a fact. A TRUE answer means the word must never become a
+    relation head: the miner has to look further for the real predicate.
+    Seed + :func:`learn_function_word` growth; no content, no replies.
+    """
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return True   # an empty slot can never carry a disclosure
+    return w in _FUNCTION_SEED or w in _FUNCTION_LEARNED
+
+
+# ── RESIDENCE VERBS + LOCATIVE PREPOSITIONS (FIX-RV-18) ───────────────────────
+# A residence verb paired with a locative preposition is a PLACE disclosure
+# ("i live in berlin", "when i was a teenager i lived in mumbai", "i moved to
+# porto"). Those belong to the location miner, which stores the place as a
+# first-class ("location", <place>) fact; an activity miner must not ALSO store
+# the same disclosure as a verb-phrase half-fact.
+#
+# Both classes are closed-class structural vocabulary and both grow at runtime
+# (:func:`learn_residence_verb`, :func:`learn_locative_preposition`), mirroring
+# the species/function-word seeds above.
+_RESIDENCE_SEED: frozenset = frozenset({
+    "live", "lives", "lived", "living", "stay", "stays", "stayed", "staying",
+    "move", "moves", "moved", "moving", "remain", "remains", "remained",
+    "reside", "resides", "resided", "residing", "settle", "settles",
+    "settled", "relocate", "relocates", "relocated", "relocating",
+    "grow", "grew", "grown", "born", "based", "located", "stationed",
+    "situated", "stay",
+})
+_RESIDENCE_LEARNED: set = set()
+
+_LOCATIVE_PREP_SEED: frozenset = frozenset({
+    "in", "at", "near", "from", "to", "onto", "into", "outside", "inside",
+    "around", "by", "throughout", "across", "abroad", "overseas",
+})
+_LOCATIVE_PREP_LEARNED: set = set()
+
+
+def learn_residence_verb(word: str) -> bool:
+    """Register a residence/place verb seen in a live disclosure."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    _RESIDENCE_LEARNED.add(w)
+    return True
+
+
+def learn_locative_preposition(word: str) -> bool:
+    """Register a locative preposition seen in a live disclosure."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    _LOCATIVE_PREP_LEARNED.add(w)
+    return True
+
+
+def is_residence_verb(word: str) -> bool:
+    """True when `word` places the subject somewhere (a place disclosure)."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _RESIDENCE_SEED or w in _RESIDENCE_LEARNED:
+        return True
+    # Inflected forms of a seed stem ("residing" from "reside").
+    for suf in ("ing", "ed", "es", "s"):
+        if w.endswith(suf) and w[: -len(suf)] in _RESIDENCE_SEED:
+            return True
+    return False
+
+
+def is_locative_preposition(word: str) -> bool:
+    """True when `word` introduces a place ("lived IN mumbai")."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    return w in _LOCATIVE_PREP_SEED or w in _LOCATIVE_PREP_LEARNED
+
+
 def learn_species(word: str) -> Optional[str]:
     """Register an animal word seen in a live disclosure and return its canon.
 
