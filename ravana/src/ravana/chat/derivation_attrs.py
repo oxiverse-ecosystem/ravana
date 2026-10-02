@@ -89,6 +89,19 @@ _ATTRIBUTION_PREPS = {
     "in memory of", "on",
 }
 
+# Attribution prepositions that are ABOUT NAMING, as opposed to the generic
+# ones ("from"/"by"/"on"/"to"/"for") that every transitive verb takes with an
+# ordinary object ("weaves baskets FROM river reeds", "learned FROM a book").
+# The distinction matters only for a verb RAVANA has NOT seen as a naming verb:
+# an unseen head is admitted under a NAMING preposition ("dubbed AFTER", "tagged
+# AFTER"), never under a generic one, where an ordinary verb would be
+# indistinguishable ("baskets FROM river reeds" is a plain activity, not an
+# attribution). A generic preposition still resolves when the head is already in
+# the naming vocabulary ("based ON", "derived FROM", "copied FROM").
+_NAMING_PREPS = {
+    "after", "in honor of", "in honour of", "in memory of", "tribute to",
+}
+
 # Tokens that can never head a naming verb (closed class / pronouns), so
 # learn_naming_verb cannot be talked into learning a function word.
 _NAMING_STOP = {
@@ -251,6 +264,14 @@ def derivation_of(phrase: str) -> Optional[str]:
             continue
         stem = naming_verb_of(toks[-size - 1])
         if stem is None:
+            return None
+        # A head RAVANA has never SEEN as a naming verb is admitted only under a
+        # naming-specific preposition. The generic ones ("from"/"by"/"on"/"to")
+        # are taken by every transitive verb, so an unseen head there is just an
+        # ordinary activity phrase — "my grandmother indira weaves baskets FROM
+        # river reeds" is a plain activity, and resolving it as an attribution
+        # stole the whole disclosure from the relationship miner.
+        if stem not in _NAMING_VERB_SEED and prep not in _NAMING_PREPS:
             return None
         # Canonicalize the whole predicate under its own surface so an unseen
         # combination still yields ONE stable attribute key. When the stem is a
