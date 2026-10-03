@@ -295,6 +295,7 @@ except ImportError:
     report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
 from .state_compat import ravana_unpickler, report_dropped
+from . import topic_head
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
@@ -2948,6 +2949,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        # SPOKEN-FORM NORMALISATION (round 2026-10-03T2040Z). Every gate below
+        # tests a query for grammatical shape — interrogative inversion, a
+        # possessive, a name attribute — and those tests only fire on the
+        # SPELLED-OUT form. A transcription loses the apostrophe ("whats my dog
+        # called"), so the fact was in the store and this resolver returned
+        # None, dropping the whole turn to the honest-but-empty fallback.
+        # Normalise ONCE here, at the single entry every branch reads, using
+        # the one morphological expander the module already owns (it covers
+        # the n't class and the elision class by rule, not by table). Nothing
+        # downstream changes shape except the spelling.
+        q = topic_head.expand_contractions(q)
         # (0z) COMPOUND / MULTI-PART QUERY DECOMPOSITION (round 2026-08-22T0703Z
         # residual). The resolvers below are single-shot: a compound
         # interrogative ("what's my ferret's name and what does he do with my
