@@ -6475,8 +6475,23 @@ class UserModel:
         # "petrichor", "silence before sleep" -> "silence".
         "like", "after", "before",
 
-        "really", "very", "just", "only", "also", "too", "quite", "more",
-        "most", "much", "many", "such", "own", "same", "other", "another",
+                # TEMPORAL ADVERBS (round 2026-10-02T0706Z). A disclosure carrying a
+                # deictic time adverbial was mined as a SEPARATE stance key from the same
+                # concept without it, so the very flip we need to observe SPLIT across two
+                # keys and never updated the first. Measured this round on a clean engine:
+                # "i love running" -> {'running': ...}; then "actually i hate running now"
+                # -> {'running': -0.275, 'running now': -0.95}. The negation landed on a NEW
+                # key, so "what do i think about running" still consulted the stale
+                # positive. These are closed-class deictic adverbs, not content: they
+                # localize the claim in time and contribute no concept. Structural
+                # closed-class set, same class as the connector/particle entries above;
+                # removing an entry only re-admits one adverb-shaped topic suffix, so it
+                # is seed vocabulary. Generalizes to ANY topic the user times with any of
+                # these adverbs; no per-topic rule, no retraining.
+                "now", "currently", "today", "tonight", "presently", "lately", "rightnow",
+
+                "really", "very", "just", "only", "also", "too", "quite", "more",
+                "most", "much", "many", "such", "own", "same", "other", "another",
         "is", "are", "was", "were", "be", "been", "being", "am",
         "has", "have", "had", "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
         "it", "they're", "im", "i'm", "you're", "we're", "there",
