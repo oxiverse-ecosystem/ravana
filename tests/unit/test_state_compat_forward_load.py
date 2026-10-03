@@ -19,15 +19,22 @@ These tests assert the CONTRACT, not the prose:
   * the legacy ravana_chat alias still resolves;
   * the placeholder survives a re-save, so a degraded load can be written back.
 """
+import os
 import pickle
 import sys
 
 import pytest
 
-PROJ = r"C:\Users\Likhith\Documents\Projects\ravana"
-for _p in (PROJ, f"{PROJ}\\ravana_ml\\src", f"{PROJ}\\ravana\\src", f"{PROJ}\\ravana-v2\\src"):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# Derive this tree's source roots from THIS FILE. The previous revision
+# hardcoded the main checkout's absolute path, which prepends the main repo
+# to sys.path and makes a worktree run import the main tree's ravana/ --
+# exactly the wrong-tree failure this file exists to help avoid.
+PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+for _p in (PROJ, os.path.join(PROJ, "ravana_ml", "src"),
+           os.path.join(PROJ, "ravana", "src"), os.path.join(PROJ, "ravana-v2", "src")):
+    if _p in sys.path:
+        sys.path.remove(_p)
+    sys.path.insert(0, _p)
 
 from ravana.chat import state_compat
 from ravana.chat.state_compat import ravana_unpickler, report_dropped
