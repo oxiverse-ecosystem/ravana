@@ -294,6 +294,7 @@ except ImportError:
     from ravana._import_guard import report_missing
     report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
+from .state_compat import ravana_unpickler, report_dropped
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
@@ -10958,27 +10959,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     def _load(self) -> bool:
         """Load cognitive state from disk. Returns True if successful."""
         try:
-            # Use a custom unpickler that handles both 'ravana_chat' and
-            # 'scripts.ravana_chat' module name references (pickle may store
-            # either depending on how the module was imported when saved).
-            class _RavanaUnpickler(pickle.Unpickler):
-                def find_class(self, module, name):
-                    try:
-                        return super().find_class(module, name)
-                    except (ModuleNotFoundError, AttributeError):
-                        if module == 'ravana_chat':
-                            return super().find_class('scripts.ravana_chat', name)
-                        elif module == 'scripts.ravana_chat':
-                            return super().find_class('ravana_chat', name)
-                        elif module == '__main__':
-                            # Saved from direct `python ravana_chat.py` run
-                            try:
-                                return super().find_class('scripts.ravana_chat', name)
-                            except (ModuleNotFoundError, AttributeError):
-                                return super().find_class('ravana_chat', name)
-                        raise
+            # A snapshot written by one round's commit is read by the next
+            # round's commit, and a class that only existed on the writing
+            # branch would otherwise abort the ENTIRE load -- silently booting a
+            # blank mind every round. ravana_unpickler degrades just that class
+            # to an inert placeholder and records it. See state_compat.py.
             with open(self._save_path, 'rb') as f:
-                state = _RavanaUnpickler(f).load()
+                state = ravana_unpickler(f).load()
+            _dropped = report_dropped()
+            if _dropped:
+                print(_dropped)
 
             # ── M5: schema + integrity checks (corrupt-detection, NOT silent wipe) ──
             # A stale/corrupt pkl used to throw here, the caller swallowed it,

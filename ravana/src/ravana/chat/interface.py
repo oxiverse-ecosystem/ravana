@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from collections import deque
 import hashlib
 
+from .state_compat import ravana_unpickler, report_dropped
 # Import all refactored modules
 from ..core import (VADEmotionEngine, VADConfig, IdentityEngine, IdentityState, IdentityConfig,
                           MeaningEngine, MeaningConfig, DualProcessController, DualProcessConfig, Route,
@@ -1849,23 +1850,14 @@ class ChatInterface:
 
     def _load(self) -> bool:
         try:
-            class _RavanaUnpickler(pickle.Unpickler):
-                def find_class(self, module, name):
-                    try:
-                        return super().find_class(module, name)
-                    except (ModuleNotFoundError, AttributeError):
-                        if module == 'ravana_chat':
-                            return super().find_class('scripts.ravana_chat', name)
-                        elif module == 'scripts.ravana_chat':
-                            return super().find_class('ravana_chat', name)
-                        elif module == '__main__':
-                            try:
-                                return super().find_class('scripts.ravana_chat', name)
-                            except (ModuleNotFoundError, AttributeError):
-                                return super().find_class('ravana_chat', name)
-                        raise
+            # Same forward-compat contract as engine._load: a class missing from
+            # this commit degrades to a placeholder instead of discarding the
+            # whole snapshot. See state_compat.py.
             with open(self._save_path, 'rb') as f:
-                state = _RavanaUnpickler(f).load()
+                state = ravana_unpickler(f).load()
+            _dropped = report_dropped()
+            if _dropped:
+                print(_dropped)
 
             loaded_graph = state['graph']
             if loaded_graph and loaded_graph.nodes:
