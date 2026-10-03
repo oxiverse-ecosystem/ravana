@@ -7,6 +7,7 @@ from .models import CorrectionType
 from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
+from .pet_slots import is_function_word
 from . import possession_attrs as _poss
 from .constants import STOP_WORDS
 
@@ -100,13 +101,60 @@ _ACTIVITY_VERB_LEXICON = {
 }
 
 
-def is_activity_verb(word: str) -> bool:
-    """Return True if `word` is a (possibly inflected) activity verb from the
-    seed lexicon. Used by cued recall to render verb-phrase personal facts
-    without a spurious copula. Pure vocabulary lookup — no content."""
+# Runtime-grown extension of the activity-verb seed.
+#
+# WHY THIS EXISTS (round 2026-10-03T2040Z). The appositive possession-name
+# guard asks "is the word AFTER the candidate name a verb predicate?" to tell
+# a real name from a grabbed predicate ("my dog biscuit SLEEPS" -> name
+# "biscuit"; "my dog SLEEPS on the table" -> no name). That test is only as
+# good as the verb vocabulary behind it. "naps" was absent, so "my cat mochi
+# naps on the windowsill" read as if "mochi" were the predicate and the name
+# was dropped — the same class of defect as a frozen table, one lexicon entry
+# at a time. Rather than enumerate verbs by hand (a losing game, and the exact
+# narrow-lexicon mistake the D1 pet-activity defect warns about), the class
+# learns: once a token has been recognised as a predicate head in a live
+# disclosure, it joins the class and the guard keeps working for it forever
+# without another code edit. A WORD-CLASS learner, never an answer table.
+_ACTIVITY_LEARNED: set = set()
+
+
+def learn_activity_verb(word: str) -> bool:
+    """Register `word` as an activity/predicate verb seen in a live disclosure.
+
+    The growth path for the activity-verb seed, mirroring
+    :func:`pet_slots.learn_species` and :func:`learn_function_word`: a token
+    RAVANA has never had classified joins the verb class at runtime, so every
+    caller of :func:`is_activity_verb` / :func:`is_verb_phrase` — cued-recall
+    copula grammar AND the appositive possession-name guard — widens to cover
+    it with no code change and no retraining.
+
+    Records only that a token belongs to a grammatical class, never what to
+    say about it. Returns True when the word is (now) a known activity verb.
+    """
     w = (word or "").strip().lower().strip(".,!?;:'\"")
     if not w:
         return False
+    if w in _ACTIVITY_VERB_LEXICON or w in _ACTIVITY_LEARNED:
+        return True
+    # Only adopt the token when it actually LOOKS like a predicate head, so a
+    # stray noun cannot enlarge the verb class by accident.
+    if is_function_word(w) or len(w) < 3 or not w.isalpha():
+        return False
+    _ACTIVITY_LEARNED.add(w)
+    return True
+
+
+def is_activity_verb(word: str) -> bool:
+    """Return True if `word` is a (possibly inflected) activity verb from the
+    seed lexicon or the runtime-grown class. Used by cued recall to render
+    verb-phrase personal facts without a spurious copula, and by the
+    appositive possession-name guard to tell a name from a grabbed predicate.
+    Pure vocabulary lookup — no content."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _ACTIVITY_LEARNED:
+        return True
     if w in _ACTIVITY_VERB_LEXICON:
         return True
     # base-form recovery for inflected tokens not pre-listed
@@ -1457,6 +1505,14 @@ _PET_NAMED_CATCHALL_PAT = (
 # key by construction. Generic across EVERY species (no per-animal table);
 # species grown at runtime; no authored reply; no retraining. Handled in the
 # pet-mining block (object-identity check == _APPOSITIVE_PET_PAT).
+# Closed-class COPULA vocabulary: the tokens that can follow a possession name
+# in an appositive disclosure ("my cat ember IS a maine coon"). Hoisted to
+# module scope so the miner does not rebuild the set on every match — the same
+# shape as _AUX_VERB_LEXICON / _PAST_FINITE_AUX elsewhere in this module. Pure
+# closed-class grammar; carries no content and no answers.
+_APPOS_COPULA = frozenset({
+    "is", "was", "were", "are", "named", "called", "means", "s",
+})
 _APPOSITIVE_PET_PAT = (
     r"\b(?:my\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+)"
     r"|i\s+have\s+(?:a|an|the)\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+))\b"
@@ -3129,22 +3185,80 @@ class UserModel:
                             from .pet_slots import _SPECIES_SEED as _PS_SEED
                         except Exception:
                             _PS_SEED = {}
-                        if _sp in _PS_SEED:
-                            # lowercase-name path (e.g. "my cat mochi"): only
-                            # valid when the captured name is sentence-final or
-                            # followed by a copula/punctuation — NOT a verb-led
-                            # clause tail. The pattern above runs IGNORECASE, so
-                            # the name group can grab the next verb ("my dog
-                            # likes the park" -> name "likes"); reject when a
-                            # non-copula word follows so we don't store a verb as
-                            # a pet. Proper-noun (isupper) names are exempt — they
-                            # may legitimately lead a clause ("my dog Rex barks").
-                            _tail = q_clean[_m.end():].lstrip()
-                            _nxt = re.split(r"[\W]+", _tail, 1)[0].lower()
-                            _COPULA = {"is", "was", "were", "are", "named",
-                                       "called", "means", "s"}
-                            if not _tail or not _nxt or _nxt in _COPULA:
-                                _name_ok = True
+                        # 6f GENERALIZE: the gate is the SPECIES CLASS,
+                        # not a frozen word list. It used to be
+                        # `if _sp in _PS_SEED` (24 hardcoded animal
+                        # words), which meant a runtime-LEARNED species
+                        # ("ferret", learned by learn_species from an
+                        # earlier capitalized disclosure) silently lost
+                        # the lowercase path — so "my ferret Pim hides
+                        # my keys" was mined and "my ferret pim hides
+                        # my keys" was not. Ask pet_slots, whose
+                        # species_of covers the seed AND everything
+                        # learned at runtime, and fall back to
+                        # learn_species exactly as the capitalized path
+                        # below already does. No per-animal table.
+                        if _sp in _PS_SEED or (
+                                _pet_slots.species_of(_sp) is not None
+                                or (_sp.isalpha()
+                                    and _pet_slots.learn_species(_sp))):
+                            # Lowercase-name path. The pattern runs IGNORECASE,
+                            # so the name group can grab the PREDICATE that
+                            # follows the species ("my dog likes the park" ->
+                            # candidate "likes"). Ask the question that actually
+                            # decides it — is this candidate itself a verb head
+                            # or a closed-class function word? — using the
+                            # verb-class vocabularies this module already owns
+                            # (is_verb_phrase / is_past_finite_aux above,
+                            # pet_slots.is_function_word, both seed + runtime
+                            # growable). The previous guard asked a DIFFERENT
+                            # question ("is the next word a copula?"), which is
+                            # not a verb test: it rejected the overwhelmingly
+                            # common "my dog biscuit sleeps on the table"
+                            # (measured round 2026-10-03T2040Z: mined when
+                            # capitalised "Biscuit", DROPPED when lowercase,
+                            # leaving the later "what is my dog called" to fall
+                            # through to a generic species definition). A
+                            # predicate-led clause fails the copula test too, so
+                            # the old guard was simultaneously too strict on
+                            # real names and only accidentally right on verbs.
+                            # Structural verb/function-word classes, no phrase
+                            # list, no per-species rule, no authored reply, and
+                            # the test can never learn a verb as a name.
+                            #
+                            # POSITIVE evidence is required before believing a
+                            # lowercase candidate, and there are two kinds. The
+                            # word after it may be a COPULA ("my cat ember is a
+                            # maine coon") — the pre-existing evidence — or a
+                            # VERB PREDICATE ("my dog biscuit SLEEPS on the
+                            # table"), which is the appositive shape this defect
+                            # dropped. A predicate-led clause ("my dog SLEEPS on
+                            # the table") has no candidate at all, so requiring
+                            # predicate evidence after the candidate is what
+                            # keeps the common-noun guard honest: "my pet rock
+                            # collection on the shelf" still fails, because
+                            # "on" is neither copula nor predicate.
+                            if not (is_verb_phrase(_nm)
+                                    or is_past_finite_aux(_nm)
+                                    or is_function_word(_nm)):
+                                _nxt = re.split(r"[\W]+",
+                                                q_clean[_m.end():].lstrip(), 1)[0].lower()
+                                # A token sitting exactly where the predicate
+                                # belongs is a verb this module has not
+                                # classified yet, not proof the clause has no
+                                # predicate ("my cat mochi NAPS on the
+                                # windowsill"). Admit it to the verb class so
+                                # this guard, _mine_pet_activity and cued-recall
+                                # copula grammar all recognise it from now on.
+                                # Growth through experience — one disclosure, no
+                                # retraining, no hand-listed verb — the same
+                                # shape as learn_species.
+                                if _nxt and not is_verb_phrase(_nxt):
+                                    learn_activity_verb(_nxt)
+                                _name_ok = bool(_nxt) and (
+                                    _nxt in _APPOS_COPULA
+                                    or is_verb_phrase(_nxt)
+                                    or is_past_finite_aux(_nxt))
                     if not _name_ok:
                         continue
                     try:
