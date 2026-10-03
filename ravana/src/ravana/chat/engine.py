@@ -1111,23 +1111,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the engine remains the sole writer of these structures during normal
         # turns. The miner only MUTATES them on an explicit owner re-attribution
         # (superseding the user's record) — never during ordinary disclosure.
-        self.user_model._episodic_index = self._episodic_index
-        self.user_model._episodic_transcript = self._episodic_transcript
-        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
-        # vocabulary to the user-model so stance mining can REJECT single-word
-        # topics that are not real concepts (comparative/handle artifacts like
-        # "anything"/"standing" that pollute the stance store). The vocabulary
-        # is the engine's OWN learned concept set, not a per-topic deny-list.
-        self.user_model._concept_vocab = self._concept_keywords
-        # Give the user model a route to the engine's concept vectors so the
-        # evaluative-predicate miner (feature round t_e45928d1) can read the
-        # polarity of a predicate the frozen word lists never listed, from
-        # where it sits in concept space. INJECTED, not imported: the user
-        # model owns no GloVe table and must not grow one. Bound method, so it
-        # always reads the CURRENT projection state and honours the
-        # `glove_ready` contract (returns None when no table is present, which
-        # the model treats as "abstain").
-        self.user_model._glove_vector_fn = self._glove_vector
+        self._bind_user_model_dependencies()
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -6703,6 +6687,60 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return None
 
+    def _bind_user_model_dependencies(self) -> None:
+        """Re-inject the engine-owned structures the user model reads.
+
+        The user model owns no GloVe table, no concept vocabulary and no
+        episodic memory of its own; the engine does and hands it over here.
+        ONE call site per place that (re)ASSIGNS ``self.user_model``.
+
+        ``_load()`` REPLACES ``self.user_model`` outright -- with the embedded
+        snapshot, or with the dedicated ``user_models/`` store when that wins
+        -- so these bindings do NOT survive a reload unless they are re-applied.
+        When they are not, every geometry-backed and episodic-backed capability
+        degrades to fail-closed, silently: a bound method cannot be pickled, so
+        the stale copy can even arrive as a truthy STRING that a naive presence
+        check accepts and that raises ``TypeError`` on call (swallowed
+        downstream). Measured on this defect: the evaluative-predicate model
+        abstained on 22/22 unseen words after a reload and end-to-end mining
+        minted ZERO stances, while ``_glove_vector_fn is not None`` still passed.
+        """
+        um = getattr(self, "user_model", None)
+        if um is None:
+            return
+        # Share the hippocampal episodic entity index + raw transcript with the
+        # user_model so the fact miner can enforce the self/other boundary on
+        # OWNER re-attribution (a pet moved off the user must also drop the
+        # user-facing episodic entry + raw transcript fact for that entity, not
+        # just its fact-store record). Read-only intent from the miner's side;
+        # the engine remains the sole writer of these structures during normal
+        # turns. The miner only MUTATES them on an explicit owner
+        # re-attribution (superseding the user's record) -- never during
+        # ordinary disclosure.
+        um._episodic_index = self._episodic_index
+        um._episodic_transcript = self._episodic_transcript
+        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
+        # vocabulary to the user-model so stance mining can REJECT single-word
+        # topics that are not real concepts (comparative/handle artifacts like
+        # "anything"/"standing" that pollute the stance store). The vocabulary
+        # is the engine's OWN learned concept set, not a per-topic deny-list.
+        um._concept_vocab = self._concept_keywords
+        # Give the user model a route to the engine's concept vectors so the
+        # evaluative-predicate miner (feature round t_e45928d1) can read the
+        # polarity of a predicate the frozen word lists never listed, from
+        # where it sits in concept space. INJECTED, not imported: the user
+        # model owns no GloVe table and must not grow one. Bound method, so it
+        # always reads the CURRENT projection state and honours the
+        # `glove_ready` contract (returns None when no table is present, which
+        # the model treats as "abstain").
+        um._glove_vector_fn = self._glove_vector
+        # The hippocampal buffer is built later in __init__ and is bound to the
+        # user_model at its own site; re-point it here too whenever it exists,
+        # so a reload cannot leave it pointing at a stale instance either.
+        _hbuf = getattr(self, "hippocampal_buffer", None)
+        if _hbuf is not None:
+            um._hippocampal_buffer = _hbuf
+
     def reset_episodic_state(self) -> None:
         """Clear all PER-CASE episodic/persona stores so the next benchmark
         case starts from a clean slate. Called by the evaluation harness when
@@ -11659,6 +11697,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self.cerebellar_ngram.seed_from_pos(self._concept_pos)
             if hasattr(self, 'syntactic_assembly'):
                 self.syntactic_assembly.seed_from_pos(self._concept_pos)
+
+            # self.user_model was REPLACED above (embedded snapshot, or the
+            # dedicated user_models/ store when that wins), so the engine-owned
+            # bindings it was given in __init__ did not come along with it.
+            # Re-inject them here, after every restore, so a reload is
+            # indistinguishable from a fresh boot for any capability that reads
+            # engine state through the user model. Same method __init__ uses, so
+            # the two sites cannot drift.
+            self._bind_user_model_dependencies()
 
             # Fix 7: self-heal a checksum-mismatched snapshot by re-saving a
             # fresh, self-consistent one now that all valid fields are restored.
