@@ -169,49 +169,74 @@ def _known_naming_verbs() -> set:
     return _NAMING_VERB_SEED | _NAMING_VERB_LEARNED
 
 
-def _inflected_stem(word: str) -> Optional[str]:
-    """Strip a verb inflection off a token, or None if it carries none.
+def _stem_candidates(word: str) -> list:
+    """Candidate stems for a token, de-inflected and most-likely first.
 
     Handles the orthographic final-consonant doubling of a short CVC stem:
     "dub" -> "dubbed" / "tag" -> "tagged" double the last letter before the
-    suffix, so the -ed/-ing rules have to try the shorter stem too.
+    suffix, so "dubbed" has to be able to reduce to "dub", not just "dubb".
+    That is why the doubled form is stripped FIRST.
+
+    But doubling is only orthographic for a short CVC stem, and the rule has
+    no way to know on its own: applied blindly it also eats a genuinely
+    doubled letter in "called" (call+ed -> "cal"), "calling" (call+ing ->
+    "cal") and "titles" (titl). Both readings are returned so the caller can
+    pick the one that actually resolves, rather than the rule guessing.
     """
     w = (word or "").strip().lower()
     if not w:
-        return None
+        return []
+    cands = []
     for suf, plain in (("ed", 2), ("ing", 3)):
         if not w.endswith(suf) or len(w) <= plain:
             continue
         stem = w[:-plain]
         # Doubled final consonant ("dubbed" -> "dub", not "dubb").
         if len(stem) > 1 and stem[-1] == stem[-2]:
-            stem = stem[:-1]
-        return stem
+            cands.append(stem[:-1])
+        cands.append(stem)
+        return cands
     if w.endswith("d") and len(w) > 2:
-        return w[:-1]
+        cands.append(w[:-1])
     if w.endswith("es") and len(w) > 3:
-        return w[:-2]
+        cands.append(w[:-2])
     if w.endswith("s") and len(w) > 2:
-        return w[:-1]
-    return None
+        cands.append(w[:-1])
+    return cands
+
+
+def _inflected_stem(word: str) -> Optional[str]:
+    """Best single de-inflected stem for a token, or None if it carries none.
+
+    Used only on the LEARNING path, for a verb RAVANA has genuinely never
+    seen; there the de-doubled reading is the right default because that is
+    what orthographic doubling produces. Resolution of a KNOWN verb goes
+    through :func:`naming_verb_of`, which tries every candidate.
+    """
+    cands = _stem_candidates(word)
+    return cands[0] if cands else None
 
 
 def naming_verb_of(word: str) -> Optional[str]:
-    """Resolve a surface verb form to its naming-verb stem, or None."""
+    """Resolve a surface verb form to its naming-verb stem, or None.
+
+    Tries every de-inflection candidate in order, so a stem that is already in
+    the vocabulary always wins over a blind orthographic guess: "called"
+    resolves to the seed verb "call" (not the over-stripped "cal"), while
+    "dubbed" still resolves to "dub".
+    """
     w = (word or "").strip().lower()
     if not w:
         return None
     known = _known_naming_verbs()
     if w in known:
         return w
-    stem = _inflected_stem(w)
-    if stem is None:
-        return None
-    if stem in known:
-        return stem
-    # A dropped silent -e ("naming" -> "name").
-    if (stem + "e") in known:
-        return stem + "e"
+    for stem in _stem_candidates(w):
+        if stem in known:
+            return stem
+        # A dropped silent -e ("naming" -> "name").
+        if (stem + "e") in known:
+            return stem + "e"
     return None
 
 

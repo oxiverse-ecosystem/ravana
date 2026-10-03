@@ -38,6 +38,27 @@ from ravana.chat import derivation_attrs as dv  # noqa: E402
 
 
 # --------------------------------------------------------------- vocabulary --
+def test_de_inflection_does_not_invent_a_stem_for_a_seed_verb():
+    """Orthographic doubling must not over-strip a known naming verb.
+
+    "dub" -> "dubbed" genuinely doubles, so the shorter reading has to be
+    tried. But applied blindly the same rule eats the real doubled letter in
+    "call"+"ed" -> "cal", which is not a word -- so the seed verb "call"
+    stopped resolving, and the miner's per-token gate then LEARNED "cal" as
+    a naming verb. Both readings must be tried and the one that actually
+    resolves wins.
+    """
+    # a seed verb resolves through its doubled -ed/-ing form
+    assert dv.naming_verb_of("called") == "call"
+    assert dv.naming_verb_of("calling") == "call"
+    # and learning it does not register the over-stripped fragment
+    learned = dv.learn_naming_verb("called")
+    assert learned == "call"
+    assert "cal" not in dv._NAMING_VERB_LEARNED
+    # the doubled reading is still found when it is the real one
+    assert dv.naming_verb_of("dubbed") == "dub"
+
+
 def test_seed_vocabulary_resolves_to_a_canonical_relation():
     assert dv.derivation_of("named after") == "named after"
     assert dv.derivation_of("called after") == "named after"
