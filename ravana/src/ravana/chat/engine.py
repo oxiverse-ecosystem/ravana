@@ -3685,7 +3685,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         "climb", "climbs", "swim", "swims", "run", "runs",
                         "fetch", "catches", "catch", "pounce", "pounces",
                     }
-                    _ask_activity = bool(_q_toks2 & _ACT_CUES)
+                    # Round 2026-10-03T2040Z. _ACT_CUES contains the generic
+                    # interrogative "what", so ANY "what ..." pet question
+                    # counted as an activity ask — including one that asks for a
+                    # different ATTRIBUTE entirely. Measured: after "my dog
+                    # biscuit sleeps on the wedging table", the query "what is
+                    # my dog called" was answered by this branch with "your dog
+                    # biscuit sleeps wedging table." — the animal's ACTIVITY, for
+                    # a question about its NAME. The name was in the store the
+                    # whole time; this branch simply answered first.
+                    #
+                    # The cue set cannot fix this by growing: "what" is not an
+                    # activity word, it is a question word, and every attribute
+                    # question ("what is my dog called", "what is my cat's
+                    # name") starts with it. The question is about ATTRIBUTE
+                    # AGREEMENT, which this file already owns in one place —
+                    # attribute_gate.asks_name_only, the same predicate the
+                    # name-render branch below consults. Reusing it makes the two
+                    # branches agree BY CONSTRUCTION instead of each keeping a
+                    # private idea of what a pet question is about, and it stands
+                    # down correctly for a genuine compound ask ("what is my
+                    # dog's name and what does it do?") without a new cue.
+                    #
+                    # Structural: no new vocabulary, no per-animal rule, no
+                    # authored reply, and it generalises to every attribute any
+                    # entity can hold.
+                    _ask_attribute = attribute_gate.asks_name_only(q)
+                    _ask_activity = bool(_q_toks2 & _ACT_CUES) and not _ask_attribute
                     _is_q2 = bool(re.search(r"\?$", q.strip()) or re.match(
                         r"^(what|who|which|where|when|why|how|is|are|was|were|"
                         r"do|does|did|has|have|had|can|could|would|will|tell|"
