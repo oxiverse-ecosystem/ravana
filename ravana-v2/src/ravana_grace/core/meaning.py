@@ -115,9 +115,15 @@ class MeaningEngine:
         effort_multiplier = 1.0 + c.effort_kappa * effort
         effective_meaning = raw_meaning * effort_multiplier
         
-        # Authenticity check: high meaning without real gain is flagged
+        # Authenticity check: high meaning without real gain is flagged.
+        # The bound is INCLUSIVE: effort is documented as 0-1 (see the
+        # docstring), and at the default effort_kappa=0.5 the maximum
+        # reachable multiplier is exactly 1.0 + 0.5*1.0 = 1.5. An
+        # exclusive `> 1.5` therefore made this guard unreachable for the
+        # whole documented effort range, so `authentic` was always True
+        # and get_status()["authenticity_rate"] was always 1.0.
         authentic = True
-        if raw_meaning < 0.05 and effort_multiplier > 1.5:
+        if raw_meaning < 0.05 and effort_multiplier >= 1.5:
             # Suspicious: low real gain but high effort multiplier
             authentic = False
             effective_meaning *= 0.5  # Penalty for inauthentic meaning
