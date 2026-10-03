@@ -236,3 +236,60 @@ def test_the_subject_key_carries_no_auxiliary_token(engine):
         # Only assert on keys whose attribute is a real derivation relation.
         if dv.is_derivation_attr(k[1]):
             assert False, f"derivation subject key carries an auxiliary: {k}"
+
+
+# ------------------------------------------------- store-level recall path ---
+def test_the_stored_derivation_is_retrievable_from_the_fact_store(engine):
+    """The fact must be REACHABLE, not merely written.
+
+    A derivation is stored entity-keyed, so the retrieval key is the entity.
+    ``query_fact`` is the store API a recall path uses; if the key cannot be
+    resolved through it the fact is effectively write-only. Asserted against
+    the store rather than against a chat reply because the reply path is not
+    wired for derivations yet (docs/CAPABILITY_DERIVATION_RELATIONS.md
+    section 4 states that gap explicitly) -- this pins the half that IS real,
+    so closing the other half later cannot regress it silently.
+    """
+    engine.process_turn("the rye starter is named after my aunt solveig")
+    pf = engine.user_model.personal_facts
+
+    hits = pf.query_fact("rye starter", "named after")
+    assert hits, ("derivation fact is not retrievable entity-keyed; facts="
+                  f"{list(_facts(engine))}")
+    assert hits[0].value == "aunt solveig"
+    assert not getattr(hits[0], "superseded", False)
+
+    # querying the attribute under the USER finds nothing, so the disclosure
+    # was never filed as a fact about the speaker
+    assert pf.query_fact("i", "named after") == []
+
+
+def test_two_surfaces_of_one_relation_collapse_to_one_attribute(engine):
+    """'called after' and 'named after' are ONE relation, not two.
+
+    Two surfaces producing two attributes would make recall depend on which
+    wording the user happened to use at disclosure time. The canonicalization
+    is what buys that stability, so it is asserted end to end through the
+    store rather than only at the vocabulary level.
+    """
+    engine.process_turn("the copper kettle is called after my aunt solveig")
+    engine.process_turn("my grey mug is named after my aunt solveig")
+    pf = engine.user_model.personal_facts
+    for subject in ("copper kettle", "grey mug"):
+        hits = pf.query_fact(subject, "named after")
+        assert hits, f"{subject}: no fact under the canonical relation"
+        assert hits[0].value == "aunt solveig"
+
+
+def test_the_renderer_composes_the_answer_from_the_stored_fact(engine):
+    """The renderer output is derived from the store, not authored per subject.
+
+    The words come from the stored triple; there is no pre-written answer for
+    any particular subject.
+    """
+    engine.process_turn("the rye starter is named after my aunt solveig")
+    subj, rel, val = [k for k in _facts(engine) if k[0] == "rye starter"][0]
+    rendered = dv.render_derivation(subj, rel, val)
+    assert rendered == "your rye starter is named after aunt solveig"
+    for word in rendered.replace("your ", "").replace(" is ", " ").split():
+        assert word in (subj + " " + rel + " " + val)
