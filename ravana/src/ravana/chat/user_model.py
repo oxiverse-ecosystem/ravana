@@ -434,6 +434,21 @@ def canonical_activity_attr(kind: str, verb: str) -> str:
     return f"{kind}:{_lem}"
 
 
+# Closed-class AUXILIARY vocabulary: the copula / perfect-tense auxiliaries that
+# sit between a derivation's subject and its naming verb. A derivation stores
+# ENTITY-keyed ("sourdough starter", "named after", "uncle bartholomew"), so any
+# auxiliary left in the subject would become part of the entity key and no later
+# question resolving the bare noun phrase could match it. This is English
+# grammar vocabulary — it says which words are function words, never what any
+# value is, and it is not keyed to any topic. Consumed by the derivation
+# subject slice in `_mine_derivation` (see the call site for the reasoning).
+_DERIVATION_SUBJ_AUX = {
+    "is", "are", "was", "were", "am", "be", "been", "being",
+    "has", "have", "had", "will", "would", "shall", "should", "can",
+    "could", "may", "might", "must",
+}
+
+
 def is_activity_attr(attr: str) -> bool:
     """True for any activity/event attribute, flat ('does'/'event') or
     verb-keyed ('does:learn'/'event:got'). Single source of truth so every
@@ -2358,21 +2373,21 @@ class UserModel:
             # after my grandmother" is about the USER's own name, which the
             # existing self-naming miner owns).
             if not _subj_toks or _subj_toks[0] == "i":
-                            return False
-                        # Drop a TRAILING auxiliary chain. The naming verb is preceded by
-                        # the subject's copula/perfect auxiliaries, and those are grammar,
-                        # not part of the thing: "the sourdough starter IS named after ..." /
-                        # "the api HAS BEEN named after ..." both store the subject as
-                        # "sourdough starter is" / "api has been" otherwise, so the entity
-                        # key a later question resolves ("my sourdough starter") never
-                        # matches the key that was written. Stripped from the right, and
-                        # only while the tail is an auxiliary, so a real trailing noun
-                        # ("the black starter is") keeps its head.
-                        while _subj_toks and _subj_toks[-1] in _DERIVATION_SUBJ_AUX:
-                            _subj_toks.pop()
-                        if not _subj_toks:
-                            return False
-                        _subj = " ".join(_subj_toks[-4:]).strip()
+                return False
+            # Drop a TRAILING auxiliary chain. The naming verb is preceded by
+            # the subject's copula/perfect auxiliaries, and those are grammar,
+            # not part of the thing: "the sourdough starter IS named after ..." /
+            # "the api HAS BEEN named after ..." both store the subject as
+            # "sourdough starter is" / "api has been" otherwise, so the entity
+            # key a later question resolves ("my sourdough starter") never
+            # matches the key that was written. Stripped from the right, and
+            # only while the tail is an auxiliary, so a real trailing noun
+            # ("the black starter is") keeps its head.
+            while _subj_toks and _subj_toks[-1] in _DERIVATION_SUBJ_AUX:
+                _subj_toks.pop()
+            if not _subj_toks:
+                return False
+            _subj = " ".join(_subj_toks[-4:]).strip()
 
             # Register the predicate in the shared vocabulary so it is
             # addressable on the NEXT disclosure too (online growth, no rebuild).

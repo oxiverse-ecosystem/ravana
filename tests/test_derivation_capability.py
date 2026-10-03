@@ -179,3 +179,60 @@ def test_a_derivation_about_the_users_own_name_is_left_to_the_name_miner(engine)
     for k in new:
         assert k[1] != "named after", \
             f"the derivation miner stole the user's own naming: {k}"
+
+
+# --------------------------------------------------- subject = the bare thing --
+def test_the_subject_key_is_the_bare_noun_phrase_not_the_copula(engine):
+    """The entity key must be the THING, so a later question can resolve it.
+
+    A derivation is stored entity-keyed, and the thing is the entity. The
+    naming verb is preceded by the subject's copula, and leaving it in the key
+    ("sourdough starter is") means the store holds a key no later surface
+    question ("my sourdough starter") can ever match — the fact is written and
+    unreachable. The auxiliary chain is grammar and must not become part of
+    the entity's name.
+    """
+    engine.process_turn("the sourdough starter is named after my uncle bartholomew")
+    keys = [k for k in _facts(engine) if k[1] == "named after"]
+    assert keys, "no derivation fact was stored"
+    subj = keys[0][0]
+    assert subj == "sourdough starter", f"subject key kept a copula: {subj!r}"
+
+
+def test_a_perfect_auxiliary_chain_is_stripped_from_the_subject(engine):
+    """'the api HAS BEEN named after ...' must store 'api', not 'api has been'.
+
+    The chain is arbitrary length, so the fix pops from the right while the
+    tail is an auxiliary — it must not stop after one token, and it must not
+    eat a real trailing noun.
+    """
+    engine.process_turn("the docs site has been named after my old notebook")
+    keys = [k for k in _facts(engine) if "notebook" in k[2]]
+    assert keys, f"no derivation fact stored; facts={list(_facts(engine))}"
+    assert keys[0][0] == "docs site", f"aux chain kept: {keys[0][0]!r}"
+
+
+def test_a_trailing_noun_that_merely_ends_in_a_copula_word_is_kept(engine):
+    """The strip must not eat real content.
+
+    Stripping is positional and only removes tokens that ARE auxiliaries, so a
+    multi-word subject keeps its head noun ("the black starter is" -> "black
+    starter"). Guards against a fix that trims the key to a fixed width or
+    strips until something short.
+    """
+    engine.process_turn("the black starter is named after my aunt fenna")
+    keys = [k for k in _facts(engine) if "fenna" in k[2]]
+    assert keys, f"no derivation fact stored; facts={list(_facts(engine))}"
+    assert keys[0][0] == "black starter", f"over-stripped: {keys[0][0]!r}"
+
+
+def test_the_subject_key_carries_no_auxiliary_token(engine):
+    """Whole-suite invariant over every derivation key the engine has stored."""
+    import ravana.chat.user_model as um
+    aux = um._DERIVATION_SUBJ_AUX
+    for k in _facts(engine):
+        if not any(tok in aux for tok in k[0].split()):
+            continue
+        # Only assert on keys whose attribute is a real derivation relation.
+        if dv.is_derivation_attr(k[1]):
+            assert False, f"derivation subject key carries an auxiliary: {k}"
