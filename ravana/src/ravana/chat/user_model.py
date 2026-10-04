@@ -47,6 +47,40 @@ _CORRECTION_DIRECT_PATTERNS = [
 ]
 
 # Patterns that explicitly supply a corrected fact
+def _is_reask(text: str) -> bool:
+    """True when `text` ASKS for something rather than DECLARING something.
+
+    Round 2026-10-04T0827Z (defect D3). The correction detector's re-ask
+    stream compared token overlap with the previous utterance and nothing
+    else, so an exact repeat of a DECLARATION was indistinguishable from a user
+    repeating a QUESTION because the previous answer was wrong. The two differ
+    only in speech act, which is what this tests.
+
+    Structural, not a phrase table: interrogative punctuation, a wh-word, an
+    auxiliary, or an explicit repeat-request verb. A declarative with no
+    question marker is not a re-ask however much it overlaps.
+    """
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    if t.endswith("?"):
+        return True
+    _WH = r"\b(what|who|whom|whose|where|when|why|how|which)\b"
+    _AUX = (r"\b(do|does|did|is|are|was|were|can|could|will|would|should|"
+            r"shall|may|might|have|has|had|am)\b")
+    # A WH-word or auxiliary only counts as interrogative when it OPENS the
+    # utterance, so a declaration that merely contains one ("my bike is a 1993
+    # tourer" has "is") is not mistaken for a question.
+    _head = re.sub(r"^[^a-z]*", "", t)
+    if re.match(_WH, _head) or re.match(_AUX, _head):
+        return True
+    # An explicit request to repeat / clarify is a re-ask too.
+    if re.search(r"\b(remind|repeat|again|come\s+again|you\s+didn'?t\s+"
+                 r"(hear|understand|say))\b", t):
+        return True
+    return False
+
+
 _CORRECTION_FACT_PATTERNS = [
     # "it's X, not Y"
     r"it'?s\s+(\w+)[,.]*\s+not\s+(\w+)",
@@ -6332,8 +6366,24 @@ class UserModel:
             self.correction_severity = max(self.correction_severity, 
                                              min(0.8, (prev_valence - valence) * 1.5))
 
-        # Stream 3: Re-ask — similar query within 3 turns
-        if self._previous_user_query:
+        # Stream 3: Re-ask — the user repeats themselves BECAUSE THE LAST
+        # ANSWER WAS WRONG.
+        #
+        # D3 (round 2026-10-04T0827Z). This stream tested token overlap alone,
+        # so it could not tell a RE-ASK from a REPEATED DECLARATION — they are
+        # lexically identical. Measured: an exact repeat of "i think public
+        # libraries are underrated" and of "my bike is a 1993 tourer" were both
+        # flagged INDIRECT_REASK sev=0.30, and the opinion one then answered
+        # "thanks — i'll be more careful there. what should i have said?" — the
+        # user was not correcting RAVANA, they were emphasising themselves.
+        #
+        # The distinguishing feature is the SPEECH ACT, not the words: a
+        # re-ask is a question (or an explicit request to repeat), a restated
+        # declaration is reinforcement. So the stream now requires that
+        # structure. Grammatical (interrogative punctuation, wh-words,
+        # auxiliaries, request verbs) — not a phrase list, and no topic is
+        # named, so an unenumerated question form still qualifies.
+        if self._previous_user_query and self._is_reask(q_clean):
             prev_words = set(self._previous_user_query.lower().split())
             curr_words = set(q_clean.split())
             overlap = len(prev_words & curr_words) / max(1, len(prev_words | curr_words))
