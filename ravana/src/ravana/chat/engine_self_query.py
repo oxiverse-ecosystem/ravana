@@ -1991,17 +1991,18 @@ class SelfQueryMixin:
                            (_s == _rel_node and _t == _subj_node):
                             _rel_type = getattr(_e, 'relation_type', 'semantic') or 'semantic'
                             break
-                # No direct edge — inherit the known concept's strongest
-                # outgoing edge type as the best available structural signal.
-                if _rel_type is None and _rel_node is not None:
-                    _outs = _graph.get_outgoing(_rel_node)
-                    if _outs:
-                        _best_w = -1.0
-                        for _tgt, _e in _outs:
-                            _w = getattr(_e, 'weight', 0.0) or 0.0
-                            if _w > _best_w:
-                                _best_w = _w
-                                _rel_type = getattr(_e, 'relation_type', 'semantic') or 'semantic'
+                # Only a DIRECT edge between the two concepts is evidence about
+                # how THEY relate. Round 2026-10-03T2353Z: the previous code, on
+                # finding no direct edge, inherited the NEAREST CONCEPT's
+                # strongest outgoing edge type and rendered that relation frame
+                # for the subject — manufacturing the evidence. Measured: asked
+                # about "marguerite" (no node in the graph at all), RAVANA
+                # answered "marguerite is like ravana — they sit close in the
+                # same part of the map" by borrowing 'ravana''s 'semantic' edge.
+                # A stranger's edge type says nothing about this subject, so the
+                # inheritance is deleted: with no direct edge _rel_type stays
+                # None and the honest proximity fallback below runs. Structural
+                # precondition only — no phrase list, no tuned cosine.
             # Map the structural relation type to an analogical frame.
             # These are STRUCTURAL TEMPLATES keyed by relation type — not
             # per-topic literals. The frame + the two real concept labels
