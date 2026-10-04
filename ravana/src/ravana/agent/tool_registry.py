@@ -41,6 +41,64 @@ _FORBIDDEN_PATTERNS = [
 _WORK_VOLUME = os.environ.get("RAVANA_WORK_VOLUME", "C:/Users/Likhith/Documents/Projects/ravana/_agent_work")
 
 
+# ── The global offline gate ─────────────────────────────────────────────────
+#
+# RAVANA_OFFLINE=1 is the repo's documented global "do not touch the network"
+# switch, honored by web/learner.py, chat/web_learning.py,
+# chat/engine_web_search.py, chat/support_router.py, chat/harm_intent_gate.py,
+# chat/engine_generation.py and chat/engine_graph.py. The agent tool layer was
+# never wired in, so an offline/CI run still opened real sockets — which is
+# both a determinism break and the cause of the measured ~16s stall on ordinary
+# turns (two serial timeouts against a gateway this process should never have
+# called).
+#
+# ONE predicate, so no call site can infer "am I offline?" from the shape of a
+# private attribute (the mistake the glove_ready fix was made for).
+def network_blocked() -> bool:
+    """True when this process must not attempt network I/O.
+
+    Reads the env var live on every call so a test (or an embedder) can toggle
+    it without reimporting the module.
+    """
+    return os.environ.get("RAVANA_OFFLINE") == "1"
+
+
+# The default stall budget for ONE search attempt. Named so the budget is a
+# single number rather than a literal repeated at each call site: the old code
+# passed the same 8s to the gateway and then again to the duckduckgo fallback,
+# so a slow-but-healthy gateway (MEASURED ~15-20s for /search) cost the full 2x
+# budget before admitting defeat.
+SEARCH_TIMEOUT_S = 8.0
+
+
+def search_timeout() -> float:
+    """The stall budget for one attempt, overridable via the environment.
+
+    Read live on each call (like network_blocked) so an operator can retune the
+    budget without reimporting, and so a bad value cannot wedge the process.
+    """
+    raw = os.environ.get("RAVANA_SEARCH_TIMEOUT_S")
+    if raw:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return SEARCH_TIMEOUT_S
+        if 0 < value <= 60:
+            return value
+    return SEARCH_TIMEOUT_S
+
+
+def _read_url(url: str, timeout: Optional[float] = None):
+    """GET a URL under an explicit, non-global timeout.
+
+    Deliberately does NOT use socket.setdefaulttimeout: that mutates the whole
+    process for every caller and was never restored, so one web search silently
+    changed the interpreter default for all subsequent code.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": "ravana-agent/1.0"})
+    return urllib.request.urlopen(req, timeout=timeout if timeout is not None else search_timeout())
+
+
 class _RequireWorkVolume:
     """Guard: the target must resolve INSIDE the sandboxed work volume."""
 
@@ -167,20 +225,26 @@ def _guard(cmd: str) -> None:
 
 def _web_search_via_intentforge(query: str) -> str:
     """Web/search grounding through the IntentForge API (founder-specified)."""
+    # The global offline gate. Every other web path in RAVANA checks this; the
+    # agent layer did not, so an offline run still paid two socket timeouts.
+    # Failing here hands the turn back to the engine's honest-uncertainty path
+    # instead of stalling it.
+    if network_blocked():
+        return "[web] search unavailable: offline mode (RAVANA_OFFLINE=1)"
+
     # IntentForge gateway listens locally; query its /search endpoint.
     url = f"http://localhost:4000/search?q={urllib.parse.quote(query)}"
     try:
-        socket.setdefaulttimeout(8.0)
-        with urllib.request.urlopen(url) as r:
+        with _read_url(url) as r:
             data = r.read().decode("utf-8", "replace")
         return f"[web:intentforge] {data[:1200]}"
     except Exception as e:
-        # Fall back to a direct web fetch if IntentForge is down (offline-safe)
-        try:
-            with urllib.request.urlopen(f"https://duckduckgo.com/html/?q={urllib.parse.quote(query)}") as r:
-                return f"[web:fallback] {r.read().decode('utf-8','replace')[:1000]}"
-        except Exception as e2:
-            return f"[web] search unavailable: {e} / {e2}"
+        # The gateway being unreachable does NOT authorise reaching for the
+        # open internet: that turns a local dependency into an egress path and
+        # doubles the stall on the way to the same dead end. The gateway is the
+        # founder-specified route; if it is down, the honest answer is that the
+        # grounding source is unavailable.
+        return f"[web] search unavailable: {e}"
 
 
 def _validate_public_url(url: str) -> None:
@@ -249,8 +313,14 @@ class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
 def _read_website(url: str) -> str:
     """Fetch and trim a public web page for grounding."""
     _GUARD_PUBLIC_URL(url)
+    # Same global offline gate as web_search: this tool reaches the open
+    # internet, so it must honour RAVANA_OFFLINE too. The guard runs first
+    # deliberately — it does no I/O, and a blocked call should never depend on
+    # a DNS lookup having succeeded.
+    if network_blocked():
+        return "[site] fetch unavailable: offline mode (RAVANA_OFFLINE=1)"
     opener = urllib.request.build_opener(_ValidatingRedirectHandler())
-    with opener.open(url, timeout=8) as r:
+    with opener.open(url, timeout=search_timeout()) as r:
         return f"[site] {r.read().decode('utf-8','replace')[:1500]}"
 
 

@@ -95,6 +95,111 @@ def _extract_topic(query: str) -> str:
     return " ".join(toks[:4])
 
 
+# ── Interrogative detection (grammar, not vocabulary) ───────────────────────
+#
+# A KNOWLEDGE GAP can only exist inside a question. "what is a lamellibranch"
+# asks the world something; "hello there" and "thank you so much" assert
+# nothing that could be wrong, so there is nothing for a search to close. This
+# is the structural signal the gate was missing, and it is built from
+# interrogative SYNTAX (an interrogative lead, or a copula/inversion) so it
+# generalises to any subject and cannot rot into a topic list.
+#
+# It mirrors the lead-window logic already in engine_memory._is_question rather
+# than inventing a second dialect of the same rule.
+_WH_WORDS = frozenset({
+    "who", "whom", "whose", "what", "which", "where", "when", "why", "how",
+})
+_AUX = frozenset({
+    "is", "are", "was", "were", "am", "do", "does", "did", "can", "could",
+    "will", "would", "should", "shall", "may", "might", "must", "has", "have",
+    "had",
+})
+
+
+def _is_interrogative(query: str) -> bool:
+    """Is this utterance ASKING for information?
+
+    Two grammatical shapes, both closed-class:
+      1. an interrogative lead ("who is X", "what are X"), allowing a short
+         lead-in ("so what is a lamellibranch"), or
+      2. subject-auxiliary inversion ("is a lamellibranch any good").
+    A statement, a greeting, a disclosure, or an imperative is not a question.
+    """
+    toks = re.findall(r"[a-z']+", (query or "").lower())
+    if not toks:
+        return False
+    if "?" in (query or ""):
+        return True
+    for w in toks[:3]:
+        if w in _WH_WORDS:
+            return True
+    # inversion: an auxiliary in the first two slots with the subject after it
+    for w in toks[:2]:
+        if w in _AUX:
+            return True
+    return False
+
+
+def _topic_representation(engine, topic: str) -> float:
+    """How much does RAVANA's world-model actually contain this topic?
+
+    MEASURED PROBLEM: `CuriosityEngine.uncertainty_for(topic)` returns a
+    CONSTANT 1.0 for every input — 'hello there', 'thank much', 'lamellibranch'
+    all measured 1.0 — so it carries no discriminative information and any gate
+    that trusts it alone fires on everything. (That is how web_search came to
+    run on a bare greeting, stalling the turn ~16s on two serial socket
+    timeouts.)
+
+    This computes the uncertainty the curiosity signal SHOULD be reporting,
+    from live engine state only:
+      - does the ConceptGraph have a node for the topic at all, and
+      - how strongly is it connected (a hub word is known; a leaf or a missing
+        node is a gap).
+    A greeting has no node -> uncertainty high -> but the interrogative gate
+    upstream already refuses to search for it. A term RAVANA genuinely lacks
+    scores high; a term it is well-connected to scores low. No new model, no
+    retraining, no curated word list: it is read from the graph RAVANA grows
+    online from conversation.
+    """
+    if not topic:
+        return 0.0
+    graph = getattr(engine, "graph", None)
+    nodes = getattr(graph, "nodes", None)
+    if nodes is None:
+        # No world-model to consult. Fail toward "do not act": an absent
+        # capability must not silently widen the gate.
+        return 0.0
+
+    key = None
+    if isinstance(nodes, dict):
+        for cand in (topic, topic.split()[-1] if topic.split() else topic):
+            if cand in nodes:
+                key = cand
+                break
+        if key is None:
+            # Try each content word, so a multi-word topic resolves when any
+            # part of it is already represented.
+            for cand in re.findall(r"[a-z']+", topic):
+                if cand in nodes:
+                    key = cand
+                    break
+    if key is None:
+        # No representation at all: a genuine knowledge gap.
+        return 1.0
+
+    try:
+        degree = int(nodes[key])
+    except (TypeError, ValueError):
+        try:
+            degree = len(nodes[key])
+        except TypeError:
+            degree = 1
+    # Degree is a connectivity count, unbounded above. Map it to [0,1) with a
+    # saturating curve so a well-connected hub approaches 0 and a lone leaf
+    # stays near 1. Threshold-free and not tuned to one probe.
+    return 1.0 / (1.0 + max(0, degree))
+
+
 def _trim_url_match(url: str) -> str:
     """Trim sentence punctuation without dropping balanced URL parentheses."""
     url = url.rstrip(".,;:!?")
@@ -346,16 +451,19 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
         return None
 
     # 1) Uncertainty / curiosity: does RAVANA not know this topic?
-    # Only act when it's a genuine KNOWLEDGE gap (recall query about the world),
-    # not social chitchat ("how are you") or self/personal questions. Reuse the
-    # engine's own recall-query detector + self-subject gate so we don't web-
-    # search every casual message.
-    is_knowledge_query = True
-    try:
-        if hasattr(engine, "_is_recall_query"):
-            is_knowledge_query = bool(engine._is_recall_query(query))
-    except Exception:
-        is_knowledge_query = True
+    #
+    # A knowledge gap can only exist inside a QUESTION. "hello there",
+    # "thank you so much" and "i'm glad you liked it" assert nothing that could
+    # be wrong, so there is nothing for a search to close. This is interrogative
+    # SYNTAX (a wh-lead or subject-auxiliary inversion), not a topic list, so it
+    # generalises to any subject RAVANA has never seen.
+    #
+    # MEASURED: before this gate existed, `uncertainty_for()` returned a constant
+    # 1.0 for every input, so `uncertainty >= 0.5` was ALWAYS true and web_search
+    # fired on a bare greeting — stalling the turn ~16s on two serial socket
+    # timeouts. The interrogative test is what makes the curiosity signal
+    # reachable at all.
+    is_knowledge_query = _is_interrogative(q)
 
     # Suppress on self/personal/social questions (about RAVANA or the user) —
     # these are not world-knowledge gaps to ground via search.
@@ -375,12 +483,18 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
         is_personal = False
 
     topic = _extract_topic(q)
+    # Uncertainty from the engine's own curiosity signal, AND from how much of
+    # the topic the world-model actually represents. The curiosity value is a
+    # measured constant, so it cannot be the deciding evidence on its own; the
+    # graph reading is what makes the signal informative.
     uncertainty = 0.0
+    _engine_uncertainty = 0.0
     try:
         if topic and hasattr(engine, "curiosity_engine"):
-            uncertainty = float(engine.curiosity_engine.uncertainty_for(topic))
+            _engine_uncertainty = float(engine.curiosity_engine.uncertainty_for(topic))
     except Exception:
-        uncertainty = 0.0
+        _engine_uncertainty = 0.0
+    uncertainty = _topic_representation(engine, topic)
 
     # 2) Metacognitive mode: is RAVANA explicitly uncertain?
     meta_uncertain = False
@@ -394,7 +508,9 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
     if is_knowledge_query and not is_personal and (uncertainty >= 0.5 or meta_uncertain):
         return ToolCall(tool="web_search", arg=q,
                         reason=f"knowledge_query={is_knowledge_query} personal={is_personal} "
-                               f"curiosity_uncertainty={uncertainty:.2f} meta_uncertain={meta_uncertain}")
+                               f"representation_gap={uncertainty:.2f} "
+                               f"engine_uncertainty={_engine_uncertainty:.2f} "
+                               f"meta_uncertain={meta_uncertain}")
 
     # 2b) Noun-heuristic path: when a tool noun is present AND the query is
     # imperative-formed (starts with a verb, no question mark), fire the tool
