@@ -8843,6 +8843,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # assigned until later in process_turn), so we call the lightweight
         # miner rather than the full observe_user_query (which also does ToM /
         # correction side-effects and runs later with the real subject).
+        # REVISION MARKER (round 2026-10-04T0827Z, defect D1). Must be set
+        # BEFORE the miner runs, because the miner is what merges the newly
+        # stated value. Measured: mining happens here, and
+        # `_route_own_stance_inversion` only runs after it, so marking from
+        # there arrived too late — all three merges for the turn had already
+        # been treated as ordinary samples and the contradiction averaged to
+        # +0.0996, which the reply then rendered as "uncertain about" on both
+        # sides. The marker is turn-scoped and consumed by the merge it
+        # applies to, so setting it early is safe either way.
+        try:
+            self._mark_stance_revision(user_input)
+        except Exception:
+            pass
         self.user_model.mine_personal_facts(user_input)
 
         # Round 2026-09-05: contradiction-revision / stance inversion.

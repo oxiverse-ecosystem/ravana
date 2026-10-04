@@ -311,6 +311,14 @@ class UserStanceStore:
     # where "the user keeps saying this" saturates into "this is what the user
     # holds". One contrary mention still leaves an entrenched +1.0 at +0.655,
     # so a single passing utterance cannot flip a held attitude.
+    # Blend used when an expressed value CONTRADICTS a held stance. This
+    # is `recode_stance_toward`'s own default and the value the free-form
+    # contradiction path in `user_model` already passes, so the merge and
+    # that path recode a contradiction identically instead of each
+    # inventing its own strength. Measured: at 0.5 the stance landed on
+    # exactly 0.0000 (the old and new values cancel dead-centre), which is
+    # the very outcome the fix exists to prevent.
+    CONTRADICTION_BLEND = 0.7
     RETENTION_CAP: int = 4
 
     def __init__(self, decay_turns: int = 20):
@@ -323,6 +331,16 @@ class UserStanceStore:
         # consumed by the ack composer and cleared, never serialized as truth).
         # topic -> (old_polarity, new_polarity)
         self.last_reversal: Optional[Tuple[str, float, float]] = None
+        # One-shot REVISION MARKER set by the conversational layer (round
+        # 2026-10-04T0827Z, defect D1): topic -> True when the engine has
+        # decided the current utterance REPLACES a held stance rather than
+        # adding a sample to it. The store cannot see the conversational frame
+        # ("no actually i think X is underrated" after "i think X is
+        # underrated"), so the decision is handed down and consumed by the very
+        # next merge for that topic. Never serialised: a pending marker is a
+        # property of the current turn only, and a missed merge must not make
+        # the NEXT turn's opinion a revision.
+        self._revision_marked: set = set()
         # Idempotency guard keyed by the NORMALIZED UTTERANCE, not turn_num:
         # a concession/retraction is mined TWICE within one process_turn — once
         # by the early gate (mine_personal_facts @ engine.py:2977) and once by
@@ -362,11 +380,37 @@ class UserStanceStore:
 
     def advance_turn(self):
         self.turn_num += 1
+        # A revision mark is scoped to the turn it was set in (see the
+        # express_stance marker block) — a stale one must never make a later
+        # turn's ordinary opinion read as a change of mind.
+        try:
+            self._revision_marked.clear()
+        except AttributeError:
+            pass
+
+    def mark_revision(self, topic: str) -> None:
+        """Tell the store that the next merge on `topic` REPLACES the stance.
+
+        The conversational layer decides this, because it is the only place
+        that can see the frame: the user restating a view in reply to their own
+        ("no actually i think X is underrated" after "i think X is
+        underrated"). A bare opposite opinion with no such frame is NOT a
+        revision and keeps the weighted-mean behaviour, which is what lets an
+        entrenched read resist a single contrary mention.
+
+        Consumed by the next `express_stance` for this topic; see
+        `_revision_marked`.
+        """
+        try:
+            self._revision_marked.add(topic.lower().strip())
+        except Exception:
+            pass
 
     def express_stance(self, topic: str, polarity: float,
                        confidence: float = 0.5, valence: float = 0.0,
                        arousal: float = 0.0, source: str = "seed_regex",
-                       provenance: Optional[List[str]] = None) -> None:
+                       provenance: Optional[List[str]] = None,
+                       is_revision: bool = False) -> None:
         """Store or weighted-merge a stance on `topic`.
 
         Repeats shift polarity toward the new signal and raise confidence
@@ -379,6 +423,17 @@ class UserStanceStore:
         so the resolver/reversal miner can later bridge a broader co-mention
         back to this stance. Seed is an empty set; RAVANA grows it from real
         input and can revise it. No per-topic table, no retraining.
+
+        `is_revision` (round 2026-10-04T0827Z, defect D1) says the caller has
+        decided this expression REPLACES a held stance rather than adding a
+        sample to it — the user restated a view in reply to their own prior one
+        ("no actually i think X is underrated"). The decision belongs to the
+        conversational layer, which can see the frame; the store cannot, so it
+        is passed down rather than re-guessed. When it is True and the new
+        value opposes the held one, the delta rule applies (see the
+        CONTRADICTION block below). When it is False — the default, and what
+        every seed and every direct caller uses — an opposing value is simply
+        another observation and the weighted mean below is correct for it.
         """
         key = topic.lower().strip()
         _prov = [w.lower() for w in (provenance or []) if w]
@@ -390,6 +445,53 @@ class UserStanceStore:
                 turn_number=self.turn_num, rehearsal_count=1,
                 provenance=list(_prov))
             return
+        # CONTRADICTION vs REINFORCEMENT (round 2026-10-04T0827Z, defect D1).
+        #
+        # Everything below this line implements a weighted running mean, which
+        # is the right model for REPEATED expression of a similar attitude
+        # ("i like jazz" / "i really like jazz" -> firmer, entrenched). It is
+        # the WRONG model for an attitude CHANGE: an average of +0.8 and -0.8
+        # is +0.1, so the merge cannot represent "you changed your mind" at all
+        # — it can only average it away.
+        #
+        # Measured on this store: hold "i think public libraries are
+        # underrated" (+0.80), then state "no actually i think public libraries
+        # are overrated" (-0.8) and the merge landed on +0.0996. The
+        # retraction path downstream then flipped that near-zero to -0.0697 and
+        # the reply rendered both sides inside the low-magnitude band, announcing
+        # a revision that had not happened ("you used to say you were uncertain
+        # about public libraries, and now you're uncertain about").
+        #
+        # The delta rule already exists in this store for exactly this event
+        # (`recode_stance_toward`: "a clearly-stated reversal actually lands"),
+        # and `user_model` already calls it from its free-form path. The defect
+        # is that the MERGE never consulted it. Routing the sign conflict here —
+        # where the new polarity actually exists — fixes the class rather than
+        # patching the downstream render.
+        #
+        # Same-sign restatement is deliberately NOT taken here: it is
+        # reinforcement and the weighted mean below remains correct for it. The
+        # `source` of the contradicting expression is not consulted either: a
+        # seed and a real utterance are treated alike, because a stance can only
+        # be contradicted by something the user actually said.
+        # Marker handoff (round 2026-10-04T0827Z). A caller may also pass
+        # `is_revision` explicitly, which wins; otherwise read the mark the
+        # conversational layer left for this topic.
+        #
+        # The mark is spent ONLY by a merge that actually OPPOSES the held
+        # stance — the one it exists for. Taking it on sight was wrong: one
+        # turn mines the same topic several times (measured: three +0.8 passes
+        # before the -0.8), and the first incidental same-sign pass consumed
+        # the mark, so the contradicting merge found none and averaged as
+        # before. It is cleared by `advance_turn` instead, so a mark left
+        # unspent by a turn that never expressed the topic cannot make a later
+        # turn's bare opinion a revision.
+        _marked = key in self._revision_marked
+        if (is_revision or _marked) and self.opposes_held_polarity(
+                polarity, existing.polarity):
+            return self._apply_recode(topic, float(polarity),
+                                      self.CONTRADICTION_BLEND, None,
+                                      allow_repeat=bool(_marked))
         _n = existing.rehearsal_count + 1
         # BOUNDED INERTIA (round 2026-09-29T0823Z, residual defect D5).
         #
@@ -594,14 +696,14 @@ class UserStanceStore:
         if existing is None:
             return None
         # The arithmetic lives in `_apply_recode` (round 2026-10-04T0827Z): this
-                # method only decides WHICH value to move toward — the opposite pole of
-                # the held one, because a retraction states no new value of its own. The
-                # within-turn idempotency guard, the prior-trace record, the blend, the
-                # confidence relaxation and the `last_reversal` publish are all shared
-                # with `recode_stance_toward`, so a retraction and a contradiction cannot
-                # drift apart on the arithmetic.
-                blend = min(reversal_strength, 0.5) if getattr(self, "_soft_reversal", False) else reversal_strength
-                return self._apply_recode(key, -existing.polarity, blend, utterance)
+        # method only decides WHICH value to move toward — the opposite pole of
+        # the held one, because a retraction states no new value of its own. The
+        # within-turn idempotency guard, the prior-trace record, the blend, the
+        # confidence relaxation and the `last_reversal` publish are all shared
+        # with `recode_stance_toward`, so a retraction and a contradiction cannot
+        # drift apart on the arithmetic.
+        blend = min(reversal_strength, 0.5) if getattr(self, "_soft_reversal", False) else reversal_strength
+        return self._apply_recode(key, -existing.polarity, blend, utterance)
 
     def recode_stance_toward(self, topic: str, new_polarity: float,
                              blend: float = 0.7,
@@ -622,6 +724,65 @@ class UserStanceStore:
         a linked "you've changed your mind about X" acknowledgment (no authored
         reply string — the content comes from the recoded stance).
         """
+        # The arithmetic (guard, prior-trace record, blend, confidence
+        # relaxation, last_reversal publish) is shared with `reverse_stance` via
+        # `_apply_recode`. The ONLY difference between the two mechanisms is the
+        # value they move toward, and that difference is now confined to the two
+        # call sites above/below rather than duplicated across both bodies.
+        if self.stances.get(topic.lower().strip()) is None:
+            return None
+        return self._apply_recode(topic, new_polarity, blend, utterance)
+
+    # ── OPPOSING-SIGN DETECTION (round 2026-10-04T0827Z, defect D1) ──────
+    #
+    # `reverse_stance` is the RETRACTION mechanism ("i take it all back"): it
+    # flips a stance toward the pole OPPOSITE the one already held, because a
+    # retraction states NO new value. A CONTRADICTION is a different event —
+    # the user states a NEW value of the opposite sign ("no actually i think X
+    # is overrated"). Running the retraction mechanism on it cannot land the
+    # new value: there is nothing in the retraction to carry it.
+    #
+    # Measured (round 2026-10-04T0827Z, this store):
+    #   hold "i think public libraries are underrated"      -> +0.80 conf 0.58
+    #   then  "no actually i think public libraries are overrated"
+    #   weighted merge  -> +0.0996   (folds +0.8 and -0.8 together)
+    #   reverse_stance  -> -0.0697   (flips the ALREADY-CANCELLED value)
+    # so the -0.8 the user just stated was discarded and the store landed on a
+    # near-zero read, which the reply then rendered as "uncertain about" on
+    # BOTH sides ("you used to say you were uncertain about public libraries,
+    # and now you're uncertain about") — an announced revision that did not
+    # revise.
+    #
+    # The class-level distinction is the SIGN OF THE SIGNAL ABOUT TO BE APPLIED,
+    # not the topic and not the wording: an opposing-signed expression is a
+    # delta-rule update toward ITS OWN value, a same-signed or retraction cue
+    # is a flip toward the opposite pole. Both then share ONE recode so the two
+    # paths cannot disagree about the arithmetic.
+    @staticmethod
+    def opposes_held_polarity(polarity: float, held_polarity: float) -> bool:
+        """True when an expressed `polarity` contradicts the held value.
+
+        Only a genuine sign conflict counts. A magnitude move on the same side
+        ("i like it even more") is reinforcement, not contradiction, and is
+        already handled by the weighted merge.
+        """
+        try:
+            return float(polarity) * float(held_polarity) < 0.0
+        except (TypeError, ValueError):
+            return False
+
+    def _apply_recode(self, topic: str, new_polarity: float, blend: float,
+                      utterance: Optional[str],
+                      allow_repeat: bool = False) -> Optional[Stance]:
+        """Apply a delta-rule recode of `topic` toward `new_polarity`.
+
+        SINGLE SOURCE OF TRUTH for the recode arithmetic (round
+        2026-10-04T0827Z): `reverse_stance` and `recode_stance_toward` differ
+        only in WHICH value they move toward, and each previously carried its
+        own copy of the blend / confidence / provenance bookkeeping. `reverse_stance`
+        now delegates here, so a contradiction and a retraction cannot drift
+        apart on how much inertia a change is allowed to overcome.
+        """
         key = topic.lower().strip()
         existing = self.stances.get(key)
         if existing is None:
@@ -630,7 +791,37 @@ class UserStanceStore:
         _guard_key = _norm if _norm else self.turn_num
         if self._reversed_utterance.get(key) == _guard_key:
             return existing
+        # ONE ATTITUDE CHANGE PER TOPIC PER TURN (round 2026-10-04T0827Z).
+        #
+        # The guard above only catches a repeat that presents the SAME key, and
+        # the two writers of this turn present different ones: the merge
+        # (`express_stance`) has no utterance and so keys on the turn clock,
+        # while the retraction gate (`reverse_stance`) keys on the normalized
+        # utterance text. A contradiction is a cue to BOTH, so the stance was
+        # written twice in one turn — the merge recoded toward the newly stated
+        # value and the retraction then flipped that corrected value straight
+        # back, leaving the original defect in place.
+        #
+        # `allow_repeat` is the one exception, and it exists because a single
+        # contradicting UTTERANCE is expressed by several miners in one turn
+        # with different polarities (measured: -0.45 from the evaluative
+        # miner, then -0.8 from the lexical miner). Those are all the same
+        # revision, so each recodes toward its own value and the last — the
+        # strongest reading — is where the stance lands. Only the marked
+        # merge passes it; the retraction gate never does.
+        #
+        # The invariant is about the EVENT, not the key: a topic's attitude
+        # changes once per turn, whoever initiates it. Keyed on the turn clock so
+        # it holds across both writers, and independent of the utterance guard
+        # above (which still does its own job of suppressing a re-mine of the
+        # same utterance after the clock advanced).
+        if getattr(self, "_recode_turn", None) is None:
+            self._recode_turn = {}
+        if self._recode_turn.get(key) == self.turn_num and not allow_repeat:
+            return existing
+        self._recode_turn[key] = self.turn_num
         old_polarity = existing.polarity
+        old_confidence = existing.confidence
         # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating (see
         # reverse_stance for the rationale: feature round 2026-08-21T1653Z).
         if old_polarity >= 0.6:
@@ -645,13 +836,12 @@ class UserStanceStore:
             _prior_word = "uncertain about"
         existing.prior_polarity = old_polarity
         existing.prior_stance = f"{_prior_word} {key}"
-        # Decisive recode toward the newly-stated value (bounded blend).
         _b = max(0.0, min(1.0, blend))
         existing.polarity = old_polarity * (1.0 - _b) + float(new_polarity) * _b
-        # A contradiction injects uncertainty about the prior value, so confidence
+        # Attitude change injects uncertainty about the prior value, so confidence
         # relaxes toward the new read rather than staying pinned at the old peak.
         existing.confidence = max(0.15,
-                                  existing.confidence * (1.0 - _b * 0.5)
+                                  old_confidence * (1.0 - _b * 0.5)
                                   + 0.15 * _b)
         existing.rehearsal_count += 1
         existing.turn_number = self.turn_num
@@ -659,95 +849,9 @@ class UserStanceStore:
         self.last_reversal = (existing.topic, old_polarity, existing.polarity)
         return existing
 
-    # ── OPPOSING-SIGN DETECTION (round 2026-10-04T0827Z, defect D1) ──────
-        #
-        # `reverse_stance` is the RETRACTION mechanism ("i take it all back"): it
-        # flips a stance toward the pole OPPOSITE the one already held, because a
-        # retraction states NO new value. A CONTRADICTION is a different event —
-        # the user states a NEW value of the opposite sign ("no actually i think X
-        # is overrated"). Running the retraction mechanism on it cannot land the
-        # new value: there is nothing in the retraction to carry it.
-        #
-        # Measured (round 2026-10-04T0827Z, this store):
-        #   hold "i think public libraries are underrated"      -> +0.80 conf 0.58
-        #   then  "no actually i think public libraries are overrated"
-        #   weighted merge  -> +0.0996   (folds +0.8 and -0.8 together)
-        #   reverse_stance  -> -0.0697   (flips the ALREADY-CANCELLED value)
-        # so the -0.8 the user just stated was discarded and the store landed on a
-        # near-zero read, which the reply then rendered as "uncertain about" on
-        # BOTH sides ("you used to say you were uncertain about public libraries,
-        # and now you're uncertain about") — an announced revision that did not
-        # revise.
-        #
-        # The class-level distinction is the SIGN OF THE SIGNAL ABOUT TO BE APPLIED,
-        # not the topic and not the wording: an opposing-signed expression is a
-        # delta-rule update toward ITS OWN value, a same-signed or retraction cue
-        # is a flip toward the opposite pole. Both then share ONE recode so the two
-        # paths cannot disagree about the arithmetic.
-        @staticmethod
-        def opposes_held_polarity(polarity: float, held_polarity: float) -> bool:
-            """True when an expressed `polarity` contradicts the held value.
-
-            Only a genuine sign conflict counts. A magnitude move on the same side
-            ("i like it even more") is reinforcement, not contradiction, and is
-            already handled by the weighted merge.
-            """
-            try:
-                return float(polarity) * float(held_polarity) < 0.0
-            except (TypeError, ValueError):
-                return False
-
-        def _apply_recode(self, topic: str, new_polarity: float, blend: float,
-                          utterance: Optional[str]) -> Optional[Stance]:
-            """Apply a delta-rule recode of `topic` toward `new_polarity`.
-
-            SINGLE SOURCE OF TRUTH for the recode arithmetic (round
-            2026-10-04T0827Z): `reverse_stance` and `recode_stance_toward` differ
-            only in WHICH value they move toward, and each previously carried its
-            own copy of the blend / confidence / provenance bookkeeping. `reverse_stance`
-            now delegates here, so a contradiction and a retraction cannot drift
-            apart on how much inertia a change is allowed to overcome.
-            """
-            key = topic.lower().strip()
-            existing = self.stances.get(key)
-            if existing is None:
-                return None
-            _norm = re.sub(r"\s+", " ", (utterance or "").lower().strip())
-            _guard_key = _norm if _norm else self.turn_num
-            if self._reversed_utterance.get(key) == _guard_key:
-                return existing
-            old_polarity = existing.polarity
-            old_confidence = existing.confidence
-            # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating (see
-            # reverse_stance for the rationale: feature round 2026-08-21T1653Z).
-            if old_polarity >= 0.6:
-                _prior_word = "strongly for"
-            elif old_polarity > 0.1:
-                _prior_word = "for"
-            elif old_polarity <= -0.6:
-                _prior_word = "strongly against"
-            elif old_polarity < -0.1:
-                _prior_word = "against"
-            else:
-                _prior_word = "uncertain about"
-            existing.prior_polarity = old_polarity
-            existing.prior_stance = f"{_prior_word} {key}"
-            _b = max(0.0, min(1.0, blend))
-            existing.polarity = old_polarity * (1.0 - _b) + float(new_polarity) * _b
-            # Attitude change injects uncertainty about the prior value, so confidence
-            # relaxes toward the new read rather than staying pinned at the old peak.
-            existing.confidence = max(0.15,
-                                      old_confidence * (1.0 - _b * 0.5)
-                                      + 0.15 * _b)
-            existing.rehearsal_count += 1
-            existing.turn_number = self.turn_num
-            self._reversed_utterance[key] = _guard_key
-            self.last_reversal = (existing.topic, old_polarity, existing.polarity)
-            return existing
-
-        def _decay_score(self, s: Stance) -> float:
-            recency = 1.0 / (1.0 + (self.turn_num - s.turn_number) * 0.25)
-            return s.confidence * recency
+    def _decay_score(self, s: Stance) -> float:
+        recency = 1.0 / (1.0 + (self.turn_num - s.turn_number) * 0.25)
+        return s.confidence * recency
 
     def prune_stale(self, min_confidence: float = 0.3,
                     stale_after: int = 8) -> int:

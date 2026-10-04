@@ -24,6 +24,38 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 
 from collections import deque, Counter
 
+# SELF-STANCE REVISION CUE (round 2026-10-04T0827Z, defect D1).
+#
+# One definition of "this utterance REPLACES a stance RAVANA already holds",
+# shared by the two sites that need it:
+#   * `_mark_stance_revision` — tells the stance store to apply the delta rule
+#     instead of averaging, and must run BEFORE the miner;
+#   * `_route_own_stance_inversion` — performs the retraction.
+#
+# Previously the pattern was an inline literal in the router only. Extracted so
+# the marker and the retraction cannot disagree about what counts as a
+# revision — the same "one predicate, not three copies" shape as the
+# source-monitoring gate fixed earlier this round.
+#
+# It is a seed STRUCTURE (a closed set of revision speech acts: concession,
+# recant, negation-of-a-prior-view). No topic is named, and the topic is always
+# resolved against the live stance store, so nothing here is an answer table
+# and an unenumerated phrasing simply does not match — it falls through to the
+# honest weighted mean.
+_SELF_STANCE_REVISION_CUE = (
+    r"\b(actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
+    r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
+    r"i\s+don'?t\s+think\s+so\s+anymore|"
+    r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
+    r"i\s+(?:actually\s+)?(?:hate|dislike|loathe|detest|can'?t\s+stand)|"
+    r"i\s+was\s+(?:too\s+)?(?:hasty|quick|wrong)|"
+    r"i\s+think\s+differently\s+now|"
+    r"i'?ve\s+(?:changed|reversed)\s+(?:my\s+)?(?:mind|position|stance)|"
+    r"i\s+(?:take|am\s+taking)\s+it\s+all\s+back|"
+    r"i\s+don'?t\s+feel\s+that\s+way\s+anymore)\b"
+)
+
+
 # Import constants from shared module
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 sys.path.insert(0, _proj_root)
@@ -482,6 +514,52 @@ class SelfQueryMixin:
         # none, so return the honest fallback WITHOUT recording.
         return (_stance, _reason)
 
+    def _mark_stance_revision(self, user_input: str) -> None:
+        """Mark the held stance this utterance REPLACES, before the miner runs.
+
+        Round 2026-10-04T0827Z, defect D1. The conversational layer is the only
+        place that can tell a revision from another sample: the user is
+        restating a view in reply to their own ("no actually i think X is
+        overrated" after "i think X is underrated"). The stance store sees only
+        a polarity, so it must be told.
+
+        This uses the SAME `_natural_contradiction` regex and the SAME
+        `_resolve_natural_contradiction_topic` resolver as
+        `_route_own_stance_inversion` — there is one definition of "this is a
+        revision", not two that can drift. It is called before
+        `mine_personal_facts` because the miner is what performs the merge; a
+        mark set afterwards is a mark set too late (measured).
+
+        A bare opposite opinion carries no such frame and is left alone, which
+        is what keeps an entrenched read resistant to one contrary mention.
+        Marking is idempotent and turn-scoped, so a false positive here cannot
+        compound: without a genuine opposing value in the same turn the merge
+        never consults it.
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return
+        _cue = re.search(_SELF_STANCE_REVISION_CUE, t)
+        if not _cue:
+            return
+        _rest = t[_cue.end():].strip()
+        _rest = re.sub(
+            r"^(?:i\s+(?:think\s+|feel\s+|now\s+)?|about\s+|on\s+|"
+            r"regarding\s+|that\s+|i\s+(?:now\s+)?(?:think\s+|feel\s+|"
+            r"am\s+(?:now\s+)?|have\s+)?)", "", _rest).strip()
+        _rest = re.sub(
+            r"\s+(?:is\s+)?(?:disgusting|terrible|awful|horrible|bad|wrong|"
+            r"not\s+so\s+good|i\s+think\s+so|anymore|now|though)\s*$",
+            "", _rest).strip()
+        if not _rest:
+            return
+        _topic = self._resolve_natural_contradiction_topic(_rest, t)
+        if _topic is None:
+            return
+        _store = getattr(self.user_model, "opinions", None)
+        if _store is not None and hasattr(_store, "mark_revision"):
+            _store.mark_revision(_topic)
+
     def _route_own_stance_inversion(self, user_input: str) -> Optional[str]:
         """Detect contradiction-revision intent and invert RAVANA's own stance.
 
@@ -516,18 +594,7 @@ class SelfQueryMixin:
         # retracts or reverses a prior stance WITHOUT an explicit
         # "argue the opposite" command. One structural regex — the topic
         # is resolved from the utterance, not hardcoded.
-        _natural_contradiction = re.search(
-            r"\b(actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
-            r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
-            r"i\s+don'?t\s+think\s+so\s+anymore|"
-            r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
-            r"i\s+(?:actually\s+)?(?:hate|dislike|loathe|detest|can'?t\s+stand)|"
-            r"i\s+was\s+(?:too\s+)?(?:hasty|quick|wrong)|"
-            r"i\s+think\s+differently\s+now|"
-            r"i'?ve\s+(?:changed|reversed)\s+(?:my\s+)?(?:mind|position|stance)|"
-            r"i\s+(?:take|am\s+taking)\s+it\s+all\s+back|"
-            r"i\s+don'?t\s+feel\s+that\s+way\s+anymore)\b",
-            t)
+        _natural_contradiction = re.search(_SELF_STANCE_REVISION_CUE, t)
         if not _inversion and not _natural_contradiction:
             return None
         # When only the natural-contradiction signal matched, extract the
