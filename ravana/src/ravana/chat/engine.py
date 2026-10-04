@@ -9031,26 +9031,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _stt, _st_r = self._agent_stance_on(_st)
                             _phrases.append(_stt)
                         stance = "; ".join(_phrases)
-                        reason = ""
                         back = " what about you?"
-                        _reason = reason.rstrip()
-                        if _reason and not _reason.endswith((".", "!", "?")):
-                            _reason += "."
-                        response = f"{stance}{(' ' + _reason) if _reason else ''}{back}".replace("  ", " ")
+                        response = f"{stance}{back}".replace("  ", " ")
                     else:
-                        stance, reason = self._agent_stance_on(target)
+                        _st, _rs = self._agent_stance_on(target)
                         back = " what about you?"
-                        _reason = reason.rstrip()
-                        if _reason and not _reason.endswith((".", "!", "?")):
-                            _reason += "."
-                        response = f"{stance} {_reason}{back}"
+                        response = f"{self._join_stance_clauses(_st, _rs)}{back}"
                 else:
-                    stance, reason = self._agent_stance_on(target)
+                    _st, _rs = self._agent_stance_on(target)
                     back = " what about you?"
-                    _reason = reason.rstrip()
-                    if _reason and not _reason.endswith((".", "!", "?")):
-                        _reason += "."
-                    response = f"{stance} {_reason}{back}"
+                    response = f"{self._join_stance_clauses(_st, _rs)}{back}"
 
             elif m_agent_interests:
                 response = ("i'm interested in how minds and meaning work — that's "

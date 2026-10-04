@@ -514,6 +514,41 @@ class SelfQueryMixin:
         # none, so return the honest fallback WITHOUT recording.
         return (_stance, _reason)
 
+    @staticmethod
+    def _join_stance_clauses(stance: Any, reason: Any) -> str:
+        """Join a stance sentence and its reason into one reply.
+
+        SINGLE SOURCE OF TRUTH for this composition (round 2026-10-04T0827Z,
+        defect D2). The pair returned by `_agent_stance_on` is fine; joining it
+        was re-implemented at four sites and three of them were wrong — they
+        terminated only the reason and joined with a bare space, so an
+        unterminated stance clause ran into the reason and the topic was named
+        twice:
+
+            "i'm still forming a view on X i don't have a fixed stance on X yet"
+
+        while the one correct site stripped the stance's terminator first and
+        read "i'm still forming a view on X. i don't have a fixed stance on X
+        yet".
+
+        The reason keeps its own lower-case continuation ("i don't ...", "it is
+        ...") — it CONTINUES the sentence, so force-capitalizing it would read
+        "Is a basic right" (a defect this same helper's comment records from an
+        earlier round). Nothing here is authored per-topic: both halves come
+        from the caller.
+        """
+        if stance is None:
+            return ""
+        _s = str(stance).strip()
+        _r = str(reason).strip() if reason else ""
+        if not _r:
+            return _s if _s.endswith((".", "!", "?")) else (_s + "." if _s else "")
+        _s = _s.rstrip(".?!")
+        if not _s:
+            return _r
+        _r = _r if _r.endswith((".", "!", "?")) else _r + "."
+        return f"{_s}. {_r}"
+
     def _mark_stance_revision(self, user_input: str) -> None:
         """Mark the held stance this utterance REPLACES, before the miner runs.
 
@@ -1703,20 +1738,14 @@ class SelfQueryMixin:
             # than inventing a stance about nothing. No authored fallback needed.
             if _stance is None:
                 return None
-            # The stance sentence and its reason are two clauses — join them
-            # with a clear separator so a value-grounded reply reads as
-            # "i care deeply about privacy. that is a basic right..." rather
-            # than running the words together.
-            _stance = _stance.rstrip(".?!")
-            # The reason is a CONTINUATION of the stance sentence (joined after
-            # ". "), so it must NOT be force-capitalized — doing so produced
-            # "i care deeply about privacy. Is a basic right" (the seed reason
-            # "privacy is a basic right..." was stripped of its topic word,
-            # leaving "is a basic right", then wrongly capitalized to "Is").
-            # Keep the reason's natural (lower-case-continuation) case.
-            _answer = f"{_stance}. {_reason}".strip()
-            if not _answer.endswith((".", "!", "?")):
-                _answer += "."
+            # Compose the two clauses through the ONE joiner (round
+            # 2026-10-04T0827Z, defect D2), which carries the reasoning this
+            # inline copy used to: the two clauses are joined with ". " rather
+            # than run together, and the reason keeps its natural
+            # lower-case continuation (force-capitalizing it produced "i care
+            # deeply about privacy. Is a basic right"). The other three sites
+            # that composed the same pair had their own, wronger copies.
+            _answer = self._join_stance_clauses(_stance, _reason)
             # Do NOT overwrite the canonical self-description (`who are you`)
             # with a transient value opinion. The agent-claim store is the
             # source for "what did you say about who you are"; clobbering it
