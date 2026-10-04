@@ -6383,7 +6383,7 @@ class UserModel:
         # structure. Grammatical (interrogative punctuation, wh-words,
         # auxiliaries, request verbs) — not a phrase list, and no topic is
         # named, so an unenumerated question form still qualifies.
-        if self._previous_user_query and self._is_reask(q_clean):
+        if self._previous_user_query and _is_reask(q_clean):
             prev_words = set(self._previous_user_query.lower().split())
             curr_words = set(q_clean.split())
             overlap = len(prev_words & curr_words) / max(1, len(prev_words | curr_words))

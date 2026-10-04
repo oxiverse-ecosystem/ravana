@@ -106,6 +106,17 @@ def test_repeated_declaration_is_not_flagged_as_a_correction():
     eng.process_turn("i think lighthouses are underrated")
     eng.process_turn("i think lighthouses are underrated")
     assert not seen, f"a repeated declaration was flagged as a correction: {seen!r}"
+
+    # MEASURED SCOPE, recorded rather than assumed: `_detect_correction` is
+    # never reached for an interrogative turn — the engine answers a question
+    # through the recall path and returns first (verified by spying on the
+    # call: an all-question sequence produces NO calls, a declaration sequence
+    # produces one per turn). So the re-ask stream only ever sees declarations,
+    # which is exactly why the unguarded overlap test was wrong everywhere it
+    # mattered. The `_is_reask` assertions above pin the predicate in both
+    # directions; this test pins the observable end-to-end property.
+    eng.process_turn("what is my lighthouses")
+    assert not seen, f"a question was flagged as a correction: {seen!r}"
     try:
         eng.stop_background_learning()
     except Exception:
