@@ -593,47 +593,15 @@ class UserStanceStore:
         existing = self.stances.get(key)
         if existing is None:
             return None
-        # Already reversed this SAME utterance / this turn's mining epoch.
-        # Key = normalized utterance when one is supplied (so repeated mining
-        # of the same utterance idempotently suppresses even when the fact-store
-        # clock advanced between the two mining calls within a process_turn),
-        # else fall back to the turn clock (original unit-level within-turn
-        # idempotency for direct callers that pass no utterance).
-        _norm = re.sub(r"\s+", " ", (utterance or "").lower().strip())
-        _guard_key = _norm if _norm else self.turn_num
-        if self._reversed_utterance.get(key) == _guard_key:
-            return existing
-        old_polarity = existing.polarity
-        old_confidence = existing.confidence
-        # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating, so
-        # a later "what was my original take / did i used to love X" recall can
-        # read the user's OWN prior stance (feature round 2026-08-21T1653Z).
-        # The string is rendered from the live value, not authored prose.
-        if old_polarity >= 0.6:
-            _prior_word = "strongly for"
-        elif old_polarity > 0.1:
-            _prior_word = "for"
-        elif old_polarity <= -0.6:
-            _prior_word = "strongly against"
-        elif old_polarity < -0.1:
-            _prior_word = "against"
-        else:
-            _prior_word = "uncertain about"
-        existing.prior_polarity = old_polarity
-        existing.prior_stance = f"{_prior_word} {key}"
-        # Softening relaxes toward neutral; hard recant flips decisively. A
-        # partial reversal never crosses the pivot, so "olives aren't that bad"
-        # lands near neutral instead of converting the user into an olive-lover.
-        blend = min(reversal_strength, 0.5) if getattr(self, "_soft_reversal", False) else reversal_strength
-        pivot = -old_polarity
-        existing.polarity = old_polarity * (1.0 - blend) + pivot * blend
-        # Attitude change injects uncertainty: drop confidence toward the pivot.
-        existing.confidence = max(0.1, existing.confidence * (1.0 - blend * 0.6))
-        existing.rehearsal_count += 1
-        existing.turn_number = self.turn_num
-        self._reversed_utterance[key] = _guard_key
-        self.last_reversal = (existing.topic, old_polarity, existing.polarity)
-        return existing
+        # The arithmetic lives in `_apply_recode` (round 2026-10-04T0827Z): this
+                # method only decides WHICH value to move toward — the opposite pole of
+                # the held one, because a retraction states no new value of its own. The
+                # within-turn idempotency guard, the prior-trace record, the blend, the
+                # confidence relaxation and the `last_reversal` publish are all shared
+                # with `recode_stance_toward`, so a retraction and a contradiction cannot
+                # drift apart on the arithmetic.
+                blend = min(reversal_strength, 0.5) if getattr(self, "_soft_reversal", False) else reversal_strength
+                return self._apply_recode(key, -existing.polarity, blend, utterance)
 
     def recode_stance_toward(self, topic: str, new_polarity: float,
                              blend: float = 0.7,
@@ -691,9 +659,95 @@ class UserStanceStore:
         self.last_reversal = (existing.topic, old_polarity, existing.polarity)
         return existing
 
-    def _decay_score(self, s: Stance) -> float:
-        recency = 1.0 / (1.0 + (self.turn_num - s.turn_number) * 0.25)
-        return s.confidence * recency
+    # ── OPPOSING-SIGN DETECTION (round 2026-10-04T0827Z, defect D1) ──────
+        #
+        # `reverse_stance` is the RETRACTION mechanism ("i take it all back"): it
+        # flips a stance toward the pole OPPOSITE the one already held, because a
+        # retraction states NO new value. A CONTRADICTION is a different event —
+        # the user states a NEW value of the opposite sign ("no actually i think X
+        # is overrated"). Running the retraction mechanism on it cannot land the
+        # new value: there is nothing in the retraction to carry it.
+        #
+        # Measured (round 2026-10-04T0827Z, this store):
+        #   hold "i think public libraries are underrated"      -> +0.80 conf 0.58
+        #   then  "no actually i think public libraries are overrated"
+        #   weighted merge  -> +0.0996   (folds +0.8 and -0.8 together)
+        #   reverse_stance  -> -0.0697   (flips the ALREADY-CANCELLED value)
+        # so the -0.8 the user just stated was discarded and the store landed on a
+        # near-zero read, which the reply then rendered as "uncertain about" on
+        # BOTH sides ("you used to say you were uncertain about public libraries,
+        # and now you're uncertain about") — an announced revision that did not
+        # revise.
+        #
+        # The class-level distinction is the SIGN OF THE SIGNAL ABOUT TO BE APPLIED,
+        # not the topic and not the wording: an opposing-signed expression is a
+        # delta-rule update toward ITS OWN value, a same-signed or retraction cue
+        # is a flip toward the opposite pole. Both then share ONE recode so the two
+        # paths cannot disagree about the arithmetic.
+        @staticmethod
+        def opposes_held_polarity(polarity: float, held_polarity: float) -> bool:
+            """True when an expressed `polarity` contradicts the held value.
+
+            Only a genuine sign conflict counts. A magnitude move on the same side
+            ("i like it even more") is reinforcement, not contradiction, and is
+            already handled by the weighted merge.
+            """
+            try:
+                return float(polarity) * float(held_polarity) < 0.0
+            except (TypeError, ValueError):
+                return False
+
+        def _apply_recode(self, topic: str, new_polarity: float, blend: float,
+                          utterance: Optional[str]) -> Optional[Stance]:
+            """Apply a delta-rule recode of `topic` toward `new_polarity`.
+
+            SINGLE SOURCE OF TRUTH for the recode arithmetic (round
+            2026-10-04T0827Z): `reverse_stance` and `recode_stance_toward` differ
+            only in WHICH value they move toward, and each previously carried its
+            own copy of the blend / confidence / provenance bookkeeping. `reverse_stance`
+            now delegates here, so a contradiction and a retraction cannot drift
+            apart on how much inertia a change is allowed to overcome.
+            """
+            key = topic.lower().strip()
+            existing = self.stances.get(key)
+            if existing is None:
+                return None
+            _norm = re.sub(r"\s+", " ", (utterance or "").lower().strip())
+            _guard_key = _norm if _norm else self.turn_num
+            if self._reversed_utterance.get(key) == _guard_key:
+                return existing
+            old_polarity = existing.polarity
+            old_confidence = existing.confidence
+            # Record the PRE-RECODE opinion as an episodic trace BEFORE mutating (see
+            # reverse_stance for the rationale: feature round 2026-08-21T1653Z).
+            if old_polarity >= 0.6:
+                _prior_word = "strongly for"
+            elif old_polarity > 0.1:
+                _prior_word = "for"
+            elif old_polarity <= -0.6:
+                _prior_word = "strongly against"
+            elif old_polarity < -0.1:
+                _prior_word = "against"
+            else:
+                _prior_word = "uncertain about"
+            existing.prior_polarity = old_polarity
+            existing.prior_stance = f"{_prior_word} {key}"
+            _b = max(0.0, min(1.0, blend))
+            existing.polarity = old_polarity * (1.0 - _b) + float(new_polarity) * _b
+            # Attitude change injects uncertainty about the prior value, so confidence
+            # relaxes toward the new read rather than staying pinned at the old peak.
+            existing.confidence = max(0.15,
+                                      old_confidence * (1.0 - _b * 0.5)
+                                      + 0.15 * _b)
+            existing.rehearsal_count += 1
+            existing.turn_number = self.turn_num
+            self._reversed_utterance[key] = _guard_key
+            self.last_reversal = (existing.topic, old_polarity, existing.polarity)
+            return existing
+
+        def _decay_score(self, s: Stance) -> float:
+            recency = 1.0 / (1.0 + (self.turn_num - s.turn_number) * 0.25)
+            return s.confidence * recency
 
     def prune_stale(self, min_confidence: float = 0.3,
                     stale_after: int = 8) -> int:
