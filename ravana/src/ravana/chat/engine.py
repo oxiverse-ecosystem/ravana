@@ -2964,6 +2964,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        # (0y) SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). A query
+        # asking about RAVANA's OWN prior speech ("what did you just tell me
+        # about pantographs?") must never be answered out of the USER's
+        # disclosure store. The generic self-profile summary further down is
+        # exactly such an answer: it returned a dump of the user's bike, cat
+        # and uncle for a question about RAVANA's own words — the speaker
+        # inversion this resolver's own docstring warns about. The agent-reply
+        # gate runs FIRST in process_turn; when it finds nothing for this topic
+        # (it fails closed), the honest outcome is uncertainty, so this
+        # resolver returns None and lets the turn continue. Structural
+        # predicate, shared with the recall gate — no per-topic branch.
+        if self._is_agent_self_recall_query(q):
+            return None
         # (0z) COMPOUND / MULTI-PART QUERY DECOMPOSITION (round 2026-08-22T0703Z
         # residual). The resolvers below are single-shot: a compound
         # interrogative ("what's my ferret's name and what does he do with my
@@ -6122,6 +6135,67 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    def _is_agent_self_recall_query(self, user_input: str) -> bool:
+        """True when `user_input` asks about RAVANA's OWN prior speech.
+
+        SINGLE SOURCE OF TRUTH for the agent-self-recall gate. Extracted from
+        the head of `_route_agent_own_recall` (round 2026-10-04T0827Z) so the
+        recall gate and the structured-recall top guard AGREE by construction
+        instead of keeping two hand-maintained copies of the same regexes.
+
+        The gate is STRUCTURAL, not per-topic: deictic agent reference
+        ("you/your") + a recall/reference verb, and NOT a first-person
+        user-disclosure recall ("what did I tell you about my sister"), which
+        lives in the user stores.
+
+        Why a shared predicate (source-monitoring defect): an agent-self-recall
+        whose TOPIC misses the AgentReplyStore used to fall straight through the
+        fail-open recall gate into `_structured_recall`, which then answered it
+        from the USER's disclosure store — the same speaker inversion
+        `_route_agent_own_recall` exists to prevent, just via a different
+        route. Callers use this predicate to keep an unanswered self-recall out
+        of the user channel and let it reach honest uncertainty instead.
+        """
+        _q = (user_input or "").lower().strip()
+        if not _q:
+            return False
+        # Agent-self-speech recall: must reference the agent ("you/your") AND a
+        # recall/reference verb, so plain world/opinion questions are untouched.
+        _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
+        _recall_v = bool(re.search(
+            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+            r"stated|answered|replied|remember|recall|earlier|before|"
+            r"said about|say about|tell me about what you)\b", _q))
+        if not (_agent_ref and _recall_v):
+            return False
+        # Do NOT intercept USER-disclosure recalls: "what did I tell you about my
+        # sister", "what do I think of X", "what have I said about Y" ask about the
+        # USER's own facts/stances, which live in the user stores.
+        #
+        # GENERALIZED (round 2026-10-04T0827Z, post-fix A/B): the exemption is
+        # decided by the GRAMMATICAL SPEAKER of the disclosure — the user as
+        # subject of a disclosure/stance verb — not by a topic-noun list. Two
+        # measured misclassifications came from the old topic clause
+        # (`my (sister|brother|...)`, and a bare `do you remember (what|when) i`):
+        #   * "what did you say about my sister" (AGENT's speech, about a
+        #     user-channel topic) was routed to the user store;
+        #   * "do you remember what i asked you first" (a question the USER
+        #     directed at RAVANA — agent-channel conversation, NOT a user
+        #     disclosure) was answered with the user's bike/uncle fact dump.
+        # Both are speaker/verb mismatches. Requiring the user to be the
+        # grammatical subject of a disclosure verb classifies both correctly and
+        # is class-level: any verb/topic nobody enumerated still routes by
+        # speaker. Note "asked" is deliberately NOT a disclosure verb here — the
+        # user ASKING RAVANA is agent-channel material.
+        return not bool(re.search(
+            r"\b((what|which|who|where|when|how) (i|we) (told|said|say|mention|"
+            r"mentioned|share|shared|describe|described|explain|explained)|"
+            r"what (do|did|have) i (think|feel|like|love|hate|believe|know|"
+            r"remember|recall|tell you|said|told)|"
+            r"what (am|was|are|were) i|how (do|did) i (feel|think)|"
+            r"do you remember (what|when) i (told|said|say|mention|mentioned|"
+            r"share|shared|think|feel|believe|like|love|hate|know|recall))\b", _q))
+
     def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
         
         """Answer a cued recall about RAVANA's OWN prior speech from the
@@ -6147,28 +6221,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _q = (user_input or "").lower().strip()
         if not _q:
             return None
-        # Agent-self-speech recall: must reference the agent ("you/your") AND a
-        # recall/reference verb, so plain world/opinion questions are untouched.
-        _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
-        _recall_v = bool(re.search(
-            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
-            r"stated|answered|replied|remember|recall|earlier|before|"
-            r"said about|say about|tell me about what you)\b", _q))
-        if not (_agent_ref and _recall_v):
-            return None
-        # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
-        # sister", "what do I think of X", "what have I said about Y" ask about the
-        # USER's own facts/stances, which live in the user stores — not RAVANA's
-        # speech. Intercepting them here would misroute to the agent-reply store
-        # and surface the wrong speaker (a self/other boundary inversion). Let them
-        # fall through to the user-fact / stance recall paths. Structural
-        # (first-person + disclosure verb), no per-topic table.
-        _user_disclosure_recall = bool(re.search(
-            r"\b(what did i (tell|say|mention|share)|what (do|did) i (think|feel|like|"
-            r"love|hate|believe|know|remember|recall|tell you)|what have i (said|"
-            r"told|mentioned|shared)|what (am|was) i|how (do|did) i (feel|think)|"
-            r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
-        if _user_disclosure_recall:
+        # Gate lives in `_is_agent_self_recall_query` — ONE definition shared with
+        # the structured-recall top guard, so the two can never disagree about
+        # what counts as an agent-self-recall (round 2026-10-04T0827Z).
+        if not self._is_agent_self_recall_query(_q):
             return None
         # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
         # you about my favorite food" is a user recall query, but the answer the
@@ -6975,6 +7031,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self.notify_user_idle()
                     self._identity_end_of_turn(user_input, quality_score=None)
                     return _tresp
+
+        # SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). An agent-self-recall
+        # ("what did you just tell me about pantographs?") asks about RAVANA's OWN
+        # speech. It runs BEFORE the structured-recall top guard below so it can
+        # never be answered out of the USER's disclosure store: when its topic is
+        # not in the AgentReplyStore the recall gate fails CLOSED (None) and the
+        # turn proceeds to honest uncertainty, instead of echoing the user's own
+        # facts back as if they were RAVANA's earlier words. Measured this round —
+        # the query returned a dump of the user's bike, cat and uncle. Ordering by
+        # the SHARED `_is_agent_self_recall_query` predicate, so this gate and
+        # the recall gate can never disagree about what the class is.
+        try:
+            if self._is_agent_self_recall_query(user_input):
+                _own_first = self._route_agent_own_recall(user_input)
+                if _own_first is not None:
+                    self._last_strategy = "agent_own_recall"
+                    self._last_responses.append(_own_first)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self._record_own_reply(user_input, _own_first, subject)
+                    self.notify_user_idle()
+                    return _own_first
+        except Exception:
+            pass
 
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
         # Answers user-fact / user-stance queries ("what's my name", "where do

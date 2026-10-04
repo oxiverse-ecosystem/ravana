@@ -2528,6 +2528,22 @@ class MemoryMixin:
             _claim = getattr(self, "_agent_claims", {}).get("self")
             if _claim:
                 return _claim
+        # SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). This function's
+        # own `_agent_self_recall` above only recognises a few fixed phrasings
+        # ("what did you say", "earlier you described yourself"), so the broader
+        # class — "what did you just tell me about pantographs", "what did you
+        # say about zylophones" — fell through to the GENERIC self-profile
+        # branch below, which answers from the USER's disclosure store. Measured:
+        # it replied "i don't think you've told me much about yourself yet" to a
+        # question about RAVANA's OWN words: the user/agent speaker inversion
+        # again, one layer down. `process_turn` runs `_route_agent_own_recall`
+        # (the authoritative, store-backed recall of RAVANA's real prior speech)
+        # BEFORE this function, so when we get here with no agent answer the
+        # topic was genuinely absent — fail CLOSED and let the honest path run.
+        # The decision uses the SHARED predicate so this gate, the recall gate
+        # and `_structured_recall` cannot disagree about the class.
+        if self._is_agent_self_recall_query(user_input):
+            return None
         # D3 (round v3): self-attribute EXISTENCE questions ("am i a doctor",
         # "are you a vegetarian", "was i your friend"). These ask whether a
         # specific attribute is TRUE of the user, so the answer must come from
