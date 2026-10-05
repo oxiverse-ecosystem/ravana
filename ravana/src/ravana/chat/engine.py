@@ -6221,17 +6221,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # is class-level: any verb/topic nobody enumerated still routes by
         # speaker. Note "asked" is deliberately NOT a disclosure verb here — the
         # user ASKING RAVANA is agent-channel material.
-        #
-        # Disclosure verbs whose grammatical SUBJECT identifies WHO spoke. Kept as
-        # a class constant so the speaker rule and its docstring read together.
-        # "ask" is deliberately absent: the user ASKING RAVANA is agent-channel
-        # material ("do you remember what i asked you earlier").
-        _USER_DISCLOSURE_VERBS = (
-            "tell", "told", "say", "said", "saying", "mention", "mentioned",
-            "share", "shared", "describe", "described", "explain", "explained",
-            "think", "thought", "feel", "felt", "like", "liked", "love", "loved",
-            "hate", "hated", "believe", "believed", "know", "knew", "remember",
-            "recalled", "talk", "talked", "mean", "meant")
+        return not self._is_user_speaker_recall(_q)
+
+    # Disclosure verbs whose grammatical SUBJECT identifies WHO spoke. Kept as
+    # a class constant so the speaker rule and its docstring read together.
+    # "ask" is deliberately absent: the user ASKING RAVANA is agent-channel
+    # material ("do you remember what i asked you earlier").
+    _USER_DISCLOSURE_VERBS = (
+        "tell", "told", "say", "said", "saying", "mention", "mentioned",
+        "share", "shared", "describe", "described", "explain", "explained",
+        "think", "thought", "feel", "felt", "like", "liked", "love", "loved",
+        "hate", "hated", "believe", "believed", "know", "knew", "remember",
+        "recalled", "talk", "talked", "mean", "meant")
 
     def _is_user_speaker_recall(self, _q: str) -> bool:
         """True when the RECALL VERB'S SPEAKER is the user, not RAVANA.
