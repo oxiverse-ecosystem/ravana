@@ -1271,13 +1271,27 @@ class SelfQueryMixin:
             # self/relation noun), this is a user-recall, not self-introspection;
             # fall through so the real store-driven summary runs. Structural:
             # one possessive+relation-noun test, no per-topic table.
+            # FIX (round 2026-10-05T0827Z): the single ORDERED regex below
+            # only fires when a personal pronoun PRECEDES a relation noun
+            # ("what do you remember about my family"). It missed the
+            # trailing frame, where the pronoun IS the retrieval target and
+            # nothing follows it: "what is something you remember ABOUT ME",
+            # "what do you REMEMBER ME telling you". Those fell into the
+            # self-coherence frame and RAVANA narrated its own identity
+            # instead of reporting its model of the user. The two shapes are
+            # disjoined tests (both grammatical frames), not a topic table.
+            _user_recall_trailing = re.search(
+                r"\b(?:about|remembering|recall(?:ing)?\s+of)\s+"
+                r"(?:me|my|our|us|you|your)\b"
+                r"|\bremem(?:ber|bers|bering)\s+(?:me|my|our|us)\b"
+                r"|\bin\s+telling\s+you\b", t)
             _user_recall = re.search(
                 r"\b(my|me|myself|i|we|us|our)\b.*\b("
                 r"family|relative|relation|kin|brother|sister|mother|father|"
                 r"mom|dad|grandmother|grandfather|grandma|grandpa|son|daughter|"
                 r"kid|child|wife|husband|partner|pet|cat|dog|crow|friend|"
                 r"name|childhood|hometown|home|live|grew up|told|said|"
-                r"shared|mentioned|about me|about my)\b", t)
+                r"shared|mentioned)\b", t) or _user_recall_trailing
             if _user_recall:
                 # Not a self-introspection question — let the user-recall /
                 # aggregation resolver answer it from the personal-fact store.
