@@ -692,7 +692,14 @@ class MemoryMixin:
                                 "it", "that", "this", "the", "a", "an", "is",
                                 "are", "was", "were", "on", "in", "of", "to",
                                 "do", "did", "name", "named")]
-        if len(_qwords) < 2:
+        # Single content-word entity cues ("my partner's name", "my ferret")
+        # leave only ONE query word after stopword stripping (the entity head
+        # itself — "partner"/"ferret"). The >=2 guard rejected those, so a
+        # verbatim single-token head never reached the safety gate at L711 and
+        # the recall fell through to honest uncertainty. Allow a single-word
+        # cue: the verbatim head-word match below still enforces the RAVANA
+        # confabulation bar (the key's head must literally appear in the query).
+        if not _qwords:
             return None
         # score each stored key phrase against the query phrase windows
         _best_key, _best_score = None, -1.0

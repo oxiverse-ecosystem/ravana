@@ -3094,6 +3094,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"describe me|"
             r"how would you describe me|"
             r"what do you remember me (?:telling|saying|sharing)|"
+            r"what is something you remember about me|"
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
@@ -3132,6 +3133,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"describe me|"
             r"how would you describe me|"
             r"what do you remember me (?:telling|saying|sharing)|"
+            r"what is something you remember about me|"
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
@@ -5665,11 +5667,43 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # self-profile render fix.
                 _sv = (_val or "").strip()
                 parts.append(f"you {_sv}")
+            elif _attr_d == "since age" or _attr_d == "since":
+                # Self-disclosed temporal fact: value is "<activity> <age_or_year>"
+                # (e.g. "pick up harmonica 14", "building frames 2019"). Render
+                # naturally like the date-grounded recall path (1f) does:
+                # "you've been <gerund> since you were about <age>" /
+                # "you started <gerund> in <year>". Real slot values come from
+                # the live store; the gerund helper is shared with (1f) so the
+                # two render paths agree by construction. Fail-closed: if the
+                # value doesn't split into an activity + numeric anchor, fall
+                # through to the default rendering instead of crashing.
+                _sv = (_val or "").strip()
+                _parts = _sv.rsplit(" ", 1)
+                if len(_parts) == 2:
+                    _act, _anchor = _parts
+                    try:
+                        _n = int(_anchor)
+                    except ValueError:
+                        _n = None
+                    if _n is not None:
+                        try:
+                            _g = _verb_phrase_to_gerund(_act)
+                        except Exception:
+                            _g = _act
+                        if 0 <= _n <= 150:
+                            parts.append(
+                                f"you've been {_g} since you were about {_n}")
+                            continue
+                        if _n >= 1800:
+                            parts.append(f"you started {_g} in {_n}")
+                            continue
+                # Unparseable anchor: graceful fallback, no raw attr name leaked.
+                parts.append(f"you {_sv}")
             elif _attr_d.startswith("event"):
                 # Self-disclosed EVENT (mined as event=<verb phrase>, e.g.
-                # "lose appetite"). Render as an honest "you mentioned <clause>"
-                # — the prior fall-through produced "your event is lose
-                # appetite" (round 2026-08-18T0937Z).
+                # "lose appetite"). Render as an honest "you mentioned <clause>.
+                # The prior fall-through produced "your event is lose appetite"
+                # (round 2026-08-18T0937Z).
                 parts.append(f"you mentioned {_val}")
             else:
                 # D7 (round 2026-08-16T1745Z): a combined-attr relationship fact
@@ -6194,7 +6228,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"remember|recall|tell you|said|told)|"
             r"what (am|was|are|were) i|how (do|did) i (feel|think)|"
             r"do you remember (what|when) i (told|said|say|mention|mentioned|"
-            r"share|shared|think|feel|believe|like|love|hate|know|recall))\b", _q))
+            r"share|shared|think|feel|believe|like|love|hate|know|recall)"
+            # USER-AS-OBJECT RECALL EXEMPTION (round 2026-10-05T0827Z): the
+            # frames above exempt *first-person-subject* recalls ("what did
+            # I tell you"). But "what is something you remember ABOUT ME" /
+            # "what do you remember me TELLING YOU" has the user as OBJECT of
+            # the recall verb -- RAVANA remembering something ABOUT the user,
+            # not its own prior speech. "you remember ... about me" /
+            # "me telling you" / "you telling me" is a user-model query, NOT
+            # agent-self-speech recall, so exempt it here (otherwise
+            # _structured_recall returns None at the (0y) boundary and the
+            # query falls to honest uncertainty instead of the user-fact
+            # store). Structural: recall-verb + user-as-object frame; one
+            # alternation, no per-topic content list.
+            r"|you (?:do |)(?:remember|recall|heard) (?:me|about me|me telling you)"
+            r"|what (?:is |)(?:something |)(?:you )?remember about me"
+            r"|you remember me telling you"
+            r")\b", _q))
 
     def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
         
