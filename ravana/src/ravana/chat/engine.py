@@ -1111,23 +1111,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the engine remains the sole writer of these structures during normal
         # turns. The miner only MUTATES them on an explicit owner re-attribution
         # (superseding the user's record) — never during ordinary disclosure.
-        self.user_model._episodic_index = self._episodic_index
-        self.user_model._episodic_transcript = self._episodic_transcript
-        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
-        # vocabulary to the user-model so stance mining can REJECT single-word
-        # topics that are not real concepts (comparative/handle artifacts like
-        # "anything"/"standing" that pollute the stance store). The vocabulary
-        # is the engine's OWN learned concept set, not a per-topic deny-list.
-        self.user_model._concept_vocab = self._concept_keywords
-        # Give the user model a route to the engine's concept vectors so the
-        # evaluative-predicate miner (feature round t_e45928d1) can read the
-        # polarity of a predicate the frozen word lists never listed, from
-        # where it sits in concept space. INJECTED, not imported: the user
-        # model owns no GloVe table and must not grow one. Bound method, so it
-        # always reads the CURRENT projection state and honours the
-        # `glove_ready` contract (returns None when no table is present, which
-        # the model treats as "abstain").
-        self.user_model._glove_vector_fn = self._glove_vector
+        self._bind_user_model_dependencies()
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
