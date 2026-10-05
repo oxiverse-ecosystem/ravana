@@ -6221,30 +6221,60 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # is class-level: any verb/topic nobody enumerated still routes by
         # speaker. Note "asked" is deliberately NOT a disclosure verb here — the
         # user ASKING RAVANA is agent-channel material.
-        return not bool(re.search(
-            r"\b((what|which|who|where|when|how) (i|we) (told|said|say|mention|"
-            r"mentioned|share|shared|describe|described|explain|explained)|"
-            r"what (do|did|have) i (think|feel|like|love|hate|believe|know|"
-            r"remember|recall|tell you|said|told)|"
-            r"what (am|was|are|were) i|how (do|did) i (feel|think)|"
-            r"do you remember (what|when) i (told|said|say|mention|mentioned|"
-            r"share|shared|think|feel|believe|like|love|hate|know|recall)"
-            # USER-AS-OBJECT RECALL EXEMPTION (round 2026-10-05T0827Z): the
-            # frames above exempt *first-person-subject* recalls ("what did
-            # I tell you"). But "what is something you remember ABOUT ME" /
-            # "what do you remember me TELLING YOU" has the user as OBJECT of
-            # the recall verb -- RAVANA remembering something ABOUT the user,
-            # not its own prior speech. "you remember ... about me" /
-            # "me telling you" / "you telling me" is a user-model query, NOT
-            # agent-self-speech recall, so exempt it here (otherwise
-            # _structured_recall returns None at the (0y) boundary and the
-            # query falls to honest uncertainty instead of the user-fact
-            # store). Structural: recall-verb + user-as-object frame; one
-            # alternation, no per-topic content list.
-            r"|you (?:do |)(?:remember|recall|heard) (?:me|about me|me telling you)"
-            r"|what (?:is |)(?:something |)(?:you )?remember about me"
-            r"|you remember me telling you"
-            r")\b", _q))
+        return not self._is_user_speaker_recall(_q)
+
+            # Disclosure verbs whose grammatical SUBJECT identifies WHO spoke. Kept
+            # as a class constant so the speaker rule and its docstring read together.
+            # "ask" is deliberately absent: the user ASKING RAVANA is agent-channel
+            # material ("do you remember what i asked you earlier").
+            _USER_DISCLOSURE_VERBS = (
+                "tell", "told", "say", "said", "saying", "mention", "mentioned",
+                "share", "shared", "describe", "described", "explain", "explained",
+                "think", "thought", "feel", "felt", "like", "liked", "love", "loved",
+                "hate", "hated", "believe", "believed", "know", "knew", "remember",
+                "recalled", "talk", "talked", "mean", "meant")
+
+            def _is_user_speaker_recall(self, _q: str) -> bool:
+                """True when the RECALL VERB'S SPEAKER is the user, not RAVANA.
+
+                The complement of `_is_agent_self_recall_query`. Two structural
+                speaker rules, replacing the phrase alternation that used to live in
+                that predicate (round 2026-10-05T0827Z). The alternation was a
+                hand-maintained list of English frames, so every phrasing outside it
+                silently fell through to the agent channel: measured this round,
+                "what have you told me about me", "who have i told you about" and
+                "what did i just tell you" were all treated as if the user had asked
+                about RAVANA's own words.
+
+                Rule 1 — USER AS SUBJECT. A first-person pronoun governing a
+                disclosure verb names the user as the one who disclosed, so the
+                answer belongs in the user's stores. Intervening adverbs ("i just
+                told you") do not change the speaker, so they are skipped.
+
+                Rule 2 — USER AS OBJECT of the agent's remembering. "you remember
+                something ABOUT ME" / "you remember me telling you" is RAVANA
+                recalling its model OF the user; the recalled material is the user's
+                disclosure either way.
+
+                Both rules are grammatical (who is subject, who is object), not
+                topic nouns, so they hold for any phrasing rather than for the
+                frames someone remembered to enumerate.
+                """
+                _verbs = "|".join(self._USER_DISCLOSURE_VERBS)
+                # Rule 1: first-person subject + disclosure verb ("what did i tell
+                # you", "who have i told you about", "i forget if i told you").
+                if re.search(
+                        r"\b(i|we)\b(?:\s+\w+){0,2}\s+(?:" + _verbs + r")\b", _q):
+                    return True
+                # ...and the copular frame ("what was i talking about").
+                if re.search(r"\bwhat (?:am|was|are|were) (?:i|we)\b", _q):
+                    return True
+                # Rule 2: the agent's recall verb takes the user as its object.
+                if re.search(r"\b(?:me|myself|my)\b[^.?!]{0,24}?\b(?:remember|recall|"
+                             r"remembered|keep|kept)\b|\b(?:remember|recall|"
+                             r"remembered)\b[^.?!]{0,24}?\b(?:me|myself)\b", _q):
+                    return True
+                return False
 
     def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
         
