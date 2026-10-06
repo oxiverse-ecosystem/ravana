@@ -1111,23 +1111,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the engine remains the sole writer of these structures during normal
         # turns. The miner only MUTATES them on an explicit owner re-attribution
         # (superseding the user's record) — never during ordinary disclosure.
-        self.user_model._episodic_index = self._episodic_index
-        self.user_model._episodic_transcript = self._episodic_transcript
-        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
-        # vocabulary to the user-model so stance mining can REJECT single-word
-        # topics that are not real concepts (comparative/handle artifacts like
-        # "anything"/"standing" that pollute the stance store). The vocabulary
-        # is the engine's OWN learned concept set, not a per-topic deny-list.
-        self.user_model._concept_vocab = self._concept_keywords
-        # Give the user model a route to the engine's concept vectors so the
-        # evaluative-predicate miner (feature round t_e45928d1) can read the
-        # polarity of a predicate the frozen word lists never listed, from
-        # where it sits in concept space. INJECTED, not imported: the user
-        # model owns no GloVe table and must not grow one. Bound method, so it
-        # always reads the CURRENT projection state and honours the
-        # `glove_ready` contract (returns None when no table is present, which
-        # the model treats as "abstain").
-        self.user_model._glove_vector_fn = self._glove_vector
+        self._bind_user_model_dependencies()
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -1383,15 +1367,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # other runtime stores.
         self._own_replies = {}  # topic(str) -> list[dict(text, turn, t)]
         self._own_reply_topic_idx = {}  # topic -> 1 (presence index for content lookup)
-
-        # SEED-backed relevance-scored recall layer (round 2026-10-13).
-        # Multi-signal scoring replaces binary pass/fail guards in the recall
-        # pipeline. All parameters live in a persisted data store — RAVANA
-        # can expand/revise them at runtime from conversation feedback.
-        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
-        from .relevance_store import RelevanceThreshold, RelevanceScorer
-        self._relevance_threshold = RelevanceThreshold()
-        self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
 
         # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
         # Stores (turn_number, reply_text) tuples of the agent's genuine replies
@@ -2931,7 +2906,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _answers: List[str] = []
             _seen: Set[str] = set()
             for _sub in _parts:
-                _ans = self._relevance_gate(_sub, self._structured_recall(_sub))
+                _ans = self._structured_recall(_sub)
                 if _ans and _ans not in _seen:
                     _seen.add(_ans)
                     _answers.append(_ans)
@@ -2947,31 +2922,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return None
 
 
-    def _relevance_gate(self, query: str, answer: Optional[str]) -> Optional[str]:
-        """SEED-backed relevance gate (round 2026-10-13).
-
-        Verifies that a candidate answer is relevant to the query before
-        returning it. Fail-closed: if the multi-signal relevance score is
-        below the learned threshold, return None (honest uncertainty beats
-        confabulation).
-
-        This is a general structural check — no per-topic logic, no hardcoded
-        reply strings. The threshold adapts incrementally from conversation
-        feedback (false positive/negative signals).
-        """
-        if not answer:
-            return answer
-        try:
-            _score = self._relevance_scorer.score(
-                query, answer,
-                query_turn=self.turn_count,
-                threshold=self._relevance_threshold)
-            if _score >= self._relevance_threshold.base_threshold:
-                return answer
-            return None
-        except Exception:
-            return answer  # fail-open on scorer error (never break recall)
-
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
         Root cause it fixes: biographical and self-stance recall queries
@@ -2983,11 +2933,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         <turn B> <turn C>..."). The cue mapped to NO specific stored entity, so
         the reply was a wrong/mismatched memory (measured across the Noor chat
         round: name -> "i don't know", cafeteria -> the green-comet turn,
-
-        SEED-backed relevance gate (round 2026-10-13): the inner method returns
-        a candidate answer; this wrapper verifies its relevance with a
-        multi-signal score before returning. Fail-closed: if below threshold,
-        return None (honest uncertainty beats confabulation).
         surveillance -> the cafeteria turn).
 
         This resolver reads the LIVE durable stores (personal_facts,
@@ -3002,6 +2947,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """
         q = (user_input or "").lower().strip()
         if not q:
+            return None
+        # (0y) SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). A query
+        # asking about RAVANA's OWN prior speech ("what did you just tell me
+        # about pantographs?") must never be answered out of the USER's
+        # disclosure store. The generic self-profile summary further down is
+        # exactly such an answer: it returned a dump of the user's bike, cat
+        # and uncle for a question about RAVANA's own words — the speaker
+        # inversion this resolver's own docstring warns about. The agent-reply
+        # gate runs FIRST in process_turn; when it finds nothing for this topic
+        # (it fails closed), the honest outcome is uncertainty, so this
+        # resolver returns None and lets the turn continue. Structural
+        # predicate, shared with the recall gate — no per-topic branch.
+        if self._is_agent_self_recall_query(q):
             return None
         # (0z) COMPOUND / MULTI-PART QUERY DECOMPOSITION (round 2026-08-22T0703Z
         # residual). The resolvers below are single-shot: a compound
@@ -3120,6 +3078,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"describe me|"
             r"how would you describe me|"
             r"what do you remember me (?:telling|saying|sharing)|"
+            r"what is something you remember about me|"
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
@@ -3158,6 +3117,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"describe me|"
             r"how would you describe me|"
             r"what do you remember me (?:telling|saying|sharing)|"
+            r"what is something you remember about me|"
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
@@ -5245,47 +5205,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 belief_items.append((_pred, _val, _conf))
         return facts, stances, belief_items
 
-    def _semantic_topic_match(self, phrase: str, topic: str,
-                              min_sim: float = 0.3) -> bool:
-        """Check if two phrases are semantically related via GloVe cosine.
-
-        Computes the max cosine similarity between any content token in the
-        phrase and any content token in the topic. Returns True if any pair
-        clears the threshold. This is a structural semantic gate — it uses
-        the same embedding system the rest of the engine uses, with no
-        per-topic logic and no retraining. Used to prevent false recall
-        matches where token overlap is incidental (e.g. "patience" matching
-        "taught" because they share a common word in a longer phrase).
-        """
-        try:
-            _p_toks = [w for w in re.findall(r"[a-z']+", (phrase or "").lower())
-                       if len(w) >= 3]
-            _t_toks = [w for w in re.findall(r"[a-z']+", (topic or "").lower())
-                       if len(w) >= 3]
-            if not _p_toks or not _t_toks:
-                return False
-            _p_vecs = [(w, self._glove_vector(w)) for w in _p_toks]
-            _p_vecs = [(w, v) for w, v in _p_vecs if v is not None]
-            _t_vecs = [(w, self._glove_vector(w)) for w in _t_toks]
-            _t_vecs = [(w, v) for w, v in _t_vecs if v is not None]
-            if not _p_vecs or not _t_vecs:
-                return False
-            for _pw, _pv in _p_vecs:
-                for _tw, _tv in _t_vecs:
-                    _sim = float(np.dot(_pv, _tv))
-                    if _sim >= min_sim:
-                        return True
-            return False
-        except Exception:
-            return False
-
     def _match_stance(self, phrase: str):
         """Find the user's real stance whose topic relates to `phrase`. Returns
         (topic, polarity, conf) or None. Containment + content-token-overlap,
         both directions — no per-topic table, generalizes across any topic the
-        user has actually disclosed. Semantic gate: token-overlap matches
-        are verified by GloVe cosine to prevent false matches (round
-        2026-10-15 RL-1 fix)."""
+        user has actually disclosed."""
         opinions = getattr(getattr(self, "user_model", None), "opinions", None)
         if opinions is None:
             return None
@@ -5303,19 +5227,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 break
             _ttoks = set(w for w in re.findall(r"[a-z']+", _t) if len(w) >= 3)
             if _ttoks & _ptoks:
-                # Semantic gate: verify the match is genuine, not incidental
-                # token overlap (round 2026-10-15 RL-1 fix).
-                if self._semantic_topic_match(_p, _t):
-                    _best = (_topic, getattr(_s, "polarity", 0.0),
-                             getattr(_s, "confidence", 0.5))
-                    break
+                _best = (_topic, getattr(_s, "polarity", 0.0),
+                         getattr(_s, "confidence", 0.5))
+                break
         return _best
 
     def _match_fact(self, phrase: str):
         """Find the user's real fact whose attr OR value relates to `phrase`.
-        Returns (attr, val, conf) or None — prefers the longest matching value.
-        Semantic gate: token-overlap matches are verified by GloVe cosine to
-        prevent false matches (round 2026-10-15 RL-1 fix)."""
+        Returns (attr, val, conf) or None — prefers the longest matching value."""
         facts, _, _ = self._collect_user_model_state()
         _p = (phrase or "").lower().strip().replace("-", " ")
         # Drop the closed-class functional word "does"/"did"/"do" from the
@@ -5349,13 +5268,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _vtoks = set(w for w in re.findall(r"[a-z']+", _val_l + " " + _attr_l)
                       if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
-                # Semantic gate: verify the match is genuine, not incidental
-                # token overlap (round 2026-10-15 RL-1 fix).
-                _fact_phrase = (_val_l + " " + _attr_l).strip()
-                if self._semantic_topic_match(_p, _fact_phrase):
-                    _overlap = len(_vtoks & _ptoks)
-                    if _best is None or _overlap > _best[2]:
-                        _best = (_attr, _val, _conf, _overlap)
+                _overlap = len(_vtoks & _ptoks)
+                if _best is None or _overlap > _best[2]:
+                    _best = (_attr, _val, _conf, _overlap)
         if _best is not None and len(_best) == 4:
             _best = (_best[0], _best[1], _best[2])
         return _best
@@ -5736,11 +5651,43 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # self-profile render fix.
                 _sv = (_val or "").strip()
                 parts.append(f"you {_sv}")
+            elif _attr_d == "since age" or _attr_d == "since":
+                # Self-disclosed temporal fact: value is "<activity> <age_or_year>"
+                # (e.g. "pick up harmonica 14", "building frames 2019"). Render
+                # naturally like the date-grounded recall path (1f) does:
+                # "you've been <gerund> since you were about <age>" /
+                # "you started <gerund> in <year>". Real slot values come from
+                # the live store; the gerund helper is shared with (1f) so the
+                # two render paths agree by construction. Fail-closed: if the
+                # value doesn't split into an activity + numeric anchor, fall
+                # through to the default rendering instead of crashing.
+                _sv = (_val or "").strip()
+                _parts = _sv.rsplit(" ", 1)
+                if len(_parts) == 2:
+                    _act, _anchor = _parts
+                    try:
+                        _n = int(_anchor)
+                    except ValueError:
+                        _n = None
+                    if _n is not None:
+                        try:
+                            _g = _verb_phrase_to_gerund(_act)
+                        except Exception:
+                            _g = _act
+                        if 0 <= _n <= 150:
+                            parts.append(
+                                f"you've been {_g} since you were about {_n}")
+                            continue
+                        if _n >= 1800:
+                            parts.append(f"you started {_g} in {_n}")
+                            continue
+                # Unparseable anchor: graceful fallback, no raw attr name leaked.
+                parts.append(f"you {_sv}")
             elif _attr_d.startswith("event"):
                 # Self-disclosed EVENT (mined as event=<verb phrase>, e.g.
-                # "lose appetite"). Render as an honest "you mentioned <clause>"
-                # — the prior fall-through produced "your event is lose
-                # appetite" (round 2026-08-18T0937Z).
+                # "lose appetite"). Render as an honest "you mentioned <clause>.
+                # The prior fall-through produced "your event is lose appetite"
+                # (round 2026-08-18T0937Z).
                 parts.append(f"you mentioned {_val}")
             else:
                 # D7 (round 2026-08-16T1745Z): a combined-attr relationship fact
@@ -6046,30 +5993,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return "you've told me about: " + "; ".join(_bits) + "."
 
     def _recall_user_fact(self, attr_hint, q):
-        """Helpers for _structured_recall: read a personal_fact by attribute.
-
-        When multiple facts match the same attribute (e.g. the user had a
-        childhood dog named pepper in a prior round and now mentions a new
-        dog biscuit), prefer the MOST RECENT fact by turn_number. This is
-        a general recency weighting — no per-entity hardcoding, no authored
-        prose. The turn_number is read from the fact store at runtime, so
-        RAVANA's own learning determines which fact is current."""
+        """Helpers for _structured_recall: read a personal_fact by attribute."""
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
             return None
-        _best_val = None
-        _best_turn = -1
         for _k, _f in pf.facts.items():
             if not (isinstance(_k, tuple) and len(_k) == 3):
                 continue
             if getattr(_f, "superseded", False):
                 continue
             if _k[1].lower() == attr_hint:
-                _tn = getattr(_f, "turn_number", 0) or 0
-                if _tn > _best_turn:
-                    _best_turn = _tn
-                    _best_val = _f.value
-        return _best_val
+                return _f.value
+        return None
 
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
@@ -6218,6 +6153,138 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    def _bind_user_model_dependencies(self):
+        """Inject engine-owned structures into the user model.
+
+        The user model needs read-only access to the engine's episodic
+        index, concept vocabulary, and GloVe vector function so the fact
+        miner can enforce the self/other boundary and reject non-concept
+        topics. These are injected (not imported) so the user model owns
+        no GloVe table and must not grow one.
+        """
+        self.user_model._episodic_index = self._episodic_index
+        self.user_model._episodic_transcript = self._episodic_transcript
+        self.user_model._concept_vocab = self._concept_keywords
+        self.user_model._glove_vector_fn = self._glove_vector
+
+    def _is_agent_self_recall_query(self, user_input: str) -> bool:
+        """True when `user_input` asks about RAVANA's OWN prior speech.
+
+        SINGLE SOURCE OF TRUTH for the agent-self-recall gate. Extracted from
+        the head of `_route_agent_own_recall` (round 2026-10-04T0827Z) so the
+        recall gate and the structured-recall top guard AGREE by construction
+        instead of keeping two hand-maintained copies of the same regexes.
+
+        The gate is STRUCTURAL, not per-topic: deictic agent reference
+        ("you/your") + a recall/reference verb, and NOT a first-person
+        user-disclosure recall ("what did I tell you about my sister"), which
+        lives in the user stores.
+
+        Why a shared predicate (source-monitoring defect): an agent-self-recall
+        whose TOPIC misses the AgentReplyStore used to fall straight through the
+        fail-open recall gate into `_structured_recall`, which then answered it
+        from the USER's disclosure store — the same speaker inversion
+        `_route_agent_own_recall` exists to prevent, just via a different
+        route. Callers use this predicate to keep an unanswered self-recall out
+        of the user channel and let it reach honest uncertainty instead.
+        """
+        _q = (user_input or "").lower().strip()
+        if not _q:
+            return False
+        # Agent-self-speech recall: must reference the agent ("you/your") AND a
+        # recall/reference verb, so plain world/opinion questions are untouched.
+        _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
+        _recall_v = bool(re.search(
+            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+            r"stated|answered|replied|remember|recall|earlier|before|"
+            r"said about|say about|tell me about what you)\b", _q))
+        if not (_agent_ref and _recall_v):
+            return False
+        # Do NOT intercept USER-disclosure recalls: "what did I tell you about my
+        # sister", "what do I think of X", "what have I said about Y" ask about the
+        # USER's own facts/stances, which live in the user stores.
+        #
+        # GENERALIZED (round 2026-10-04T0827Z, post-fix A/B): the exemption is
+        # decided by the GRAMMATICAL SPEAKER of the disclosure — the user as
+        # subject of a disclosure/stance verb — not by a topic-noun list. Two
+        # measured misclassifications came from the old topic clause
+        # (`my (sister|brother|...)`, and a bare `do you remember (what|when) i`):
+        #   * "what did you say about my sister" (AGENT's speech, about a
+        #     user-channel topic) was routed to the user store;
+        #   * "do you remember what i asked you first" (a question the USER
+        #     directed at RAVANA — agent-channel conversation, NOT a user
+        #     disclosure) was answered with the user's bike/uncle fact dump.
+        # Both are speaker/verb mismatches. Requiring the user to be the
+        # grammatical subject of a disclosure verb classifies both correctly and
+        # is class-level: any verb/topic nobody enumerated still routes by
+        # speaker. Note "asked" is deliberately NOT a disclosure verb here — the
+        # user ASKING RAVANA is agent-channel material.
+        return not self._is_user_speaker_recall(_q)
+
+    # Disclosure verbs whose grammatical SUBJECT identifies WHO spoke. Kept as
+    # a class constant so the speaker rule and its docstring read together.
+    # "ask" is deliberately absent: the user ASKING RAVANA is agent-channel
+    # material ("do you remember what i asked you earlier").
+    _USER_DISCLOSURE_VERBS = (
+        "tell", "told", "say", "said", "saying", "mention", "mentioned",
+        "share", "shared", "describe", "described", "explain", "explained",
+        "think", "thought", "feel", "felt", "like", "liked", "love", "loved",
+        "hate", "hated", "believe", "believed", "know", "knew", "remember",
+        "recalled", "talk", "talked", "mean", "meant")
+
+    def _is_user_speaker_recall(self, _q: str) -> bool:
+        """True when the RECALL VERB'S SPEAKER is the user, not RAVANA.
+
+        The complement of `_is_agent_self_recall_query`. Three structural
+        speaker rules, replacing the phrase alternation that used to live in
+        that predicate (round 2026-10-05T0827Z). The alternation was a
+        hand-maintained list of English frames, so every phrasing outside it
+        silently fell through to the agent channel: measured this round,
+        "what have you told me about me", "who have i told you about" and
+        "what did i just tell you" were all treated as if the user had asked
+        about RAVANA's own words.
+
+        Rule 1 — USER AS SUBJECT. A first-person pronoun governing a
+        disclosure verb names the user as the one who disclosed, so the
+        answer belongs in the user's stores. Intervening adverbs ("i just
+        told you") do not change the speaker, so they are skipped.
+
+        Rule 2 — USER AS DIRECT OBJECT of the agent's recall verb ("you
+        remember something about me"). The object must be the user
+        themselves: a clause in between ("do you remember what you told me
+        about kilns") is the agent recalling its own speech about a TOPIC,
+        which stays agent-channel.
+
+        Rule 3 — the agent's own disclosure ABOUT the user ("what have you
+        told me about me"). Contrast with "what did you say about MY
+        BICYCLE", which stays agent-channel: there the object is a topic the
+        user owns, not the user.
+
+        All three are grammatical (who is subject, who is object), not topic
+        nouns, so they hold for any phrasing rather than for the frames
+        someone remembered to enumerate.
+        """
+        _verbs = "|".join(self._USER_DISCLOSURE_VERBS)
+        # Rule 1: first-person subject + disclosure verb ("what did i tell
+        # you", "who have i told you about", "i forget if i told you").
+        if re.search(r"\b(i|we)\b(?:\s+\w+){0,2}\s+(?:" + _verbs + r")\b", _q):
+            return True
+        # ...and the copular frame ("what was i talking about").
+        if re.search(r"\bwhat (?:am|was|are|were) (?:i|we)\b", _q):
+            return True
+        # Rule 2: the agent's recall verb takes the user as its direct object.
+        if re.search(r"\b(?:remember|recall|remembered)\s+(?:\w+\s+)?"
+                     r"(?:about\s+|of\s+)?(?:me|myself)\b", _q):
+            return True
+        # Rule 3: the agent's own disclosure ABOUT the user.
+        if re.search(r"\b(?:told|said|mentioned|shared|reminded|recalled)\s+"
+                     r"(?:me|myself)\b[^.?!]{0,24}?\babout\s+(?:me|myself)\b",
+                     _q):
+            return True
+        return False
+
+        return not self._is_user_speaker_recall(_q)
+
     def _route_agent_own_recall(self, user_input: str) -> Optional[str]:
         
         """Answer a cued recall about RAVANA's OWN prior speech from the
@@ -6243,28 +6310,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _q = (user_input or "").lower().strip()
         if not _q:
             return None
-        # Agent-self-speech recall: must reference the agent ("you/your") AND a
-        # recall/reference verb, so plain world/opinion questions are untouched.
-        _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
-        _recall_v = bool(re.search(
-            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
-            r"stated|answered|replied|remember|recall|earlier|before|"
-            r"said about|say about|tell me about what you)\b", _q))
-        if not (_agent_ref and _recall_v):
-            return None
-        # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
-        # sister", "what do I think of X", "what have I said about Y" ask about the
-        # USER's own facts/stances, which live in the user stores — not RAVANA's
-        # speech. Intercepting them here would misroute to the agent-reply store
-        # and surface the wrong speaker (a self/other boundary inversion). Let them
-        # fall through to the user-fact / stance recall paths. Structural
-        # (first-person + disclosure verb), no per-topic table.
-        _user_disclosure_recall = bool(re.search(
-            r"\b(what did i (tell|say|mention|share)|what (do|did) i (think|feel|like|"
-            r"love|hate|believe|know|remember|recall|tell you)|what have i (said|"
-            r"told|mentioned|shared)|what (am|was) i|how (do|did) i (feel|think)|"
-            r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
-        if _user_disclosure_recall:
+        # Gate lives in `_is_agent_self_recall_query` — ONE definition shared with
+        # the structured-recall top guard, so the two can never disagree about
+        # what counts as an agent-self-recall (round 2026-10-04T0827Z).
+        if not self._is_agent_self_recall_query(_q):
             return None
         # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
         # you about my favorite food" is a user recall query, but the answer the
@@ -6418,8 +6467,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _, _matched_text = _best_entry
                         _matched_text = _matched_text.strip()
                         if _matched_text:
-                            _ans = f"earlier i said: {_matched_text}"
-                            return self._relevance_gate(_q, _ans)
+                            return f"earlier i said: {_matched_text}"
             except Exception:
                 pass
             return None
@@ -6429,8 +6477,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return None
         # Render in FIRST person (it is RAVANA's own prior speech), with a
         # light source tag so the boundary is explicit and honest.
-        _ans = f"i said: {_text}"
-        return self._relevance_gate(_q, _ans)
+        return f"i said: {_text}"
 
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
         """Answer question-shaped input from the hippocampal buffer's stored
@@ -6979,13 +7026,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
-        # Record which stances existed at the START of this turn so the
-        # inversion path can distinguish a PRIOR-turn stance from one mined
-        # earlier in the SAME turn (mine_personal_facts runs before the
-        # inversion check). Round 2026-10-15.
-        _om = getattr(self, "user_model", None)
-        _op = getattr(_om, "opinions", None) if _om is not None else None
-        self._turn_start_stance_keys = set(_op.stances.keys()) if _op is not None else set()
         # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
         # `_pending_web_evidence` is stashed by the agentic pre-check and
         # consumed by the end-of-turn block that appends it to the reply. Those
@@ -7081,6 +7121,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._identity_end_of_turn(user_input, quality_score=None)
                     return _tresp
 
+        # SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). An agent-self-recall
+        # ("what did you just tell me about pantographs?") asks about RAVANA's OWN
+        # speech. It runs BEFORE the structured-recall top guard below so it can
+        # never be answered out of the USER's disclosure store: when its topic is
+        # not in the AgentReplyStore the recall gate fails CLOSED (None) and the
+        # turn proceeds to honest uncertainty, instead of echoing the user's own
+        # facts back as if they were RAVANA's earlier words. Measured this round —
+        # the query returned a dump of the user's bike, cat and uncle. Ordering by
+        # the SHARED `_is_agent_self_recall_query` predicate, so this gate and
+        # the recall gate can never disagree about what the class is.
+        try:
+            if self._is_agent_self_recall_query(user_input):
+                _own_first = self._route_agent_own_recall(user_input)
+                if _own_first is not None:
+                    self._last_strategy = "agent_own_recall"
+                    self._last_responses.append(_own_first)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self._record_own_reply(user_input, _own_first, subject)
+                    self.notify_user_idle()
+                    return _own_first
+        except Exception:
+            pass
+
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
         # Answers user-fact / user-stance queries ("what's my name", "where do
         # i work", "what did i tell you about my favorite time of day", "you
@@ -7092,7 +7156,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # returns None for genuinely self-directed queries, so this is
         # fail-open and never masks a real self-answer.
         try:
-            _sr_top = self._relevance_gate(user_input, self._structured_recall(user_input))
+            _sr_top = self._structured_recall(user_input)
             if _sr_top is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr_top)
@@ -7504,7 +7568,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # value/stance store (grounded) or honestly abstain. Fail-open: if
             # _route_self_query returns None the normal pipeline runs.
             _selfopinion = re.search(
-                r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
+                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
                 r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
                 r"|how\s+do\s+you\s+(feel|think)\s+about\b"
                 r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
@@ -7613,7 +7677,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # never a concatenation of unrelated turns) BEFORE the loose
             # fact_reasoning.enumerate_matching path, which would otherwise
             # dump mismatched prior utterances. Fail-open: None -> unchanged.
-            _sr = self._relevance_gate(user_input, self._structured_recall(user_input))
+            _sr = self._structured_recall(user_input)
             if _sr is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr)
@@ -7863,7 +7927,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # returns None for genuinely self-directed queries, so this is
         # fail-open.
         try:
-            _sr_pre = self._relevance_gate(user_input, self._structured_recall(user_input))
+            _sr_pre = self._structured_recall(user_input)
             if _sr_pre is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr_pre)
@@ -8620,48 +8684,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
-        # D7 FIX: check for implicit emotional content BEFORE the self-disclosure
-        # handler stores the fact. If the input matches an implicit emotional
-        # pattern (diagnosed with, don't belong, rejected, etc.), skip the
-        # "noted" self-disclosure reply and let it fall through to the emotional
-        # detector so the user gets empathy, not a flat fact acknowledgment.
-        _implicit_emotional = False
-        if not _is_interrogative:
-            _IMPLICIT_PATTERNS = (
-                r"\bdiagnosed\s+with\b",
-                r"\b(chronic|terminal|serious)\s+(illness|disease|condition)\b",
-                r"\b(don'?t|do not|never)\s+belong\b",
-                r"\b(feel|feeling|felt)\s+alone\b",
-                r"\b(rejected|refused|denied)\b",
-                r"\b(failed|failure|flunked)\b",
-                r"\b(fired|sacked|laid\s+off)\b",
-                r"\b(broke\s+up|divorced|separated)\b",
-                r"\b(worried|anxious|nervous|scared)\s+about\b",
-                r"\b(can'?t|cannot)\s+sleep\b",
-                r"\b(overwhelmed|burned?\s+out)\b",
-                r"\b(ashamed|embarrassed|guilty|regret)\b",
-            )
-            for _pat in _IMPLICIT_PATTERNS:
-                if re.search(_pat, user_input.lower()):
-                    _implicit_emotional = True
-                    break
-        # Round 2026-10-15: contradiction-revision / stance inversion must
-        # fire BEFORE the self-disclosure gate.
-        _inversion_ans = self._route_own_stance_inversion(user_input)
-        if _inversion_ans is not None:
-            self._last_strategy = "own_stance_inversion"
-            self._last_responses.append(_inversion_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _inversion_ans.lower()
-        _revisit_ans = self._route_own_stance_revisit(user_input)
-        if _revisit_ans is not None:
-            self._last_strategy = "own_stance_revisit"
-            self._last_responses.append(_revisit_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _revisit_ans.lower()
-        if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
+        if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
             # Root-cause recall fix: persist the disclosed fact to the
@@ -8909,8 +8932,49 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # assigned until later in process_turn), so we call the lightweight
         # miner rather than the full observe_user_query (which also does ToM /
         # correction side-effects and runs later with the real subject).
+        # REVISION MARKER (round 2026-10-04T0827Z, defect D1). Must be set
+        # BEFORE the miner runs, because the miner is what merges the newly
+        # stated value. Measured: mining happens here, and
+        # `_route_own_stance_inversion` only runs after it, so marking from
+        # there arrived too late — all three merges for the turn had already
+        # been treated as ordinary samples and the contradiction averaged to
+        # +0.0996, which the reply then rendered as "uncertain about" on both
+        # sides. The marker is turn-scoped and consumed by the merge it
+        # applies to, so setting it early is safe either way.
+        try:
+            self._mark_stance_revision(user_input)
+        except Exception:
+            pass
         self.user_model.mine_personal_facts(user_input)
 
+        # Round 2026-09-05: contradiction-revision / stance inversion.
+        # "argue the opposite", "flip your stance", "take the other
+        # side" — detect these BEFORE the revisit check so inversion
+        # takes precedence. The inversion method reads/writes
+        # _agent_stances and produces a genuinely inverted view
+        # from RAVANA's own recorded stance or its current valence.
+        _inversion_ans = self._route_own_stance_inversion(user_input)
+        if _inversion_ans is not None:
+            self._last_strategy = "own_stance_inversion"
+            self._last_responses.append(_inversion_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _inversion_ans.lower()
+
+        # Round 2026-08-19T0625Z limitation #2: a revisit query
+        # ("do you still feel that way about X?" / "have you changed
+        # your mind about X?" / "revisit your stance on X") must be
+        # answered from RAVANA's RECORDED own stance, not recomputed
+        # fresh nor echoed. Check this BEFORE the opinion/identity
+        # gates so a recorded stance takes precedence over a
+        # re-derived provisional one.
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
 
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""
@@ -9056,26 +9120,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _stt, _st_r = self._agent_stance_on(_st)
                             _phrases.append(_stt)
                         stance = "; ".join(_phrases)
-                        reason = ""
                         back = " what about you?"
-                        _reason = reason.rstrip()
-                        if _reason and not _reason.endswith((".", "!", "?")):
-                            _reason += "."
-                        response = f"{stance}{(' ' + _reason) if _reason else ''}{back}".replace("  ", " ")
+                        response = f"{stance}{back}".replace("  ", " ")
                     else:
-                        stance, reason = self._agent_stance_on(target)
+                        _st, _rs = self._agent_stance_on(target)
                         back = " what about you?"
-                        _reason = reason.rstrip()
-                        if _reason and not _reason.endswith((".", "!", "?")):
-                            _reason += "."
-                        response = f"{stance} {_reason}{back}"
+                        response = f"{self._join_stance_clauses(_st, _rs)}{back}"
                 else:
-                    stance, reason = self._agent_stance_on(target)
+                    _st, _rs = self._agent_stance_on(target)
                     back = " what about you?"
-                    _reason = reason.rstrip()
-                    if _reason and not _reason.endswith((".", "!", "?")):
-                        _reason += "."
-                    response = f"{stance} {_reason}{back}"
+                    response = f"{self._join_stance_clauses(_st, _rs)}{back}"
 
             elif m_agent_interests:
                 response = ("i'm interested in how minds and meaning work — that's "
@@ -11005,12 +11059,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # reload that wiped this would make the agent "forget" its own
                 # prior opinions (limitation #2).
                 'agent_stances': dict(getattr(self, '_agent_stances', {}) or {}),
-                # SEED-backed relevance-scored recall layer (round 2026-10-13).
-                # Persisted so the learned threshold survives across sessions —
-                # without this the relevance gate would reset to seed every boot.
-                'relevance_threshold': (self._relevance_threshold.to_dict()
-                                        if getattr(self, '_relevance_threshold', None)
-                                        else None),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -11336,15 +11384,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _restored[_k.lower().strip()] = (str(_v[0]), float(_v[1]),
                                                              str(_v[2]), int(_v[3]))
                     self._agent_stances = _restored
-            except Exception:
-                pass
-            # Restore the SEED-backed relevance threshold (round 2026-10-13).
-            # Guarded so a bad shape never wipes the store or breaks boot.
-            try:
-                from .relevance_store import RelevanceThreshold as _RT
-                _rt = state.get('relevance_threshold', None)
-                if isinstance(_rt, dict):
-                    self._relevance_threshold = _RT.from_dict(_rt)
             except Exception:
                 pass
             self._free_energy = state['free_energy']
