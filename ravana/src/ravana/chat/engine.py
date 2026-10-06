@@ -6153,6 +6153,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    def _bind_user_model_dependencies(self):
+        """Inject engine-owned structures into the user model.
+
+        The user model needs read-only access to the engine's episodic
+        index, concept vocabulary, and GloVe vector function so the fact
+        miner can enforce the self/other boundary and reject non-concept
+        topics. These are injected (not imported) so the user model owns
+        no GloVe table and must not grow one.
+        """
+        self.user_model._episodic_index = self._episodic_index
+        self.user_model._episodic_transcript = self._episodic_transcript
+        self.user_model._concept_vocab = self._concept_keywords
+        self.user_model._glove_vector_fn = self._glove_vector
+
     def _is_agent_self_recall_query(self, user_input: str) -> bool:
         """True when `user_input` asks about RAVANA's OWN prior speech.
 
