@@ -343,7 +343,9 @@ def test_humor_grammar_agreement():
 # mind about thunderstorms" — the wrong topic. The filler-token guard in the
 # three resolvers (_stance_key_in_text / _stance_key_in_text_stem /
 # resolve_topic) drops temporal/discourse fillers, so the grass contradiction
-# no longer binds the storm stance.
+# no longer binds the storm stance.  Round 2026-10-02T0706Z extended the
+# stopword set so "now" is stripped from the stance key itself (the key is
+# "thunderstorms", not "thunderstorms now").
 def test_reversal_not_misattributed_via_filler():
     d = tempfile.mkdtemp(prefix="ravana_rev_")
     e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, data_dir=d)
@@ -356,7 +358,8 @@ def test_reversal_not_misattributed_via_filler():
     assert "thunderstorms" not in last, \
         f"grass contradiction wrongly acked the storm stance: {last!r}"
     # The held storm stance must remain intact (its polarity unchanged by the
-    # unrelated grass turn).
-    storm = e.user_model.opinions.stances.get("thunderstorms now")
+    # unrelated grass turn).  The temporal adverb "now" is stripped from stance
+    # keys (round 2026-10-02T0706Z), so the key is "thunderstorms".
+    storm = e.user_model.opinions.stances.get("thunderstorms")
     assert storm is not None and storm.polarity < 0, \
         f"storm stance corrupted by unrelated contradiction: {storm}"
