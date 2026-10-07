@@ -3199,9 +3199,7 @@ class UserModel:
                         # learn_species exactly as the capitalized path
                         # below already does. No per-animal table.
                         if _sp in _PS_SEED or (
-                                _pet_slots.species_of(_sp) is not None
-                                or (_sp.isalpha()
-                                    and _pet_slots.learn_species(_sp))):
+                                _pet_slots.species_of(_sp) is not None):
                             # Lowercase-name path. The pattern runs IGNORECASE,
                             # so the name group can grab the PREDICATE that
                             # follows the species ("my dog likes the park" ->
