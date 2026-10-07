@@ -44,6 +44,7 @@ _SPECIES_SEED: Dict[str, str] = {
     "horse": "horse", "horses": "horse", "pony": "horse",
     "owl": "owl", "owls": "owl",
     "pet": "pet", "pets": "pet",
+    "ferret": "ferret", "ferrets": "ferret",
 }
 
 # Runtime-grown extension of the seed table.

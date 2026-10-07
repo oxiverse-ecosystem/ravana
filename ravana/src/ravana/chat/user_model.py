@@ -1514,8 +1514,8 @@ _APPOS_COPULA = frozenset({
     "is", "was", "were", "are", "named", "called", "means", "s",
 })
 _APPOSITIVE_PET_PAT = (
-    r"\b(?:my\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+)"
-    r"|i\s+have\s+(?:a|an|the)\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+))\b"
+    r"\b(?:my\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Za-z][\w'-]+)"
+    r"|i\s+have\s+(?:a|an|the)\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Za-z][\w'-]+))\b"
     r"(?=[\s,.;!?]|$)"
 )
 # Round 2026-08-12T0613Z B-fix (the proven-green form from commit 097a42ee,
@@ -3185,23 +3185,17 @@ class UserModel:
                             from .pet_slots import _SPECIES_SEED as _PS_SEED
                         except Exception:
                             _PS_SEED = {}
-                        # 6f GENERALIZE: the gate is the SPECIES CLASS,
-                        # not a frozen word list. It used to be
-                        # `if _sp in _PS_SEED` (24 hardcoded animal
-                        # words), which meant a runtime-LEARNED species
-                        # ("ferret", learned by learn_species from an
-                        # earlier capitalized disclosure) silently lost
-                        # the lowercase path — so "my ferret Pim hides
-                        # my keys" was mined and "my ferret pim hides
-                        # my keys" was not. Ask pet_slots, whose
-                        # species_of covers the seed AND everything
-                        # learned at runtime, and fall back to
-                        # learn_species exactly as the capitalized path
-                        # below already does. No per-animal table.
+                        # Lowercase-name path: accept ONLY when the species is
+                        # already known (seed or runtime-learned via a PRIOR
+                        # capitalized disclosure). Do NOT call learn_species
+                        # here — that would learn ANY alpha word as a species,
+                        # so "my pet rock collection" would learn "rock" and
+                        # "my first mentor" would learn "first". The
+                        # capitalized path below is the only place a new
+                        # species may be learned, because only there is there
+                        # positive evidence (a capitalized proper noun).
                         if _sp in _PS_SEED or (
-                                _pet_slots.species_of(_sp) is not None
-                                or (_sp.isalpha()
-                                    and _pet_slots.learn_species(_sp))):
+                                _pet_slots.species_of(_sp) is not None):
                             # Lowercase-name path. The pattern runs IGNORECASE,
                             # so the name group can grab the PREDICATE that
                             # follows the species ("my dog likes the park" ->
