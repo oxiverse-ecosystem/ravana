@@ -1514,8 +1514,8 @@ _APPOS_COPULA = frozenset({
     "is", "was", "were", "are", "named", "called", "means", "s",
 })
 _APPOSITIVE_PET_PAT = (
-    r"\b(?:my\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+)"
-    r"|i\s+have\s+(?:a|an|the)\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Z][\w'-]+))\b"
+    r"\b(?:my\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Za-z][\w'-]+)"
+    r"|i\s+have\s+(?:a|an|the)\s+(?:pet\s+)?([A-Za-z][\w'-]*)\s+([A-Za-z][\w'-]+))\b"
     r"(?=[\s,.;!?]|$)"
 )
 # Round 2026-08-12T0613Z B-fix (the proven-green form from commit 097a42ee,
@@ -3199,7 +3199,8 @@ class UserModel:
                         # learn_species exactly as the capitalized path
                         # below already does. No per-animal table.
                         if _sp in _PS_SEED or (
-                                _pet_slots.species_of(_sp) is not None):
+                                _pet_slots.species_of(_sp) is not None) or (
+                                _sp.isalpha() and _sp not in _pet_slots._PRONOUN_STOP):
                             # Lowercase-name path. The pattern runs IGNORECASE,
                             # so the name group can grab the PREDICATE that
                             # follows the species ("my dog likes the park" ->
