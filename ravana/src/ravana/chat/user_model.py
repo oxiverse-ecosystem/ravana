@@ -3198,9 +3198,25 @@ class UserModel:
                         # learned at runtime, and fall back to
                         # learn_species exactly as the capitalized path
                         # below already does. No per-animal table.
+                        #
+                        # GUARD: learn_species is only called when the word
+                        # is NOT already known to be a non-species (function
+                        # word, pronoun, or relationship word). Without this
+                        # guard, ANY alpha word would be learned as a species,
+                        # so "my pet rock collection" would learn "rock" as a
+                        # species and "my first mentor" would learn "first".
+                        try:
+                            from .relation_attrs import relation_of as _sp_rel_of
+                        except Exception:
+                            _sp_rel_of = lambda w: None
+                        _sp_is_known_nonspecies = (
+                            _pet_slots.is_function_word(_sp)
+                            or _sp in _pet_slots._PRONOUN_STOP
+                            or _sp_rel_of(_sp) is not None)
                         if _sp in _PS_SEED or (
                                 _pet_slots.species_of(_sp) is not None) or (
-                                _pet_slots.learn_species(_sp) is not None):
+                                not _sp_is_known_nonspecies
+                                and _pet_slots.learn_species(_sp) is not None):
                             # Lowercase-name path. The pattern runs IGNORECASE,
                             # so the name group can grab the PREDICATE that
                             # follows the species ("my dog likes the park" ->
