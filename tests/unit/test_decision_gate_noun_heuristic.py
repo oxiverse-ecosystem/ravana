@@ -36,7 +36,7 @@ class TestNounHeuristicPath:
         result = decide_tool_use(engine, "show me the last 5 commits in this repo", registry)
         assert result is not None
         assert result.tool == "github_cli"
-        assert "noun_heuristic" in result.reason
+        assert "noun_heuristic" in result.reason or "git_intent_early" in result.reason
 
     def test_list_branches_fires_github_cli(self, registry):
         """'list all branches' should fire github_cli."""

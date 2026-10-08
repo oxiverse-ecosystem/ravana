@@ -350,15 +350,24 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
     # "show me the last 5 commits in this repo" does not get misrouted to
     # web_search (the engine has high uncertainty about commit history).
     # This is seed vocabulary — the noun set is expandable at runtime.
+    #
+    # Only fires for IMPERATIVE-formed queries or questions that ask about
+    # git STATE/OPERATIONS (not "what is git" or "how do I commit changes").
+    # The distinction: a git OPERATION query names a repo artifact (branch,
+    # log, status, diff, repo) or uses an imperative verb. A git KNOWLEDGE
+    # question ("what is git", "how do I commit") asks about the tool itself.
     _git_nouns = {"commit", "commits", "branch", "branches", "diff", "log",
-                  "status", "repo", "repository", "git", "head", "heads",
+                  "status", "repo", "repository", "head", "heads",
                   "remote", "remotes", "tag", "tags", "stash"}
     q_lower = q.lower()
     is_git_query = any(re.search(rf"\b{re.escape(n)}\b", q_lower) for n in _git_nouns)
     if is_git_query and "github_cli" in registry.tools:
         is_imp = _is_imperative_formed(q)
-        is_wh = bool(re.match(r"^(what|which|who|where|when|how)", q_lower))
-        if is_imp or is_wh:
+        # A git-state question: "what's the git status", "show the log"
+        # but NOT "what is git" (knowledge) or "how do I commit" (how-to).
+        is_git_state_q = bool(re.match(
+            r"^(what|which|where|when)\s+(?:is\s+)?(?:the\s+)?(?:git\s+)?(?:status|log|branch|branches|diff|repo|repository|head|remote|tag|stash)", q_lower))
+        if is_imp or is_git_state_q:
             # Translate natural language to a safe git subcommand.
             # Only allow read-only or safe local ops.
             if re.search(r"\b(branch|branches)\b", q_lower):
