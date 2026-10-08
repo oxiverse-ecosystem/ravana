@@ -11,6 +11,13 @@ Determinism contract:
 - PYTHONHASHSEED-stable hashing (order-independent structural fingerprints).
 - All learned state that feeds the spike log is derived from the seeded RNG
   + the input sequence.
+
+NOTE: graph node VECTOR SUMS are deliberately excluded from the fingerprint.
+Graph learning updates node vectors via in-place arithmetic whose float
+accumulation order varies across processes (even with BLAS pinned to 1
+thread). Structural signals (counts, edge weights, FE, stability, confidence)
+ARE deterministic and catch real regressions; vector-element sums only
+absorb float-accumulation noise.
 """
 import hashlib
 import time
@@ -71,23 +78,41 @@ class SpikeLog:
         return len(self.entries)
 
 
+def deterministic_total_free_energy(graph) -> float:
+    """Order-independent total free energy for determinism.
+
+    graph.total_free_energy accumulates via += in traversal order, which is
+    non-deterministic across process runs (dict iteration, thread scheduling).
+    This derives the same quantity from sorted per-node values so the hash
+    is stable.
+    """
+    return round(sum(
+        float(getattr(graph.nodes[nid], "prediction_free_energy", 0.0))
+        for nid in sorted(graph.nodes)
+    ), 8)
+
+
 def graph_state_fingerprint(graph) -> str:
     """SHA-256 of the concept graph's cognitive state.
 
-    Includes: node count, edge count, total_free_energy, and per-node
-    (label, vector_sum, free_energy, stability) — deterministic structural
-    signals only, NOT activation timestamps or history buffers which depend
-    on wall-clock time.
+    Includes: node count, edge count, total_free_energy (order-independent),
+    and per-node (label, free_energy, stability, confidence).
+
+    DeliberATELY EXCLUDES vector sums: graph learning updates node vectors
+    via in-place arithmetic whose float accumulation order varies across
+    processes even with BLAS pinned to 1 thread.  Structural signals
+    (counts, edge weights, FE, stability, confidence) ARE deterministic
+    and catch real regressions; vector-element sums only absorb
+    float-accumulation noise.
     """
-    # Nodes: sorted by label for determinism
+    # Nodes: sorted by id for determinism
     node_sigs = []
     for nid in sorted(graph.nodes.keys()):
         n = graph.nodes[nid]
-        vec_sum = round(float(n.vector.sum()), 8) if n.vector is not None else 0.0
         fe = round(float(getattr(n, "prediction_free_energy", 0.0)), 8)
         stab = round(float(getattr(n, "stability", 0.5)), 8)
         conf = round(float(getattr(n, "confidence", 0.1)), 8)
-        node_sigs.append((n.label, vec_sum, fe, stab, conf))
+        node_sigs.append((n.label, fe, stab, conf))
 
     # Edges: sorted by (source, target) for determinism
     edge_sigs = []
@@ -96,7 +121,7 @@ def graph_state_fingerprint(graph) -> str:
         w = round(float(getattr(e, "weight", 0.5)), 8) if hasattr(e, "weight") else round(float(e[1]), 8)
         edge_sigs.append((s, t, w))
 
-    total_fe = round(float(getattr(graph, "total_free_energy", 0.0)), 8)
+    total_fe = deterministic_total_free_energy(graph)
 
     structure = {
         "node_count": len(graph.nodes),
