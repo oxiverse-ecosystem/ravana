@@ -210,6 +210,16 @@ on this codebase:
   whole and still feeding the `does`/`event` fact miners through the same
   chokepoint. No per-topic rule, no retraining. See
   `docs/CAPABILITY_MULTI_ACTIVITY_STANCE_KEY.md`.
+- **Keeps a stance key clean when a trailing temporal adverb follows the
+  object.** A disclosure like *"i love board games now"* used to mine a
+  stance keyed `board games now` alongside `board games`, so the next recall
+  read the weaker duplicate. Now a closed-class stop-word addition to
+  `_OPINION_STOP` (`user_model.py:6483-6492`) trims trailing temporal /
+  discourse adverbs (`now`, `today`, `tomorrow`, `yesterday`, `soon`, `later`,
+  `still`, `yet`, ...) from the head phrase via the existing trailing-trim
+  loop (`user_model.py:6683`) — no new code path, no per-topic rule. Stance
+  keys land on the real object (`board games`) and recall reads the right one.
+  See `docs/CAPABILITY_TRAILING_ADVERB_STANCE_KEY.md`.
 - **Recalls what it knows about a named relationship or person from open
   phrasing.** Asked *"tell me about my grandmother"*, *"who is my grandmother?"*,
   *"what does my grandmother do?"*, *"what do you know about my brother"*, or
