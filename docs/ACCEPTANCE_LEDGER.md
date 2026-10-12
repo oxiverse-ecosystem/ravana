@@ -88,18 +88,21 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 |-------|-----------|--------|-------|
 | `tests/unit/` | 198 test files | `unit-tests` (4 shards) | **GREEN** |
 | `tests/` (top-level) | 23 test files | `misc-tests` | **GREEN** |
-| `tests/integration/` | 13 test files | `integration-tests` | **YELLOW** |
+| `tests/integration/` | 13 test files | `integration-tests` | **GREEN** |
 | `tests/ci/` | 5 test files | `ci-critical` | **GREEN** |
 | **Total** | **239 test files** | 4 CI jobs | — |
 
 Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
+Integration suite: **111** tests collected, **107 passed, 4 skipped** (2026-10-12).
 
-Notes (added 2026-09-30):
-- `tests/integration/` was previously absent from this table. It is gated by the named
-  `integration-tests` job (`.github/workflows/ci.yml` line 153), and that job is a
-  required gate via `ci-status` (line 261). It is graded YELLOW, not GREEN, solely because
-  `tests/integration/test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`
-  is currently failing — see backlog task 9.
+Notes (updated 2026-10-12):
+- `tests/integration/` is graded **GREEN**. The previously failing test
+  `test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`
+  was fixed in commit `79733fd2` (round 2026-09-30T1031Z) — the test was made
+  hermetic with per-run UUID suffixes so persisted `consolidated` flags don't
+  contaminate subsequent runs. Verified 2026-10-12: `pytest tests/integration/ -q`
+  → **107 passed, 4 skipped** (skips are pre-existing: 2 need live web, 2 are
+  slow-training). CI `integration-tests` job is green on `auto/round-2026-10-12T0729Z`.
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 
