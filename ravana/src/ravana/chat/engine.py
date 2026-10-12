@@ -6201,6 +6201,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"what did i say about|"
             r"what was it i told you|"
             r"what did i just tell you about)\b", _q))
+        # D3 FIX (round 2026-10-12T1042Z): a first-person recall query that
+        # also names a USER ATTRIBUTE ("what did i just tell you about my dog")
+        # is NOT a recall of RAVANA's own speech — it is a recall of the USER's
+        # own fact. The _is_first_person_recall regex above matches the
+        # scaffolding ("what did i just tell you about") regardless of what
+        # follows, so without this guard the attribute check below is skipped
+        # and the query reaches the agent-reply store, returning an unrelated
+        # reply (measured T27: "what did i just tell you about my dog" ->
+        # "your sister maya is just got accepted"). Exclude user-attribute
+        # queries from the first-person recall path so they fall through to
+        # the user-fact recall. Structural: the attribute word list is the
+        # SAME shared lexicon the guard below already uses — no per-topic
+        # table, no authored prose.
+        if _is_first_person_recall and re.search(
+                r"\b(name|named|called|age|live|lives|from|work|study|"
+                r"studied|grew up|sister|brother|mother|father|mom|dad|"
+                r"family|relative|kin|grandmother|grandfather|grandma|"
+                r"grandpa|aunt|uncle|cousin|niece|nephew|grandchild|"
+                r"wife|husband|partner|kid|child|son|daughter|pet|"
+                r"friend|job|house|home|phone|computer|laptop|car|"
+                r"cat|dog|crow|bird|fish|petname|pet name)\b", _q):
+            _is_first_person_recall = False
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
