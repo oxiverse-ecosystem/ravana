@@ -6480,6 +6480,16 @@ class UserModel:
         "is", "are", "was", "were", "be", "been", "being", "am",
         "has", "have", "had", "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
         "it", "they're", "im", "i'm", "you're", "we're", "there",
+        # Round 2026-10-12T0729Z feature t_407c0ff4: trailing temporal /
+        # discourse adverbs leaked into stance keys ("actually i love board
+        # games now" created 'board games now' alongside 'board games', so
+        # recall read the weaker one). Same closed-class stop-word pattern
+        # as the entries above; _opinion_topic already trims trailing
+        # _OPINION_STOP words from the head phrase (line ~6673). Structural:
+        # generalizes to any trailing temporal adverb, no per-topic rule.
+        "now", "today", "tonight", "yesterday", "tomorrow", "soon",
+        "later", "earlier", "then", "here", "there", "still", "yet",
+        "already", "anymore", "lately", "recently", "currently",
     }
 
     def _opinion_provenance(self, phrase: str) -> List[str]:
