@@ -1392,6 +1392,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         from .relevance_store import RelevanceThreshold, RelevanceScorer
         self._relevance_threshold = RelevanceThreshold()
         self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
+        # Multi-Signal Recall Relevance Scorer (MRS) — ranks recall candidates
+        # using existing + new signals (entity match, confidence, query-type).
+        # SEED-compliant: all params in RelevanceThreshold + PersonalFactStore.
+        from .recall_ranker import RecallRanker
+        self._recall_ranker = RecallRanker(
+            glove_fn=self._glove_vector,
+            threshold=self._relevance_threshold)
 
         # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
         # Stores (turn_number, reply_text) tuples of the agent's genuine replies
@@ -2962,10 +2969,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if not answer:
             return answer
         try:
-            _score = self._relevance_scorer.score(
+            # Use the RecallRanker's multi-signal scoring (MRS)
+            _score = self._recall_ranker.score_text(
                 query, answer,
-                query_turn=self.turn_count,
-                threshold=self._relevance_threshold)
+                query_turn=self.turn_count)
             if _score >= self._relevance_threshold.base_threshold:
                 return answer
             return None
