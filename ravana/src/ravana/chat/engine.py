@@ -6209,9 +6209,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # recall/reference verb, so plain world/opinion questions are untouched.
         _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
         _recall_v = bool(re.search(
-            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+            r"\b(said|say|mention|mentioned|formed|opinion|"
             r"stated|answered|replied|remember|recall|earlier|before|"
-            r"said about|say about|tell me about what you)\b", _q))
+            r"said about|say about|what did you say|what was it you said|"
+            r"you said|you mentioned|you told)\b", _q))
         if not (_agent_ref and _recall_v):
             return None
         # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
