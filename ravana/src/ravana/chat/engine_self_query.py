@@ -1227,19 +1227,38 @@ class SelfQueryMixin:
                 try:
                     _id = self.identity.get_status()
                     _strength = _id.get("strength", 0.0)
-                    # No keyword→prose table: every introspection question is
-                    # answered from the SAME live identity state (strength band +
-                    # measured value), so the content comes from cognition.
+                    _momentum = _id.get("momentum", 0.0)
+                    _stability = _id.get("stability", 0.0)
+                    # D4 FIX: break the canned self-description paragraph into
+                    # state-driven renders. Each clause is computed from a
+                    # different live identity metric, so the reply varies with
+                    # RAVANA's actual cognitive state rather than repeating a
+                    # fixed paragraph. The content comes from cognition (the
+                    # identity engine's real measurements), not authored prose.
                     if _strength >= 0.5:
                         _coh = "i have a fairly settled sense of myself"
                     elif _strength >= 0.35:
                         _coh = "my sense of myself is still taking shape"
                     else:
                         _coh = "i'm still quite unsettled about who i am"
-                    return (f"that's about me, not you — {_coh}, and it's been "
-                            f"growing as we talk. i don't always keep the exact "
-                            f"words of what i said earlier, but the shape of it "
-                            f"holds.")
+                    # Render growth from momentum (not a fixed "growing as we
+                    # talk"). Positive momentum = growing, negative = settling.
+                    if _momentum > 0.05:
+                        _growth = "it's been growing as we talk"
+                    elif _momentum < -0.05:
+                        _growth = "it's been settling into a clearer shape"
+                    else:
+                        _growth = "it's been holding steady"
+                    # Render stability from the stability metric.
+                    if _stability > 0.7:
+                        _stab = "the shape of it holds well"
+                    elif _stability > 0.4:
+                        _stab = "the shape of it mostly holds"
+                    else:
+                        _stab = "the shape of it is still shifting"
+                    return (f"that's about me, not you — {_coh}, and {_growth}. "
+                            f"i don't always keep the exact words of what i said "
+                            f"earlier, but {_stab}.")
                 except Exception:
                     return ("that's a question about me rather than you — i'm "
                             "still forming a sense of myself, and i'd rather be "

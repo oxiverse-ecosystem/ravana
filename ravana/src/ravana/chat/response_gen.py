@@ -4380,6 +4380,46 @@ class ResponseGenMixin(ChainWalkerMixin):
             text))
         if _is_interrogative or _is_imperative_req:
             return None
+        # D7 FIX: implicit emotional content detection. The valence detector
+        # only fires on explicit emotional words ("i feel sad", "i'm furious"),
+        # so implicitly emotional situations ("i don't belong anywhere",
+        # "my cat has been diagnosed with a chronic illness") get a flat
+        # "noted" reply. These patterns are seed vocabulary (RAVANA-expandable,
+        # degrades gracefully) — they name emotional SITUATIONS, not authored
+        # replies. The reply content still comes from the empathic responder.
+        _IMPLICIT_EMOTIONAL = (
+            # Loneliness / isolation
+            (r"\b(don'?t|do not|never)\s+belong\b", "lonely"),
+            (r"\b(feel|feeling|felt)\s+alone\b", "lonely"),
+            (r"\bno\s+(one|body)\s+(likes?|loves?|cares?)\s+about\s+me\b", "lonely"),
+            (r"\b(without|no)\s+(friends?|family|anyone)\b", "lonely"),
+            # Health / illness (self or loved one)
+            (r"\bdiagnosed\s+with\b", "concerned"),
+            (r"\b(chronic|terminal|serious)\s+(illness|disease|condition)\b", "concerned"),
+            (r"\b(cancer|tumor|stroke|heart\s+attack)\b", "concerned"),
+            (r"\b(my|our)\s+\w+\s+(is|has|been)\s+sick\b", "concerned"),
+            # Rejection / failure
+            (r"\b(rejected|refused|denied|turned\s+down)\b", "hurt"),
+            (r"\b(failed|failure|flunked)\b", "disappointed"),
+            (r"\b(lost|lost\s+my)\s+(job|work|career)\b", "worried"),
+            (r"\b(fired|sacked|laid\s+off)\b", "worried"),
+            # Grief / loss (non-death)
+            (r"\b(broke\s+up|broke\s+it\s+off|divorced|separated)\b", "heartbroken"),
+            (r"\b(moved\s+away|moved\s+out|left\s+me\b)", "sad"),
+            (r"\b(don'?t|do not|never)\s+(talk|speak)\s+to\s+me\b", "hurt"),
+            (r"\b(ignored|neglected|forgotten)\s+by\b", "hurt"),
+            # Anxiety / worry
+            (r"\b(worried|anxious|nervous|scared|afraid)\s+about\b", "anxious"),
+            (r"\b(can'?t|cannot)\s+sleep\b", "anxious"),
+            (r"\b(overwhelmed|burned?\s+out|exhausted)\b", "overwhelmed"),
+            # Shame / guilt
+            (r"\b(ashamed|embarrassed|guilty|regret)\b", "ashamed"),
+            (r"\b(i\s+was\s+wrong|my\s+mistake|i\s+messed\s+up)\b", "ashamed"),
+        )
+        for _pattern, _emotion_word in _IMPLICIT_EMOTIONAL:
+            if re.search(_pattern, text):
+                self._update_vad_baseline(-0.4)
+                return ("negative", _emotion_word)
         # First-person bereavement / loss schema (brain-faithful loss
         # detector). Death/grief words ("died", "death", "grief", "passed
         # away", "lost" in a loss sense) are often ABSENT from the VAD lexicon,
@@ -6392,6 +6432,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             except Exception:
                 pass
         valence = getattr(self.emotion.state, 'valence', 0.5) if hasattr(self, 'emotion') else 0.5
+        # D6 FIX: track recently used uncertainty openers and deprioritize them.
+        # The same fallback templates ("solid grasp", "outside what i know")
+        # repeat across turns because each turn selects independently with no
+        # memory of what was just said. We maintain a recency window of the
+        # last N opener shapes and prefer unused ones. This is a general
+        # mechanism (no per-topic lists) — it varies the reply shape based on
+        # conversation history.
+        _recent_openers = getattr(self, "_recent_uncertainty_openers", None)
+        if _recent_openers is None:
+            from collections import deque as _deque
+            _recent_openers = self._recent_uncertainty_openers = _deque(maxlen=4)
         # Gentle, low-valence-aware phrasing.
         if valence < 0.4:
             openers = [
@@ -6405,6 +6456,10 @@ class ResponseGenMixin(ChainWalkerMixin):
                 f"i'm not completely sure about {subj_cap}, but i'm curious! ",
                 f"hmm, {subj_cap} is new to me. ",
             ]
+        # Deprioritize recently used openers: prefer ones not in the recency window.
+        _fresh_openers = [o for o in openers if o not in _recent_openers]
+        if _fresh_openers:
+            openers = _fresh_openers
         closers = [
             "what made you think about it?",
             "what do you make of it?",
@@ -6444,7 +6499,34 @@ class ResponseGenMixin(ChainWalkerMixin):
             _fresh = closers
         closer = random.choice(_fresh)
         _recent.append(closer)
-        text = random.choice(openers) + closer
+        _opener = random.choice(openers)
+        _recent_openers.append(_opener)
+        text = _opener + closer
+
+        # D5 FIX: integrate web search results into the uncertainty reply.
+        # When the web search layer fired and returned results but they were
+        # below the confidence threshold for a direct answer, the results are
+        # currently discarded and the reply is a flat "solid grasp" with no
+        # value. Instead, weave the top web snippet into the reply as
+        # supplementary info: "i don't have a solid grasp on X yet, but from
+        # what i looked up — [snippet]." This makes the web search useful
+        # even when it can't be the primary answer.
+        _web_cands = getattr(self, "_last_web_cands", None)
+        if _web_cands:
+            _top_snip = _web_cands[0] if _web_cands else None
+            if _top_snip and isinstance(_top_snip, str) and len(_top_snip) > 20:
+                # Sanitize the snippet before weaving it in.
+                _snip_san = self._sanitize_definition_text(_top_snip)
+                if _snip_san and len(_snip_san) > 15:
+                    # Trim to first sentence for brevity.
+                    _snip_first = re.split(r"(?<=[.!?])\s+", _snip_san.strip())[0]
+                    if _snip_first and not _snip_first.endswith((".", "!", "?")):
+                        _snip_first += "."
+                    # Replace the closer with the web snippet + a question.
+                    text = random.choice(openers) + (
+                        f"from what i looked up — {_snip_first.lower() if _snip_first[0].isupper() else _snip_first} "
+                        f"what's your take on it?")
+                    _recent.append("what's your take on it?")
 
         # P2 safety net: the fallback must NEVER degenerate into fluent-empty
         # text (that would mean the guard failed closed into the very garbage it
