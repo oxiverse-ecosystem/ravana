@@ -3020,6 +3020,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # ── SELF-OPINION GATE (round 2026-10-13T0125Z) ──────────────────────
+        # A query asking for RAVANA's OWN stance ("do you think X", "what's your
+        # take on Y") must NOT be answered from the USER's personal-fact store.
+        # _structured_recall fires at the TOP of process_turn, BEFORE
+        # _route_self_query, so without this gate a self-opinion query matches a
+        # loosely-related user fact and returns a degenerate reply (measured:
+        # "do you think dreams have meaning or are they just noise?" -> "your
+        # friend is just is moved to another country."). The gate is the SAME
+        # _SELF_OPINION_SHAPE regex that _self_cued_episodic uses (imported from
+        # engine_memory.py) — one definition, two call sites, so the two routers
+        # cannot drift apart. Fail-closed: returns None so the query falls
+        # through to _route_self_query which computes RAVANA's real stance.
+        try:
+            from .engine_memory import _SELF_OPINION_SHAPE as _SOS
+            if re.search(_SOS, q):
+                return None
+        except Exception:
+            pass
+
         # (0a) R1 (2026-08-18T1340Z round): ENTITY-SCOPED NAME recall with
         # cross-lemma linking. A possession named by the user is stored under
         # the ENTITY key (e.g. ('sourdough starter','name','doris'),
