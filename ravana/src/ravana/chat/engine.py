@@ -6262,13 +6262,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
-        # further down. Structural (1st-person possessive + user-attribute noun),
-        # but ONLY when the query is NOT already a first-person recall of the
-        # agent's own prior speech (RV-5: "what did i just tell you about my
-        # favorite food" must reach the agent-reply store, not be blocked here).
-        if (not _is_first_person_recall
-                and re.search(
-                    r"\b(my|mine|me|i|we|our|myself)\b", _q)
+        # further down. Structural (1st-person possessive + user-attribute noun).
+        # This applies EVEN when the query is a first-person recall of the agent's
+        # own prior speech (RV-5: "what did i just tell you about my favorite food"
+        # must reach the agent-reply store — but "favorite food" is NOT in the
+        # attribute word list, so it passes through. "my dog" / "my sister" ARE
+        # in the list, so they are blocked and fall through to user-fact recall).
+        if (re.search(
+                r"\b(my|mine|me|i|we|our|myself)\b", _q)
                 and re.search(
                     r"\b(name|named|called|age|live|lives|from|work|study|"
                     r"studied|grew up|sister|brother|mother|father|mom|dad|"
