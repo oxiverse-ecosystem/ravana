@@ -3035,7 +3035,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             from .engine_memory import _SELF_OPINION_SHAPE as _SOS
             if re.search(_SOS, q):
-                return None
+                # Aggregation queries ("what's your read on me") match the
+                # self-opinion shape but must reach the aggregation gate below.
+                if not re.search(
+                    r"\b(what(?:'s| is| do| did) your (?:read|take) on me|"
+                    r"what do you (?:make|think) of me|"
+                    r"tell me about myself|describe me|"
+                    r"what have you picked up about me|"
+                    r"everything you know about me|"
+                    r"what stands out about me)\b", q):
+                    return None
         except Exception:
             pass
 
