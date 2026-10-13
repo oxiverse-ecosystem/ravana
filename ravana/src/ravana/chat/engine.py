@@ -2938,7 +2938,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _answers: List[str] = []
             _seen: Set[str] = set()
             for _sub in _parts:
-                _ans = self._structured_recall(_sub)
+                _ans = self._relevance_gate(_sub, self._structured_recall(_sub))
                 if _ans and _ans not in _seen:
                     _seen.add(_ans)
                     _answers.append(_ans)
@@ -2990,6 +2990,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         <turn B> <turn C>..."). The cue mapped to NO specific stored entity, so
         the reply was a wrong/mismatched memory (measured across the Noor chat
         round: name -> "i don't know", cafeteria -> the green-comet turn,
+
+        SEED-backed relevance gate (round 2026-10-13): the inner method returns
+        a candidate answer; this wrapper verifies its relevance with a
+        multi-signal score before returning. Fail-closed: if below threshold,
+        return None (honest uncertainty beats confabulation).
         surveillance -> the cafeteria turn).
 
         This resolver reads the LIVE durable stores (personal_facts,
@@ -6396,7 +6401,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _, _matched_text = _best_entry
                         _matched_text = _matched_text.strip()
                         if _matched_text:
-                            return f"earlier i said: {_matched_text}"
+                            _ans = f"earlier i said: {_matched_text}"
+                            return self._relevance_gate(_q, _ans)
             except Exception:
                 pass
             return None
@@ -6406,7 +6412,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return None
         # Render in FIRST person (it is RAVANA's own prior speech), with a
         # light source tag so the boundary is explicit and honest.
-        return f"i said: {_text}"
+        _ans = f"i said: {_text}"
+        return self._relevance_gate(_q, _ans)
 
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
         """Answer question-shaped input from the hippocampal buffer's stored
@@ -7061,7 +7068,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # returns None for genuinely self-directed queries, so this is
         # fail-open and never masks a real self-answer.
         try:
-            _sr_top = self._structured_recall(user_input)
+            _sr_top = self._relevance_gate(user_input, self._structured_recall(user_input))
             if _sr_top is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr_top)
@@ -7609,7 +7616,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # never a concatenation of unrelated turns) BEFORE the loose
             # fact_reasoning.enumerate_matching path, which would otherwise
             # dump mismatched prior utterances. Fail-open: None -> unchanged.
-            _sr = self._structured_recall(user_input)
+            _sr = self._relevance_gate(user_input, self._structured_recall(user_input))
             if _sr is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr)
@@ -7859,7 +7866,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # returns None for genuinely self-directed queries, so this is
         # fail-open.
         try:
-            _sr_pre = self._structured_recall(user_input)
+            _sr_pre = self._relevance_gate(user_input, self._structured_recall(user_input))
             if _sr_pre is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr_pre)
@@ -10988,6 +10995,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # reload that wiped this would make the agent "forget" its own
                 # prior opinions (limitation #2).
                 'agent_stances': dict(getattr(self, '_agent_stances', {}) or {}),
+                # SEED-backed relevance-scored recall layer (round 2026-10-13).
+                # Persisted so the learned threshold survives across sessions —
+                # without this the relevance gate would reset to seed every boot.
+                'relevance_threshold': (self._relevance_threshold.to_dict()
+                                        if getattr(self, '_relevance_threshold', None)
+                                        else None),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -11313,6 +11326,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _restored[_k.lower().strip()] = (str(_v[0]), float(_v[1]),
                                                              str(_v[2]), int(_v[3]))
                     self._agent_stances = _restored
+            except Exception:
+                pass
+            # Restore the SEED-backed relevance threshold (round 2026-10-13).
+            # Guarded so a bad shape never wipes the store or breaks boot.
+            try:
+                from .relevance_store import RelevanceThreshold as _RT
+                _rt = state.get('relevance_threshold', None)
+                if isinstance(_rt, dict):
+                    self._relevance_threshold = _RT.from_dict(_rt)
             except Exception:
                 pass
             self._free_energy = state['free_energy']

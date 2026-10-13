@@ -178,7 +178,8 @@ class ConceptEdge:
     def __init__(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
                  relation_type: str = "semantic", relation_dim: int = 16,
-                 confidence: float = 0.5):
+                 confidence: float = 0.5,
+                 context_labels: Optional[List[str]] = None):
         self.source = source
         self.target = target
         self._weight = max(0.0, min(1.0, weight))
@@ -212,6 +213,13 @@ class ConceptEdge:
         self.parent_graph = None
         # Multi-Agent Edge Weights (dialogue system)
         self.agent_weights: Dict[str, float] = {}
+        # Context-dependent edge gating: labels that determine when this edge
+        # is active. Empty list = always active (default). Non-empty = only
+        # active when the graph's current context matches one of these labels.
+        # This is the mechanism for representing fuzzy/ambiguous knowledge:
+        # the same edge can be active in one context and inactive in another,
+        # without hardcoding a separate graph for each context.
+        self.context_labels: List[str] = list(context_labels) if context_labels else []
         self.source_metadata: Dict[str, Any] = {
             'source_agent': 'system',
             'epistemic_status': 'fact',
@@ -1153,6 +1161,15 @@ class ConceptGraph:
         # compute_curvature/basin_depth reuse the cached vector matrix
         self._cached_norms: Optional[np.ndarray] = None
 
+        # ── Context-dependent edge gating ──
+        # The graph's current context determines which context-labeled edges
+        # are active. This is the mechanism for representing fuzzy/ambiguous
+        # knowledge: the same edge can be active in one context and inactive
+        # in another, without hardcoding a separate graph for each context.
+        # Empty set = all edges active (no context filtering).
+        self._current_context: Set[str] = set()
+        self._context_edge_index: Dict[str, Set[Tuple[int, int]]] = defaultdict(set)
+
     def __getstate__(self):
         """Exclude non-picklable / recreated-at-load state.
 
@@ -1200,6 +1217,8 @@ class ConceptGraph:
             '_curvature_history': [],
             'max_step_delta': 0.01,
             'version': 0,
+            '_current_context': set(),
+            '_context_edge_index': defaultdict(set),
             # Runtime engine wiring — never persisted (see __getstate__); the
             # chat engine re-attaches both after restoring the graph so saved
             # edges keep flowing into HRR / relation context.
@@ -1223,6 +1242,12 @@ class ConceptGraph:
         # Ensure parent_graph is set on all edges
         for edge in self.edges.values():
             edge.parent_graph = self
+        # Rebuild context edge index from edges that have context_labels
+        self._context_edge_index = defaultdict(set)
+        for (src, tgt), edge in self.edges.items():
+            if hasattr(edge, 'context_labels') and edge.context_labels:
+                for label in edge.context_labels:
+                    self._context_edge_index[label].add((src, tgt))
 
     # ── node management ──
 
@@ -1502,7 +1527,8 @@ class ConceptGraph:
     def add_edge(self, source: int, target: int, weight: Optional[float] = None,
                  shortcut: bool = False, edge_type: str = "excitatory",
                  relation_type: str = "semantic",
-                 confidence: Optional[float] = None) -> ConceptEdge:
+                 confidence: Optional[float] = None,
+                 context_labels: Optional[List[str]] = None) -> ConceptEdge:
         with self._lock:
             # Guard: never wire a concept to itself. A self-loop (source == target)
             # has no directional/relational content and is a degenerate edge that
@@ -1537,6 +1563,8 @@ class ConceptGraph:
                     edge.relation_type = relation_type
                 if confidence is not None:
                     edge.confidence = confidence
+                if context_labels is not None:
+                    edge.context_labels = list(context_labels)
                 return edge
             if confidence is None:
                 confidence = 0.5
@@ -1550,7 +1578,8 @@ class ConceptGraph:
                 edge_type = default_edge_type
             edge = ConceptEdge(source, target, weight, shortcut=shortcut,
                               edge_type=edge_type, relation_type=relation_type,
-                              relation_dim=self._relation_dim, confidence=confidence)
+                              relation_dim=self._relation_dim, confidence=confidence,
+                              context_labels=context_labels)
             edge.parent_graph = self
             # Opt-in fact-encode hook: lets an external reasoner (e.g. the
             # HRR compositional store in chat/engine.py) populate itself from the
@@ -1596,6 +1625,77 @@ class ConceptGraph:
                 self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
                 self._adj_dirty = True
                 self.version = getattr(self, "version", 0) + 1
+
+    def set_context(self, labels: Optional[List[str]] = None):
+        """Set the graph's current context for context-dependent edge gating.
+
+        When context is set, only edges whose context_labels intersect with
+        the given labels are active during spreading activation and inference.
+        Edges with empty context_labels are always active (context-independent).
+
+        Passing None or an empty list clears context filtering (all edges active).
+
+        This is the mechanism for representing fuzzy/ambiguous knowledge:
+        the same graph can represent different meanings in different contexts
+        without hardcoding separate graphs. For example, "bank" can activate
+        "river" in a nature context and "money" in a finance context.
+        """
+        with self._lock:
+            if labels:
+                self._current_context = set(labels)
+            else:
+                self._current_context = set()
+
+    def get_context(self) -> Set[str]:
+        """Return the current context labels."""
+        return set(self._current_context)
+
+    def is_edge_active(self, edge: ConceptEdge) -> bool:
+        """Check if an edge is active in the current context.
+
+        An edge is active if:
+        - It has no context_labels (context-independent, always active), OR
+        - The graph has no current context set (no filtering), OR
+        - At least one of its context_labels matches the current context.
+        """
+        if not edge.context_labels:
+            return True
+        if not self._current_context:
+            return True
+        return bool(set(edge.context_labels) & self._current_context)
+
+    def add_context_edge(self, source: int, target: int,
+                         context_labels: List[str],
+                         weight: float = 0.5,
+                         relation_type: str = "contextual",
+                         confidence: float = 0.5) -> ConceptEdge:
+        """Add a context-dependent edge that is only active in specific contexts.
+
+        This is the primary mechanism for representing ambiguous knowledge:
+        the same source-target pair can have different edges for different
+        contexts, and only the edge matching the current context is active.
+        """
+        edge = self.add_edge(source, target, weight=weight,
+                             relation_type=relation_type,
+                             confidence=confidence,
+                             context_labels=context_labels)
+        # Index the edge by its context labels for efficient lookup
+        for label in context_labels:
+            self._context_edge_index[label].add((source, target))
+        return edge
+
+    def get_context_edges(self, label: str) -> List[ConceptEdge]:
+        """Get all edges tagged with a specific context label."""
+        edges = []
+        for src, tgt in self._context_edge_index.get(label, []):
+            edge = self.edges.get((src, tgt))
+            if edge is not None:
+                edges.append(edge)
+        return edges
+
+    def clear_context(self):
+        """Clear the current context, making all edges active."""
+        self._current_context = set()
 
     def prune_low_quality_edges(self, C1: float = 0.35, K: int = 1, U: float = 0.3,
                                 enabled: bool = True) -> int:
@@ -1713,7 +1813,8 @@ class ConceptGraph:
 
             # Fine-grained path: handles relation vector gate + precision weighting
             # (only when sparse path is not active — avoids double-counting)
-            else:
+            # Also run when context is set, to apply context gating
+            if relation_type is not None or self._current_context:
                 for nid in list(self._active_nodes):
                     node = self.nodes.get(nid)
                     if node is None or node.activation <= 0.01:
@@ -1724,6 +1825,9 @@ class ConceptGraph:
                     src_normed = src_vec / src_norm if src_norm > 0 else None
                     # O(degree) neighbor lookup via adjacency list
                     for target_id, edge in self._outgoing.get(nid, []):
+                        # Context gate: skip edges inactive in current context
+                        if not self.is_edge_active(edge):
+                            continue
                         # Relation type filter: only spread along matching edges
                         if relation_type is not None and edge.relation_type != relation_type:
                             continue
@@ -2775,6 +2879,9 @@ class ConceptGraph:
                         continue  # no cycles
                     if edge.edge_type == "inhibitory":
                         continue  # skip inhibitory edges
+                    # Context gate: skip edges inactive in current context
+                    if not self.is_edge_active(edge):
+                        continue
                     if verb is not None and (getattr(edge, "relation_type", "") or "").lower() != verb.lower():
                         continue  # M5' graph-override: stay on the queried relation
                     if edge.weight < min_weight:
