@@ -220,6 +220,19 @@ on this codebase:
   loop (`user_model.py:6683`) — no new code path, no per-topic rule. Stance
   keys land on the real object (`board games`) and recall reads the right one.
   See `docs/CAPABILITY_TRAILING_ADVERB_STANCE_KEY.md`.
+- **Does not confabulate a user-attribute recall as RAVANA's own speech.**
+  Asked *"what did i just tell you about my dog"* or *"what did i just tell
+  you about my sister"* — a first-person recall query that also names a user
+  attribute — it does NOT return an unrelated agent reply from a prior turn
+  (measured T27: *"your sister maya is just got accepted"*). The query is
+  correctly routed to the user-fact recall path instead. The fix adds a
+  structural guard (`engine.py:6217-6225`) that excludes user-attribute
+  queries from the first-person recall path using the SAME shared lexicon the
+  existing guard already uses — no per-topic table, no authored prose. Genuine
+  agent-self recalls (*"what did you say about art"*) and non-attribute
+  first-person recalls (*"what did i just tell you about my favorite food"*)
+  still reach the agent-reply store. No LLM, no retraining. See
+  `docs/CAPABILITY_FIRST_PERSON_RECALL_USER_ATTR_GUARD.md`.
 - **Recalls what it knows about a named relationship or person from open
   phrasing.** Asked *"tell me about my grandmother"*, *"who is my grandmother?"*,
   *"what does my grandmother do?"*, *"what do you know about my brother"*, or

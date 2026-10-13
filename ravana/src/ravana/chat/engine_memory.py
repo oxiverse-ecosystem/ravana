@@ -1546,7 +1546,9 @@ class MemoryMixin:
             for slot, val in facts.items():
                 # the query references this fact's value or slot keyword
                 if val and (val in q or slot.replace("_", " ") in q):
-                    return self._reconstruct_gist(rec)
+                    _gist = self._reconstruct_gist(rec)
+                    if self._gist_matches_query(_gist, q):
+                        return _gist
         # (b) semantic match over turn text / gist.
         # SEED-backed relevance scoring (round 2026-10-13): after finding the
         # best semantic match, verify its relevance with a multi-signal score.
@@ -1660,7 +1662,11 @@ class MemoryMixin:
                     query_turn=getattr(self, "turn_count", 0),
                     threshold=self._relevance_threshold)
                 if _rel_score >= self._relevance_threshold.base_threshold:
-                    return self._reconstruct_gist(best)
+                    # D1 FIX: also verify the reconstructed gist shares a
+                    # content word with the query before returning it.
+                    _gist = self._reconstruct_gist(best)
+                    if self._gist_matches_query(_gist, q):
+                        return _gist
         return None
 
     # ════════════════════════════════════════════════════════════════
@@ -2099,6 +2105,38 @@ class MemoryMixin:
             if bits:
                 return "you told me " + "; ".join(bits) + "."
         return f"you mentioned: \"{rec.get('text', '')}\""
+
+    def _gist_matches_query(self, gist_text: str, query: str) -> bool:
+        """Check if a reconstructed gist is actually relevant to the query.
+
+        This is the D1 confabulation guard: when the semantic matcher returns
+        an episode, we verify that at least one content word from the query
+        appears in the gist text. If the gist shares no content words with
+        the query, it is an unrelated fact and must NOT be returned (fail
+        closed). This is a general, structural check — no per-topic lists.
+        """
+        if not gist_text or not query:
+            return False
+        _RECALL_SCAFFOLD = {
+            "remember", "recall", "told", "said", "say", "tell", "telling",
+            "mention", "mentioned", "ask", "asked", "what", "earlier", "before",
+            "about", "thing", "things", "did", "do", "you", "your", "i", "my",
+            "we", "our", "the", "a", "an", "that", "this", "me", "name",
+        }
+        _query_words = {
+            w.strip(".,!?")
+            for w in re.findall(r"[a-z']+", query.lower())
+            if len(w.strip(".,!?")) >= 3
+            and w.strip(".,!?") not in _RECALL_SCAFFOLD
+            and w.strip(".,!?") not in STOP_WORDS
+        }
+        if not _query_words:
+            return False
+        for qw in _query_words:
+            if re.search(r"(?<![a-z])" + re.escape(qw) + r"(?![a-z])",
+                         gist_text.lower()):
+                return True
+        return False
 
     # ── D7/D9 (round 2026-08-21T2156Z): distinct-topic gist signal ──────────
     # A self-recall like "what did i tell you about sourdough?" is cued by a
