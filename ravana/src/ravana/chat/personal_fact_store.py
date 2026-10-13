@@ -203,6 +203,46 @@ class PersonalFactStore:
             del self.facts[k]
         return len(to_remove)
 
+    def decay_confidence(self, decay_rate: float = 0.02,
+                         min_confidence: float = 0.3,
+                         protected_sources: Optional[Set[str]] = None) -> int:
+        """Apply exponential confidence decay to stale facts, then prune.
+
+        Brain basis: forgetting curve (Ebbinghaus 1885). Facts that are not
+        rehearsed gradually lose confidence. The decay is exponential:
+        confidence *= (1 - decay_rate) ^ turns_since_last_reinforcement.
+
+        Facts from protected sources (e.g., "user_confirmation", "correction")
+        decay at half the rate — explicit user corrections are more durable
+        than seed-regex assertions.
+
+        After decay, facts below min_confidence are pruned. Superseded facts
+        are always pruned (they are already retired by contradict()).
+
+        This is SEED, not hardcoding: decay_rate, min_confidence, and
+        protected_sources are parameters, not baked into code paths. The
+        store can adapt them at runtime. No retraining, no offline rebuild.
+
+        Returns the number of facts pruned.
+        """
+        if protected_sources is None:
+            protected_sources = {"user_confirmation", "correction"}
+        to_remove = []
+        for key, f in self.facts.items():
+            if f.superseded:
+                to_remove.append(key)
+                continue
+            turns_stale = self.turn_num - f.turn_number
+            if turns_stale <= 0:
+                continue
+            rate = decay_rate * 0.5 if f.source in protected_sources else decay_rate
+            f.confidence *= (1.0 - rate) ** turns_stale
+            if f.confidence < min_confidence:
+                to_remove.append(key)
+        for key in to_remove:
+            del self.facts[key]
+        return len(to_remove)
+
     def get_consolidation_candidates(self, min_confidence: float = 0.6
                                      ) -> List[PersonalFact]:
         """Facts confident + rehearsed enough to graduate to the graph.
