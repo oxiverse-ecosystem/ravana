@@ -1872,6 +1872,11 @@ class SelfQueryMixin:
             # concept via GloVe similarity and reason analogically.
             _analog = self._try_analogical_reasoning(subj, user_input)
             if _analog is not None:
+                # SEED-backed relevance gate (round 2026-10-13): verify the
+                # analogical answer is relevant to the query before returning.
+                _gate = getattr(self, "_relevance_gate", None)
+                if _gate is not None:
+                    return _gate(user_input, _analog)
                 return _analog
             return None
 
@@ -1911,6 +1916,12 @@ class SelfQueryMixin:
                     print(f"  [coherence] internal_knowledge off-topic "
                           f"(coherence={_coherence:.2f}): {ans_text[:60]!r}")
                 return None
+        # SEED-backed relevance gate (round 2026-10-13): verify the answer
+        # is relevant to the query before returning. Fail-closed: if below
+        # threshold, return None (honest uncertainty beats confabulation).
+        _gate = getattr(self, "_relevance_gate", None)
+        if _gate is not None:
+            return _gate(user_input, ans_text)
         return ans_text
 
     def _try_analogical_reasoning(self, subj: str, user_input: str) -> Optional[str]:
