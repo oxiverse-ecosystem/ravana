@@ -1392,6 +1392,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         from .relevance_store import RelevanceThreshold, RelevanceScorer
         self._relevance_threshold = RelevanceThreshold()
         self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
+        # Multi-Signal Recall Relevance Scorer (MRS) — ranks recall candidates
+        # using existing + new signals (entity match, confidence, query-type).
+        # SEED-compliant: all params in RelevanceThreshold + PersonalFactStore.
+        from .recall_ranker import RecallRanker
+        self._recall_ranker = RecallRanker(
+            glove_fn=self._glove_vector,
+            threshold=self._relevance_threshold)
 
         # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
         # Stores (turn_number, reply_text) tuples of the agent's genuine replies
@@ -2962,10 +2969,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if not answer:
             return answer
         try:
-            _score = self._relevance_scorer.score(
+            # Use the RecallRanker's multi-signal scoring (MRS)
+            _score = self._recall_ranker.score_text(
                 query, answer,
-                query_turn=self.turn_count,
-                threshold=self._relevance_threshold)
+                query_turn=self.turn_count)
             if _score >= self._relevance_threshold.base_threshold:
                 return answer
             return None
@@ -6003,28 +6010,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute.
 
-        When multiple facts match the same attribute (e.g. the user had a
-        childhood dog named pepper in a prior round and now mentions a new
-        dog biscuit), prefer the MOST RECENT fact by turn_number. This is
-        a general recency weighting — no per-entity hardcoding, no authored
-        prose. The turn_number is read from the fact store at runtime, so
-        RAVANA's own learning determines which fact is current."""
+        Uses the store's own get() method which sorts by confidence x recency
+        (_decay_score), so the most recent non-superseded fact wins. This is
+        the L2 fix: when multiple facts exist for the same attribute (from
+        different rounds), the most recent one is returned, not the first one
+        inserted into the dict.
+        """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
             return None
-        _best_val = None
-        _best_turn = -1
-        for _k, _f in pf.facts.items():
-            if not (isinstance(_k, tuple) and len(_k) == 3):
-                continue
-            if getattr(_f, "superseded", False):
-                continue
-            if _k[1].lower() == attr_hint:
-                _tn = getattr(_f, "turn_number", 0) or 0
-                if _tn > _best_turn:
-                    _best_turn = _tn
-                    _best_val = _f.value
-        return _best_val
+        _f = pf.get("i", attr_hint)
+        if _f is not None:
+            return _f.value
+        return None
 
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
@@ -7171,21 +7169,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the learned profile/opinion stores capture them even if process_turn
         # early-returns later (e.g. a bare "i really like cats" hitting a
         # preference handler). The same-turn recall block below reads these.
-        _pre_mine_stances = len(self.user_model.opinions.stances) if hasattr(self.user_model, 'opinions') else 0
-        _pre_mine_facts = len(self.user_model.personal_facts.facts) if hasattr(self.user_model, 'personal_facts') else 0
         self.user_model.mine_personal_facts(user_input)
-        _post_mine_stances = len(self.user_model.opinions.stances) if hasattr(self.user_model, 'opinions') else 0
-        _post_mine_facts = len(self.user_model.personal_facts.facts) if hasattr(self.user_model, 'personal_facts') else 0
-        # Increment learning_count when new stances or facts were mined this
-        # turn. In offline mode (RAVANA_OFFLINE=1) neither web_learning nor
-        # the interface chat-learning thread fires, so _learning_count stayed
-        # 0 forever — the engine appeared to never learn. This increment is
-        # the offline learning signal: it counts real store growth from
-        # conversation, not web fetches. Online, web_learning.py also
-        # increments (its count includes web-sourced learning).
-        if (_post_mine_stances > _pre_mine_stances
-                or _post_mine_facts > _pre_mine_facts):
-            self._learning_count += 1
+
+        # OFFLINE LEARNING SIGNAL (round 2026-10-13): _learning_count was only
+        # incremented in web_learning.py and interface.py, neither of which
+        # fires when RAVANA_OFFLINE=1. Increment it here when mine_personal_facts
+        # grows stances or facts, so the learning signal is visible in offline
+        # mode too. This is state-driven — it reads real store growth.
+        _pf = getattr(self.user_model, "personal_facts", None)
+        _op = getattr(self.user_model, "opinions", None)
+        _pf_count = len(_pf.facts) if _pf is not None and hasattr(_pf, "facts") else 0
+        _op_count = len(_op.stances) if _op is not None and hasattr(_op, "stances") else 0
+        _learning_key = (_pf_count, _op_count)
+        _prev_learning = getattr(self, "_prev_learning_counts", None)
+        if _prev_learning is not None and _learning_key != _prev_learning:
+            self._learning_count = getattr(self, "_learning_count", 0) + 1
+        self._prev_learning_counts = _learning_key
 
         # ── Same-turn user-profile / opinion recall (A5 / C3) ────────────────
         # MUST fire before ANY recall/combine handler below (the combined-fact
@@ -8582,32 +8581,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
-        # D7 FIX: check for implicit emotional content BEFORE the self-disclosure
-        # handler stores the fact. If the input matches an implicit emotional
-        # pattern (diagnosed with, don't belong, rejected, etc.), skip the
-        # "noted" self-disclosure reply and let it fall through to the emotional
-        # detector so the user gets empathy, not a flat fact acknowledgment.
-        _implicit_emotional = False
-        if not _is_interrogative:
-            _IMPLICIT_PATTERNS = (
-                r"\bdiagnosed\s+with\b",
-                r"\b(chronic|terminal|serious)\s+(illness|disease|condition)\b",
-                r"\b(don'?t|do not|never)\s+belong\b",
-                r"\b(feel|feeling|felt)\s+alone\b",
-                r"\b(rejected|refused|denied)\b",
-                r"\b(failed|failure|flunked)\b",
-                r"\b(fired|sacked|laid\s+off)\b",
-                r"\b(broke\s+up|divorced|separated)\b",
-                r"\b(worried|anxious|nervous|scared)\s+about\b",
-                r"\b(can'?t|cannot)\s+sleep\b",
-                r"\b(overwhelmed|burned?\s+out)\b",
-                r"\b(ashamed|embarrassed|guilty|regret)\b",
-            )
-            for _pat in _IMPLICIT_PATTERNS:
-                if re.search(_pat, user_input.lower()):
-                    _implicit_emotional = True
-                    break
-        if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
+        if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
             # Root-cause recall fix: persist the disclosed fact to the
