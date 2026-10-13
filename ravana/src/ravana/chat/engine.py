@@ -1384,6 +1384,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._own_replies = {}  # topic(str) -> list[dict(text, turn, t)]
         self._own_reply_topic_idx = {}  # topic -> 1 (presence index for content lookup)
 
+<<<<<<< HEAD
+=======
+        # SEED-backed relevance-scored recall layer (round 2026-10-13).
+        # Multi-signal scoring replaces binary pass/fail guards in the recall
+        # pipeline. All parameters live in a persisted data store — RAVANA
+        # can expand/revise them at runtime from conversation feedback.
+        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
+        from .relevance_store import RelevanceThreshold, RelevanceScorer
+        self._relevance_threshold = RelevanceThreshold()
+        self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
+        # Multi-Signal Recall Relevance Scorer (MRS) — ranks recall candidates
+        # using existing + new signals (entity match, confidence, query-type).
+        # SEED-compliant: all params in RelevanceThreshold + PersonalFactStore.
+        from .recall_ranker import RecallRanker
+        self._recall_ranker = RecallRanker(
+            glove_fn=self._glove_vector,
+            threshold=self._relevance_threshold)
+
+>>>>>>> d20a24a3 (auto: round auto/round-2026-10-13T1411Z (MRS capability + docs) (#118))
         # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
         # Stores (turn_number, reply_text) tuples of the agent's genuine replies
         # (NOT recall responses — those are skipped by _record_own_reply). When
@@ -2938,6 +2957,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return None
 
 
+<<<<<<< HEAD
+=======
+    def _relevance_gate(self, query: str, answer: Optional[str]) -> Optional[str]:
+        """SEED-backed relevance gate (round 2026-10-13).
+
+        Verifies that a candidate answer is relevant to the query before
+        returning it. Fail-closed: if the multi-signal relevance score is
+        below the learned threshold, return None (honest uncertainty beats
+        confabulation).
+
+        This is a general structural check — no per-topic logic, no hardcoded
+        reply strings. The threshold adapts incrementally from conversation
+        feedback (false positive/negative signals).
+        """
+        if not answer:
+            return answer
+        try:
+            # Use the RecallRanker's multi-signal scoring (MRS)
+            _score = self._recall_ranker.score_text(
+                query, answer,
+                query_turn=self.turn_count)
+            if _score >= self._relevance_threshold.base_threshold:
+                return answer
+            return None
+        except Exception:
+            return answer  # fail-open on scorer error (never break recall)
+
+>>>>>>> d20a24a3 (auto: round auto/round-2026-10-13T1411Z (MRS capability + docs) (#118))
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
         Root cause it fixes: biographical and self-stance recall queries
@@ -3274,6 +3321,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"\b(keep|have|store|keep\s+on|have\s+on|raise|grow|put|"
                 r"place)\b", q)
             _qverb = _qverb.group(1).lower().strip() if _qverb else ""
+            # TFD (round 2026-10-13): collect ALL matching non-superseded
+            # activity facts, then return the one with the highest turn_number
+            # (most recent). The old code returned the FIRST match in dict
+            # insertion order, which could be a stale prior-round value.
+            _matches = []
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
@@ -3285,7 +3337,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if (any(re.search(r"\b" + re.escape(_n) + r"\b", _val)
                          for _n in _qn)
                         or (_qverb and _qverb == _fverb)):
-                    return f"you {_val}."
+                    _matches.append((_f, _val))
+            if _matches:
+                _matches.sort(key=lambda x: getattr(x[0], "turn_number", 0),
+                             reverse=True)
+                return f"you {_matches[0][1]}."
         if re.search(r"\b(where do i work|what do i do|what's my job|what is my work)\b", q):
             _v = pf.get("i", "work") if pf else None
             if _v is not None and not getattr(_v, "superseded", False):
@@ -3381,6 +3437,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "what", "do", "did", "tell", "say", "think", "feel", "s",
                 "is", "are", "was", "were", "to", "in", "for", "with", "that",
                 "this", "it", "and", "or", "but", "from", "by", "as", "at"}
+            # TFD (round 2026-10-13): collect ALL matching non-superseded
+            # facts, then return the one with the highest turn_number.
+            # The old code returned the FIRST match in dict insertion order,
+            # which could be a stale prior-round value.
+            _tf_matches = []
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
@@ -3391,39 +3452,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # strong match: the whole cue phrase appears verbatim in the
                 # stored value, or the attribute itself is the cue topic.
                 if _cue in _v or _attr == _cue:
-                    if _attr == "name":
-                        return f"your name is {_v}."
-                    if _attr == "work":
-                        return f"you work as {_v}."
-                    if _is_activity_attr(_attr) and not _attr.startswith("event"):
-                        return f"you {_v}."
-                    # D7 (round 2026-08-16T1745Z): verb-phrase values (from the
-                    # relationship-activity miner) render without a copula.
-                    try:
-                        from .user_model import is_verb_phrase as _is_act
-                    except Exception:
-                        _is_act = lambda w: False
-                    # FIX-RV-13: the copula decision goes through the ONE
-                    # shared grammar rule (drops_copula) rather than a local
-                    # re-implementation of it.
-                    _vv = (_v or "").strip()
-                    if drops_copula(_vv):
-                        return f"your {_attr} {_v}."
-                    return f"your {_attr} is {_v}."
+                    _tf_matches.append((_f, _v, _attr, True))
                 # weak match: require >=2 salient cue tokens to co-occur in the
                 # value (a single shared stop-word like "the"/"ocean" is not
                 # enough to claim this is the fact the user meant).
-                if _cnouns and sum(1 for n in _cnouns if n in _v) >= 2:
-                    if _attr == "name":
-                        return f"your name is {_v}."
-                    if _attr == "work":
-                        return f"you work as {_v}."
-                    if _is_activity_attr(_attr) and not _attr.startswith("event"):
-                        return f"you {_v}."
-                    _vvw = (_v or "").strip()
-                    if _vvw and _vvw.split() and _is_act(_vvw.split()[0]):
-                        return f"your {_attr} {_v}."
-                    return f"your {_attr} is {_v}."
+                elif _cnouns and sum(1 for n in _cnouns if n in _v) >= 2:
+                    _tf_matches.append((_f, _v, _attr, False))
+            if _tf_matches:
+                _tf_matches.sort(key=lambda x: getattr(x[0], "turn_number", 0),
+                                 reverse=True)
+                _f, _v, _attr, _strong = _tf_matches[0]
+                if _attr == "name":
+                    return f"your name is {_v}."
+                if _attr == "work":
+                    return f"you work as {_v}."
+                if _is_activity_attr(_attr) and not _attr.startswith("event"):
+                    return f"you {_v}."
+                try:
+                    from .user_model import is_verb_phrase as _is_act
+                except Exception:
+                    _is_act = lambda w: False
+                _vv = (_v or "").strip()
+                if drops_copula(_vv):
+                    return f"your {_attr} {_v}."
+                return f"your {_attr} is {_v}."
             # (c) GENERALIZE (round 2026-08-16): the cue may be a RELATIONSHIP
             # ENTITY ("my niece", "my cousin", "my sister"), not a bare topic
             # word. The miner stores "my niece priya is X" as a COMBINED attr
@@ -3439,6 +3491,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # per-entity table; generalizes to ANY relationship the user named.
             _cue_head = next(iter(_cnouns)) if _cnouns else None
             if _cue_head:
+                # TFD (round 2026-10-13): collect ALL matching non-superseded
+                # facts, then return the one with the highest turn_number.
+                _ent_matches = []
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
                         continue
@@ -3447,24 +3502,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _attr = _k[1].lower()
                     if _attr == _cue_head or _attr.startswith(_cue_head + " ") \
                             or _attr.startswith(_cue_head + "'"):
-                        _v = _f.value
-                        # D7 (round 2026-08-16T1745Z): a relationship-activity
-                        # fact stores a VERB PHRASE value ("weaves baskets"),
-                        # not a noun phrase. Render it WITHOUT a copula so the
-                        # reply is grammatical ("your grandmother indira weaves
-                        # baskets") instead of "your grandmother indira is weaves
-                        # baskets". Noun-phrase values ("an astronomer who
-                        # studies pulsars") keep the copula. The verb test is the
-                        # shared SEED lexicon (user_model.is_activity_verb), not
-                        # a per-topic table and not authored prose.
-                        try:
-                            from .user_model import is_verb_phrase as _is_act
-                        except Exception:
-                            _is_act = lambda w: False
-                        _vv = (_v or "").strip()
-                        if drops_copula(_vv):
-                            return f"your {_attr} {_v}."
-                        return f"your {_attr} is {_v}."
+                        _ent_matches.append((_f, _attr))
+                if _ent_matches:
+                    _ent_matches.sort(key=lambda x: getattr(x[0], "turn_number", 0),
+                                     reverse=True)
+                    _f, _attr = _ent_matches[0]
+                    _v = _f.value
+                    try:
+                        from .user_model import is_verb_phrase as _is_act
+                    except Exception:
+                        _is_act = lambda w: False
+                    _vv = (_v or "").strip()
+                    if drops_copula(_vv):
+                        return f"your {_attr} {_v}."
+                    return f"your {_attr} is {_v}."
             return None
 
         # ── (1b2) PRIOR / ORIGINAL-STANCE recall (feature round 2026-08-21T1653Z,
@@ -5964,28 +6015,45 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute.
 
-        When multiple facts match the same attribute (e.g. the user had a
-        childhood dog named pepper in a prior round and now mentions a new
-        dog biscuit), prefer the MOST RECENT fact by turn_number. This is
-        a general recency weighting — no per-entity hardcoding, no authored
-        prose. The turn_number is read from the fact store at runtime, so
-        RAVANA's own learning determines which fact is current."""
+        Uses the store's own get() method which sorts by confidence x recency
+        (_decay_score), so the most recent non-superseded fact wins. This is
+        the L2 fix: when multiple facts exist for the same attribute (from
+        different rounds), the most recent one is returned, not the first one
+        inserted into the dict.
+        """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
             return None
-        _best_val = None
-        _best_turn = -1
-        for _k, _f in pf.facts.items():
-            if not (isinstance(_k, tuple) and len(_k) == 3):
-                continue
-            if getattr(_f, "superseded", False):
-                continue
-            if _k[1].lower() == attr_hint:
-                _tn = getattr(_f, "turn_number", 0) or 0
-                if _tn > _best_turn:
-                    _best_turn = _tn
-                    _best_val = _f.value
-        return _best_val
+        _f = pf.get("i", attr_hint)
+        if _f is not None:
+            return _f.value
+        return None
+
+    def _temporal_fact(self, subject, attribute, value=None):
+        """Temporal Fact Disambiguation (TFD) — return the most recent,
+        non-superseded PersonalFact for (subject, attribute), or None.
+
+        SEED-compliant: reads from the existing PersonalFactStore which
+        already tracks turn_number and superseded on every fact. No new
+        store, no new data structure — this is a retrieval wrapper that
+        applies the store's own decay_score (confidence x recency) ranking.
+
+        Online/incremental: the store updates turn_number on every
+        assert_fact / reinforce / confirm / contradict, so the "most recent"
+        is always the one the user last corrected or confirmed. No retraining.
+
+        Generalizable: works for ANY (subject, attribute) pair, not just
+        specific entities. Used by _structured_recall branches that
+        previously iterated pf.facts.items() and returned the FIRST match,
+        which could be a stale prior-round value.
+
+        No hardcoded reply strings, no per-topic tables, no authored prose.
+        """
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            return None
+        _f = pf.get(subject, attribute, value)
+        return _f
 
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
@@ -7143,6 +7211,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # early-returns later (e.g. a bare "i really like cats" hitting a
         # preference handler). The same-turn recall block below reads these.
         self.user_model.mine_personal_facts(user_input)
+<<<<<<< HEAD
+=======
+
+        # OFFLINE LEARNING SIGNAL (round 2026-10-13): _learning_count was only
+        # incremented in web_learning.py and interface.py, neither of which
+        # fires when RAVANA_OFFLINE=1. Increment it here when mine_personal_facts
+        # grows stances or facts, so the learning signal is visible in offline
+        # mode too. This is state-driven — it reads real store growth.
+        _pf = getattr(self.user_model, "personal_facts", None)
+        _op = getattr(self.user_model, "opinions", None)
+        _pf_count = len(_pf.facts) if _pf is not None and hasattr(_pf, "facts") else 0
+        _op_count = len(_op.stances) if _op is not None and hasattr(_op, "stances") else 0
+        _learning_key = (_pf_count, _op_count)
+        _prev_learning = getattr(self, "_prev_learning_counts", None)
+        if _prev_learning is not None and _learning_key != _prev_learning:
+            self._learning_count = getattr(self, "_learning_count", 0) + 1
+        self._prev_learning_counts = _learning_key
+>>>>>>> d20a24a3 (auto: round auto/round-2026-10-13T1411Z (MRS capability + docs) (#118))
 
         # ── Same-turn user-profile / opinion recall (A5 / C3) ────────────────
         # MUST fire before ANY recall/combine handler below (the combined-fact
