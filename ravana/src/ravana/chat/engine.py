@@ -3142,7 +3142,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
-            r"give me your (?:read|take|impression) (?:of|on) me"
+            r"give me your (?:read|take|impression) (?:of|on) me|"
+            r"is there anything you(?:'ve| have) (?:learned|noticed|picked up) about me"
             r")\b", q)
         if _agg_early:
             return self._aggregate_user_model()
@@ -3180,7 +3181,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
-            r"give me your (?:read|take|impression) (?:of|on) me"
+            r"give me your (?:read|take|impression) (?:of|on) me|"
+            r"is there anything you(?:'ve| have) (?:learned|noticed|picked up) about me"
             r")\b", q)
         if _agg:
             return self._aggregate_user_model()
