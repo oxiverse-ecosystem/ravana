@@ -480,6 +480,48 @@ class SelfQueryMixin:
         # stance when there is at least some grounding (handled in branch 1
         # above, where a seeded value or user stance exists). Here, there is
         # none, so return the honest fallback WITHOUT recording.
+        #
+        # AGENT STANCE GROWTH FROM USER STANCE TRANSITIVITY (round
+        # 2026-10-13): the F3 fix correctly prevents recording a stance
+        # when there is NO evidence at all. But it also prevented RAVANA
+        # from forming its OWN provisional stance when the USER has
+        # expressed a stance on the same topic. A teenager watching someone
+        # they care about say "i love silence" forms a provisional lean
+        # toward silence too — that is transitivity of preference (vmPFC
+        # values options on a common scale). The user's stance is real
+        # evidence, not fabrication. Check the user's stance store for a
+        # matching topic; if found, derive a provisional agent stance
+        # from the user's polarity (same sign, lower confidence) and
+        # record it so it stays consistent within the session and can be
+        # revised by further experience (online, no retraining).
+        _user_stances = getattr(getattr(self, 'user_model', None), 'opinions', None)
+        if _user_stances is not None:
+            try:
+                _user_topic = _user_stances.resolve_topic(target) or target
+                _user_s = _user_stances.query_stance(_user_topic)
+            except Exception:
+                _user_s = None
+            if _user_s is not None:
+                _u_pol = float(_user_s.polarity)
+                # Derive a provisional lean: same sign as the user's stance,
+                # lower confidence (RAVANA is less certain than the user).
+                _agent_pol = _u_pol * 0.6
+                _agent_conf = 0.3
+                if _agent_pol > 0.1:
+                    _word = "lean toward"
+                elif _agent_pol < -0.1:
+                    _word = "lean away from"
+                else:
+                    _word = "am uncertain about"
+                _stance = f"i {_word} {target}"
+                _reason = (f"you seem {_user_s.polarity > 0.1 and 'drawn to' or _user_s.polarity < -0.1 and 'wary of' or 'uncertain about'} {_user_topic} — i'm forming my own view, but it pulls me the same way.")
+                # Record the provisional agent stance (online, no retraining).
+                try:
+                    self._agent_stances[target] = (
+                        _word, _agent_conf, _reason, int(getattr(self, "turn_count", 0)))
+                except Exception:
+                    pass
+                return (_stance, _reason)
         return (_stance, _reason)
 
     def _route_own_stance_inversion(self, user_input: str) -> Optional[str]:

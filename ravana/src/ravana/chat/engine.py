@@ -7171,7 +7171,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the learned profile/opinion stores capture them even if process_turn
         # early-returns later (e.g. a bare "i really like cats" hitting a
         # preference handler). The same-turn recall block below reads these.
+        _pre_mine_stances = len(self.user_model.opinions.stances) if hasattr(self.user_model, 'opinions') else 0
+        _pre_mine_facts = len(self.user_model.personal_facts.facts) if hasattr(self.user_model, 'personal_facts') else 0
         self.user_model.mine_personal_facts(user_input)
+        _post_mine_stances = len(self.user_model.opinions.stances) if hasattr(self.user_model, 'opinions') else 0
+        _post_mine_facts = len(self.user_model.personal_facts.facts) if hasattr(self.user_model, 'personal_facts') else 0
+        # Increment learning_count when new stances or facts were mined this
+        # turn. In offline mode (RAVANA_OFFLINE=1) neither web_learning nor
+        # the interface chat-learning thread fires, so _learning_count stayed
+        # 0 forever — the engine appeared to never learn. This increment is
+        # the offline learning signal: it counts real store growth from
+        # conversation, not web fetches. Online, web_learning.py also
+        # increments (its count includes web-sourced learning).
+        if (_post_mine_stances > _pre_mine_stances
+                or _post_mine_facts > _pre_mine_facts):
+            self._learning_count += 1
 
         # ── Same-turn user-profile / opinion recall (A5 / C3) ────────────────
         # MUST fire before ANY recall/combine handler below (the combined-fact
