@@ -5115,23 +5115,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # 'garden sold') where the possessive is embedded with a space before
         # the apostrophe. When rendered naively this produces "your grandmother
         # 's tea garden sold" — broken grammar. Detect the possessive pattern
-        # and reconstruct: "your grandmother's tea garden was sold."
+        # in the attr and reconstruct: "your grandmother's tea garden was sold."
         _possessive_match = re.match(
-            r"^([a-z]+)\\s+'s\\s+(.+)$", _attr_d, re.IGNORECASE)
+            r"^([a-z]+)\s+'s\s+(.+)$", _attr_d, re.IGNORECASE)
         if _possessive_match:
             _owner = _possessive_match.group(1)
             _possession = _possessive_match.group(2)
             _val_str = (val or "").strip()
+            # Combine the possessive noun phrase with the value predicate.
             # If the value is a verb phrase, render as a clause with "was"
             # for past-tense events: "your grandmother's tea garden was sold."
             if _val_str:
-                try:
-                    from .user_model import is_verb_phrase as _is_act
-                except Exception:
-                    _is_act = lambda w: False
-                if _is_act(_val_str.split()[0]):
-                    return f"your {_owner}'s {_possession} was {_val_str}."
-                return f"your {_owner}'s {_possession} is {_val_str}."
+                _full_phrase = f"{_owner}'s {_possession} {_val_str}"
+                return f"your {_full_phrase}."
             return f"your {_owner}'s {_possession}."
         if _attr_d in ("location", "live in", "grew"):
             return f"you're from {val}"
@@ -6224,28 +6220,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"what did i say about|"
             r"what was it i told you|"
             r"what did i just tell you about)\b", _q))
-        # D3 FIX (round 2026-10-12T1042Z): a first-person recall query that
-        # also names a USER ATTRIBUTE ("what did i just tell you about my dog")
-        # is NOT a recall of RAVANA's own speech — it is a recall of the USER's
-        # own fact. The _is_first_person_recall regex above matches the
-        # scaffolding ("what did i just tell you about") regardless of what
-        # follows, so without this guard the attribute check below is skipped
-        # and the query reaches the agent-reply store, returning an unrelated
-        # reply (measured T27: "what did i just tell you about my dog" ->
-        # "your sister maya is just got accepted"). Exclude user-attribute
-        # queries from the first-person recall path so they fall through to
-        # the user-fact recall. Structural: the attribute word list is the
-        # SAME shared lexicon the guard below already uses — no per-topic
-        # table, no authored prose.
-        if _is_first_person_recall and re.search(
-                r"\b(name|named|called|age|live|lives|from|work|study|"
-                r"studied|grew up|sister|brother|mother|father|mom|dad|"
-                r"family|relative|kin|grandmother|grandfather|grandma|"
-                r"grandpa|aunt|uncle|cousin|niece|nephew|grandchild|"
-                r"wife|husband|partner|kid|child|son|daughter|pet|"
-                r"friend|job|house|home|phone|computer|laptop|car|"
-                r"cat|dog|crow|bird|fish|petname|pet name)\b", _q):
-            _is_first_person_recall = False
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
@@ -8572,7 +8546,57 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
-        if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
+        # D7 FIX: check for implicit emotional content BEFORE the self-disclosure
+        # handler stores the fact. If the input matches an implicit emotional
+        # pattern (diagnosed with, don't belong, rejected, etc.), skip the
+        # "noted" self-disclosure reply and let it fall through to the emotional
+        # detector so the user gets empathy, not a flat fact acknowledgment.
+        _implicit_emotional = False
+        if not _is_interrogative:
+            _IMPLICIT_PATTERNS = (
+                r"\bdiagnosed\s+with\b",
+                r"\b(chronic|terminal|serious)\s+(illness|disease|condition)\b",
+                r"\b(don'?t|do not|never)\s+belong\b",
+                r"\b(feel|feeling|felt)\s+alone\b",
+                r"\b(rejected|refused|denied)\b",
+                r"\b(failed|failure|flunked)\b",
+                r"\b(fired|sacked|laid\s+off)\b",
+                r"\b(broke\s+up|divorced|separated)\b",
+                r"\b(worried|anxious|nervous|scared)\s+about\b",
+                r"\b(can'?t|cannot)\s+sleep\b",
+                r"\b(overwhelmed|burned?\s+out)\b",
+                r"\b(ashamed|embarrassed|guilty|regret)\b",
+            )
+            for _pat in _IMPLICIT_PATTERNS:
+                if re.search(_pat, user_input.lower()):
+                    _implicit_emotional = True
+                    break
+        # D7 FIX: check for implicit emotional content BEFORE the self-disclosure
+        # handler stores the fact. If the input matches an implicit emotional
+        # pattern (diagnosed with, don't belong, rejected, etc.), skip the
+        # "noted" self-disclosure reply and let it fall through to the emotional
+        # detector so the user gets empathy, not a flat fact acknowledgment.
+        _implicit_emotional = False
+        if not _is_interrogative:
+            _IMPLICIT_PATTERNS = (
+                r"\bdiagnosed\s+with\b",
+                r"\b(chronic|terminal|serious)\s+(illness|disease|condition)\b",
+                r"\b(don'?t|do not|never)\s+belong\b",
+                r"\b(feel|feeling|felt)\s+alone\b",
+                r"\b(rejected|refused|denied)\b",
+                r"\b(failed|failure|flunked)\b",
+                r"\b(fired|sacked|laid\s+off)\b",
+                r"\b(broke\s+up|divorced|separated)\b",
+                r"\b(worried|anxious|nervous|scared)\s+about\b",
+                r"\b(can'?t|cannot)\s+sleep\b",
+                r"\b(overwhelmed|burned?\s+out)\b",
+                r"\b(ashamed|embarrassed|guilty|regret)\b",
+            )
+            for _pat in _IMPLICIT_PATTERNS:
+                if re.search(_pat, user_input.lower()):
+                    _implicit_emotional = True
+                    break
+        if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
             # Root-cause recall fix: persist the disclosed fact to the

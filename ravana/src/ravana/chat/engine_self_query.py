@@ -335,16 +335,26 @@ class SelfQueryMixin:
         t = re.sub(r"\byour\b", "my", t)
         t = re.sub(r"\byours\b", "mine", t)
         t = re.sub(r"\byourself\b", "myself", t)
+        # "own" without a possessive pronoun -> "my own" (the user's
+        # "own personality" becomes RAVANA's "my own personality").
+        if "own" in t and not re.search(r"\b(my|your|his|her|their|our)\s+own\b", t):
+            t = re.sub(r"\bown\b", "my own", t)
         # If the topic starts with a verb that forms a yes/no question
         # (do/does/did/is/are/can/could/would/should/will), prepend "whether"
-        # to make it a noun phrase: "tea tastes better" -> "whether tea tastes
-        # better". This is the standard English proposition-extraction rule.
+        # to make it a noun phrase. This is the standard English
+        # proposition-extraction rule.
         if re.match(r"^(do|does|did|is|are|can|could|would|should|will|has|have|had)\b", t):
             t = "whether " + t
         # If the topic is a bare verb phrase without a subject, prepend
         # "whether" as well: "tastes better" -> "whether it tastes better".
-        elif re.match(r"^(tastes?|looks?|sounds?|feels?|seems?|works?|matters?|helps?|hurts?|matters?)\b", t):
+        elif re.match(r"^(tastes?|looks?|sounds?|feels?|seems?|works?|matters?|helps?|hurts?)\b", t):
             t = "whether it " + t
+        # If the topic is a noun + verb phrase (e.g. "tea tastes better",
+        # "money can buy happiness"), prepend "whether" to form a proper
+        # noun phrase: "whether tea tastes better". This handles the common
+        # case where the user asks "do you think X" and X is a clause.
+        elif re.match(r"^[a-z]+\s+(tastes?|looks?|sounds?|feels?|seems?|works?|matters?|helps?|hurts?|can|could|would|should|will|is|are|has|have|had)\b", t):
+            t = "whether " + t
         return t
 
     def _agent_stance_on(self, target: str) -> Tuple[str, str]:
@@ -503,11 +513,6 @@ class SelfQueryMixin:
         # real input) and invents nothing — it is state-driven: no stance
         # on X means no stance on X. RAVANA can still form a real stance on
         # this topic later, from experience (online; no retraining).
-        # D3 FIX: normalize the stance topic for display. The target is often
-        # a raw substring of the user's question ("own personality", "tea
-        # tastes better", "money can buy happiness") rather than a parsed
-        # concept. Apply pronoun mapping and proposition extraction so the
-        # rendered topic reads as a natural concept.
         _display_target = self._normalize_stance_topic(target)
         _stance = f"i'm still forming a view on {_display_target}"
         _reason = (f"i don't have a fixed stance on {_display_target} yet — what's your "

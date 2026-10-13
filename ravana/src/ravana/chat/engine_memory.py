@@ -308,32 +308,19 @@ class MemoryMixin:
             led = RetirementLedger()
             self.retirement_ledger = led
         if not looks_like_retraction(text, led.all_markers()):
-            # ── fallback: learn a NEW interjective marker from a grounded
-            # retraction. The authored marker set is closed, so a genuinely new
-            # discourse-repair interjection ("patna, franks he lives in delhi")
-            # never matches looks_like_retraction or parse_contrast — the
-            # growth path is structurally unreachable. This fallback is
-            # deliberately conservative: it only fires when the first clause
-            # matches a value a live store actually holds (grounding), and it
-            # learns exactly ONE word as an interjective marker. It is not a
-            # free-text matcher — the rejected value must be found in a store
-            # before anything is learned.
-            parsed = self._try_learn_new_marker(text, led)
-            if parsed is None:
-                return None
-            asserted, rejected, marker = parsed
-        else:
-            # The interjective set must be the AUTHORED revision class PLUS the
-            # learned one. Passing `learned_markers` alone (empty until something
-            # is learned) makes parse_contrast REPLACE its REVISION_MARKERS
-            # default, which reclassifies every authored interjection as a
-            # negation and inverts the direction — retiring the value the user
-            # just asserted. See RetirementLedger.interjective_markers.
-            parsed = parse_contrast(text, led.all_markers(),
-                                    led.interjective_markers())
-            if parsed is None:
-                return None
-            asserted, rejected, marker = parsed
+            return None
+
+        # The interjective set must be the AUTHORED revision class PLUS the
+        # learned one. Passing `learned_markers` alone (empty until something
+        # is learned) makes parse_contrast REPLACE its REVISION_MARKERS
+        # default, which reclassifies every authored interjection as a
+        # negation and inverts the direction — retiring the value the user
+        # just asserted. See RetirementLedger.interjective_markers.
+        parsed = parse_contrast(text, led.all_markers(),
+                                led.interjective_markers())
+        if parsed is None:
+            return None
+        asserted, rejected, marker = parsed
 
         # ── ground: find a live record that actually holds the rejected value
         #    (and, when the utterance asserts a replacement, one that holds the
@@ -383,78 +370,6 @@ class MemoryMixin:
         #    just the fact store. This is the structural half of the fix.
         self._propagate_retirement(retr, pf, store)
         return retr
-
-    def _try_learn_new_marker(self, text: str, led) -> Optional[Tuple[str, str, str]]:
-        """Fallback: learn a NEW interjective marker from a grounded retraction.
-
-        When ``looks_like_retraction`` returns False, the utterance may still be
-        a retraction with a genuinely new discourse-repair interjection that is
-        not in the authored marker set. This method checks for the pattern::
-
-            <known-value>, <new-word> <rest>
-
-        where ``<known-value>`` matches a value a live store actually holds.
-        If the grounding succeeds, ``<new-word>`` is learned as an interjective
-        marker and the retraction is returned.
-
-        This is deliberately NOT a free-text matcher: the rejected value must
-        be found in a store before anything is learned, and only ONE word is
-        learned per retraction. The learned marker is treated as interjective
-        (the conservative direction).
-        """
-        raw = (text or "").strip()
-        if not raw:
-            return None
-        # Split on comma — the pattern is <old-value>, <marker> <new-value>
-        parts = raw.split(",", 1)
-        if len(parts) != 2:
-            return None
-        first_clause = parts[0].strip()
-        second_clause = parts[1].strip()
-        if not first_clause or not second_clause:
-            return None
-        # The second clause must start with a single word (the candidate marker)
-        # followed by more content (the replacement assertion).
-        sc_words = second_clause.split()
-        if len(sc_words) < 3:
-            return None
-        candidate_marker = sc_words[0].lower().strip(".,!?")
-        # Reject if the candidate is already a known marker or a common word
-        # that is not a discourse-repair interjection.
-        if candidate_marker in led.all_markers():
-            return None
-        if candidate_marker in _VALUE_STOP:
-            return None
-        # The first clause must match a value in a live store (grounding).
-        store = self._episodic_transcript or []
-        pf = getattr(getattr(self.user_model, "personal_facts", None), "facts", {}) or {}
-        _rej = _value_stems(first_clause)
-        _ass = _value_stems(" ".join(sc_words[1:]))
-        if not _rej:
-            return None
-        hit_pf = None
-        hit_rec = None
-        for key, f in pf.items():
-            fv = _value_stems(getattr(f, "value", "") or "")
-            if not fv or not _rej.issubset(fv):
-                continue
-            if _ass and _ass.intersection(fv):
-                continue
-            hit_pf = key
-            break
-        if hit_pf is None:
-            for rec in store:
-                rv = _value_stems(rec.get("text", "") or "")
-                if rv and _rej.issubset(rv) and not (_ass & rv):
-                    hit_rec = rec
-                    break
-        if hit_pf is None and hit_rec is None:
-            return None
-        # Grounding succeeded — learn the candidate as a new interjective marker.
-        led.learn_contrast_marker(candidate_marker)
-        rejected = first_clause.lower()
-        asserted = " ".join(sc_words[1:]).lower()
-        return asserted, rejected, candidate_marker
 
     def _propagate_retirement(self, retr: Retraction, pf, store) -> None:
         """Retire `retr.retired_value` in every store that holds it.
@@ -1632,9 +1547,6 @@ class MemoryMixin:
                 # the query references this fact's value or slot keyword
                 if val and (val in q or slot.replace("_", " ") in q):
                     _gist = self._reconstruct_gist(rec)
-                    # D1 guard: verify the gist is actually about the query
-                    # topic, not an unrelated fact that happens to share a
-                    # substring. Fail closed when there is no content overlap.
                     if self._gist_matches_query(_gist, q):
                         return _gist
         # (b) semantic match over turn text / gist.
@@ -1736,11 +1648,6 @@ class MemoryMixin:
                 for c in qwords)
             if _verbatim:
                 _gist = self._reconstruct_gist(best)
-                # D1 guard: the semantic matcher can still return an episode
-                # whose reconstructed gist is about a DIFFERENT topic (the
-                # "your sister maya is just got accepted" confabulation). Verify
-                # the gist shares a content word with the query before returning
-                # it; fail closed otherwise.
                 if self._gist_matches_query(_gist, q):
                     return _gist
         return None
@@ -2193,9 +2100,6 @@ class MemoryMixin:
         """
         if not gist_text or not query:
             return False
-        _gist_words = set(re.findall(r"[a-z']+", gist_text.lower()))
-        # Extract content words from the query (same scaffold exclusion as
-        # the semantic matcher uses, so the comparison is consistent).
         _RECALL_SCAFFOLD = {
             "remember", "recall", "told", "said", "say", "tell", "telling",
             "mention", "mentioned", "ask", "asked", "what", "earlier", "before",
@@ -2211,8 +2115,6 @@ class MemoryMixin:
         }
         if not _query_words:
             return False
-        # Check for word-boundary overlap (not substring — "own" in "down"
-        # must not match). A genuine recall shares at least one content word.
         for qw in _query_words:
             if re.search(r"(?<![a-z])" + re.escape(qw) + r"(?![a-z])",
                          gist_text.lower()):

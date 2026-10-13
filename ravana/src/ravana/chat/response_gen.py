@@ -6515,14 +6515,11 @@ class ResponseGenMixin(ChainWalkerMixin):
         if _web_cands:
             _top_snip = _web_cands[0] if _web_cands else None
             if _top_snip and isinstance(_top_snip, str) and len(_top_snip) > 20:
-                # Sanitize the snippet before weaving it in.
                 _snip_san = self._sanitize_definition_text(_top_snip)
                 if _snip_san and len(_snip_san) > 15:
-                    # Trim to first sentence for brevity.
                     _snip_first = re.split(r"(?<=[.!?])\s+", _snip_san.strip())[0]
                     if _snip_first and not _snip_first.endswith((".", "!", "?")):
                         _snip_first += "."
-                    # Replace the closer with the web snippet + a question.
                     text = random.choice(openers) + (
                         f"from what i looked up — {_snip_first.lower() if _snip_first[0].isupper() else _snip_first} "
                         f"what's your take on it?")
