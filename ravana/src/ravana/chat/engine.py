@@ -1384,6 +1384,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._own_replies = {}  # topic(str) -> list[dict(text, turn, t)]
         self._own_reply_topic_idx = {}  # topic -> 1 (presence index for content lookup)
 
+        # SEED-backed relevance-scored recall layer (round 2026-10-13).
+        # Multi-signal scoring replaces binary pass/fail guards in the recall
+        # pipeline. All parameters live in a persisted data store — RAVANA
+        # can expand/revise them at runtime from conversation feedback.
+        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
+        from .relevance_store import RelevanceThreshold, RelevanceScorer
+        self._relevance_threshold = RelevanceThreshold()
+        self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
+
         # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
         # Stores (turn_number, reply_text) tuples of the agent's genuine replies
         # (NOT recall responses — those are skipped by _record_own_reply). When
@@ -2922,7 +2931,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _answers: List[str] = []
             _seen: Set[str] = set()
             for _sub in _parts:
-                _ans = self._structured_recall(_sub)
+                _ans = self._relevance_gate(_sub, self._structured_recall(_sub))
                 if _ans and _ans not in _seen:
                     _seen.add(_ans)
                     _answers.append(_ans)
@@ -2938,6 +2947,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return None
 
 
+    def _relevance_gate(self, query: str, answer: Optional[str]) -> Optional[str]:
+        """SEED-backed relevance gate (round 2026-10-13).
+
+        Verifies that a candidate answer is relevant to the query before
+        returning it. Fail-closed: if the multi-signal relevance score is
+        below the learned threshold, return None (honest uncertainty beats
+        confabulation).
+
+        This is a general structural check — no per-topic logic, no hardcoded
+        reply strings. The threshold adapts incrementally from conversation
+        feedback (false positive/negative signals).
+        """
+        if not answer:
+            return answer
+        try:
+            _score = self._relevance_scorer.score(
+                query, answer,
+                query_turn=self.turn_count,
+                threshold=self._relevance_threshold)
+            if _score >= self._relevance_threshold.base_threshold:
+                return answer
+            return None
+        except Exception:
+            return answer  # fail-open on scorer error (never break recall)
+
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
         Root cause it fixes: biographical and self-stance recall queries
@@ -2949,6 +2983,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         <turn B> <turn C>..."). The cue mapped to NO specific stored entity, so
         the reply was a wrong/mismatched memory (measured across the Noor chat
         round: name -> "i don't know", cafeteria -> the green-comet turn,
+
+        SEED-backed relevance gate (round 2026-10-13): the inner method returns
+        a candidate answer; this wrapper verifies its relevance with a
+        multi-signal score before returning. Fail-closed: if below threshold,
+        return None (honest uncertainty beats confabulation).
         surveillance -> the cafeteria turn).
 
         This resolver reads the LIVE durable stores (personal_facts,
@@ -6334,7 +6373,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         _, _matched_text = _best_entry
                         _matched_text = _matched_text.strip()
                         if _matched_text:
-                            return f"earlier i said: {_matched_text}"
+                            _ans = f"earlier i said: {_matched_text}"
+                            return self._relevance_gate(_q, _ans)
             except Exception:
                 pass
             return None
@@ -6344,7 +6384,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return None
         # Render in FIRST person (it is RAVANA's own prior speech), with a
         # light source tag so the boundary is explicit and honest.
-        return f"i said: {_text}"
+        _ans = f"i said: {_text}"
+        return self._relevance_gate(_q, _ans)
 
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
         """Answer question-shaped input from the hippocampal buffer's stored
@@ -6999,7 +7040,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # returns None for genuinely self-directed queries, so this is
         # fail-open and never masks a real self-answer.
         try:
-            _sr_top = self._structured_recall(user_input)
+            _sr_top = self._relevance_gate(user_input, self._structured_recall(user_input))
             if _sr_top is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr_top)
@@ -7520,7 +7561,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # never a concatenation of unrelated turns) BEFORE the loose
             # fact_reasoning.enumerate_matching path, which would otherwise
             # dump mismatched prior utterances. Fail-open: None -> unchanged.
-            _sr = self._structured_recall(user_input)
+            _sr = self._relevance_gate(user_input, self._structured_recall(user_input))
             if _sr is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr)
@@ -7770,7 +7811,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # returns None for genuinely self-directed queries, so this is
         # fail-open.
         try:
-            _sr_pre = self._structured_recall(user_input)
+            _sr_pre = self._relevance_gate(user_input, self._structured_recall(user_input))
             if _sr_pre is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr_pre)
@@ -10924,6 +10965,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # reload that wiped this would make the agent "forget" its own
                 # prior opinions (limitation #2).
                 'agent_stances': dict(getattr(self, '_agent_stances', {}) or {}),
+                # SEED-backed relevance-scored recall layer (round 2026-10-13).
+                # Persisted so the learned threshold survives across sessions —
+                # without this the relevance gate would reset to seed every boot.
+                'relevance_threshold': (self._relevance_threshold.to_dict()
+                                        if getattr(self, '_relevance_threshold', None)
+                                        else None),
             }
             state['state_checksum'] = self._checksum_state(state)
             # Phase 1: Write graph to SQLite database for ACID persistence
@@ -11249,6 +11296,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             _restored[_k.lower().strip()] = (str(_v[0]), float(_v[1]),
                                                              str(_v[2]), int(_v[3]))
                     self._agent_stances = _restored
+            except Exception:
+                pass
+            # Restore the SEED-backed relevance threshold (round 2026-10-13).
+            # Guarded so a bad shape never wipes the store or breaks boot.
+            try:
+                from .relevance_store import RelevanceThreshold as _RT
+                _rt = state.get('relevance_threshold', None)
+                if isinstance(_rt, dict):
+                    self._relevance_threshold = _RT.from_dict(_rt)
             except Exception:
                 pass
             self._free_energy = state['free_energy']
