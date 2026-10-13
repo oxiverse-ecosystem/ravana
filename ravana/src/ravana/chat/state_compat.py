@@ -118,7 +118,9 @@ def ravana_unpickler(f) -> pickle.Unpickler:
                 if module in ("ravana_chat", "scripts.ravana_chat", "__main__"):
                     for alias in ("scripts.ravana_chat", "ravana_chat"):
                         try:
-                            return super().find_class(alias, name)
+                            resolved = super().find_class(alias, name)
+                            dropped.clear()
+                            return resolved
                         except (ModuleNotFoundError, AttributeError, ImportError):
                             continue
                 if _is_tolerated(module):
