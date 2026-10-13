@@ -8527,7 +8527,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
-        if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
+        # D7 FIX: check for implicit emotional content BEFORE the self-disclosure
+        # handler stores the fact. If the input matches an implicit emotional
+        # pattern (diagnosed with, don't belong, rejected, etc.), skip the
+        # "noted" self-disclosure reply and let it fall through to the emotional
+        # detector so the user gets empathy, not a flat fact acknowledgment.
+        _implicit_emotional = False
+        if not _is_interrogative:
+            _IMPLICIT_PATTERNS = (
+                r"\bdiagnosed\s+with\b",
+                r"\b(chronic|terminal|serious)\s+(illness|disease|condition)\b",
+                r"\b(don'?t|do not|never)\s+belong\b",
+                r"\b(feel|feeling|felt)\s+alone\b",
+                r"\b(rejected|refused|denied)\b",
+                r"\b(failed|failure|flunked)\b",
+                r"\b(fired|sacked|laid\s+off)\b",
+                r"\b(broke\s+up|divorced|separated)\b",
+                r"\b(worried|anxious|nervous|scared)\s+about\b",
+                r"\b(can'?t|cannot)\s+sleep\b",
+                r"\b(overwhelmed|burned?\s+out)\b",
+                r"\b(ashamed|embarrassed|guilty|regret)\b",
+            )
+            for _pat in _IMPLICIT_PATTERNS:
+                if re.search(_pat, user_input.lower()):
+                    _implicit_emotional = True
+                    break
+        if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
             # Root-cause recall fix: persist the disclosed fact to the
