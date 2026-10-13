@@ -7056,6 +7056,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _cued_self = self._self_cued_episodic(user_input)
         except Exception:
             _cued_self = None
+        # UNIVERSAL RELEVANCE GATING (round 2026-10-13T0022Z): the MRS
+        # relevance gate already wraps _structured_recall, but the episodic
+        # and agent-own recall paths could still confabulate — they matched
+        # by content-word overlap without verifying the answer actually
+        # addresses the query. Wire the same gate here so ALL recall paths
+        # are relevance-gated, not just structured recall. Fail-closed: if
+        # below threshold, return None (honest uncertainty beats
+        # confabulation). No new store, no new data structure — this is a
+        # wiring change that applies the existing MRS scorer to the
+        # episodic recall path.
+        if _cued_self is not None:
+            _cued_self = self._relevance_gate(user_input, _cued_self)
         if _cued_self is not None:
             self._last_strategy = "self_cued_episodic"
             self._last_responses.append(_cued_self)
