@@ -313,6 +313,40 @@ class SelfQueryMixin:
         # honest grounded line (no fake poetic list, no fabricated affect).
         return "still figuring that out"
 
+    def _normalize_stance_topic(self, target: str) -> str:
+        """Normalize a stance topic for display (D3 fix).
+
+        The target extracted from a user's question is often a raw substring
+        rather than a parsed concept:
+          - "own personality" -> "my own personality"
+          - "tea tastes better" -> "whether tea tastes better"
+          - "money can buy happiness" -> "whether money can buy happiness"
+
+        This method applies general pronoun mapping and proposition extraction
+        to produce a natural-sounding topic. It is structural (regex-based),
+        not a per-topic table — it generalizes to any question phrasing.
+        """
+        t = (target or "").strip().lower()
+        if not t:
+            return t
+        # Map second-person pronouns to first-person (the user is asking
+        # RAVANA about its own stance, so "you" -> "i", "your" -> "my").
+        t = re.sub(r"\byou\b", "i", t)
+        t = re.sub(r"\byour\b", "my", t)
+        t = re.sub(r"\byours\b", "mine", t)
+        t = re.sub(r"\byourself\b", "myself", t)
+        # If the topic starts with a verb that forms a yes/no question
+        # (do/does/did/is/are/can/could/would/should/will), prepend "whether"
+        # to make it a noun phrase: "tea tastes better" -> "whether tea tastes
+        # better". This is the standard English proposition-extraction rule.
+        if re.match(r"^(do|does|did|is|are|can|could|would|should|will|has|have|had)\b", t):
+            t = "whether " + t
+        # If the topic is a bare verb phrase without a subject, prepend
+        # "whether" as well: "tastes better" -> "whether it tastes better".
+        elif re.match(r"^(tastes?|looks?|sounds?|feels?|seems?|works?|matters?|helps?|hurts?|matters?)\b", t):
+            t = "whether it " + t
+        return t
+
     def _agent_stance_on(self, target: str) -> Tuple[str, str]:
         """vmPFC value resolver: compute a stance + affect-reason over an
         ARBITRARY target concept (not just a curated palette).
@@ -469,8 +503,14 @@ class SelfQueryMixin:
         # real input) and invents nothing — it is state-driven: no stance
         # on X means no stance on X. RAVANA can still form a real stance on
         # this topic later, from experience (online; no retraining).
-        _stance = f"i'm still forming a view on {target}"
-        _reason = (f"i don't have a fixed stance on {target} yet — what's your "
+        # D3 FIX: normalize the stance topic for display. The target is often
+        # a raw substring of the user's question ("own personality", "tea
+        # tastes better", "money can buy happiness") rather than a parsed
+        # concept. Apply pronoun mapping and proposition extraction so the
+        # rendered topic reads as a natural concept.
+        _display_target = self._normalize_stance_topic(target)
+        _stance = f"i'm still forming a view on {_display_target}"
+        _reason = (f"i don't have a fixed stance on {_display_target} yet — what's your "
                   f"take? i'd rather hear how you see it than guess.")
         # F3 FIX (round 2026-09-06): do NOT record a provisional stance when
         # there is NO evidence (no seeded value, no user stance). Recording a

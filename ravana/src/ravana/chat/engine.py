@@ -5110,6 +5110,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             _display = lambda a: a
         _attr_d = _display(_attr_d)
+        # D2 FIX: reconstruct proper English from composite fact keys.
+        # The miner stores facts under keys like ('i', "grandmother 's tea",
+        # 'garden sold') where the possessive is embedded with a space before
+        # the apostrophe. When rendered naively this produces "your grandmother
+        # 's tea garden sold" — broken grammar. Detect the possessive pattern
+        # and reconstruct: "your grandmother's tea garden was sold."
+        _possessive_match = re.match(
+            r"^([a-z]+)\\s+'s\\s+(.+)$", _attr_d, re.IGNORECASE)
+        if _possessive_match:
+            _owner = _possessive_match.group(1)
+            _possession = _possessive_match.group(2)
+            _val_str = (val or "").strip()
+            # If the value is a verb phrase, render as a clause with "was"
+            # for past-tense events: "your grandmother's tea garden was sold."
+            if _val_str:
+                try:
+                    from .user_model import is_verb_phrase as _is_act
+                except Exception:
+                    _is_act = lambda w: False
+                if _is_act(_val_str.split()[0]):
+                    return f"your {_owner}'s {_possession} was {_val_str}."
+                return f"your {_owner}'s {_possession} is {_val_str}."
+            return f"your {_owner}'s {_possession}."
         if _attr_d in ("location", "live in", "grew"):
             return f"you're from {val}"
         if _attr_d.startswith("favorite"):
