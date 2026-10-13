@@ -1384,8 +1384,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._own_replies = {}  # topic(str) -> list[dict(text, turn, t)]
         self._own_reply_topic_idx = {}  # topic -> 1 (presence index for content lookup)
 
-<<<<<<< HEAD
-=======
         # SEED-backed relevance-scored recall layer (round 2026-10-13).
         # Multi-signal scoring replaces binary pass/fail guards in the recall
         # pipeline. All parameters live in a persisted data store — RAVANA
@@ -1402,7 +1400,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             glove_fn=self._glove_vector,
             threshold=self._relevance_threshold)
 
->>>>>>> d20a24a3 (auto: round auto/round-2026-10-13T1411Z (MRS capability + docs) (#118))
         # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
         # Stores (turn_number, reply_text) tuples of the agent's genuine replies
         # (NOT recall responses — those are skipped by _record_own_reply). When
@@ -2957,8 +2954,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return None
 
 
-<<<<<<< HEAD
-=======
     def _relevance_gate(self, query: str, answer: Optional[str]) -> Optional[str]:
         """SEED-backed relevance gate (round 2026-10-13).
 
@@ -2984,7 +2979,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             return answer  # fail-open on scorer error (never break recall)
 
->>>>>>> d20a24a3 (auto: round auto/round-2026-10-13T1411Z (MRS capability + docs) (#118))
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
         Root cause it fixes: biographical and self-stance recall queries
@@ -7211,8 +7205,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # early-returns later (e.g. a bare "i really like cats" hitting a
         # preference handler). The same-turn recall block below reads these.
         self.user_model.mine_personal_facts(user_input)
-<<<<<<< HEAD
-=======
 
         # OFFLINE LEARNING SIGNAL (round 2026-10-13): _learning_count was only
         # incremented in web_learning.py and interface.py, neither of which
@@ -7228,7 +7220,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if _prev_learning is not None and _learning_key != _prev_learning:
             self._learning_count = getattr(self, "_learning_count", 0) + 1
         self._prev_learning_counts = _learning_key
->>>>>>> d20a24a3 (auto: round auto/round-2026-10-13T1411Z (MRS capability + docs) (#118))
 
         # ── Same-turn user-profile / opinion recall (A5 / C3) ────────────────
         # MUST fire before ANY recall/combine handler below (the combined-fact
