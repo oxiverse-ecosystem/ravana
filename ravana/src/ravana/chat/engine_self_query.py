@@ -313,6 +313,50 @@ class SelfQueryMixin:
         # honest grounded line (no fake poetic list, no fabricated affect).
         return "still figuring that out"
 
+    def _normalize_stance_topic(self, target: str) -> str:
+        """Normalize a stance topic for display (D3 fix).
+
+        The target extracted from a user's question is often a raw substring
+        rather than a parsed concept:
+          - "own personality" -> "my own personality"
+          - "tea tastes better" -> "whether tea tastes better"
+          - "money can buy happiness" -> "whether money can buy happiness"
+
+        This method applies general pronoun mapping and proposition extraction
+        to produce a natural-sounding topic. It is structural (regex-based),
+        not a per-topic table — it generalizes to any question phrasing.
+        """
+        t = (target or "").strip().lower()
+        if not t:
+            return t
+        # Map second-person pronouns to first-person (the user is asking
+        # RAVANA about its own stance, so "you" -> "i", "your" -> "my").
+        t = re.sub(r"\byou\b", "i", t)
+        t = re.sub(r"\byour\b", "my", t)
+        t = re.sub(r"\byours\b", "mine", t)
+        t = re.sub(r"\byourself\b", "myself", t)
+        # "own" without a possessive pronoun -> "my own" (the user's
+        # "own personality" becomes RAVANA's "my own personality").
+        if "own" in t and not re.search(r"\b(my|your|his|her|their|our)\s+own\b", t):
+            t = re.sub(r"\bown\b", "my own", t)
+        # If the topic starts with a verb that forms a yes/no question
+        # (do/does/did/is/are/can/could/would/should/will), prepend "whether"
+        # to make it a noun phrase. This is the standard English
+        # proposition-extraction rule.
+        if re.match(r"^(do|does|did|is|are|can|could|would|should|will|has|have|had)\b", t):
+            t = "whether " + t
+        # If the topic is a bare verb phrase without a subject, prepend
+        # "whether" as well: "tastes better" -> "whether it tastes better".
+        elif re.match(r"^(tastes?|looks?|sounds?|feels?|seems?|works?|matters?|helps?|hurts?)\b", t):
+            t = "whether it " + t
+        # If the topic is a noun + verb phrase (e.g. "tea tastes better",
+        # "money can buy happiness"), prepend "whether" to form a proper
+        # noun phrase: "whether tea tastes better". This handles the common
+        # case where the user asks "do you think X" and X is a clause.
+        elif re.match(r"^[a-z]+\s+(tastes?|looks?|sounds?|feels?|seems?|works?|matters?|helps?|hurts?|can|could|would|should|will|is|are|has|have|had)\b", t):
+            t = "whether " + t
+        return t
+
     def _agent_stance_on(self, target: str) -> Tuple[str, str]:
         """vmPFC value resolver: compute a stance + affect-reason over an
         ARBITRARY target concept (not just a curated palette).
@@ -469,8 +513,9 @@ class SelfQueryMixin:
         # real input) and invents nothing — it is state-driven: no stance
         # on X means no stance on X. RAVANA can still form a real stance on
         # this topic later, from experience (online; no retraining).
-        _stance = f"i'm still forming a view on {target}"
-        _reason = (f"i don't have a fixed stance on {target} yet — what's your "
+        _display_target = self._normalize_stance_topic(target)
+        _stance = f"i'm still forming a view on {_display_target}"
+        _reason = (f"i don't have a fixed stance on {_display_target} yet — what's your "
                   f"take? i'd rather hear how you see it than guess.")
         # F3 FIX (round 2026-09-06): do NOT record a provisional stance when
         # there is NO evidence (no seeded value, no user stance). Recording a
@@ -1187,19 +1232,38 @@ class SelfQueryMixin:
                 try:
                     _id = self.identity.get_status()
                     _strength = _id.get("strength", 0.0)
-                    # No keyword→prose table: every introspection question is
-                    # answered from the SAME live identity state (strength band +
-                    # measured value), so the content comes from cognition.
+                    _momentum = _id.get("momentum", 0.0)
+                    _stability = _id.get("stability", 0.0)
+                    # D4 FIX: break the canned self-description paragraph into
+                    # state-driven renders. Each clause is computed from a
+                    # different live identity metric, so the reply varies with
+                    # RAVANA's actual cognitive state rather than repeating a
+                    # fixed paragraph. The content comes from cognition (the
+                    # identity engine's real measurements), not authored prose.
                     if _strength >= 0.5:
                         _coh = "i have a fairly settled sense of myself"
                     elif _strength >= 0.35:
                         _coh = "my sense of myself is still taking shape"
                     else:
                         _coh = "i'm still quite unsettled about who i am"
-                    return (f"that's about me, not you — {_coh}, and it's been "
-                            f"growing as we talk. i don't always keep the exact "
-                            f"words of what i said earlier, but the shape of it "
-                            f"holds.")
+                    # Render growth from momentum (not a fixed "growing as we
+                    # talk"). Positive momentum = growing, negative = settling.
+                    if _momentum > 0.05:
+                        _growth = "it's been growing as we talk"
+                    elif _momentum < -0.05:
+                        _growth = "it's been settling into a clearer shape"
+                    else:
+                        _growth = "it's been holding steady"
+                    # Render stability from the stability metric.
+                    if _stability > 0.7:
+                        _stab = "the shape of it holds well"
+                    elif _stability > 0.4:
+                        _stab = "the shape of it mostly holds"
+                    else:
+                        _stab = "the shape of it is still shifting"
+                    return (f"that's about me, not you — {_coh}, and {_growth}. "
+                            f"i don't always keep the exact words of what i said "
+                            f"earlier, but {_stab}.")
                 except Exception:
                     return ("that's a question about me rather than you — i'm "
                             "still forming a sense of myself, and i'd rather be "
@@ -1872,6 +1936,11 @@ class SelfQueryMixin:
             # concept via GloVe similarity and reason analogically.
             _analog = self._try_analogical_reasoning(subj, user_input)
             if _analog is not None:
+                # SEED-backed relevance gate (round 2026-10-13): verify the
+                # analogical answer is relevant to the query before returning.
+                _gate = getattr(self, "_relevance_gate", None)
+                if _gate is not None:
+                    return _gate(user_input, _analog)
                 return _analog
             return None
 
@@ -1911,6 +1980,12 @@ class SelfQueryMixin:
                     print(f"  [coherence] internal_knowledge off-topic "
                           f"(coherence={_coherence:.2f}): {ans_text[:60]!r}")
                 return None
+        # SEED-backed relevance gate (round 2026-10-13): verify the answer
+        # is relevant to the query before returning. Fail-closed: if below
+        # threshold, return None (honest uncertainty beats confabulation).
+        _gate = getattr(self, "_relevance_gate", None)
+        if _gate is not None:
+            return _gate(user_input, ans_text)
         return ans_text
 
     def _try_analogical_reasoning(self, subj: str, user_input: str) -> Optional[str]:

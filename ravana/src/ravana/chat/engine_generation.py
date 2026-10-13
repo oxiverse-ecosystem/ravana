@@ -1226,6 +1226,23 @@ class GenerationMixin:
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] Belief reconcile/prune error: {e}")
+        # P7b: decay & prune personal facts — forgetting curve (Ebbinghaus).
+        # Facts not rehearsed gradually lose confidence; those below the
+        # threshold are pruned. Wired here so sleep consolidation maintains
+        # the fact store the same way it maintains beliefs. SEED: decay_rate
+        # and min_confidence are parameters, not hardcoded thresholds.
+        try:
+            _um = getattr(self, 'user_model', None)
+            _pf_store = getattr(_um, 'personal_facts', None) if _um else None
+            if _pf_store is not None:
+                facts_pruned = _pf_store.decay_confidence(
+                    decay_rate=0.02, min_confidence=0.3)
+                result['facts_pruned'] = facts_pruned
+                if getattr(self, '_trace_enabled', False) and facts_pruned:
+                    print(f"  [sleep] personal facts: {facts_pruned} pruned")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] Personal fact decay/prune error: {e}")
         # Phase 3: Hippocampal replay consolidation
         try:
             replay_metrics = self.hippocampal_replay.sleep_cycle(

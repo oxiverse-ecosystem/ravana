@@ -4925,6 +4925,57 @@ class UserModel:
                 _act_full = f"{_act} {_obj}".strip() if _obj else _act
                 _put_fact("since", f"{_act_full} {_since}", 0.6)
 
+        # (e) EVENT-ANCHORED "since" phrases. Block (d) covers human-phrased
+        #     durations ("a decade", "a few years") but NOT event-anchored
+        #     "since" phrases like "since the pandemic". These require mapping
+        #     the event to a known anchor year, which is a different shape.
+        #     The seed set below is grammar/scaffolding vocabulary (like
+        #     _FUZZY_DUR), not a per-topic table; the resolved year is the
+        #     event's anchor year, and adding/removing entries degrades
+        #     gracefully. No retraining, no LLM.
+        _EVENT_ANCHORS = {
+            "the pandemic": 2020, "pandemic": 2020,
+            "the lockdown": 2020, "lockdown": 2020,
+            "the recession": 2008, "recession": 2008,
+            "the crash": 2008,
+            "9/11": 2001, "september 11": 2001,
+            "the war": 2022,
+            "the invasion": 2022,
+            "the coup": 2021,
+            "brexit": 2016,
+            "the referendum": 2016,
+        }
+        for _event, _year in _EVENT_ANCHORS.items():
+            if _year < 1900 or _year > _THIS_YEAR:
+                continue
+            for _dm in re.finditer(
+                    r"\bsince\s+" + re.escape(_event) + r"\b",
+                    q_clean, re.IGNORECASE):
+                # attach to the nearest activity verb before the phrase
+                # (same clause, e.g. "i've been brewing beer since the
+                # pandemic"); reuse block (d)'s structural verb extraction.
+                _pre = q_clean[:_dm.start()]
+                _av = re.findall(
+                    r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
+                _verb = None
+                _vidx = -1
+                for _i, _v in enumerate(_av):
+                    _vl = _v.lower()
+                    if _vl in _ASPECTUAL_VERBS:
+                        continue
+                    if _activity_verb_ok(_vl):
+                        _verb = _vl
+                        _vidx = _i
+                        break
+                if _verb is None:
+                    continue
+                _act = self._verb_stem(_verb)
+                if not _act:
+                    continue
+                _obj = _activity_object(_av, _vidx)
+                _act_full = f"{_act} {_obj}".strip() if _obj else _act
+                _put_fact("since", f"{_act_full} {_year}", 0.6)
+
         # Possession-attribute mining (Bug 4, round 2026-08-15T0830Z): a
         # disclosure that names a possession and says what it is made of /
         # what material it is ("the cabin is a hand-hewn pine lodge with a sod
