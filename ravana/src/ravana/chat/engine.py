@@ -7168,6 +7168,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # preference handler). The same-turn recall block below reads these.
         self.user_model.mine_personal_facts(user_input)
 
+        # OFFLINE LEARNING SIGNAL (round 2026-10-13): _learning_count was only
+        # incremented in web_learning.py and interface.py, neither of which
+        # fires when RAVANA_OFFLINE=1. Increment it here when mine_personal_facts
+        # grows stances or facts, so the learning signal is visible in offline
+        # mode too. This is state-driven — it reads real store growth.
+        _pf = getattr(self.user_model, "personal_facts", None)
+        _op = getattr(self.user_model, "opinions", None)
+        _pf_count = len(_pf.facts) if _pf is not None and hasattr(_pf, "facts") else 0
+        _op_count = len(_op.stances) if _op is not None and hasattr(_op, "stances") else 0
+        _learning_key = (_pf_count, _op_count)
+        _prev_learning = getattr(self, "_prev_learning_counts", None)
+        if _prev_learning is not None and _learning_key != _prev_learning:
+            self._learning_count = getattr(self, "_learning_count", 0) + 1
+        self._prev_learning_counts = _learning_key
+
         # ── Same-turn user-profile / opinion recall (A5 / C3) ────────────────
         # MUST fire before ANY recall/combine handler below (the combined-fact
         # query, _phrase_recalled_fact, _try_memory_query's episodic echo, etc.

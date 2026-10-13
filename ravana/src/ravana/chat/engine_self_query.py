@@ -472,6 +472,46 @@ class SelfQueryMixin:
         _stance = f"i'm still forming a view on {target}"
         _reason = (f"i don't have a fixed stance on {target} yet — what's your "
                   f"take? i'd rather hear how you see it than guess.")
+        # USER STANCE TRANSITIVITY (round 2026-10-13): if the user holds a
+        # real learned stance on this topic, RAVANA forms a provisional lean
+        # (same sign, 0.6x confidence) and records it. This mirrors the
+        # contrastive path's user-stance grounding (line ~1511) but for
+        # single-topic opinion queries. The agent is informed by its
+        # partner's views, not echoing them as its own facts.
+        _user_stance = None
+        _opinions = getattr(self, "user_model", None)
+        _opinions = getattr(_opinions, "opinions", None) if _opinions else None
+        if _opinions is not None:
+            _user_stance = _opinions.query_stance(target)
+        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
+            _pol = float(_user_stance.polarity) * 0.6
+            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
+            if _pol >= 0.6:
+                _w = "strongly for"
+            elif _pol > 0.1:
+                _w = "for"
+            elif _pol <= -0.6:
+                _w = "strongly against"
+            elif _pol < -0.1:
+                _w = "against"
+            elif _pol >= 0.15:
+                _w = "lean toward"
+            elif _pol <= -0.15:
+                _w = "wary of"
+            else:
+                _w = "uncertain about"
+            _stance = f"i'm {_w} {target}"
+            try:
+                from ravana.chat.personal_fact_store import Stance
+                self._agent_stances[target.lower().strip()] = Stance(
+                    topic=target.lower().strip(), polarity=_pol, confidence=_conf,
+                    valence=getattr(_user_stance, "valence", 0.0),
+                    arousal=getattr(_user_stance, "arousal", 0.0),
+                    turn_number=getattr(self, "turn_count", 0) or 0,
+                    rehearsal_count=1)
+            except Exception:
+                pass
+            return (_stance, _reason)
         # F3 FIX (round 2026-09-06): do NOT record a provisional stance when
         # there is NO evidence (no seeded value, no user stance). Recording a
         # fake "still forming a view" stance for an evidence-less topic is a
