@@ -178,7 +178,8 @@ class ConceptEdge:
     def __init__(self, source: int, target: int, weight: float = 0.5,
                  shortcut: bool = False, edge_type: str = "excitatory",
                  relation_type: str = "semantic", relation_dim: int = 16,
-                 confidence: float = 0.5):
+                 confidence: float = 0.5,
+                 context_labels: Optional[List[str]] = None):
         self.source = source
         self.target = target
         self._weight = max(0.0, min(1.0, weight))
@@ -212,6 +213,13 @@ class ConceptEdge:
         self.parent_graph = None
         # Multi-Agent Edge Weights (dialogue system)
         self.agent_weights: Dict[str, float] = {}
+        # Context-dependent edge gating: labels that determine when this edge
+        # is active. Empty list = always active (default). Non-empty = only
+        # active when the graph's current context matches one of these labels.
+        # This is the mechanism for representing fuzzy/ambiguous knowledge:
+        # the same edge can be active in one context and inactive in another,
+        # without hardcoding a separate graph for each context.
+        self.context_labels: List[str] = list(context_labels) if context_labels else []
         self.source_metadata: Dict[str, Any] = {
             'source_agent': 'system',
             'epistemic_status': 'fact',
@@ -1153,6 +1161,15 @@ class ConceptGraph:
         # compute_curvature/basin_depth reuse the cached vector matrix
         self._cached_norms: Optional[np.ndarray] = None
 
+        # ── Context-dependent edge gating ──
+        # The graph's current context determines which context-labeled edges
+        # are active. This is the mechanism for representing fuzzy/ambiguous
+        # knowledge: the same edge can be active in one context and inactive
+        # in another, without hardcoding a separate graph for each context.
+        # Empty set = all edges active (no context filtering).
+        self._current_context: Set[str] = set()
+        self._context_edge_index: Dict[str, Set[Tuple[int, int]]] = defaultdict(set)
+
     def __getstate__(self):
         """Exclude non-picklable / recreated-at-load state.
 
@@ -1596,6 +1613,77 @@ class ConceptGraph:
                 self._incoming[target] = [(s, e) for s, e in self._incoming.get(target, []) if s != source]
                 self._adj_dirty = True
                 self.version = getattr(self, "version", 0) + 1
+
+    def set_context(self, labels: Optional[List[str]] = None):
+        """Set the graph's current context for context-dependent edge gating.
+
+        When context is set, only edges whose context_labels intersect with
+        the given labels are active during spreading activation and inference.
+        Edges with empty context_labels are always active (context-independent).
+
+        Passing None or an empty list clears context filtering (all edges active).
+
+        This is the mechanism for representing fuzzy/ambiguous knowledge:
+        the same graph can represent different meanings in different contexts
+        without hardcoding separate graphs. For example, "bank" can activate
+        "river" in a nature context and "money" in a finance context.
+        """
+        with self._lock:
+            if labels:
+                self._current_context = set(labels)
+            else:
+                self._current_context = set()
+
+    def get_context(self) -> Set[str]:
+        """Return the current context labels."""
+        return set(self._current_context)
+
+    def is_edge_active(self, edge: ConceptEdge) -> bool:
+        """Check if an edge is active in the current context.
+
+        An edge is active if:
+        - It has no context_labels (context-independent, always active), OR
+        - The graph has no current context set (no filtering), OR
+        - At least one of its context_labels matches the current context.
+        """
+        if not edge.context_labels:
+            return True
+        if not self._current_context:
+            return True
+        return bool(set(edge.context_labels) & self._current_context)
+
+    def add_context_edge(self, source: int, target: int,
+                         context_labels: List[str],
+                         weight: float = 0.5,
+                         relation_type: str = "contextual",
+                         confidence: float = 0.5) -> ConceptEdge:
+        """Add a context-dependent edge that is only active in specific contexts.
+
+        This is the primary mechanism for representing ambiguous knowledge:
+        the same source-target pair can have different edges for different
+        contexts, and only the edge matching the current context is active.
+        """
+        edge = self.add_edge(source, target, weight=weight,
+                             relation_type=relation_type,
+                             confidence=confidence,
+                             context_labels=context_labels)
+        # Index the edge by its context labels for efficient lookup
+        for label in context_labels:
+            self._context_edge_index[label].add((source, target))
+        return edge
+
+    def get_context_edges(self, label: str) -> List[ConceptEdge]:
+        """Get all edges tagged with a specific context label."""
+        edges = []
+        for src, tgt in self._context_edge_index.get(label, []):
+            edge = self.edges.get((src, tgt))
+            if edge is not None:
+                edges.append(edge)
+        return edges
+
+    def clear_context(self):
+        """Clear the current context, making all edges active."""
+        self._current_context = set()
 
     def prune_low_quality_edges(self, C1: float = 0.35, K: int = 1, U: float = 0.3,
                                 enabled: bool = True) -> int:
