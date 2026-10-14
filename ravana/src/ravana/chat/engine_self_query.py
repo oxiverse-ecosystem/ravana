@@ -1417,22 +1417,22 @@ class SelfQueryMixin:
             # -> "silence", "music lately" -> "music"). The adverb check below
             # only fires when the ENTIRE tail is a single adverb; this handles
             # multi-word topics where the last word is a trailing adverb.
-                _TAIL_ADVERBS = ("exactly", "precisely", "specifically",
-                                 "particularly", "especially", "really",
-                                 "truly", "actually", "honestly", "frankly",
-                                 "basically", "essentially", "generally",
-                                 "usually", "normally", "typically", "clearly",
-                                 "obviously", "apparently", "evidently",
-                                 "literally", "seriously", "definitely",
-                                 "certainly", "absolutely", "completely",
-                                 "totally", "entirely", "quite", "rather",
-                                 "somewhat", "somehow", "anyway", "anyhow",
-                                 "else", "too", "just", "merely", "simply",
-                                 "only", "even", "still", "already", "yet",
-                                 "ever", "never", "always", "often",
-                                 "sometimes", "perhaps", "maybe", "probably",
-                                 "possibly", "likely", "again", "anymore",
-                                 "nowadays", "lately")
+            _TAIL_ADVERBS = ("exactly", "precisely", "specifically",
+                             "particularly", "especially", "really",
+                             "truly", "actually", "honestly", "frankly",
+                             "basically", "essentially", "generally",
+                             "usually", "normally", "typically", "clearly",
+                             "obviously", "apparently", "evidently",
+                             "literally", "seriously", "definitely",
+                             "certainly", "absolutely", "completely",
+                             "totally", "entirely", "quite", "rather",
+                             "somewhat", "somehow", "anyway", "anyhow",
+                             "else", "too", "just", "merely", "simply",
+                             "only", "even", "still", "already", "yet",
+                             "ever", "never", "always", "often",
+                             "sometimes", "perhaps", "maybe", "probably",
+                             "possibly", "likely", "again", "anymore",
+                             "nowadays", "lately")
             if _tail_clean:
                 _tail_words = _tail_clean.split()
                 while _tail_words and _tail_words[-1] in _TAIL_ADVERBS:
@@ -1441,6 +1441,7 @@ class SelfQueryMixin:
                     _tail_clean = " ".join(_tail_words)
                 else:
                     _tail_clean = ""
+                    _tail = ""
                 _COPULA = ("is", "are", "was", "were", "been", "being",
                            "seems", "appears", "looks", "sounds", "feels",
                            "becomes", "become", "became", "becoming",
