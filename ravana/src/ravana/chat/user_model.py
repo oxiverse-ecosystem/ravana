@@ -1098,15 +1098,6 @@ _OBJECT_STOP = frozenset({
     "about", "around", "into", "during", "after", "before", "when", "while",
     "where", "because", "but", "and", "or", "so", "that", "which", "what",
     "who", "how", "why", "over", "near", "under", "with",
-    # Naming-clause markers: "i keep a sourdough starter i named doris" must
-    # store the activity object "sourdough starter", NOT "sourdough starter i
-    # named doris". The named-entity miner already stores ('sourdough starter',
-    # 'name', 'doris') separately. Without this, the activity fact value
-    # contains the name and a later "what did i name that garden gnome?"
-    # query leaks "doris" via memory_recall (regression from 61ded05b which
-    # replaced _opinion_topic with _extract_activity_obj — _opinion_topic cut
-    # at internal determiners, _extract_activity_obj preserves the full NP).
-    "named", "called",
 })
 # Determiners / particles to SKIP (not close the span) before/within the
 # object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
@@ -1231,10 +1222,22 @@ def _extract_activity_obj(phrase: str) -> str:
         toks.pop(0)
     if not toks:
         return ""
-    # Collect content words, stopping at prepositions/conjunctions
+    # Collect content words, stopping at prepositions/conjunctions AND
+    # naming-clause markers ("named"/"called"). The named-entity miner
+    # already stores the name separately (e.g. ('sourdough starter',
+    # 'name', 'doris')), so the activity fact must NOT include the naming
+    # clause. Without this, "i keep a sourdough starter i named doris"
+    # stores ('i', 'does:keep', 'keep sourdough starter i named doris')
+    # and a later "what did i name that garden gnome?" query leaks "doris"
+    # via memory_recall. This is a targeted stop-set local to this
+    # function — it does NOT modify the global _OBJECT_STOP (which would
+    # break other miners that legitimately include "named X" in their
+    # fact values, e.g. the possession miner's ("i", "dog", "a lurcher
+    # named wren")).
+    _NAMING_CLAUSE = {"named", "called"}
     out = []
     for t in toks:
-        if t in _OBJECT_STOP:
+        if t in _OBJECT_STOP or t in _NAMING_CLAUSE:
             break
         if t in _FRAMER_OBJ:
             continue
