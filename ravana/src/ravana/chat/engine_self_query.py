@@ -469,56 +469,6 @@ class SelfQueryMixin:
         # real input) and invents nothing — it is state-driven: no stance
         # on X means no stance on X. RAVANA can still form a real stance on
         # this topic later, from experience (online; no retraining).
-        # 2b) USER-STANCE GROUNDING (round 2026-10-14): if the user holds a
-        # real learned stance on this topic, the agent DERIVES a grounded lean
-        # from it (it is not a blank slate about a topic it discussed),
-        # RECORDS that lean as its own stance, and answers from the recorded
-        # store. This mirrors the FORM path in _structured_recall (engine.py)
-        # and the contrastive path above — the agent is informed by what its
-        # conversation partner cares about, but never copies it verbatim.
-        # No fabrication: the agent's stance comes from the user's real
-        # learned polarity, attenuated; it is never inferred from ambient
-        # mood or similarity.
-        _user_stance = None
-        _opinions = getattr(self, "user_model", None)
-        _opinions = getattr(_opinions, "opinions", None) if _opinions else None
-        if _opinions is not None:
-            _user_stance = _opinions.query_stance(target)
-        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
-            _pol = float(_user_stance.polarity) * 0.7
-            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
-            if _pol >= 0.6:
-                _w = "strongly for"
-            elif _pol > 0.1:
-                _w = "for"
-            elif _pol <= -0.6:
-                _w = "strongly against"
-            elif _pol < -0.1:
-                _w = "against"
-            elif _pol >= 0.15:
-                _w = "lean toward"
-            elif _pol <= -0.15:
-                _w = "wary of"
-            else:
-                _w = "uncertain about"
-            _stance = f"i'm {_w} {target}"
-            _reason = (f"you've been talking about {target} and it's clearly "
-                      f"something you feel strongly about — i can see why, "
-                      f"and it pulls me the same way.")
-            try:
-                from ravana.chat.personal_fact_store import Stance
-                _key = self._agent_stance_key(target) if hasattr(
-                    self, "_agent_stance_key") else target.strip().lower()
-                if _key:
-                    self._agent_stances[_key] = Stance(
-                        topic=_key, polarity=_pol, confidence=_conf,
-                        valence=getattr(_user_stance, "valence", 0.0),
-                        arousal=getattr(_user_stance, "arousal", 0.0),
-                        turn_number=getattr(self, "turn_count", 0) or 0,
-                        rehearsal_count=1)
-            except Exception:
-                pass
-            return (_stance, _reason)
         _stance = f"i'm still forming a view on {target}"
         _reason = (f"i don't have a fixed stance on {target} yet — what's your "
                   f"take? i'd rather hear how you see it than guess.")
@@ -816,7 +766,7 @@ class SelfQueryMixin:
         _conf = getattr(_prior, "confidence", 0.5)
         return (
             f"got it — you used to say you were {_old_word} {topic}, "
-            f"and now you're {_new_word} {topic}. i've updated my read "
+            f"and now you're {_new_word}. i've updated my read "
             f"(confidence {_conf:.2f})."
         )
 
@@ -871,22 +821,7 @@ class SelfQueryMixin:
             # No recorded stance on this topic — be honest, do not invent.
             return (f"i don't actually have a recorded view on {target} from "
                     f"before — i'd be guessing. what made you bring it up again?")
-        # Handle both the old tuple format (_word, _conf, _reason, _turn) and
-        # the new Stance object format (stored by the user-stance grounding path
-        # and the contrastive path). The Stance object is the canonical format
-        # going forward; the tuple format is kept for backward compatibility.
-        if hasattr(_rec, "polarity"):
-            # Stance object format
-            _pol = float(getattr(_rec, "polarity", 0.0))
-            _conf = float(getattr(_rec, "confidence", 0.0))
-            _word = "strongly for" if _pol >= 0.6 else (
-                "for" if _pol > 0.1 else (
-                    "strongly against" if _pol <= -0.6 else (
-                        "against" if _pol < -0.1 else "uncertain about")))
-            _reason = ""
-        else:
-            # Legacy tuple format
-            _word, _conf, _reason, _turn = _rec
+        _word, _conf, _reason, _turn = _rec
         # High-confidence recorded stance -> affirm continuity. The orientation
         # word is the ACTUAL recorded polarity word, not an authored sentence.
         if _conf >= 0.5 and "still forming" not in _word and "still forming" not in _reason:
@@ -1413,10 +1348,12 @@ class SelfQueryMixin:
             #   * Bare trailing adverb: no resolvable topic, fall through
             # Structural (copula/intransitive verb vocabulary), no per-topic table.
             _tail_clean = _tail.strip(" \t\n\r,.!?;:").lower()
-            # Strip trailing adverbs from the topic phrase (e.g. "silence again"
-            # -> "silence", "music lately" -> "music"). The adverb check below
-            # only fires when the ENTIRE tail is a single adverb; this handles
-            # multi-word topics where the last word is a trailing adverb.
+            if _tail_clean:
+                _COPULA = ("is", "are", "was", "were", "been", "being",
+                           "seems", "appears", "looks", "sounds", "feels",
+                           "becomes", "remains", "stays")
+                _INTRANS_PP = ("happens", "occurred", "occurs", "exists",
+                               "matters", "counts")
                 _TAIL_ADVERBS = ("exactly", "precisely", "specifically",
                                  "particularly", "especially", "really",
                                  "truly", "actually", "honestly", "frankly",
@@ -1431,23 +1368,7 @@ class SelfQueryMixin:
                                  "only", "even", "still", "already", "yet",
                                  "ever", "never", "always", "often",
                                  "sometimes", "perhaps", "maybe", "probably",
-                                 "possibly", "likely", "again", "anymore",
-                                 "nowadays", "lately")
-            if _tail_clean:
-                _tail_words = _tail_clean.split()
-                while _tail_words and _tail_words[-1] in _TAIL_ADVERBS:
-                    _tail_words.pop()
-                if _tail_words:
-                    _tail_clean = " ".join(_tail_words)
-                else:
-                    _tail_clean = ""
-                _COPULA = ("is", "are", "was", "were", "been", "being",
-                           "seems", "appears", "looks", "sounds", "feels",
-                           "becomes", "become", "became", "becoming",
-                           "remains", "remained", "stays", "stayed",
-                           "'re", "'s", "'m")
-                _INTRANS_PP = ("happens", "occurred", "occurs", "exists",
-                               "matters", "counts")
+                                 "possibly", "likely")
                 if _tail_clean in _TAIL_ADVERBS:
                     _tail = ""
                 else:
