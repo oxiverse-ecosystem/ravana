@@ -772,7 +772,9 @@ class SelfQueryMixin:
                             r"\b([a-z][a-z'\-]{2,})\s+(?:is|are|was|were)\s+"
                             r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|"
                             r"pretty\s+|highly\s+|absolutely\s+|completely\s+|"
-                            r"rather\s+|fairly\s+|extremely\s+)?"
+                            r"rather\s+|fairly\s+|extremely\s+|actually\s+|"
+                            r"just\s+|simply\s+|totally\s+|utterly\s+|"
+                            r"incredibly\s+|somewhat\s+)?"
                             r"([a-z][a-z'\-]{2,})\b", _rest):
                         _pred = _m.group(2).strip()
                         _read = _epm.score(_pred)
@@ -828,7 +830,7 @@ class SelfQueryMixin:
         # prior-turn stance can be inverted in the current turn.
         _turn_num = getattr(stances, "turn_num", 0)
         _held_turn = getattr(_held, "turn_number", 0)
-        if _held_turn > _turn_num:
+        if _held_turn >= _turn_num:
             return None
         # Try to mine the NEW polarity from the post-contradiction clause.
         # If we can derive a new opinion, use recode_stance_toward (which

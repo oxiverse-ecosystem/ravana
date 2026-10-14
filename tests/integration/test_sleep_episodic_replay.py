@@ -39,9 +39,13 @@ def test_sleep_consolidates_episodic_pairs_to_graph():
     eng.episodic_binder.bind("sun", "hot", confidence=0.7)
     eng.episodic_binder.bind("sun", "hot", confidence=0.7)
 
-    # Register concept keywords so the binder can map concepts to graph nodes
-    eng._concept_keywords["sun"] = [eng.graph.add_node(label="sun") or list(eng.graph.nodes.keys())[-1]]
-    eng._concept_keywords["hot"] = [eng.graph.add_node(label="hot") or list(eng.graph.nodes.keys())[-1]]
+    # Register concept keywords so the binder can map concepts to graph nodes.
+    # add_node returns a ConceptNode; _concept_keywords must hold integer node
+    # IDs (every other call site stores node.id), so extract .id explicitly.
+    _sun_node = eng.graph.add_node(label="sun")
+    _hot_node = eng.graph.add_node(label="hot")
+    eng._concept_keywords["sun"] = [_sun_node.id]
+    eng._concept_keywords["hot"] = [_hot_node.id]
 
     # Run sleep consolidation
     result = eng._sleep_consolidate()
@@ -79,8 +83,8 @@ def test_sleep_consolidation_survives_repeated_runs():
     eng.episodic_binder.bind("sun", "hot", confidence=0.7)
     # The drain resolves each concept through _concept_keywords to find its
     # graph node; without this the pair is silently skipped, not graduated.
-    eng._concept_keywords["sun"] = [eng.graph.add_node(label="sun")]
-    eng._concept_keywords["hot"] = [eng.graph.add_node(label="hot")]
+    eng._concept_keywords["sun"] = [eng.graph.add_node(label="sun").id]
+    eng._concept_keywords["hot"] = [eng.graph.add_node(label="hot").id]
     first = eng._sleep_consolidate()
     assert first.get('episodic_pairs_graduated', 0) >= 1, \
         f"first cycle did not graduate: {first.get('episodic_pairs_graduated', 0)}"
@@ -92,8 +96,8 @@ def test_sleep_consolidation_survives_repeated_runs():
     eng2.episodic_binder.bind("kiln", "cracked", context="the kiln cracked", confidence=0.7)
     eng2.episodic_binder.bind("kiln", "cracked", confidence=0.7)
     eng2.episodic_binder.bind("kiln", "cracked", confidence=0.7)
-    eng2._concept_keywords["kiln"] = [eng2.graph.add_node(label="kiln")]
-    eng2._concept_keywords["cracked"] = [eng2.graph.add_node(label="cracked")]
+    eng2._concept_keywords["kiln"] = [eng2.graph.add_node(label="kiln").id]
+    eng2._concept_keywords["cracked"] = [eng2.graph.add_node(label="cracked").id]
     second = eng2._sleep_consolidate()
     assert second.get('episodic_pairs_graduated', 0) >= 1, \
         ("resumed engine failed to consolidate a newly-rehearsed pair: "
