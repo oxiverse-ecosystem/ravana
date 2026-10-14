@@ -134,6 +134,14 @@ on this codebase:
   cabinets"* → *"you started building cabinets in 2021."* Previously both returned
   the same (wrong) year because only the verb head was stored. No LLM, no
   per-topic reply table. See `docs/CAPABILITY_OBJECT_DISAMBIGUATED_DATE_RECALL.md`.
+- **Preserves the full activity-object noun phrase in fact storage.** Told
+  *"i've been learning to play the veena"* it stores `learning play the veena`
+  (not just `learning play` — the old stance-key resolver cut at internal
+  determiners like "the"). The new `_extract_activity_obj()` keeps the full
+  noun phrase so recall can distinguish "playing the veena" from "playing the
+  violin", and the stored fact retains the user's actual meaning. Structural:
+  seed span-boundary vocabulary, no per-topic table, no retraining. See
+  `docs/CAPABILITY_ACTIVITY_OBJECT_NOUN_PHRASE.md`.
 - **Mines possession-attribute disclosures into structured, correctable facts.**
   Told *"the cabin is a hand-hewn pine lodge with a sod roof"* it stores the
   material under the **entity** (`cabin.madeof = pine`), not a whole-sentence
