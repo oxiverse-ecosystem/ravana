@@ -88,21 +88,28 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 |-------|-----------|--------|-------|
 | `tests/unit/` | 198 test files | `unit-tests` (4 shards) | **GREEN** |
 | `tests/` (top-level) | 23 test files | `misc-tests` | **GREEN** |
-| `tests/integration/` | 13 test files | `integration-tests` | **GREEN** |
+| `tests/integration/` | 13 test files | `integration-tests` | **YELLOW** |
 | `tests/ci/` | 5 test files | `ci-critical` | **GREEN** |
 | **Total** | **239 test files** | 4 CI jobs | — |
 
 Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
-Integration suite: **111** tests collected, **107 passed, 4 skipped** (2026-10-12).
+Integration suite: **108** tests collected, **105 passed, 2 failed, 4 skipped** (2026-10-15).
 
-Notes (updated 2026-10-12):
-- `tests/integration/` is graded **GREEN**. The previously failing test
+Notes (updated 2026-10-15):
+- `tests/integration/` is graded **YELLOW** due to 2 pre-existing failures in
+  `test_unified_semantic_loop.py::test_full_loop` (both ChatInterface and
+  EnginePath variants). These pass in isolation but fail under full-suite
+  parallel execution — a test-ordering/state-contamination issue unrelated to
+  the sleep consolidation fix. The sleep consolidation tests (3/3) all pass.
+- The previously failing test
   `test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`
   was fixed in commit `79733fd2` (round 2026-09-30T1031Z) — the test was made
   hermetic with per-run UUID suffixes so persisted `consolidated` flags don't
-  contaminate subsequent runs. Verified 2026-10-12: `pytest tests/integration/ -q`
-  → **107 passed, 4 skipped** (skips are pre-existing: 2 need live web, 2 are
-  slow-training). CI `integration-tests` job is green on `auto/round-2026-10-12T0729Z`.
+  contaminate subsequent runs. A second fix (2026-10-15) corrected the
+  `_concept_keywords` population: `graph.add_node()` returns a `ConceptNode`
+  object, but `_concept_keywords` must hold integer node IDs (`.id`). The test
+  was storing the raw object, causing `graph.get_edge()` / `graph.add_edge()`
+  to receive a non-integer key. Fixed in all 3 test functions.
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 
