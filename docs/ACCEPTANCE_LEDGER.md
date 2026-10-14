@@ -93,6 +93,7 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | **Total** | **239 test files** | 4 CI jobs | — |
 
 Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
+Integration suite: **111** tests collected, **107 passed, 4 skipped** (2026-10-12).
 
 Notes (updated 2026-10-14):
 - `tests/integration/` is GREEN: 107 passed, 4 skipped (2026-10-14, verified locally with
@@ -101,7 +102,7 @@ Notes (updated 2026-10-14):
   persisted state (fixed in commit 79733fd2 — per-run uuid suffix makes each test
   independent of leftover `weights/*.pkl`). The 4 skips are pre-existing and expected:
   1 slow RLMv2 training test, 1 full cross-domain eval, 2 live-web smoke tests that
-  skip when `localhost:4000` is unreachable.
+  skip when `localhost:4000` is unreachable. Also verified on main (CI run 38533945405).
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 

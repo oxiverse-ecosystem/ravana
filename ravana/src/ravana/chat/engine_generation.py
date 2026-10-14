@@ -1226,6 +1226,23 @@ class GenerationMixin:
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] Belief reconcile/prune error: {e}")
+        # P7b: decay & prune personal facts — forgetting curve (Ebbinghaus).
+        # Facts not rehearsed gradually lose confidence; those below the
+        # threshold are pruned. Wired here so sleep consolidation maintains
+        # the fact store the same way it maintains beliefs. SEED: decay_rate
+        # and min_confidence are parameters, not hardcoded thresholds.
+        try:
+            _um = getattr(self, 'user_model', None)
+            _pf_store = getattr(_um, 'personal_facts', None) if _um else None
+            if _pf_store is not None:
+                facts_pruned = _pf_store.decay_confidence(
+                    decay_rate=0.02, min_confidence=0.3)
+                result['facts_pruned'] = facts_pruned
+                if getattr(self, '_trace_enabled', False) and facts_pruned:
+                    print(f"  [sleep] personal facts: {facts_pruned} pruned")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] Personal fact decay/prune error: {e}")
         # Phase 3: Hippocampal replay consolidation
         try:
             replay_metrics = self.hippocampal_replay.sleep_cycle(
@@ -2185,6 +2202,53 @@ class GenerationMixin:
                 queries.append(f"{subject} {label}")
         return queries
 
+    def _semantic_head_noun(self, words: List[str]) -> Optional[str]:
+        """Find the semantic head noun in a phrase using GloVe embeddings.
+
+        The head noun is the word that is most "central" to the phrase —
+        the word with the highest average cosine similarity to all other
+        words. This identifies the noun that other words modify, rather
+        than relying on positional heuristics (e.g., "migration patterns"
+        → "migration" not "patterns", "its undervalued" → None since
+        "undervalued" is an adjective with no noun head).
+
+        Returns None when GloVe is unavailable or no word has a vector.
+        """
+        if not words or len(words) < 2:
+            return None
+        glove_fn = getattr(self, "_glove_vector", None)
+        if not callable(glove_fn) or not getattr(self, "glove_ready", False):
+            return None
+        # Get vectors for all words that have them
+        vecs = {}
+        for w in words:
+            w_clean = w.strip(".,!?").lower()
+            if w_clean and w_clean not in vecs:
+                v = glove_fn(w_clean)
+                if v is not None:
+                    vecs[w_clean] = v
+        if len(vecs) < 2:
+            return None
+        # Compute average cosine similarity for each word to all others
+        best_word = None
+        best_score = -1.0
+        for w, v in vecs.items():
+            total_sim = 0.0
+            count = 0
+            for w2, v2 in vecs.items():
+                if w == w2:
+                    continue
+                # Cosine similarity (vectors are already unit-normalized)
+                sim = float(np.dot(v, v2))
+                total_sim += sim
+                count += 1
+            if count > 0:
+                avg_sim = total_sim / count
+                if avg_sim > best_score:
+                    best_score = avg_sim
+                    best_word = w
+        return best_word
+
     def _extract_topic(self, text: str, activated: List[int]) -> Tuple[str, str]:
         """Extract the main topic from input. Uses graph-activated concepts
         first, then falls back to pattern detection.
@@ -2266,6 +2330,13 @@ class GenerationMixin:
             unknown_nouns = [w for w in words if self._concept_pos.get(w, 'noun') == 'noun']
             if unknown_nouns:
                 return (unknown_nouns[0], text)
+            # Use semantic head noun detection for compound/modifier phrases.
+            # "migration patterns" -> "migration" (not "patterns"), "its undervalued" -> None.
+            # This replaces the positional heuristic (words[-1]) which grabbed
+            # modifiers and compound parts instead of the main topic.
+            sem_head = self._semantic_head_noun(words)
+            if sem_head:
+                return (sem_head, text)
             return (words[-1], text)
 
         first = text.split()[0] if text.split() else ""
