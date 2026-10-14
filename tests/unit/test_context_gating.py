@@ -22,9 +22,9 @@ class TestContextGating:
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
         # Add nodes for ambiguous concepts
-        bank = g.add_node(np.random.randn(16).astype(np.float32), label="bank")
-        river = g.add_node(np.random.randn(16).astype(np.float32), label="river")
-        money = g.add_node(np.random.randn(16).astype(np.float32), label="money")
+        bank = g.add_node(g.rng.randn(16).astype(np.float32), label="bank")
+        river = g.add_node(g.rng.randn(16).astype(np.float32), label="river")
+        money = g.add_node(g.rng.randn(16).astype(np.float32), label="money")
         # Context-independent edge (always active)
         g.add_edge(bank.id, river.id, weight=0.3, relation_type="semantic",
                    confidence=0.3)
@@ -82,8 +82,8 @@ class TestContextGating:
         """Edges without context_labels are always active regardless of context."""
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        a = g.add_node(np.random.randn(16).astype(np.float32), label="a")
-        b = g.add_node(np.random.randn(16).astype(np.float32), label="b")
+        a = g.add_node(g.rng.randn(16).astype(np.float32), label="a")
+        b = g.add_node(g.rng.randn(16).astype(np.float32), label="b")
         g.add_edge(a.id, b.id, weight=0.5, relation_type="semantic")
         g.set_context(["some_context"])
         edge = g.get_edge(a.id, b.id)
@@ -114,9 +114,9 @@ class TestIdiomAmbiguity:
     def test_idiom_context_gating(self):
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        spill = g.add_node(np.random.randn(16).astype(np.float32), label="spill")
-        beans = g.add_node(np.random.randn(16).astype(np.float32), label="beans")
-        secrets = g.add_node(np.random.randn(16).astype(np.float32), label="secrets")
+        spill = g.add_node(g.rng.randn(16).astype(np.float32), label="spill")
+        beans = g.add_node(g.rng.randn(16).astype(np.float32), label="beans")
+        secrets = g.add_node(g.rng.randn(16).astype(np.float32), label="secrets")
         # Literal meaning (always available but weak)
         g.add_edge(spill.id, beans.id, weight=0.3, relation_type="semantic",
                    confidence=0.3)
@@ -146,10 +146,10 @@ class TestMetaphorAmbiguity:
     def test_metaphor_context_gating(self):
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        time_n = g.add_node(np.random.randn(16).astype(np.float32), label="time")
-        money = g.add_node(np.random.randn(16).astype(np.float32), label="money")
-        save = g.add_node(np.random.randn(16).astype(np.float32), label="save")
-        waste = g.add_node(np.random.randn(16).astype(np.float32), label="waste")
+        time_n = g.add_node(g.rng.randn(16).astype(np.float32), label="time")
+        money = g.add_node(g.rng.randn(16).astype(np.float32), label="money")
+        save = g.add_node(g.rng.randn(16).astype(np.float32), label="save")
+        waste = g.add_node(g.rng.randn(16).astype(np.float32), label="waste")
         # Metaphor mapping: time -> money (only in metaphor context)
         g.add_context_edge(time_n.id, money.id, context_labels=["metaphor"],
                            weight=0.8, relation_type="analogical", confidence=0.8)
@@ -176,11 +176,11 @@ class TestSensoryAmbiguity:
     def test_sensory_ambiguity_context_gating(self):
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        bank = g.add_node(np.random.randn(16).astype(np.float32), label="bank")
-        river = g.add_node(np.random.randn(16).astype(np.float32), label="river")
-        water = g.add_node(np.random.randn(16).astype(np.float32), label="water")
-        money = g.add_node(np.random.randn(16).astype(np.float32), label="money")
-        interest = g.add_node(np.random.randn(16).astype(np.float32), label="interest")
+        bank = g.add_node(g.rng.randn(16).astype(np.float32), label="bank")
+        river = g.add_node(g.rng.randn(16).astype(np.float32), label="river")
+        water = g.add_node(g.rng.randn(16).astype(np.float32), label="water")
+        money = g.add_node(g.rng.randn(16).astype(np.float32), label="money")
+        interest = g.add_node(g.rng.randn(16).astype(np.float32), label="interest")
         # Nature context: bank -> river, bank -> water
         g.add_context_edge(bank.id, river.id, context_labels=["nature"],
                            weight=0.8, relation_type="semantic", confidence=0.8)
@@ -212,9 +212,9 @@ class TestContextGatedSpreadingActivation:
         """Edges inactive in current context should not propagate activation."""
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        a = g.add_node(np.random.randn(16).astype(np.float32), label="a")
-        b = g.add_node(np.random.randn(16).astype(np.float32), label="b")
-        c = g.add_node(np.random.randn(16).astype(np.float32), label="c")
+        a = g.add_node(g.rng.randn(16).astype(np.float32), label="a")
+        b = g.add_node(g.rng.randn(16).astype(np.float32), label="b")
+        c = g.add_node(g.rng.randn(16).astype(np.float32), label="c")
         # a -> b (always active)
         g.add_edge(a.id, b.id, weight=0.8, relation_type="semantic")
         # a -> c (only in "special" context)
@@ -241,9 +241,9 @@ class TestContextGatedSpreadingActivation:
         """With matching context, context-labeled edges should propagate."""
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        a = g.add_node(np.random.randn(16).astype(np.float32), label="a")
-        b = g.add_node(np.random.randn(16).astype(np.float32), label="b")
-        c = g.add_node(np.random.randn(16).astype(np.float32), label="c")
+        a = g.add_node(g.rng.randn(16).astype(np.float32), label="a")
+        b = g.add_node(g.rng.randn(16).astype(np.float32), label="b")
+        c = g.add_node(g.rng.randn(16).astype(np.float32), label="c")
         g.add_edge(a.id, b.id, weight=0.8, relation_type="semantic")
         g.add_context_edge(a.id, c.id, context_labels=["special"],
                            weight=0.8, relation_type="semantic")
@@ -262,9 +262,12 @@ class TestContextGatedInference:
         """Context-inactive edges should not be traversed during inference."""
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        a = g.add_node(np.random.randn(16).astype(np.float32), label="a")
-        b = g.add_node(np.random.randn(16).astype(np.float32), label="b")
-        c = g.add_node(np.random.randn(16).astype(np.float32), label="c")
+        # Use vectors with positive mutual coherence so the infer_chain
+        # coherence gate (threshold -0.2) does not reject the path.
+        base = np.ones(16, dtype=np.float32)
+        a = g.add_node(base + 0.01 * g.rng.randn(16).astype(np.float32), label="a")
+        b = g.add_node(base + 0.01 * g.rng.randn(16).astype(np.float32), label="b")
+        c = g.add_node(base + 0.01 * g.rng.randn(16).astype(np.float32), label="c")
         # a -> b (always active)
         g.add_edge(a.id, b.id, weight=0.8, relation_type="semantic")
         # b -> c (only in "special" context)
@@ -290,8 +293,8 @@ class TestContextEdgePickleCompatibility:
         import pickle
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        a = g.add_node(np.random.randn(16).astype(np.float32), label="a")
-        b = g.add_node(np.random.randn(16).astype(np.float32), label="b")
+        a = g.add_node(g.rng.randn(16).astype(np.float32), label="a")
+        b = g.add_node(g.rng.randn(16).astype(np.float32), label="b")
         g.add_context_edge(a.id, b.id, context_labels=["test_context"],
                            weight=0.7, relation_type="semantic")
         g.set_context(["test_context"])
@@ -312,8 +315,8 @@ class TestContextEdgePickleCompatibility:
         # Create a graph without context features
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        a = g.add_node(np.random.randn(16).astype(np.float32), label="a")
-        b = g.add_node(np.random.randn(16).astype(np.float32), label="b")
+        a = g.add_node(g.rng.randn(16).astype(np.float32), label="a")
+        b = g.add_node(g.rng.randn(16).astype(np.float32), label="b")
         g.add_edge(a.id, b.id, weight=0.5, relation_type="semantic")
         # Simulate an old pickle by removing context attributes
         data = pickle.dumps(g)
