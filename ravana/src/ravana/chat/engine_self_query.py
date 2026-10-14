@@ -1413,11 +1413,23 @@ class SelfQueryMixin:
             #   * Bare trailing adverb: no resolvable topic, fall through
             # Structural (copula/intransitive verb vocabulary), no per-topic table.
             _tail_clean = _tail.strip(" \t\n\r,.!?;:").lower()
+            # Strip trailing adverbs from the topic phrase (e.g. "silence again"
+            # -> "silence", "music lately" -> "music"). The adverb check below
+            # only fires when the ENTIRE tail is a single adverb; this handles
+            # multi-word topics where the last word is a trailing adverb.
             if _tail_clean:
+                _tail_words = _tail_clean.split()
+                while _tail_words and _tail_words[-1] in _TAIL_ADVERBS:
+                    _tail_words.pop()
+                if _tail_words:
+                    _tail_clean = " ".join(_tail_words)
+                else:
+                    _tail_clean = ""
                 _COPULA = ("is", "are", "was", "were", "been", "being",
                            "seems", "appears", "looks", "sounds", "feels",
                            "becomes", "become", "became", "becoming",
-                           "remains", "remained", "stays", "stayed")
+                           "remains", "remained", "stays", "stayed",
+                           "'re", "'s", "'m")
                 _INTRANS_PP = ("happens", "occurred", "occurs", "exists",
                                "matters", "counts")
                 _TAIL_ADVERBS = ("exactly", "precisely", "specifically",

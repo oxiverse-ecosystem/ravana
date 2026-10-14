@@ -11184,6 +11184,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _frame_re = re.compile(
                         r"^(i (?:said|told you)|you (?:said|told me)|earlier (?:you said|i said))\s*[:\-]\s*",
                         re.IGNORECASE)
+                    _src_scaffold = {"opinion", "view", "take", "stance", "position",
+                                     "concept", "thought", "thoughts", "idea",
+                                     "question", "thing", "something", "anything",
+                                     "what", "your", "you", "the", "on", "of", "about"}
                     for _k in list(self._own_replies.keys()):
                         _entries = self._own_replies[_k]
                         if isinstance(_entries, list):
@@ -11194,6 +11198,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                         _clean = _frame_re.sub("", _t).strip()
                                         if _clean:
                                             _e["text"] = _clean
+                                    _st = _e.get("src_tokens")
+                                    if isinstance(_st, list):
+                                        _e["src_tokens"] = [w for w in _st if w not in _src_scaffold]
                     self._own_reply_topic_idx = {k: 1 for k in self._own_replies}
                 else:
                     self._own_replies = {}
