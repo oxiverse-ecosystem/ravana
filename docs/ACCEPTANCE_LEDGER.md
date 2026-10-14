@@ -88,18 +88,20 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 |-------|-----------|--------|-------|
 | `tests/unit/` | 198 test files | `unit-tests` (4 shards) | **GREEN** |
 | `tests/` (top-level) | 23 test files | `misc-tests` | **GREEN** |
-| `tests/integration/` | 13 test files | `integration-tests` | **YELLOW** |
+| `tests/integration/` | 13 test files | `integration-tests` | **GREEN** |
 | `tests/ci/` | 5 test files | `ci-critical` | **GREEN** |
 | **Total** | **239 test files** | 4 CI jobs | — |
 
 Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
 
-Notes (added 2026-09-30):
-- `tests/integration/` was previously absent from this table. It is gated by the named
-  `integration-tests` job (`.github/workflows/ci.yml` line 153), and that job is a
-  required gate via `ci-status` (line 261). It is graded YELLOW, not GREEN, solely because
-  `tests/integration/test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`
-  is currently failing — see backlog task 9.
+Notes (updated 2026-10-14):
+- `tests/integration/` is GREEN: 107 passed, 4 skipped (2026-10-14, verified locally with
+  CI-equivalent flags `-n auto --dist worksteal --timeout=240`). The prior YELLOW was
+  due to `test_sleep_consolidates_episodic_pairs_to_graph` failing on non-hermetic
+  persisted state (fixed in commit 79733fd2 — per-run uuid suffix makes each test
+  independent of leftover `weights/*.pkl`). The 4 skips are pre-existing and expected:
+  1 slow RLMv2 training test, 1 full cross-domain eval, 2 live-web smoke tests that
+  skip when `localhost:4000` is unreachable.
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 
