@@ -3084,11 +3084,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _stored_entities = {_k[0] for _k in _ent_name_keys}
                     _linked_ent = self._link_recall_entity(q, _stored_entities)
                     if _linked_ent is not None:
-                        # pick the (possibly multi-instance) name fact for it
+                        # pick the most recent name fact for this entity
+                        # (the user may have corrected the name across rounds)
+                        _best_v = None
+                        _best_tn = -1
                         for _k in _ent_name_keys:
                             if _k[0] == _linked_ent:
-                                _v = getattr(pf.facts[_k], "value", _k[2])
-                                return f"your {_linked_ent}'s name is {_v}."
+                                _tn = getattr(pf.facts[_k], "turn_number", 0) or 0
+                                if _tn > _best_tn:
+                                    _best_tn = _tn
+                                    _best_v = getattr(pf.facts[_k], "value", _k[2])
+                        if _best_v is not None:
+                            return f"your {_linked_ent}'s name is {_best_v}."
             except Exception:
                 pass
 
@@ -6031,18 +6038,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return "you've told me about: " + "; ".join(_bits) + "."
 
     def _recall_user_fact(self, attr_hint, q):
-        """Helpers for _structured_recall: read a personal_fact by attribute."""
+        """Helpers for _structured_recall: read a personal_fact by attribute.
+
+        When multiple facts match the same attribute (e.g. the user changed
+        their name or location across rounds), prefer the MOST RECENT one by
+        turn_number. This is a general recency weighting — no per-entity
+        hardcoding, no authored prose. The turn_number is read from the fact
+        store at runtime, so RAVANA's own learning determines which fact is
+        current. Facts with no turn_number default to 0 (oldest).
+        """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
             return None
+        _best_val = None
+        _best_turn = -1
         for _k, _f in pf.facts.items():
             if not (isinstance(_k, tuple) and len(_k) == 3):
                 continue
             if getattr(_f, "superseded", False):
                 continue
             if _k[1].lower() == attr_hint:
-                return _f.value
-        return None
+                _tn = getattr(_f, "turn_number", 0) or 0
+                if _tn > _best_turn:
+                    _best_turn = _tn
+                    _best_val = _f.value
+        return _best_val
 
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
