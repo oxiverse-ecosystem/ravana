@@ -816,7 +816,7 @@ class SelfQueryMixin:
         _conf = getattr(_prior, "confidence", 0.5)
         return (
             f"got it — you used to say you were {_old_word} {topic}, "
-            f"and now you're {_new_word}. i've updated my read "
+            f"and now you're {_new_word} {topic}. i've updated my read "
             f"(confidence {_conf:.2f})."
         )
 
