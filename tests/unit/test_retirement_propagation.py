@@ -23,7 +23,7 @@ from ravana.chat.retirement import (
     CONTRAST_MARKERS,
     RetirementLedger,
     Retraction,
-    looks_like_retraction,
+    looks_like_retirement,
     parse_contrast,
 )
 
@@ -142,11 +142,11 @@ def test_ledger_roundtrips_through_state():
 
 
 def test_retraction_opener_detection():
-    assert looks_like_retraction("no, nikhil plays the surbahari, not the shehnai")
-    assert looks_like_retraction("actually i live in berlin")
-    assert looks_like_retraction("forget what i said about the shehnai")
-    assert not looks_like_retraction("my brother nikhil plays the shehnai")
-    assert not looks_like_retraction("hello there")
+    assert looks_like_retirement("no, nikhil plays the surbahari, not the shehnai")
+    assert looks_like_retirement("actually i live in berlin")
+    assert looks_like_retirement("forget what i said about the shehnai")
+    assert not looks_like_retirement("my brother nikhil plays the shehnai")
+    assert not looks_like_retirement("hello there")
 
 
 # ── engine: the user-visible symptom ───────────────────────────────────

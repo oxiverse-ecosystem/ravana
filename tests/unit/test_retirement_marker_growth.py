@@ -23,7 +23,7 @@ from ravana.chat.retirement import (
     CONTRAST_MARKERS,
     RetirementLedger,
     extract_candidate_marker,
-    looks_like_retraction,
+    looks_like_retirement,
     parse_contrast,
 )
 
@@ -124,7 +124,7 @@ def test_looks_like_retraction_still_true_for_new_marker():
     # so looks_like_retraction returns False. The growth path in
     # _observe_retirement only fires when looks_like_retraction passes.
     # This test documents that constraint.
-    assert not looks_like_retraction("patna, franks he lives in delhi", led.all_markers())
+    assert not looks_like_retirement("patna, franks he lives in delhi", led.all_markers())
 
 
 def test_growth_path_requires_grounding():
