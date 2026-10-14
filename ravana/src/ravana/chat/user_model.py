@@ -1182,6 +1182,41 @@ def _strip_obj_framers(obj: str) -> str:
     return " ".join(_toks)
 
 
+def _extract_activity_obj(phrase: str) -> str:
+    """Extract the activity/event object phrase for fact storage.
+
+    Unlike _opinion_topic (which extracts the salient head concept for
+    stance attribution and CUTS at internal determiners), this preserves
+    the full noun phrase so the stored fact retains the activity target:
+      "to play the veena" -> "play the veena"  (not just "play")
+      "a juniper bonsai"  -> "juniper bonsai"  (not just "juniper")
+      "the reef tank"     -> "reef tank"       (not just "reef")
+
+    Strips leading determiners/particles/framers, keeps content words,
+    stops at prepositions/conjunctions/clause-boundaries. Bounded to 6
+    tokens. Returns '' if nothing real remains.
+    """
+    if not phrase:
+        return ""
+    toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
+    if not toks:
+        return ""
+    # Strip leading determiners, particles, framers, infinitive "to"
+    while toks and (toks[0] in _OBJECT_SKIP or toks[0] in _FRAMER_OBJ or toks[0] == "to"):
+        toks.pop(0)
+    if not toks:
+        return ""
+    # Collect content words, stopping at prepositions/conjunctions
+    out = []
+    for t in toks:
+        if t in _OBJECT_STOP:
+            break
+        if t in _FRAMER_OBJ:
+            continue
+        out.append(t)
+        if len(out) >= 6:
+            break
+    return " ".join(out)
 
 
 # D3 (round v3): explicit correction shape "X's name is not Y, it's Z" /
@@ -4306,7 +4341,7 @@ class UserModel:
         if _cont:
             _cverb = _cont.group(1).lower()
             if _activity_verb_ok(_cverb):
-                _obj = self._opinion_topic(_cont.group(2).strip().lower())
+                _obj = _extract_activity_obj(_cont.group(2).strip().lower())
                 _obj = _strip_obj_framers(_obj)
                 if _obj and len(_obj.split()) <= 5:
                     _put_fact(canonical_activity_attr("does", _cverb),
@@ -4427,7 +4462,7 @@ class UserModel:
             # must skip it. Structural (verb + particle), not per-topic.
             if _verb in ("grow", "grew") and _am.group(2).strip().lower().startswith("up"):
                 continue
-            _obj = self._opinion_topic(_am.group(2).strip().lower())
+            _obj = _extract_activity_obj(_am.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
             # also skip when the resolved object is itself a meta-reflection word
             # (e.g. "i got muddled" -> obj 'muddled').
@@ -4463,7 +4498,7 @@ class UserModel:
             # retraction cue ("i took back ...") is not an event
             if _verb in ("take", "took", "taking") and "back" in _em.group(2).lower():
                 continue
-            _obj = self._opinion_topic(_em.group(2).strip().lower())
+            _obj = _extract_activity_obj(_em.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
             # also skip when the resolved object is itself a meta-reflection word
             # (e.g. "i got muddled" -> obj 'muddled', captured as an event).
