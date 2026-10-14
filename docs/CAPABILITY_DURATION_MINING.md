@@ -93,6 +93,34 @@ you started brew in 2016.
 `brew` (stemmed from `brewing`), which is the same quirk shared with block (b)'s
 explicit-duration miner — and the recall matcher resolves it identically.
 
+## Block (e): "since <event>" anchors (round 2026-10-13T0229Z)
+
+Real speech dates activities from shared cultural events ("since the
+pandemic", "since the lockdown") rather than numeric spans. Block (d)
+only did count-subtraction (`_THIS_YEAR - n`); block (e) maps event
+phrases to known anchor years and resolves the start year by subtraction.
+The event map is seed vocabulary (same status as `_FUZZY_DUR`): a small
+data map of event-phrase → anchor-year. The resolved year is still
+`_THIS_YEAR - n` where `n = _THIS_YEAR - anchor_year`, so the year
+self-updates. No retraining. The activity-attachment logic is identical
+to blocks (b)/(d): nearest activity verb before the phrase, same
+`_put_fact("since", ...)` so the existing recall resolver answers for
+these facts FOR FREE.
+
+Seed map (`_SINCE_EVENT`):
+
+| Event phrase | Anchor year | Resolved start (2026) |
+|-------------|-------------|----------------------|
+| "the pandemic" | 2020 | 2020 |
+| "the lockdown" | 2020 | 2020 |
+| "the recession" | 2008 | 2008 |
+| "the financial crisis" | 2008 | 2008 |
+| "the war" | 2022 | 2022 |
+| "the invasion" | 2022 | 2022 |
+
+Example: `"i've been brewing beer since the pandemic"` stores
+`since(brew 2020)` — 6 years because pandemic=2020, THIS_YEAR=2026.
+
 ## Tests
 
 `tests/unit/test_round_2026_08_14T0608_approx_duration.py` — 6 tests, all pass
@@ -106,6 +134,18 @@ explicit-duration miner — and the recall matcher resolves it identically.
   activity verb precedes (fail-closed)
 - `test_approx_duration_recall_resolver` — end-to-end: mined fact then recalled
   via `_structured_recall` for both phrasings
+
+`tests/unit/test_round_duration_since_event.py` — 9 tests, all pass
+(29.5 s, `.venv-real`, `RAVANA_OFFLINE=1`):
+
+- `test_pandemic_anchor_mined` — "since the pandemic" → year-6
+- `test_lockdown_anchor_mined` — "since the lockdown" → year-6
+- `test_recession_anchor_mined` — "since the recession" → year-18
+- `test_event_anchor_without_activity_not_captured` — fail-closed
+- `test_event_anchor_recall_resolver` — end-to-end recall
+- `test_fuzzy_dur_still_resolves` — regression: existing fuzzy shapes
+- `test_since_event_map_entries` — parametrized: financial crisis, war,
+  invasion
 
 Regression across prior round suites + `test_dehardcode_plan.py`: 38 related
 tests pass (no change to the existing date/name/activity miners).
