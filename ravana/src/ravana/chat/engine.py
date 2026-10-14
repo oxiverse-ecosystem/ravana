@@ -7127,6 +7127,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             _own_res = self._route_agent_own_recall(user_input)
             if _own_res is not None:
+                # Relevance gate the agent-own-recall path too — it could
+                # confabulate by matching a stored reply that shares content words
+                # but doesn't actually answer the query.
+                _own_res = self._relevance_gate(user_input, _own_res)
+            if _own_res is not None:
                 self._last_strategy = "agent_own_recall"
                 self._last_responses.append(_own_res)
                 if len(self._last_responses) > 10:
@@ -7835,6 +7840,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fallback, not the default, preserving the RAVANA bar.
         _intern = self._consult_internal_knowledge(user_input)
         if _intern is not None:
+            # UNIVERSAL RELEVANCE GATING (round 2026-10-14): _consult_internal_knowledge
+            # was the LAST ungated recall path — it could confabulate by making up
+            # associative relations from the concept graph when the query's subject
+            # was unknown. Wire the same MRS relevance gate here so ALL recall paths
+            # are gated, not just structured_recall and self_cued_episodic.
+            # Fail-closed: if below threshold, return None (honest uncertainty
+            # beats confabulation). No new store, no new data structure — this is
+            # a wiring change that applies the existing MRS scorer.
+            _intern = self._relevance_gate(user_input, _intern)
+        if _intern is not None:
             self._last_strategy = "internal_knowledge"
             self._last_responses.append(_intern)
             if len(self._last_responses) > 10:
@@ -7860,6 +7875,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # IMPORT gating check below to mine (facts/preferences) + later
         # _retrieve_episodic to reconstruct. Capped to keep memory bounded.
         self._record_episode(user_input)
+        if _mem is not None:
+            # Relevance gate the episodic memory recall path too — it could
+            # confabulate by matching a stored episode that shares content words
+            # but doesn't actually answer the query.
+            _mem = self._relevance_gate(user_input, _mem)
         if _mem is not None:
             self._last_strategy = "memory_recall"
             self._last_responses.append(_mem)

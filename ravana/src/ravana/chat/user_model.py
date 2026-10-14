@@ -1195,10 +1195,26 @@ def _extract_activity_obj(phrase: str) -> str:
     Strips leading determiners/particles/framers, keeps content words,
     stops at prepositions/conjunctions/clause-boundaries. Bounded to 6
     tokens. Returns '' if nothing real remains.
+
+    ALSO strips leading directional particles (up/down/off/out/in/on/away/
+    back/over/under/around/through/along/by/past/upon) — the same set
+    _opinion_topic rejects. Without this, "i keep coming back to tidal
+    energy" preserves "keep coming back tidal energy" (the phrasal verb
+    particles pollute the stored fact). The particle strip is structural:
+    it generalizes to any "i <verb> <particle> <object>" disclosure.
     """
     if not phrase:
         return ""
     toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
+    if not toks:
+        return ""
+    # Strip leading directional particles (same set _opinion_topic rejects)
+    _PARTICLES = {
+        "up", "down", "off", "out", "in", "on", "away", "back", "over",
+        "under", "around", "through", "along", "by", "past", "upon",
+    }
+    while toks and toks[0] in _PARTICLES:
+        toks.pop(0)
     if not toks:
         return ""
     # Strip leading determiners, particles, framers, infinitive "to"
@@ -4346,13 +4362,14 @@ class UserModel:
                 # Content-adequacy gate: _extract_activity_obj preserves the
                 # full noun phrase (unlike _opinion_topic which extracted the
                 # head concept), so we must reject objects that are entirely
-                # non-content words (particles, framers, closed-class words).
-                # This is the same gate _opinion_topic provided by returning
-                # None for degenerate phrases.
+                # non-content words OR start with a non-content word. This is
+                # the same gate _opinion_topic provided by returning None for
+                # degenerate phrases.
                 if _obj and _obj.split() and not all(
                     t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                    or t in _OBJ_NONCONTENT
                     for t in _obj.split()
-                ):
+                ) and _obj.split()[0] not in _OBJ_NONCONTENT:
                     # Affective-object guard: "i find it fascinating" is a
                     # cognitive-affective copula, not a discovery. Check if
                     # ANY token is an affective adjective (not just the first).
@@ -4483,11 +4500,13 @@ class UserModel:
             if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
                 continue
             # Content-adequacy gate: _extract_activity_obj preserves the full
-            # noun phrase, so reject objects that are entirely non-content words.
+            # noun phrase, so reject objects that are entirely non-content words
+            # OR start with a non-content word (verb/framer residue).
             if _obj and _obj.split() and not all(
                 t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                or t in _OBJ_NONCONTENT
                 for t in _obj.split()
-            ):
+            ) and _obj.split()[0] not in _OBJ_NONCONTENT:
                 # Affective-object guard: check if ANY token is an affective adj.
                 if not any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
                     if _obj and 1 <= len(_obj.split()) <= 5:
