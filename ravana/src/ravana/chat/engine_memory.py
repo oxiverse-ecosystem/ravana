@@ -308,9 +308,6 @@ class MemoryMixin:
         if led is None:
             led = RetirementLedger()
             self.retirement_ledger = led
-        if not looks_like_retirement(text, led.all_markers()):
-            return None
-
         # The interjective set must be the AUTHORED revision class PLUS the
         # learned one. Passing `learned_markers` alone (empty until something
         # is learned) makes parse_contrast REPLACE its REVISION_MARKERS
@@ -320,11 +317,11 @@ class MemoryMixin:
         parsed = parse_contrast(text, led.all_markers(),
                                 led.interjective_markers())
         if parsed is None:
-            # Growth path: the utterance passed looks_like_retirement but
-            # parse_contrast found no KNOWN marker. Try extracting a
-            # candidate marker from a clause boundary, learn it, and
-            # re-parse with the expanded set. The candidate only enters
-            # learned_markers if grounding succeeds below (fail closed).
+            # Growth path: try extracting a candidate marker from a clause
+            # boundary, learn it, and re-parse with the expanded set. The
+            # candidate only enters learned_markers if grounding succeeds
+            # below (fail closed). This fires even when looks_like_retirement
+            # returns False — the clause boundary pattern itself is the signal.
             cand = extract_candidate_marker(text, led.all_markers())
             if cand is not None:
                 led.learn_contrast_marker(cand)
@@ -349,6 +346,26 @@ class MemoryMixin:
         for key, f in pf.items():
             fv = _value_stems(getattr(f, "value", "") or "")
             if not fv or not _rej.issubset(fv):
+                # If the rejected value is not in the store, check if the
+                # asserted value is. If so, the rejected value is whatever
+                # was previously stored for the same subject (the parser may
+                # have picked up a discourse marker instead of the real value).
+                if _ass and _ass.issubset(fv) and not _rej.issubset(fv):
+                    hit_pf = key
+                    rejected = getattr(f, "value", "") or ""
+                    _rej = _value_stems(rejected)
+                    break
+                # If neither rejected nor asserted is in the store, check if
+                # the fact's attribute overlaps with the utterance text. This
+                # handles the case where the parser picks up a discourse marker
+                # as the rejected value, but the fact is about the same subject.
+                _attr_stems = _value_stems(key[1] if len(key) > 1 else "")
+                _text_stems = _value_stems(text)
+                if _attr_stems and _attr_stems.intersection(_text_stems):
+                    hit_pf = key
+                    rejected = getattr(f, "value", "") or ""
+                    _rej = _value_stems(rejected)
+                    break
                 continue
             if _ass and _ass.intersection(fv):
                 # Holds BOTH values -> not a revision, it is a disjunction.
