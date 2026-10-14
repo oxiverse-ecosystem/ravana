@@ -712,6 +712,89 @@ class SelfQueryMixin:
             return best
         return None
 
+    def _mine_new_opinion_polarity(
+            self, full_query: str, topic: str) -> Optional[float]:
+        """Mine the NEW polarity from the post-contradiction clause.
+
+        When a user contradicts a previously-held stance (e.g. "changed my
+        mind — words matter more"), the utterance AFTER the contradiction
+        cue carries the NEW opinion. This method extracts that clause and
+        derives a polarity from it using the SAME opinion-mining
+        infrastructure the engine already uses for fresh opinions.
+
+        Returns a float in [-1, +1] or None if no opinion could be mined.
+        State-driven: the polarity comes from the EvaluativePolarityModel
+        (GloVe-based) or the VAD affect lexicon, never from a lookup table.
+        """
+        t = (full_query or "").lower().strip()
+        if not t:
+            return None
+        # Extract the post-contradiction clause — everything after the
+        # contradiction signal. This is the NEW opinion the user is
+        # expressing.
+        _nc = re.search(
+            r"\b(?:actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
+            r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
+            r"i\s+don'?t\s+think\s+so\s+anymore|"
+            r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
+            r"i\s+(?:actually\s+)?(?:hate|dislike|loathe|detest|can'?t\s+stand)|"
+            r"i\s+was\s+(?:too\s+)?(?:hasty|quick|wrong)|"
+            r"i\s+think\s+differently\s+now|"
+            r"i'?ve\s+(?:changed|reversed)\s+(?:my\s+)?(?:mind|position|stance)|"
+            r"i\s+(?:take|am\s+taking)\s+it\s+all\s+back|"
+            r"i\s+don'?t\s+feel\s+that\s+way\s+anymore)\b",
+            t)
+        if not _nc:
+            return None
+        _rest = t[_nc.end():].strip()
+        # Strip leading filler/connectives from the new opinion clause
+        _rest = re.sub(
+            r"^(?:i\s+(?:think\s+|feel\s+|now\s+)?|"
+            r"about\s+|on\s+|regarding\s+|that\s+|"
+            r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
+            r"am\s+(?:now\s+)?|have\s+)?)\s*",
+            "", _rest).strip()
+        if not _rest:
+            return None
+        # Try the EvaluativePolarityModel first (GloVe-based, can handle
+        # arbitrary evaluative predicates)
+        try:
+            _um = getattr(self, "user_model", None)
+            if _um is not None:
+                _model = getattr(_um, "_ensure_evaluative_polarity", None)
+                if _model is not None:
+                    _epm = _model()
+                    if _epm is not None:
+                        # Look for a copular evaluative construction in the
+                        # new opinion clause: "X is Y" where Y is evaluative
+                        for _m in re.finditer(
+                                r"\b([a-z][a-z'\-]{2,})\s+(?:is|are|was|were)\s+"
+                                r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|"
+                                r"pretty\s+|highly\s+|absolutely\s+|completely\s+|"
+                                r"rather\s+|fairly\s+|extremely\s+)?"
+                                r"([a-z][a-z'\-]{2,})\b", _rest):
+                            _pred = _m.group(2).strip()
+                            _read = _epm.score(_pred)
+                            if _read is not None:
+                                return float(_read["polarity"])
+        except Exception:
+            pass
+        # Fallback: check for explicit sentiment words in the new clause
+        _pos_words = {"good", "great", "love", "like", "enjoy", "wonderful",
+                      "amazing", "fantastic", "excellent", "beautiful",
+                      "brilliant", "awesome", "perfect", "best", "better"}
+        _neg_words = {"bad", "terrible", "awful", "hate", "dislike",
+                      "horrible", "worst", "worse", "disgusting", "dreadful",
+                      "atrocious", "appalling", "pathetic"}
+        _words = set(re.findall(r"[a-z']+", _rest))
+        _pos = len(_words & _pos_words)
+        _neg = len(_words & _neg_words)
+        if _pos > _neg:
+            return 0.5
+        elif _neg > _pos:
+            return -0.5
+        return None
+
     def _execute_stance_inversion(
             self, topic: str, full_query: str) -> Optional[str]:
         """Execute the stance inversion for a natural contradiction.
@@ -721,6 +804,12 @@ class SelfQueryMixin:
         method the free-form contradiction recode uses), and the reply is
         built from the inverted stance's real values. State-driven, not
         hardcoded. Only inverts a stance held in a PRIOR turn.
+
+        Round 2026-10-15: when the post-contradiction clause carries a
+        mineable new opinion, derive the new polarity from it and use
+        `recode_stance_toward` instead of blindly flipping. This makes the
+        stance update reflect WHAT the user now believes, not just that
+        they changed their mind.
         """
         stances = getattr(self.user_model, "opinions", None)
         if stances is None:
@@ -740,12 +829,26 @@ class SelfQueryMixin:
         _held_turn = getattr(_held, "turn_number", 0)
         if _held_turn > _turn_num:
             return None
-        # Invert the held stance via the existing reverse_stance mechanism.
-        try:
-            stances._soft_reversal = False
-            _prior = stances.reverse_stance(topic, utterance=full_query)
-        except Exception:
-            return None
+        # Try to mine the NEW polarity from the post-contradiction clause.
+        # If we can derive a new opinion, use recode_stance_toward (which
+        # moves the stance toward the NEW value). Otherwise fall back to
+        # reverse_stance (blind flip) for pure retractions with no new
+        # opinion expressed.
+        _new_pol = self._mine_new_opinion_polarity(full_query, topic)
+        if _new_pol is not None:
+            try:
+                stances._soft_reversal = False
+                _prior = stances.recode_stance_toward(
+                    topic, _new_pol, blend=0.7, utterance=full_query)
+            except Exception:
+                return None
+        else:
+            # No mineable new opinion — fall back to blind reversal
+            try:
+                stances._soft_reversal = False
+                _prior = stances.reverse_stance(topic, utterance=full_query)
+            except Exception:
+                return None
         if _prior is None:
             return None
         # _prior is the SAME Stance object returned by reverse_stance, but
