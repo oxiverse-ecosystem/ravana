@@ -93,6 +93,7 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | **Total** | **239 test files** | 4 CI jobs | — |
 
 Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
+Integration suite: **111** tests collected, **107 passed, 4 skipped** (2026-10-12).
 
 Notes (updated 2026-10-14):
 - `tests/integration/` is GREEN. The previously failing test
@@ -100,6 +101,8 @@ Notes (updated 2026-10-14):
   test hermetic (per-run `user_suffix` via `uuid.uuid4()`), preventing stale
   `consolidated` flags in persisted pickles from suppressing the episodic drain.
   Verified: 107 passed, 4 skipped (2026-10-14, CI run 38533945405 on main).
+  Originally fixed in commit `79733fd2` (round 2026-09-30T1031Z); re-verified
+  2026-10-12 on `auto/round-2026-10-12T0729Z` and again 2026-10-14.
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 

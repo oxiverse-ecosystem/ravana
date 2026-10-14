@@ -167,14 +167,17 @@ def _guard(cmd: str) -> None:
 
 def _web_search_via_intentforge(query: str) -> str:
     """Web/search grounding through the IntentForge API (founder-specified)."""
+    socket.setdefaulttimeout(8.0)
     # IntentForge gateway listens locally; query its /search endpoint.
     url = f"http://localhost:4000/search?q={urllib.parse.quote(query)}"
     try:
-        socket.setdefaulttimeout(8.0)
         with urllib.request.urlopen(url) as r:
             data = r.read().decode("utf-8", "replace")
         return f"[web:intentforge] {data[:1200]}"
     except Exception as e:
+        # When offline, do NOT fall back to DuckDuckGo — it hangs.
+        if os.environ.get("RAVANA_OFFLINE", "") == "1":
+            return f"[web] search unavailable (offline): {e}"
         # Fall back to a direct web fetch if IntentForge is down (offline-safe)
         try:
             with urllib.request.urlopen(f"https://duckduckgo.com/html/?q={urllib.parse.quote(query)}") as r:
