@@ -4545,21 +4545,21 @@ class UserModel:
             # (e.g. "i got muddled" -> obj 'muddled', captured as an event).
             if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
                 continue
-            # Affective-object guard (round 2026-08-17T1126Z): "i find it
-            # fascinating" / "i found that surprising" is a cognitive-affective
-            # copula, not a discovery event. The object is a SENTIMENT
-            # adjective, so skip storing `event: <verb> <adj>` (which is
-            # garbage). A genuine discovery ("i found my keys") has a real
-            # content object and still stores. Seed vocabulary (_AFFECTIVE_OBJECT_ADJ),
-            # no authored prose, no retraining.
-            # FIX: _extract_activity_obj preserves the full noun phrase, so the
-            # affective adjective may not be the first token ("it fascinating").
-            # Check ALL tokens, not just the first.
-            if _obj and any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
-                continue
-            if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact(canonical_activity_attr("event", _verb),
-                          f"{_verb} {_obj}", 0.5)
+            # Content-adequacy gate: _extract_activity_obj preserves the full
+            # noun phrase, so reject objects that are entirely non-content words
+            # OR start with a non-content word (verb/framer residue).
+            if _obj and _obj.split() and not all(
+                t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                or t in _OBJ_NONCONTENT
+                for t in _obj.split()
+            ) and _obj.split()[0] not in _OBJ_NONCONTENT:
+                # Affective-object guard: "i find it fascinating" is a
+                # cognitive-affective copula, not a discovery. Check if
+                # ANY token is an affective adjective (not just the first).
+                if not any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
+                    if _obj and 1 <= len(_obj.split()) <= 5:
+                        _put_fact(canonical_activity_attr("event", _verb),
+                                  f"{_verb} {_obj}", 0.5)
 
         # OPEN-CLASS activity/event capture (round 2026-08-13T2059Z). The two
         # frozen-verb blocks above (ACTIVITY_VERBS / EVENT_VERBS) only cover a
