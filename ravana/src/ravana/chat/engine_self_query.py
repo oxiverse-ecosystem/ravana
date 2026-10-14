@@ -518,6 +518,7 @@ class SelfQueryMixin:
         # is resolved from the utterance, not hardcoded.
         _natural_contradiction = re.search(
             r"\b(actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
+            r"(?:i\s+)?changed\s+my\s+mind|"
             r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
             r"i\s+don'?t\s+think\s+so\s+anymore|"
             r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
@@ -535,11 +536,12 @@ class SelfQueryMixin:
         if _natural_contradiction and not _inversion:
             _nc_end = _natural_contradiction.end()
             _nc_rest = t[_nc_end:].strip()
+            # Strip leading em-dash / dash separators and filler
             _nc_rest = re.sub(
-                r"^(?:i\s+(?:think\s+|feel\s+|now\s+)?|"
+                r"^(?:[—–\-:]|i\s+(?:think\s+|feel\s+|now\s+)?|"
                 r"about\s+|on\s+|regarding\s+|that\s+|"
                 r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
-                r"am\s+(?:now\s+)?|have\s+)?)",
+                r"am\s+(?:now\s+)?|have\s+)?)\s*",
                 "", _nc_rest).strip()
             _nc_rest = re.sub(
                 r"\s+(?:is\s+)?(?:disgusting|terrible|awful|horrible|"
@@ -734,6 +736,7 @@ class SelfQueryMixin:
         # expressing.
         _nc = re.search(
             r"\b(?:actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
+            r"(?:i\s+)?changed\s+my\s+mind|"
             r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
             r"i\s+don'?t\s+think\s+so\s+anymore|"
             r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
@@ -747,9 +750,9 @@ class SelfQueryMixin:
         if not _nc:
             return None
         _rest = t[_nc.end():].strip()
-        # Strip leading filler/connectives from the new opinion clause
+        # Strip leading em-dash / dash separators and filler
         _rest = re.sub(
-            r"^(?:i\s+(?:think\s+|feel\s+|now\s+)?|"
+            r"^(?:[—–\-:]|i\s+(?:think\s+|feel\s+|now\s+)?|"
             r"about\s+|on\s+|regarding\s+|that\s+|"
             r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
             r"am\s+(?:now\s+)?|have\s+)?)\s*",
@@ -761,22 +764,20 @@ class SelfQueryMixin:
         try:
             _um = getattr(self, "user_model", None)
             if _um is not None:
-                _model = getattr(_um, "_ensure_evaluative_polarity", None)
-                if _model is not None:
-                    _epm = _model()
-                    if _epm is not None:
-                        # Look for a copular evaluative construction in the
-                        # new opinion clause: "X is Y" where Y is evaluative
-                        for _m in re.finditer(
-                                r"\b([a-z][a-z'\-]{2,})\s+(?:is|are|was|were)\s+"
-                                r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|"
-                                r"pretty\s+|highly\s+|absolutely\s+|completely\s+|"
-                                r"rather\s+|fairly\s+|extremely\s+)?"
-                                r"([a-z][a-z'\-]{2,})\b", _rest):
-                            _pred = _m.group(2).strip()
-                            _read = _epm.score(_pred)
-                            if _read is not None:
-                                return float(_read["polarity"])
+                _epm = _um._ensure_evaluative_polarity()
+                if _epm is not None:
+                    # Look for a copular evaluative construction in the
+                    # new opinion clause: "X is Y" where Y is evaluative
+                    for _m in re.finditer(
+                            r"\b([a-z][a-z'\-]{2,})\s+(?:is|are|was|were)\s+"
+                            r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|"
+                            r"pretty\s+|highly\s+|absolutely\s+|completely\s+|"
+                            r"rather\s+|fairly\s+|extremely\s+)?"
+                            r"([a-z][a-z'\-]{2,})\b", _rest):
+                        _pred = _m.group(2).strip()
+                        _read = _epm.score(_pred)
+                        if _read is not None:
+                            return float(_read["polarity"])
         except Exception:
             pass
         # Fallback: check for explicit sentiment words in the new clause
