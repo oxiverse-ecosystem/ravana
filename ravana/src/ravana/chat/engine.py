@@ -8593,6 +8593,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if re.search(_pat, user_input.lower()):
                     _implicit_emotional = True
                     break
+        # Round 2026-10-15: contradiction-revision / stance inversion must
+        # fire BEFORE the self-disclosure gate. A query like "changed my mind —
+        # silence is actually wonderful" matches _is_self_disclosure_stmt
+        # (because "changed" is not a stative verb and the utterance looks like
+        # a first-person activity disclosure), so the self-disclosure path at
+        # line ~8596 caught it and returned a generic ack BEFORE the inversion
+        # path at line ~8852 could recode the held stance. Measured: the
+        # stance stayed at -0.53 (only the regular opinion miner's weighted
+        # merge moved it) instead of being recoded to positive via
+        # recode_stance_toward. Fix: check inversion/revisit FIRST so a
+        # contradiction-revision query is routed to the authoritative
+        # recode path, not the generic self-disclosure ack.
+        _inversion_ans = self._route_own_stance_inversion(user_input)
+        if _inversion_ans is not None:
+            self._last_strategy = "own_stance_inversion"
+            self._last_responses.append(_inversion_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _inversion_ans.lower()
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
         if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
