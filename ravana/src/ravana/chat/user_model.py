@@ -4343,9 +4343,23 @@ class UserModel:
             if _activity_verb_ok(_cverb):
                 _obj = _extract_activity_obj(_cont.group(2).strip().lower())
                 _obj = _strip_obj_framers(_obj)
-                if _obj and len(_obj.split()) <= 5:
-                    _put_fact(canonical_activity_attr("does", _cverb),
-                              f"{_cverb} {_obj}", 0.55)
+                # Content-adequacy gate: _extract_activity_obj preserves the
+                # full noun phrase (unlike _opinion_topic which extracted the
+                # head concept), so we must reject objects that are entirely
+                # non-content words (particles, framers, closed-class words).
+                # This is the same gate _opinion_topic provided by returning
+                # None for degenerate phrases.
+                if _obj and _obj.split() and not all(
+                    t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                    for t in _obj.split()
+                ):
+                    # Affective-object guard: "i find it fascinating" is a
+                    # cognitive-affective copula, not a discovery. Check if
+                    # ANY token is an affective adjective (not just the first).
+                    if not any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
+                        if len(_obj.split()) <= 5:
+                            _put_fact(canonical_activity_attr("does", _cverb),
+                                      f"{_cverb} {_obj}", 0.55)
 
         # FIX (round 2026-08-09T1953Z): general first-person activity +
         # experience capture. The D3 activity loop above only matches BARE
@@ -4468,9 +4482,17 @@ class UserModel:
             # (e.g. "i got muddled" -> obj 'muddled').
             if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
                 continue
-            if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact(canonical_activity_attr("does", _verb),
-                          f"{_verb} {_obj}", 0.55)
+            # Content-adequacy gate: _extract_activity_obj preserves the full
+            # noun phrase, so reject objects that are entirely non-content words.
+            if _obj and _obj.split() and not all(
+                t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                for t in _obj.split()
+            ):
+                # Affective-object guard: check if ANY token is an affective adj.
+                if not any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
+                    if _obj and 1 <= len(_obj.split()) <= 5:
+                        _put_fact(canonical_activity_attr("does", _verb),
+                                  f"{_verb} {_obj}", 0.55)
         # Experience / event capture: first-person "i <event-verb> <object>"
         # describing something that happened to the user's world. Captured
         # under attr "event" so it is recallable as a lived experience (not
@@ -4511,7 +4533,10 @@ class UserModel:
             # garbage). A genuine discovery ("i found my keys") has a real
             # content object and still stores. Seed vocabulary (_AFFECTIVE_OBJECT_ADJ),
             # no authored prose, no retraining.
-            if _obj and _obj.split()[0] in _AFFECTIVE_OBJECT_ADJ:
+            # FIX: _extract_activity_obj preserves the full noun phrase, so the
+            # affective adjective may not be the first token ("it fascinating").
+            # Check ALL tokens, not just the first.
+            if _obj and any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
                 continue
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact(canonical_activity_attr("event", _verb),

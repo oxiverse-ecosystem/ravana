@@ -100,6 +100,22 @@ def _stem(t: str) -> str:
     return t
 
 
+# Verb-scaffold vocabulary: verbs that signal the topic is the OBJECT of the
+# opinion, not the verb itself.  Used by _is_verb_scaffold() to skip past
+# opinion verbs ("what do you think about X" -> topic is X, not "think").
+# Seed vocabulary -- RAVANA extends it at runtime via _learn_predicates_from().
+_VERB_SCAFFOLD = frozenset((
+    "protect", "save", "keep", "stop", "ban", "allow",
+    "support", "defend", "fund", "build", "make",
+    "change", "help", "avoid", "prevent",
+    "leaving", "feel", "think", "believe",
+    "like", "likes", "liked", "love", "loves",
+    "loved", "hate", "hates", "hated", "prefer",
+    "prefers", "preferred", "dislike",
+    "dislikes", "disliked",
+))
+
+
 def _has_word(needle: str, haystack: str) -> bool:
     """True when `needle` occurs in `haystack` as a WHOLE word.
 
@@ -2363,6 +2379,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     return True
             except Exception:
                 continue
+        return False
+
+    def _is_verb_scaffold(self, word: str) -> bool:
+        """True when `word` is a verb-scaffold word, including inflected forms.
+
+        The _VERB_SCAFFOLD set lists base forms ("make", "change", "help") but
+        natural language uses inflections ("makes", "changed", "helps"). Without
+        this, "what do you think makes you different" extracts "makes" as a
+        topic -- a garbage stance target. Uses the shared _stem() normalizer so
+        ANY regular inflection is recognized at runtime, not just a hardcoded
+        list. This is the same morphological approach already used by
+        _value_stems and the date-recall overlap scorer.
+        """
+        if not word:
+            return False
+        w = word.lower()
+        if w in _VERB_SCAFFOLD:
+            return True
+        stem = _stem(w)
+        if stem and stem != w and stem in _VERB_SCAFFOLD:
+            return True
         return False
 
     def _referent_head(self, phrase: str) -> Optional[str]:
