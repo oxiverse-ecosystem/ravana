@@ -839,6 +839,14 @@ class SelfQueryMixin:
         if _new_pol is not None:
             try:
                 stances._soft_reversal = False
+                # Clear the utterance guard so recode_stance_toward can
+                # fire — mine_stance_reversal may have already reversed
+                # this utterance during mine_personal_facts (which runs
+                # BEFORE _route_own_stance_inversion). The guard exists to
+                # prevent double-flipping within one path; here we are the
+                # authoritative contradiction path and must be allowed to
+                # recode toward the derived polarity.
+                stances._reversed_utterance.pop(topic, None)
                 _prior = stances.recode_stance_toward(
                     topic, _new_pol, blend=0.7, utterance=full_query)
             except Exception:
@@ -847,6 +855,7 @@ class SelfQueryMixin:
             # No mineable new opinion — fall back to blind reversal
             try:
                 stances._soft_reversal = False
+                stances._reversed_utterance.pop(topic, None)
                 _prior = stances.reverse_stance(topic, utterance=full_query)
             except Exception:
                 return None
