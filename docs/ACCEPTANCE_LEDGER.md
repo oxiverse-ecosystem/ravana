@@ -96,13 +96,13 @@ Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
 Integration suite: **111** tests collected, **107 passed, 4 skipped** (2026-10-12).
 
 Notes (updated 2026-10-14):
-- `tests/integration/` is GREEN. The previously failing test
-  `test_sleep_consolidates_episodic_pairs_to_graph` was fixed by making the
-  test hermetic (per-run `user_suffix` via `uuid.uuid4()`), preventing stale
-  `consolidated` flags in persisted pickles from suppressing the episodic drain.
-  Verified: 107 passed, 4 skipped (2026-10-14, CI run 38533945405 on main).
-  Originally fixed in commit `79733fd2` (round 2026-09-30T1031Z); re-verified
-  2026-10-12 on `auto/round-2026-10-12T0729Z` and again 2026-10-14.
+- `tests/integration/` is GREEN: 107 passed, 4 skipped (2026-10-14, verified locally with
+  CI-equivalent flags `-n auto --dist worksteal --timeout=240`). The prior YELLOW was
+  due to `test_sleep_consolidates_episodic_pairs_to_graph` failing on non-hermetic
+  persisted state (fixed in commit 79733fd2 — per-run uuid suffix makes each test
+  independent of leftover `weights/*.pkl`). The 4 skips are pre-existing and expected:
+  1 slow RLMv2 training test, 1 full cross-domain eval, 2 live-web smoke tests that
+  skip when `localhost:4000` is unreachable. Also verified on main (CI run 38533945405).
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 

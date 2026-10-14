@@ -134,6 +134,14 @@ on this codebase:
   cabinets"* → *"you started building cabinets in 2021."* Previously both returned
   the same (wrong) year because only the verb head was stored. No LLM, no
   per-topic reply table. See `docs/CAPABILITY_OBJECT_DISAMBIGUATED_DATE_RECALL.md`.
+- **Preserves the full activity-object noun phrase in fact storage.** Told
+  *"i've been learning to play the veena"* it stores `learning play the veena`
+  (not just `learning play` — the old stance-key resolver cut at internal
+  determiners like "the"). The new `_extract_activity_obj()` keeps the full
+  noun phrase so recall can distinguish "playing the veena" from "playing the
+  violin", and the stored fact retains the user's actual meaning. Structural:
+  seed span-boundary vocabulary, no per-topic table, no retraining. See
+  `docs/CAPABILITY_ACTIVITY_OBJECT_NOUN_PHRASE.md`.
 - **Mines possession-attribute disclosures into structured, correctable facts.**
   Told *"the cabin is a hand-hewn pine lodge with a sod roof"* it stores the
   material under the **entity** (`cabin.madeof = pine`), not a whole-sentence
@@ -441,6 +449,7 @@ See [`docs/`](docs/README.md):
 - [Quantity Memory](docs/QUANTITY_MEMORY.md) — capturing counts you disclose, answering "how many", totalling "in total", correcting online.
 - [Reverse Pet Lookup by Name](docs/PET_NAME_RECALL.md) — answering "who is wren to me?" by reverse-indexing the pet store by the name value.
 - [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
+- [Activity-Object Noun Phrase](docs/CAPABILITY_ACTIVITY_OBJECT_NOUN_PHRASE.md) — activity/event facts preserve the full object noun phrase ("learning to play the veena" stores `learning play the veena`, not `learning play`), so recall can distinguish activities that share a verb but differ by object.
 - [Retraction](docs/CAPABILITY_RETRACTION_STORE_EVENT.md) — a user correction is a store-level event: the retired value stops being served from the fact store AND the episodic transcript, in both contrast directions, failing closed.
 - [Bounded Stance Inertia](docs/CAPABILITY_BOUNDED_STANCE_INERTIA.md) — a re-asserted view is followed instead of averaged away: the rehearsal term of a held stance saturates, so eight reversals move the store off the stale read.
 - [Online Epistemic Calibration](docs/CAPABILITY_EPISTEMIC_CALIBRATION.md) — RAVANA pairs the confidence it predicted with the quality it delivered and lets the signed error move its own assert-gate: an overconfident engine raises its bar and hedges more. Signed bias, a per-band reliability curve (empty at birth), and Bayesian shrinkage so one bad turn cannot swing the gate.

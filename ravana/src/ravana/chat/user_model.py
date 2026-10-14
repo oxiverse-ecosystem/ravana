@@ -1098,6 +1098,15 @@ _OBJECT_STOP = frozenset({
     "about", "around", "into", "during", "after", "before", "when", "while",
     "where", "because", "but", "and", "or", "so", "that", "which", "what",
     "who", "how", "why", "over", "near", "under", "with",
+    # Naming-clause markers: "i keep a sourdough starter i named doris" must
+    # store the activity object "sourdough starter", NOT "sourdough starter i
+    # named doris". The named-entity miner already stores ('sourdough starter',
+    # 'name', 'doris') separately. Without this, the activity fact value
+    # contains the name and a later "what did i name that garden gnome?"
+    # query leaks "doris" via memory_recall (regression from 61ded05b which
+    # replaced _opinion_topic with _extract_activity_obj — _opinion_topic cut
+    # at internal determiners, _extract_activity_obj preserves the full NP).
+    "named", "called",
 })
 # Determiners / particles to SKIP (not close the span) before/within the
 # object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
@@ -1182,6 +1191,63 @@ def _strip_obj_framers(obj: str) -> str:
     return " ".join(_toks)
 
 
+def _extract_activity_obj(phrase: str) -> str:
+    """Extract the activity/event object phrase for fact storage.
+
+    Unlike _opinion_topic (which extracts the salient head concept for
+    stance attribution and CUTS at internal determiners), this preserves
+    the full noun phrase so the stored fact retains the activity target:
+      "to play the veena" -> "play the veena"  (not just "play")
+      "a juniper bonsai"  -> "juniper bonsai"  (not just "juniper")
+      "the reef tank"     -> "reef tank"       (not just "reef")
+
+    Strips leading determiners/particles/framers, keeps content words,
+    stops at prepositions/conjunctions/clause-boundaries. Bounded to 6
+    tokens. Returns '' if nothing real remains.
+
+    ALSO strips leading directional particles (up/down/off/out/in/on/away/
+    back/over/under/around/through/along/by/past/upon) — the same set
+    _opinion_topic rejects. Without this, "i keep coming back to tidal
+    energy" preserves "keep coming back tidal energy" (the phrasal verb
+    particles pollute the stored fact). The particle strip is structural:
+    it generalizes to any "i <verb> <particle> <object>" disclosure.
+    """
+    if not phrase:
+        return ""
+    toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
+    if not toks:
+        return ""
+    # Strip leading directional particles (same set _opinion_topic rejects)
+    _PARTICLES = {
+        "up", "down", "off", "out", "in", "on", "away", "back", "over",
+        "under", "around", "through", "along", "by", "past", "upon",
+    }
+    while toks and toks[0] in _PARTICLES:
+        toks.pop(0)
+    if not toks:
+        return ""
+    # Strip leading determiners, particles, framers, infinitive "to"
+    while toks and (toks[0] in _OBJECT_SKIP or toks[0] in _FRAMER_OBJ or toks[0] == "to"):
+        toks.pop(0)
+    if not toks:
+        return ""
+    # Collect content words, stopping at prepositions/conjunctions
+    out = []
+    for t in toks:
+        if t in _OBJECT_STOP:
+            break
+        if t in _FRAMER_OBJ:
+            continue
+        out.append(t)
+        if len(out) >= 6:
+            break
+    # Strip trailing subject pronoun left by a naming clause: "i keep a
+    # sourdough starter i named doris" -> "sourdough starter i" after the
+    # "named" stop, and the trailing "i" is the subject of the "i named
+    # doris" clause, not part of the activity object.
+    while out and out[-1] in ("i", "you", "he", "she", "it", "we", "they"):
+        out.pop()
+    return " ".join(out)
 
 
 # D3 (round v3): explicit correction shape "X's name is not Y, it's Z" /
@@ -4306,11 +4372,26 @@ class UserModel:
         if _cont:
             _cverb = _cont.group(1).lower()
             if _activity_verb_ok(_cverb):
-                _obj = self._opinion_topic(_cont.group(2).strip().lower())
+                _obj = _extract_activity_obj(_cont.group(2).strip().lower())
                 _obj = _strip_obj_framers(_obj)
-                if _obj and len(_obj.split()) <= 5:
-                    _put_fact(canonical_activity_attr("does", _cverb),
-                              f"{_cverb} {_obj}", 0.55)
+                # Content-adequacy gate: _extract_activity_obj preserves the
+                # full noun phrase (unlike _opinion_topic which extracted the
+                # head concept), so we must reject objects that are entirely
+                # non-content words OR start with a non-content word. This is
+                # the same gate _opinion_topic provided by returning None for
+                # degenerate phrases.
+                if _obj and _obj.split() and not all(
+                    t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                    or t in _OBJ_NONCONTENT
+                    for t in _obj.split()
+                ) and _obj.split()[0] not in _OBJ_NONCONTENT:
+                    # Affective-object guard: "i find it fascinating" is a
+                    # cognitive-affective copula, not a discovery. Check if
+                    # ANY token is an affective adjective (not just the first).
+                    if not any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
+                        if len(_obj.split()) <= 5:
+                            _put_fact(canonical_activity_attr("does", _cverb),
+                                      f"{_cverb} {_obj}", 0.55)
 
         # FIX (round 2026-08-09T1953Z): general first-person activity +
         # experience capture. The D3 activity loop above only matches BARE
@@ -4427,15 +4508,25 @@ class UserModel:
             # must skip it. Structural (verb + particle), not per-topic.
             if _verb in ("grow", "grew") and _am.group(2).strip().lower().startswith("up"):
                 continue
-            _obj = self._opinion_topic(_am.group(2).strip().lower())
+            _obj = _extract_activity_obj(_am.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
             # also skip when the resolved object is itself a meta-reflection word
             # (e.g. "i got muddled" -> obj 'muddled').
             if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
                 continue
-            if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact(canonical_activity_attr("does", _verb),
-                          f"{_verb} {_obj}", 0.55)
+            # Content-adequacy gate: _extract_activity_obj preserves the full
+            # noun phrase, so reject objects that are entirely non-content words
+            # OR start with a non-content word (verb/framer residue).
+            if _obj and _obj.split() and not all(
+                t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                or t in _OBJ_NONCONTENT
+                for t in _obj.split()
+            ) and _obj.split()[0] not in _OBJ_NONCONTENT:
+                # Affective-object guard: check if ANY token is an affective adj.
+                if not any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
+                    if _obj and 1 <= len(_obj.split()) <= 5:
+                        _put_fact(canonical_activity_attr("does", _verb),
+                                  f"{_verb} {_obj}", 0.55)
         # Experience / event capture: first-person "i <event-verb> <object>"
         # describing something that happened to the user's world. Captured
         # under attr "event" so it is recallable as a lived experience (not
@@ -4463,24 +4554,27 @@ class UserModel:
             # retraction cue ("i took back ...") is not an event
             if _verb in ("take", "took", "taking") and "back" in _em.group(2).lower():
                 continue
-            _obj = self._opinion_topic(_em.group(2).strip().lower())
+            _obj = _extract_activity_obj(_em.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
             # also skip when the resolved object is itself a meta-reflection word
             # (e.g. "i got muddled" -> obj 'muddled', captured as an event).
             if _obj and _obj.split()[0] in _META_REFLECTION_DENY:
                 continue
-            # Affective-object guard (round 2026-08-17T1126Z): "i find it
-            # fascinating" / "i found that surprising" is a cognitive-affective
-            # copula, not a discovery event. The object is a SENTIMENT
-            # adjective, so skip storing `event: <verb> <adj>` (which is
-            # garbage). A genuine discovery ("i found my keys") has a real
-            # content object and still stores. Seed vocabulary (_AFFECTIVE_OBJECT_ADJ),
-            # no authored prose, no retraining.
-            if _obj and _obj.split()[0] in _AFFECTIVE_OBJECT_ADJ:
-                continue
-            if _obj and 1 <= len(_obj.split()) <= 5:
-                _put_fact(canonical_activity_attr("event", _verb),
-                          f"{_verb} {_obj}", 0.5)
+            # Content-adequacy gate: _extract_activity_obj preserves the full
+            # noun phrase, so reject objects that are entirely non-content words
+            # OR start with a non-content word (verb/framer residue).
+            if _obj and _obj.split() and not all(
+                t in _OBJECT_SKIP or t in _FRAMER_OBJ or t in _OBJECT_STOP
+                or t in _OBJ_NONCONTENT
+                for t in _obj.split()
+            ) and _obj.split()[0] not in _OBJ_NONCONTENT:
+                # Affective-object guard: "i find it fascinating" is a
+                # cognitive-affective copula, not a discovery. Check if
+                # ANY token is an affective adjective (not just the first).
+                if not any(t in _AFFECTIVE_OBJECT_ADJ for t in _obj.split()):
+                    if _obj and 1 <= len(_obj.split()) <= 5:
+                        _put_fact(canonical_activity_attr("event", _verb),
+                                  f"{_verb} {_obj}", 0.5)
 
         # OPEN-CLASS activity/event capture (round 2026-08-13T2059Z). The two
         # frozen-verb blocks above (ACTIVITY_VERBS / EVENT_VERBS) only cover a
