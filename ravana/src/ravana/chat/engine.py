@@ -8212,7 +8212,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"devastated|broken|dying|dead|miserable|hopeless|"
                     r"overwhelmed|exhausted|furious|angry|cry|cried|crying|"
                     r"empty|numb|hollow|blue|gutted|meh|low|down|wrecked|"
-                    r"crushed|sad|unhappy|worthless|lost)\\b", _low))
+                    r"crushed|sad|unhappy|worthless|lost|drained|draining|"
+                    r"spent|burned out|burnt out|worn out|worn down|"
+                    r"defeated|demoralized|discouraged|disheartened|"
+                    r"dispirited|heavy|weighed down|crushed|shattered|"
+                    r"invisible|fading|ghostly|phantom|shadow|shell|"
+                    r"drowning|suffocating|suffocated|choked|choking)\b", _low))
                 if _preference_stmt and not _suffering_word:
                     # Pure attitude, not distress -> fall through to stance
                     # storage, never empathy.
