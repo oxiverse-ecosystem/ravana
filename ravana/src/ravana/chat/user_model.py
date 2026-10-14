@@ -1098,6 +1098,15 @@ _OBJECT_STOP = frozenset({
     "about", "around", "into", "during", "after", "before", "when", "while",
     "where", "because", "but", "and", "or", "so", "that", "which", "what",
     "who", "how", "why", "over", "near", "under", "with",
+    # Naming-clause markers: "i keep a sourdough starter i named doris" must
+    # store the activity object "sourdough starter", NOT "sourdough starter i
+    # named doris". The named-entity miner already stores ('sourdough starter',
+    # 'name', 'doris') separately. Without this, the activity fact value
+    # contains the name and a later "what did i name that garden gnome?"
+    # query leaks "doris" via memory_recall (regression from 61ded05b which
+    # replaced _opinion_topic with _extract_activity_obj — _opinion_topic cut
+    # at internal determiners, _extract_activity_obj preserves the full NP).
+    "named", "called",
 })
 # Determiners / particles to SKIP (not close the span) before/within the
 # object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
@@ -1232,6 +1241,12 @@ def _extract_activity_obj(phrase: str) -> str:
         out.append(t)
         if len(out) >= 6:
             break
+    # Strip trailing subject pronoun left by a naming clause: "i keep a
+    # sourdough starter i named doris" -> "sourdough starter i" after the
+    # "named" stop, and the trailing "i" is the subject of the "i named
+    # doris" clause, not part of the activity object.
+    while out and out[-1] in ("i", "you", "he", "she", "it", "we", "they"):
+        out.pop()
     return " ".join(out)
 
 
