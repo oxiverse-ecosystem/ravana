@@ -459,7 +459,7 @@ def parse_contrast(text: str, markers: Optional[set[str]] = None,
     return asserted, rejected, marker
 
 
-def looks_like_retraction(text: str, markers: Optional[set[str]] = None) -> bool:
+def looks_like_retirement(text: str, markers: Optional[set[str]] = None) -> bool:
     """True when the utterance opens as a correction or names a retraction.
 
     Cheap pre-filter so the common case (an ordinary disclosure) costs one
@@ -472,3 +472,72 @@ def looks_like_retraction(text: str, markers: Optional[set[str]] = None) -> bool
         return True
     head = " ".join(_toks(low)[:4])
     return any(op in head for op in RETRACTION_OPENERS)
+
+
+def extract_candidate_marker(text: str, known_markers: set[str]) -> Optional[str]:
+    """Extract a candidate contrast marker from a retraction utterance.
+
+    This is the growth-path entry point for the marker lexicon. It is called
+    ONLY when ``looks_like_retraction`` passed but ``parse_contrast`` returned
+    ``None`` — i.e. the utterance opens as a correction but contains no
+    *known* contrast marker. The candidate it returns is then fed to
+    ``learn_contrast_marker`` and the text is re-parsed with the expanded set.
+
+    The extraction is deliberately conservative to avoid false positives:
+
+    * Only tokens at a CLAUSE BOUNDARY are considered (the first token of a
+      clause after splitting on ``,;`` or ``but``). Discourse-repair
+      interjections naturally sit at clause boundaries — "patna, franks he
+      lives in delhi" has "franks" at the start of the second clause.
+    * Tokens in ``known_markers``, ``_RELATION_HEADS``, ``_DETERMINERS``,
+      ``RETRACTION_OPENERS``, and a small set of common English function words
+      are excluded — they are grammar vocabulary, not candidate interjections.
+    * The token must be a single alphabetic word (no punctuation, no digits).
+
+    Returns the lowercased candidate, or ``None`` if no token qualifies.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    # Split into clauses the same way parse_contrast does.
+    clauses: List[List[str]] = []
+    for c in re.split(r"[,;]|\bbut\b", raw):
+        parts = c.strip().split()
+        if parts:
+            clauses.append(parts)
+    if len(clauses) < 2:
+        return None
+    # Closed-class exclusions: grammar vocabulary that is never a marker.
+    _EXCLUDE = (
+        known_markers
+        | _RELATION_HEADS
+        | _DETERMINERS
+        | set(RETRACTION_OPENERS)
+        | {
+            # common function words that can appear at a clause boundary
+            "the", "a", "an", "and", "or", "but", "so", "if", "when",
+            "which", "who", "whom", "whose", "where", "why", "how",
+            "what", "this", "that", "these", "those", "there", "here",
+            "it", "its", "he", "she", "they", "we", "you", "i", "me",
+            "him", "her", "them", "us", "my", "your", "his", "our",
+            "their", "am", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "must", "can",
+            "shall", "not", "no", "yes", "yeah", "oh", "ah", "um",
+            "well", "like", "just", "also", "too", "very", "really",
+            "quite", "rather", "pretty", "much", "many", "more", "most",
+            "some", "any", "all", "each", "every", "both", "few",
+        }
+    )
+    # Check the first token of each clause (skip clause 0 — the opening
+    # clause is the rejected material, not the marker).
+    for cl in clauses[1:]:
+        if not cl:
+            continue
+        cand = cl[0].lower().strip(".,!?;:'\"")
+        if not cand or not cand.isalpha():
+            continue
+        if cand in _EXCLUDE:
+            continue
+        return cand
+    return None

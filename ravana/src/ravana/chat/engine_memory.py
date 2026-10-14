@@ -244,6 +244,7 @@ from .retirement import (
     Retraction,
     _stem,
     _toks,
+    extract_candidate_marker,
     looks_like_retraction,
     parse_contrast,
 )
@@ -319,7 +320,18 @@ class MemoryMixin:
         parsed = parse_contrast(text, led.all_markers(),
                                 led.interjective_markers())
         if parsed is None:
-            return None
+            # Growth path: the utterance passed looks_like_retraction but
+            # parse_contrast found no KNOWN marker. Try extracting a
+            # candidate marker from a clause boundary, learn it, and
+            # re-parse with the expanded set. The candidate only enters
+            # learned_markers if grounding succeeds below (fail closed).
+            cand = extract_candidate_marker(text, led.all_markers())
+            if cand is not None:
+                led.learn_contrast_marker(cand)
+                parsed = parse_contrast(text, led.all_markers(),
+                                        led.interjective_markers())
+            if parsed is None:
+                return None
         asserted, rejected, marker = parsed
 
         # ── ground: find a live record that actually holds the rejected value
