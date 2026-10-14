@@ -1416,7 +1416,8 @@ class SelfQueryMixin:
             if _tail_clean:
                 _COPULA = ("is", "are", "was", "were", "been", "being",
                            "seems", "appears", "looks", "sounds", "feels",
-                           "becomes", "remains", "stays")
+                           "becomes", "become", "became", "becoming",
+                           "remains", "remained", "stays", "stayed")
                 _INTRANS_PP = ("happens", "occurred", "occurs", "exists",
                                "matters", "counts")
                 _TAIL_ADVERBS = ("exactly", "precisely", "specifically",
@@ -1433,7 +1434,8 @@ class SelfQueryMixin:
                                  "only", "even", "still", "already", "yet",
                                  "ever", "never", "always", "often",
                                  "sometimes", "perhaps", "maybe", "probably",
-                                 "possibly", "likely")
+                                 "possibly", "likely", "again", "anymore",
+                                 "nowadays", "lately")
                 if _tail_clean in _TAIL_ADVERBS:
                     _tail = ""
                 else:

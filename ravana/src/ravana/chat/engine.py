@@ -6161,6 +6161,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._own_replies.setdefault(_topic, [])
             # Replace any prior reply on the same topic so re-stating a view keeps
             # the store current (incremental self-revision).
+            # Store only TOPIC content tokens as src_tokens, excluding generic
+            # scaffolding words (opinion/view/concept/etc.) that appear in every
+            # recall query and would cause false overlap matches. This is the
+            # same exclusion applied to query candidates in _route_agent_own_recall.
+            _src_scaffold = {"opinion", "view", "take", "stance", "position",
+                             "concept", "thought", "thoughts", "idea",
+                             "question", "thing", "something", "anything",
+                             "what", "your", "you", "the", "on", "of", "about"}
+            _src_tokens = [w for w in _words if w not in _src_scaffold]
             self._own_replies[_topic] = [{
                 "text": _store_text,
                 "turn": int(getattr(self, "turn_count", 0) or 0),
@@ -6174,7 +6183,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # trigger a wrong-topic echo. Genuine same-subject recalls
                 # ("you talked about neuromorphic computing" vs src {neuromorphic,
                 # computing}) overlap on 2 and recall correctly.
-                "src_tokens": list(_words),
+                "src_tokens": _src_tokens,
             }]
             self._own_reply_topic_idx[_topic] = 1
             # RFIX-01: also append to the utterance log ring buffer so a later
@@ -6309,7 +6318,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "tellme",
         }
         _cands = [w for w in re.findall(r"[a-z']+", _q)
-                  if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
+                  if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC
+                  and w not in ("concept", "opinion", "view", "take", "stance",
+                                "position", "thought", "thoughts", "idea",
+                                "question", "thing", "something", "anything")]
         if not _cands:
             return None
         # DEFECT C/D FIX (round 2026-08-19T0625Z): retrieve by TOPICAL OVERLAP
