@@ -8137,13 +8137,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # a comparison. "explain quantum computing like i'm five" contains
                 # "i'm" but it is the target of a simile — not a self-state report.
                 # Require the declaration pattern to anchor at the start of the
-                # utterance (optionally after a leading "so/well/and/i guess").
+                # utterance (optionally after a leading discourse marker).
+                # Generalized (round 2026-10-13T0542Z): allow common adverbs
+                # between the pronoun and the verb ("i just feel", "i also feel",
+                # "i really feel") and common discourse markers before the
+                # pronoun ("but honestly", "actually", "you know"). This is a
+                # structural generalization of the pattern shape, not a per-topic
+                # list — it covers ANY first-person affect declaration regardless
+                # of the specific adverb or discourse marker used.
                 _state_disclosure = bool(re.match(
-                    r"^(so |well |and |i guess |i think )?"
-                    r"(i'm|i am|i feel|i felt|i've been|i am feeling|i feel like)\b", _low)) or \
+                    r"^(?:so |well |and |but |or |i guess |i think |i know |"
+                    r"honestly |actually |really |just |you know |i mean |"
+                    r"but honestly |and honestly |but really )*"
+                    r"(?:i(?:'m| am| feel| felt|'ve been| am feeling| feel like|"
+                    r" just feel| also feel| really feel| kinda feel| sorta feel))\b", _low)) or \
                     bool(re.match(
-                        r"^(so |well |and |my )\s*\w+(\s+\w+)?\s+"
-                        r"(is|are|has|have|got|passed|died|left|hurts?|is being)\b", _low))
+                        r"^(?:so |well |and |but |or |i guess |i think |my )*"
+                        r"\w+(?:\s+\w+)?\s+"
+                        r"(?:is|are|has|have|got|passed|died|left|hurts?|is being)\b", _low))
                 # Issue 1: the user explicitly opening the emotional channel
                 # ("i'm sad", "my mom is sick") raises the lPFC inhibitory
                 # release so the agent's own affective echo is permitted to
