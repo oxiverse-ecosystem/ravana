@@ -6934,6 +6934,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # Record which stances existed at the START of this turn so the
+        # inversion path can distinguish a PRIOR-turn stance from one mined
+        # earlier in the SAME turn (mine_personal_facts runs before the
+        # inversion check). Round 2026-10-15.
+        _om = getattr(self, "user_model", None)
+        _op = getattr(_om, "opinions", None) if _om is not None else None
+        self._turn_start_stance_keys = set(_op.stances.keys()) if _op is not None else set()
         # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
         # `_pending_web_evidence` is stashed by the agentic pre-check and
         # consumed by the end-of-turn block that appends it to the reply. Those
@@ -8593,6 +8600,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if re.search(_pat, user_input.lower()):
                     _implicit_emotional = True
                     break
+        # Round 2026-10-15: contradiction-revision / stance inversion must
+        # fire BEFORE the self-disclosure gate.
+        _inversion_ans = self._route_own_stance_inversion(user_input)
+        if _inversion_ans is not None:
+            self._last_strategy = "own_stance_inversion"
+            self._last_responses.append(_inversion_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _inversion_ans.lower()
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
         if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
@@ -8843,34 +8866,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction side-effects and runs later with the real subject).
         self.user_model.mine_personal_facts(user_input)
 
-        # Round 2026-09-05: contradiction-revision / stance inversion.
-        # "argue the opposite", "flip your stance", "take the other
-        # side" — detect these BEFORE the revisit check so inversion
-        # takes precedence. The inversion method reads/writes
-        # _agent_stances and produces a genuinely inverted view
-        # from RAVANA's own recorded stance or its current valence.
-        _inversion_ans = self._route_own_stance_inversion(user_input)
-        if _inversion_ans is not None:
-            self._last_strategy = "own_stance_inversion"
-            self._last_responses.append(_inversion_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _inversion_ans.lower()
-
-        # Round 2026-08-19T0625Z limitation #2: a revisit query
-        # ("do you still feel that way about X?" / "have you changed
-        # your mind about X?" / "revisit your stance on X") must be
-        # answered from RAVANA's RECORDED own stance, not recomputed
-        # fresh nor echoed. Check this BEFORE the opinion/identity
-        # gates so a recorded stance takes precedence over a
-        # re-derived provisional one.
-        _revisit_ans = self._route_own_stance_revisit(user_input)
-        if _revisit_ans is not None:
-            self._last_strategy = "own_stance_revisit"
-            self._last_responses.append(_revisit_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _revisit_ans.lower()
 
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""

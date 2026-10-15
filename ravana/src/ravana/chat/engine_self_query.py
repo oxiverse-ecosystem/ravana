@@ -830,6 +830,11 @@ class SelfQueryMixin:
         _held_turn = getattr(_held, "turn_number", 0)
         if _held_turn > _turn_num:
             return None
+        # Round 2026-10-15: block inversion of a stance mined earlier in
+        # the SAME turn. mine_personal_facts runs BEFORE the inversion check.
+        _turn_start_keys = getattr(self, "_turn_start_stance_keys", None)
+        if _turn_start_keys is not None and topic not in _turn_start_keys:
+            return None
         # Try to mine the NEW polarity from the post-contradiction clause.
         # If we can derive a new opinion, use recode_stance_toward (which
         # moves the stance toward the NEW value). Otherwise fall back to
@@ -839,23 +844,19 @@ class SelfQueryMixin:
         if _new_pol is not None:
             try:
                 stances._soft_reversal = False
-                # Clear the utterance guard so recode_stance_toward can
-                # fire — mine_stance_reversal may have already reversed
-                # this utterance during mine_personal_facts (which runs
-                # BEFORE _route_own_stance_inversion). The guard exists to
-                # prevent double-flipping within one path; here we are the
-                # authoritative contradiction path and must be allowed to
-                # recode toward the derived polarity.
-                stances._reversed_utterance.pop(topic, None)
+                # Do NOT clear the guard. If mine_stance_reversal already
+                # softened/reversed this utterance, recode_stance_toward is
+                # blocked (correct — no double-recoding). If not, the guard
+                # is absent and recode fires normally.
                 _prior = stances.recode_stance_toward(
                     topic, _new_pol, blend=0.7, utterance=full_query)
             except Exception:
                 return None
         else:
-            # No mineable new opinion — fall back to blind reversal
+            # No mineable new opinion — fall back to blind reversal.
+            # Do NOT clear the guard here either.
             try:
                 stances._soft_reversal = False
-                stances._reversed_utterance.pop(topic, None)
                 _prior = stances.reverse_stance(topic, utterance=full_query)
             except Exception:
                 return None
