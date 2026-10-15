@@ -541,7 +541,10 @@ class SelfQueryMixin:
                 r"^(?:[—–\-:]|i\s+(?:think\s+|feel\s+|now\s+)?|"
                 r"about\s+|on\s+|regarding\s+|that\s+|"
                 r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
-                r"am\s+(?:now\s+)?|have\s+)?)\s*",
+                r"am\s+(?:now\s+)?|have\s+)?|"
+                r"i\s+changed\s+my\s+mind\s*|"
+                r"i\s+take\s+(?:it|that)\s+back\s*|"
+                r"i\s+was\s+wrong\s*)\s*",
                 "", _nc_rest).strip()
             _nc_rest = re.sub(
                 r"\s+(?:is\s+)?(?:disgusting|terrible|awful|horrible|"
@@ -1567,6 +1570,18 @@ class SelfQueryMixin:
             # all person pronouns + contractions so the extractor skips them and
             # lands on the actual subject (lutefisk / leaving / contradictory).
             # Structural (a closed-class vocabulary), no per-topic table.
+            # D1 FIX (round 2026-10-15T0749Z): expand copula contractions
+            # ("you're" -> "you are") before tokenization so the topic
+            # extractor doesn't treat "you're" as a single content token.
+            # Without this, "what kind of mind do you think you're turning
+            # into" produces topic "you're turning" instead of "turning".
+            # Uses the existing expand_contractions from topic_head.py
+            # (handles both negative and copula contractions).
+            try:
+                from .topic_head import expand_contractions as _ec
+                _tail = _ec(_tail)
+            except Exception:
+                pass
             _toks = [w for w in re.findall(r"[a-z']+", _tail)
                      if w not in ("about", "on", "the", "a", "an", "of", "for",
                                   "with", "to", "we", "should", "could", "would",
