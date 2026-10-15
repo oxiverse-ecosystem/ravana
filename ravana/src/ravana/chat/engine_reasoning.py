@@ -2331,6 +2331,7 @@ class ReasoningMixin:
                 if _rev is not None:
                     _rev_topic = _rev[0]
                     _rev_old = _rev[1]
+                    _rev_new = _rev[2]
                     # Grounded polarity direction of the OLD stance so the ack
                     # reflects what was actually held (never authored prose).
                     if _rev_old > 0.25:
@@ -2339,8 +2340,18 @@ class ReasoningMixin:
                         _prior = "you were against it before"
                     else:
                         _prior = "you weren't sure before"
+                    # Grounded polarity direction of the NEW stance so the ack
+                    # reflects what RAVANA understood the user's new position
+                    # to be (never authored prose — the direction word is
+                    # derived from the live recoded stance value).
+                    if _rev_new > 0.25:
+                        _now = "now you're for it"
+                    elif _rev_new < -0.25:
+                        _now = "now you're against it"
+                    else:
+                        _now = "now you're less sure"
                     ack = (f"got it — you've changed your mind about "
-                           f"{_rev_topic}; i'll remember ({_prior}).")
+                           f"{_rev_topic}; i'll remember ({_prior}, {_now}).")
                     self.user_model.opinions.clear_last_reversal()
                     ack = ack.lower()
                 else:
