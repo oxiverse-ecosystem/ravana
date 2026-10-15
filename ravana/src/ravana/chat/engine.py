@@ -6026,6 +6026,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _best_val = _f.value
         return _best_val
 
+    def _temporal_fact(self, subject, attribute, value=None):
+        """Temporal Fact Disambiguation (TFD) — return the most recent,
+        non-superseded PersonalFact for (subject, attribute), or None.
+
+        SEED-compliant: reads from the existing PersonalFactStore which
+        already tracks turn_number and superseded on every fact. No new
+        store, no new data structure — this is a retrieval wrapper that
+        applies the store's own decay_score (confidence x recency) ranking.
+
+        Online/incremental: the store updates turn_number on every
+        assert_fact / reinforce / confirm / contradict, so the "most recent"
+        is always the one the user last corrected or confirmed. No retraining.
+
+        Generalizable: works for ANY (subject, attribute) pair, not just
+        specific entities. Used by _structured_recall branches that
+        previously iterated pf.facts.items() and returned the FIRST match,
+        which could be a stale prior-round value.
+
+        No hardcoded reply strings, no per-topic tables, no authored prose.
+        """
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            return None
+        _f = pf.get(subject, attribute, value)
+        return _f
+
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
         cued recall about the agent's own speech can answer from RAVANA's output
@@ -7108,6 +7134,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _cued_self = self._self_cued_episodic(user_input)
         except Exception:
             _cued_self = None
+        # Apply the universal relevance gate at the call site (not inside
+        # _self_cued_episodic) so the gate can be swapped/configured
+        # independently. An answer that passes the cue match but fails
+        # the relevance score returns None — honest uncertainty beats
+        # confabulation.
+        if _cued_self is not None:
+            _cued_self = self._relevance_gate(user_input, _cued_self)
         if _cued_self is not None:
             self._last_strategy = "self_cued_episodic"
             self._last_responses.append(_cued_self)
