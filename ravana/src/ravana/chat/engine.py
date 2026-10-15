@@ -7040,6 +7040,41 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self._identity_end_of_turn(user_input, quality_score=None)
                     return _tresp
 
+        # D5 FIX (round 2026-10-15): Self-reference recall queries ("what did
+        # you say about X", "what was your opinion about Y") must be answered
+        # from RAVANA's OWN prior replies, NOT from the user's stance store.
+        # Previously _structured_recall ran first and found the user's stance
+        # on X, returning it as if it were RAVANA's own opinion — a
+        # self/other boundary inversion. The fix: detect self-reference
+        # recall queries structurally (agent reference + recall verb, same
+        # detection _route_agent_own_recall uses) and give _route_agent_own_recall
+        # the FIRST chance to answer them. Fail-open: when no matching agent
+        # reply exists, the query falls through to _structured_recall as before.
+        _is_self_ref_recall = False
+        try:
+            _q_lower = (user_input or "").lower().strip()
+            _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q_lower))
+            _recall_v = bool(re.search(
+                r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+                r"stated|answered|replied|remember|recall|earlier|before|"
+                r"said about|say about|tell me about what you)\b", _q_lower))
+            _is_self_ref_recall = _agent_ref and _recall_v
+        except Exception:
+            pass
+        if _is_self_ref_recall:
+            try:
+                _own_res = self._route_agent_own_recall(user_input)
+                if _own_res is not None:
+                    self._last_strategy = "agent_own_recall"
+                    self._last_responses.append(_own_res)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self._record_own_reply(user_input, _own_res, subject)
+                    self.notify_user_idle()
+                    return _own_res
+            except Exception:
+                pass
+
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
         # Answers user-fact / user-stance queries ("what's my name", "where do
         # i work", "what did i tell you about my favorite time of day", "you
