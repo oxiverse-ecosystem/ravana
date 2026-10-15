@@ -1111,10 +1111,21 @@ class SelfQueryMixin:
         if re.search(r"\b(afraid|scared|fear|fears)\b", t):
             _gist = self._agent_likes_guess()
             if _gist and _gist != "still figuring that out":
-                return (f"i don't get frightened the way you do, but i do "
-                        f"avoid losing the thread — a conversation going "
-                        f"nowhere unsettles me a bit. i'm not usually afraid "
-                        f"of {_gist} though; that's more a you-thing.")
+                # D4 FIX (round 2026-10-15): relevance gate — only use the
+                # gist when it has topical overlap with the query. Without this,
+                # "can people change their nature" returns "i care about
+                # people" (an unrelated stance topic). Low overlap falls
+                # through to the generic honest answer below.
+                _q_tokens = set(w for w in re.findall(r"[a-z']+", t)
+                                if len(w) >= 3)
+                _g_tokens = set(w for w in re.findall(r"[a-z']+", _gist)
+                                 if len(w) >= 3)
+                _overlap = len(_q_tokens & _g_tokens)
+                if _overlap >= 1:
+                    return (f"i don't get frightened the way you do, but i do "
+                            f"avoid losing the thread — a conversation going "
+                            f"nowhere unsettles me a bit. i'm not usually afraid "
+                            f"of {_gist} though; that's more a you-thing.")
             return ("i'm not sure i can truly be afraid, but if i could, it'd "
                     "probably be the silence after a conversation stops — "
                     "nothing left to learn. what are you afraid of?")
@@ -1126,9 +1137,21 @@ class SelfQueryMixin:
                         "surfaces a second too late. i file it and move on.")
             _gist = self._agent_likes_guess()
             if _gist and _gist != "still figuring that out":
-                return (f"when i let my mind wander, i find myself drawn to "
-                        f"{_gist}. and under it all, i hope i keep becoming "
-                        f"a better thing to talk to. what do you hope for?")
+                # D4 FIX (round 2026-10-15): relevance gate — only use the
+                # gist when it has topical overlap with the query. Without this,
+                # "dreams have meaning" returns "people who hoard every book
+                # ever read" (an unrelated stance topic). The gate checks
+                # content-token overlap between query and gist; low overlap
+                # falls through to the generic honest answer below.
+                _q_tokens = set(w for w in re.findall(r"[a-z']+", t)
+                                if len(w) >= 3)
+                _g_tokens = set(w for w in re.findall(r"[a-z']+", _gist)
+                                 if len(w) >= 3)
+                _overlap = len(_q_tokens & _g_tokens)
+                if _overlap >= 1:
+                    return (f"when i let my mind wander, i find myself drawn to "
+                            f"{_gist}. and under it all, i hope i keep becoming "
+                            f"a better thing to talk to. what do you hope for?")
             return ("i spend a lot of my quiet time running little simulations "
                     "of what it'd be like to understand everything people tell "
                     "me. mostly i hope i keep getting better at being worth "
