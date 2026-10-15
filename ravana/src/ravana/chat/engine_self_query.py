@@ -1196,9 +1196,14 @@ class SelfQueryMixin:
         # also caught. Structural (opinion-verb + on/about/of), no per-topic
         # table.
         if _self_introspect and re.search(
-                r"\b(your|you)\s+(?:honest\s+)?(take|view|opinion|stance|"
-                r"read|thoughts?|think|thinking|thought)\s+"
+                r"\b(your|you)\s+(?:honest\s+|still\s+)?(take|view|opinion|stance|"
+                r"read|thoughts?|think|thinking|thought|feel)\s+"
+                r"(?:that\s+way\s+)?(?:the\s+same\s+way\s+)?"
                 r"(on|about|of|regarding|toward)\b", t):
+            _self_introspect = None
+        if _self_introspect and re.search(
+                r"\b(your|you)\s+(?:honest\s+|still\s+)?(think|feel|believe)\s+"
+                r"(?:i|you|he|she|they|we)\s*(?:'m|'re|'s|am|are|is|was|were)\b", t):
             _self_introspect = None
         if _self_introspect:
             # R2 (round 2026-08-18T0937Z): do NOT deflect a genuine USER-recall
