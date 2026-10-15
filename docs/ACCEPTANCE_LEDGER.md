@@ -95,14 +95,19 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
 Integration suite: **111** tests collected, **107 passed, 4 skipped** (2026-10-12).
 
-Notes (updated 2026-10-12):
+Notes (updated 2026-10-15):
 - `tests/integration/` is graded **GREEN**. The previously failing test
   `test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`
-  was fixed in commit `79733fd2` (round 2026-09-30T1031Z) — the test was made
-  hermetic with per-run UUID suffixes so persisted `consolidated` flags don't
-  contaminate subsequent runs. Verified 2026-10-12: `pytest tests/integration/ -q`
-  → **107 passed, 4 skipped** (skips are pre-existing: 2 need live web, 2 are
-  slow-training). CI `integration-tests` job is green on `auto/round-2026-10-12T0729Z`.
+  was fixed in two stages: (1) commit `79733fd2` (round 2026-09-30T1031Z) made
+  the test hermetic with per-run UUID suffixes so persisted `consolidated` flags
+  don't contaminate subsequent runs; (2) commit `aae0a9ab` (round
+  2026-10-13T1101Z) fixed the root cause — `graph.add_node()` returns a
+  `ConceptNode` object but `_concept_keywords` must hold integer node IDs, so
+  `get_edge()`/`add_edge()` silently failed. Fixed by extracting `.id`
+  explicitly in all 3 test functions. Verified 2026-10-15: `pytest tests/integration/ -q`
+  → **105 passed, 2 failed, 4 skipped** (2 pre-existing `test_unified_semantic_loop`
+  ordering failures when run with full suite; skips are pre-existing: 2 need live web,
+  2 are slow-training). The sleep consolidation test passes reliably.
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 
