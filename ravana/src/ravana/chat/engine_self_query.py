@@ -159,6 +159,7 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 from .user_model import UserModel
 from . import pet_slots
 from .engine_memory import _SELF_OPINION_SHAPE
+from .engine import _VERB_SCAFFOLD
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -1492,18 +1493,7 @@ class SelfQueryMixin:
                 "you", "your", "i", "i'm", "i've", "i'd", "i'll", "my", "me",
                 "we're", "our", "us", "they", "them", "he", "she", "his",
                 "her", "its", "their", "it", "that", "this", "and", "or")
-            _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
-                               "support", "defend", "fund", "build", "make",
-                               "change", "help", "avoid", "prevent",
-                               "leaving", "feel", "think", "believe",
-                               # attitude verbs (round 2026-08-20T0701Z regression
-                               # t_a9ce2550): 'do you think i LIKE X' must resolve
-                               # the topic to X, not 'like X'. Structural verb
-                               # vocabulary — generalizes to any preference verb.
-                               "like", "likes", "liked", "love", "loves",
-                               "loved", "hate", "hates", "hated", "prefer",
-                               "prefers", "preferred", "dislike",
-                               "dislikes", "disliked")
+            # _VERB_SCAFFOLD is imported from .engine (module-level constant)
             # ── Binary contrast self-opinion capability (round 2026-08-12T1234Z,
             # t_2595f8ad; mirror of process_turn's _contrast_sides path) ──
             # "do you think you're more like a question or an answer" carries
@@ -1596,7 +1586,7 @@ class SelfQueryMixin:
                     return response.lower()
             _i = 0
             while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
-                                       or _toks[_i] in _VERB_SCAFFOLD
+                                       or self._is_verb_scaffold(_toks[_i])
                                        or _toks[_i].isdigit()):
                 _i += 1
             if _i >= len(_toks):
@@ -1627,7 +1617,7 @@ class SelfQueryMixin:
                         _target_toks.append(_w)
                         _j += 1
                         continue
-                    if (_w in _PRON_OR_CLOSED or _w in _VERB_SCAFFOLD
+                    if (_w in _PRON_OR_CLOSED or self._is_verb_scaffold(_w)
                             or _w.isdigit()):
                         break
                     _target_toks.append(_w)

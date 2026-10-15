@@ -1548,7 +1548,8 @@ class ConceptGraph:
                                     shortcut=shortcut, edge_type=edge_type,
                                     relation_type=relation_type,
                                     relation_dim=self._relation_dim,
-                                    confidence=confidence or 0.5)
+                                    confidence=confidence or 0.5,
+                                    context_labels=context_labels)
             key = (source, target)
             if key in self.edges:
                 edge = self.edges[key]
