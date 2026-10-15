@@ -1313,6 +1313,19 @@ class SelfQueryMixin:
                 r"read|thoughts?|think|thinking|thought)\s+"
                 r"(on|about|of|regarding|toward)\b", t):
             _self_introspect = None
+        # FIRST-PERSON OPINION GUARD (round 2026-10-15): a user opinion
+        # statement ("i think reading books is the best way to expand your
+        # mind") contains "your" + "mind" which matches the broad
+        # _self_introspect regex, but it is the USER's opinion, not a
+        # question about RAVANA.  Without this guard, the query is treated
+        # as self-introspection and returns the identity blurb instead of
+        # being processed as an opinion/disclosure.  Structural: detect
+        # first-person opinion scaffolding at the start of the query.
+        _first_person_opinion = re.match(
+            r"^(i\s+(?:think|believe|feel|guess|suppose|reckon|find)|"
+            r"i\s+don'?t\s+(?:think|believe|feel|know))", t)
+        if _first_person_opinion:
+            _self_introspect = None
         if _self_introspect:
             # R2 (round 2026-08-18T0937Z): do NOT deflect a genuine USER-recall
             # query into RAVANA's self-coherence frame. A question like "what
