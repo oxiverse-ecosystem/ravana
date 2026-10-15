@@ -797,7 +797,7 @@ class SelfQueryMixin:
                      "never", "no", "longer", "more", "barely", "hardly",
                      "scarcely", "wont", "won't", "cannot", "can't", "cant",
                      "rarely", "seldom"}
-        _tokens = re.findall(r"[a-z']+", _rest.lower())
+        _tokens = re.findall(r"[a-z']+", t.lower())
         _neg_idx = {i for i, w in enumerate(_tokens) if w in _negators}
         def _is_negated(word):
             for i, w in enumerate(_tokens):
