@@ -5149,25 +5149,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             _display = lambda a: a
         _attr_d = _display(_attr_d)
-        # D2 FIX: reconstruct proper English from composite fact keys.
-        # The miner stores facts under keys like ('i', "grandmother 's tea",
-        # 'garden sold') where the possessive is embedded with a space before
-        # the apostrophe. When rendered naively this produces "your grandmother
-        # 's tea garden sold" — broken grammar. Detect the possessive pattern
-        # in the attr and reconstruct: "your grandmother's tea garden was sold."
-        _possessive_match = re.match(
-            r"^([a-z]+)\s+'s\s+(.+)$", _attr_d, re.IGNORECASE)
-        if _possessive_match:
-            _owner = _possessive_match.group(1)
-            _possession = _possessive_match.group(2)
-            _val_str = (val or "").strip()
-            # Combine the possessive noun phrase with the value predicate.
-            # If the value is a verb phrase, render as a clause with "was"
-            # for past-tense events: "your grandmother's tea garden was sold."
-            if _val_str:
-                _full_phrase = f"{_owner}'s {_possession} {_val_str}"
-                return f"your {_full_phrase}."
-            return f"your {_owner}'s {_possession}."
         if _attr_d in ("location", "live in", "grew"):
             return f"you're from {val}"
         if _attr_d.startswith("favorite"):
@@ -5264,11 +5245,47 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 belief_items.append((_pred, _val, _conf))
         return facts, stances, belief_items
 
+    def _semantic_topic_match(self, phrase: str, topic: str,
+                              min_sim: float = 0.3) -> bool:
+        """Check if two phrases are semantically related via GloVe cosine.
+
+        Computes the max cosine similarity between any content token in the
+        phrase and any content token in the topic. Returns True if any pair
+        clears the threshold. This is a structural semantic gate — it uses
+        the same embedding system the rest of the engine uses, with no
+        per-topic logic and no retraining. Used to prevent false recall
+        matches where token overlap is incidental (e.g. "patience" matching
+        "taught" because they share a common word in a longer phrase).
+        """
+        try:
+            _p_toks = [w for w in re.findall(r"[a-z']+", (phrase or "").lower())
+                       if len(w) >= 3]
+            _t_toks = [w for w in re.findall(r"[a-z']+", (topic or "").lower())
+                       if len(w) >= 3]
+            if not _p_toks or not _t_toks:
+                return False
+            _p_vecs = [(w, self._glove_vector(w)) for w in _p_toks]
+            _p_vecs = [(w, v) for w, v in _p_vecs if v is not None]
+            _t_vecs = [(w, self._glove_vector(w)) for w in _t_toks]
+            _t_vecs = [(w, v) for w, v in _t_vecs if v is not None]
+            if not _p_vecs or not _t_vecs:
+                return False
+            for _pw, _pv in _p_vecs:
+                for _tw, _tv in _t_vecs:
+                    _sim = float(np.dot(_pv, _tv))
+                    if _sim >= min_sim:
+                        return True
+            return False
+        except Exception:
+            return False
+
     def _match_stance(self, phrase: str):
         """Find the user's real stance whose topic relates to `phrase`. Returns
         (topic, polarity, conf) or None. Containment + content-token-overlap,
         both directions — no per-topic table, generalizes across any topic the
-        user has actually disclosed."""
+        user has actually disclosed. Semantic gate: token-overlap matches
+        are verified by GloVe cosine to prevent false matches (round
+        2026-10-15 RL-1 fix)."""
         opinions = getattr(getattr(self, "user_model", None), "opinions", None)
         if opinions is None:
             return None
@@ -5286,14 +5303,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 break
             _ttoks = set(w for w in re.findall(r"[a-z']+", _t) if len(w) >= 3)
             if _ttoks & _ptoks:
-                _best = (_topic, getattr(_s, "polarity", 0.0),
-                         getattr(_s, "confidence", 0.5))
-                break
+                # Semantic gate: verify the match is genuine, not incidental
+                # token overlap (round 2026-10-15 RL-1 fix).
+                if self._semantic_topic_match(_p, _t):
+                    _best = (_topic, getattr(_s, "polarity", 0.0),
+                             getattr(_s, "confidence", 0.5))
+                    break
         return _best
 
     def _match_fact(self, phrase: str):
         """Find the user's real fact whose attr OR value relates to `phrase`.
-        Returns (attr, val, conf) or None — prefers the longest matching value."""
+        Returns (attr, val, conf) or None — prefers the longest matching value.
+        Semantic gate: token-overlap matches are verified by GloVe cosine to
+        prevent false matches (round 2026-10-15 RL-1 fix)."""
         facts, _, _ = self._collect_user_model_state()
         _p = (phrase or "").lower().strip().replace("-", " ")
         # Drop the closed-class functional word "does"/"did"/"do" from the
@@ -5327,9 +5349,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _vtoks = set(w for w in re.findall(r"[a-z']+", _val_l + " " + _attr_l)
                       if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
-                _overlap = len(_vtoks & _ptoks)
-                if _best is None or _overlap > _best[2]:
-                    _best = (_attr, _val, _conf, _overlap)
+                # Semantic gate: verify the match is genuine, not incidental
+                # token overlap (round 2026-10-15 RL-1 fix).
+                _fact_phrase = (_val_l + " " + _attr_l).strip()
+                if self._semantic_topic_match(_p, _fact_phrase):
+                    _overlap = len(_vtoks & _ptoks)
+                    if _best is None or _overlap > _best[2]:
+                        _best = (_attr, _val, _conf, _overlap)
         if _best is not None and len(_best) == 4:
             _best = (_best[0], _best[1], _best[2])
         return _best
@@ -6262,14 +6288,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
-        # further down. Structural (1st-person possessive + user-attribute noun).
-        # This applies EVEN when the query is a first-person recall of the agent's
-        # own prior speech (RV-5: "what did i just tell you about my favorite food"
-        # must reach the agent-reply store — but "favorite food" is NOT in the
-        # attribute word list, so it passes through. "my dog" / "my sister" ARE
-        # in the list, so they are blocked and fall through to user-fact recall).
-        if (re.search(
-                r"\b(my|mine|me|i|we|our|myself)\b", _q)
+        # further down. Structural (1st-person possessive + user-attribute noun),
+        # but ONLY when the query is NOT already a first-person recall of the
+        # agent's own prior speech (RV-5: "what did i just tell you about my
+        # favorite food" must reach the agent-reply store, not be blocked here).
+        if (not _is_first_person_recall
+                and re.search(
+                    r"\b(my|mine|me|i|we|our|myself)\b", _q)
                 and re.search(
                     r"\b(name|named|called|age|live|lives|from|work|study|"
                     r"studied|grew up|sister|brother|mother|father|mom|dad|"
@@ -6954,6 +6979,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # Record which stances existed at the START of this turn so the
+        # inversion path can distinguish a PRIOR-turn stance from one mined
+        # earlier in the SAME turn (mine_personal_facts runs before the
+        # inversion check). Round 2026-10-15.
+        _om = getattr(self, "user_model", None)
+        _op = getattr(_om, "opinions", None) if _om is not None else None
+        self._turn_start_stance_keys = set(_op.stances.keys()) if _op is not None else set()
         # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
         # `_pending_web_evidence` is stashed by the agentic pre-check and
         # consumed by the end-of-turn block that appends it to the reply. Those
@@ -8613,7 +8645,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if re.search(_pat, user_input.lower()):
                     _implicit_emotional = True
                     break
-
+        # Round 2026-10-15: contradiction-revision / stance inversion must
+        # fire BEFORE the self-disclosure gate.
+        _inversion_ans = self._route_own_stance_inversion(user_input)
+        if _inversion_ans is not None:
+            self._last_strategy = "own_stance_inversion"
+            self._last_responses.append(_inversion_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _inversion_ans.lower()
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
         if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
@@ -8864,34 +8911,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction side-effects and runs later with the real subject).
         self.user_model.mine_personal_facts(user_input)
 
-        # Round 2026-09-05: contradiction-revision / stance inversion.
-        # "argue the opposite", "flip your stance", "take the other
-        # side" — detect these BEFORE the revisit check so inversion
-        # takes precedence. The inversion method reads/writes
-        # _agent_stances and produces a genuinely inverted view
-        # from RAVANA's own recorded stance or its current valence.
-        _inversion_ans = self._route_own_stance_inversion(user_input)
-        if _inversion_ans is not None:
-            self._last_strategy = "own_stance_inversion"
-            self._last_responses.append(_inversion_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _inversion_ans.lower()
-
-        # Round 2026-08-19T0625Z limitation #2: a revisit query
-        # ("do you still feel that way about X?" / "have you changed
-        # your mind about X?" / "revisit your stance on X") must be
-        # answered from RAVANA's RECORDED own stance, not recomputed
-        # fresh nor echoed. Check this BEFORE the opinion/identity
-        # gates so a recorded stance takes precedence over a
-        # re-derived provisional one.
-        _revisit_ans = self._route_own_stance_revisit(user_input)
-        if _revisit_ans is not None:
-            self._last_strategy = "own_stance_revisit"
-            self._last_responses.append(_revisit_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _revisit_ans.lower()
 
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""
