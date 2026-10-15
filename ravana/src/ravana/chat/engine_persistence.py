@@ -606,20 +606,6 @@ If a concept has been corrected 3+ times, mark for priority web learning.
         # Process the correction through the full circuit
         self._process_correction_feedback(correction)
 
-        # Wire the correction to the RecallRanker's threshold adaptation (MRS).
-        # This is the ONLINE LEARNING path: the threshold adapts incrementally
-        # from conversation feedback. No retraining, no batch re-fit.
-        try:
-            _ranker = getattr(self, "_recall_ranker", None)
-            if _ranker is not None and hasattr(_ranker, "wire_feedback"):
-                _ranker.wire_feedback(
-                    correction_type=correction.correction_type.value,
-                    severity=correction.severity,
-                    current_turn=self.turn_count,
-                )
-        except Exception:
-            pass  # never break correction handling
-
         # Store for sleep consolidation
         correction.resolved = False
 
