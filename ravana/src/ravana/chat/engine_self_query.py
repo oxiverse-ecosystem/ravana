@@ -759,7 +759,17 @@ class SelfQueryMixin:
             "", _rest).strip()
         if not _rest:
             return None
-        # Try the EvaluativePolarityModel first (GloVe-based, can handle
+        # Try _assess_reversal_polarity first — it is the existing reversal
+        # polarity estimator with negation handling and reassessment-term
+        # lexicons. It returns a polarity in [-1, 1] or None.
+        try:
+            from .user_model import _assess_reversal_polarity
+            _rev_pol = _assess_reversal_polarity(t)
+            if _rev_pol is not None:
+                return float(_rev_pol)
+        except Exception:
+            pass
+        # Try the EvaluativePolarityModel next (GloVe-based, can handle
         # arbitrary evaluative predicates)
         try:
             _um = getattr(self, "user_model", None)
