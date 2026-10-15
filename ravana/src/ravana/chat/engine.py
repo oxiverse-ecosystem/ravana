@@ -7085,6 +7085,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"stated|answered|replied|remember|recall|earlier|before|"
                 r"said about|say about|tell me about what you)\b", _q_lower))
             _is_self_ref_recall = _agent_ref and _recall_v
+            # Do NOT intercept first-person recall queries ("remind me what
+            # you said about X", "what did I tell you about Y") — these ask
+            # about the USER's own opinion, which lives in the user stores.
+            # Intercepting them here would misroute to the agent-reply store
+            # and surface the wrong speaker (a self/other boundary inversion).
+            if _is_self_ref_recall and re.search(r"\b(i|my|me|myself|we|our)\b", _q_lower):
+                _is_self_ref_recall = False
         except Exception:
             pass
         if _is_self_ref_recall:
