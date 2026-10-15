@@ -5245,11 +5245,47 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 belief_items.append((_pred, _val, _conf))
         return facts, stances, belief_items
 
+    def _semantic_topic_match(self, phrase: str, topic: str,
+                              min_sim: float = 0.3) -> bool:
+        """Check if two phrases are semantically related via GloVe cosine.
+
+        Computes the max cosine similarity between any content token in the
+        phrase and any content token in the topic. Returns True if any pair
+        clears the threshold. This is a structural semantic gate — it uses
+        the same embedding system the rest of the engine uses, with no
+        per-topic logic and no retraining. Used to prevent false recall
+        matches where token overlap is incidental (e.g. "patience" matching
+        "taught" because they share a common word in a longer phrase).
+        """
+        try:
+            _p_toks = [w for w in re.findall(r"[a-z']+", (phrase or "").lower())
+                       if len(w) >= 3]
+            _t_toks = [w for w in re.findall(r"[a-z']+", (topic or "").lower())
+                       if len(w) >= 3]
+            if not _p_toks or not _t_toks:
+                return False
+            _p_vecs = [(w, self._glove_vector(w)) for w in _p_toks]
+            _p_vecs = [(w, v) for w, v in _p_vecs if v is not None]
+            _t_vecs = [(w, self._glove_vector(w)) for w in _t_toks]
+            _t_vecs = [(w, v) for w, v in _t_vecs if v is not None]
+            if not _p_vecs or not _t_vecs:
+                return False
+            for _pw, _pv in _p_vecs:
+                for _tw, _tv in _t_vecs:
+                    _sim = float(np.dot(_pv, _tv))
+                    if _sim >= min_sim:
+                        return True
+            return False
+        except Exception:
+            return False
+
     def _match_stance(self, phrase: str):
         """Find the user's real stance whose topic relates to `phrase`. Returns
         (topic, polarity, conf) or None. Containment + content-token-overlap,
         both directions — no per-topic table, generalizes across any topic the
-        user has actually disclosed."""
+        user has actually disclosed. Semantic gate: token-overlap matches
+        are verified by GloVe cosine to prevent false matches (round
+        2026-10-15 RL-1 fix)."""
         opinions = getattr(getattr(self, "user_model", None), "opinions", None)
         if opinions is None:
             return None
@@ -5267,14 +5303,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 break
             _ttoks = set(w for w in re.findall(r"[a-z']+", _t) if len(w) >= 3)
             if _ttoks & _ptoks:
-                _best = (_topic, getattr(_s, "polarity", 0.0),
-                         getattr(_s, "confidence", 0.5))
-                break
+                # Semantic gate: verify the match is genuine, not incidental
+                # token overlap (round 2026-10-15 RL-1 fix).
+                if self._semantic_topic_match(_p, _t):
+                    _best = (_topic, getattr(_s, "polarity", 0.0),
+                             getattr(_s, "confidence", 0.5))
+                    break
         return _best
 
     def _match_fact(self, phrase: str):
         """Find the user's real fact whose attr OR value relates to `phrase`.
-        Returns (attr, val, conf) or None — prefers the longest matching value."""
+        Returns (attr, val, conf) or None — prefers the longest matching value.
+        Semantic gate: token-overlap matches are verified by GloVe cosine to
+        prevent false matches (round 2026-10-15 RL-1 fix)."""
         facts, _, _ = self._collect_user_model_state()
         _p = (phrase or "").lower().strip().replace("-", " ")
         # Drop the closed-class functional word "does"/"did"/"do" from the
@@ -5308,9 +5349,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _vtoks = set(w for w in re.findall(r"[a-z']+", _val_l + " " + _attr_l)
                       if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
-                _overlap = len(_vtoks & _ptoks)
-                if _best is None or _overlap > _best[2]:
-                    _best = (_attr, _val, _conf, _overlap)
+                # Semantic gate: verify the match is genuine, not incidental
+                # token overlap (round 2026-10-15 RL-1 fix).
+                _fact_phrase = (_val_l + " " + _attr_l).strip()
+                if self._semantic_topic_match(_p, _fact_phrase):
+                    _overlap = len(_vtoks & _ptoks)
+                    if _best is None or _overlap > _best[2]:
+                        _best = (_attr, _val, _conf, _overlap)
         if _best is not None and len(_best) == 4:
             _best = (_best[0], _best[1], _best[2])
         return _best
