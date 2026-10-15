@@ -57,7 +57,7 @@ def test_match_stance_false_positive_prevention():
     try:
         with contextlib.redirect_stdout(buf):
             eng.user_model.opinions.stances["taught"] = \
-                eng.user_model.opinions.Stance(polarity=0.8, confidence=0.9)
+                Stance(topic="taught", polarity=0.8, confidence=0.9)
             result = eng._match_stance("what was my opinion about patience")
             assert result is None, \
                 f"'patience' query matched stance on '{result[0]}' — false positive!"
@@ -72,7 +72,7 @@ def test_match_stance_true_positive_preserved():
     try:
         with contextlib.redirect_stdout(buf):
             eng.user_model.opinions.stances["taught"] = \
-                eng.user_model.opinions.Stance(polarity=0.8, confidence=0.9)
+                Stance(topic="taught", polarity=0.8, confidence=0.9)
             result = eng._match_stance("what was my opinion about taught")
             assert result is not None, \
                 "'taught' query did not match 'taught' stance — false negative!"
@@ -88,7 +88,7 @@ def test_end_to_end_no_false_match():
     try:
         with contextlib.redirect_stdout(buf):
             eng.user_model.opinions.stances["taught"] = \
-                eng.user_model.opinions.Stance(polarity=0.8, confidence=0.9)
+                Stance(topic="taught", polarity=0.8, confidence=0.9)
             r = eng.process_turn("what was my opinion about patience")
             reply = str(r) if r else ""
             assert "taught" not in reply.lower(), \
