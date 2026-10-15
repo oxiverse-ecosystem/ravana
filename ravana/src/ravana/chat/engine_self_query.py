@@ -772,28 +772,60 @@ class SelfQueryMixin:
                             r"\b([a-z][a-z'\-]{2,})\s+(?:is|are|was|were)\s+"
                             r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|"
                             r"pretty\s+|highly\s+|absolutely\s+|completely\s+|"
-                            r"rather\s+|fairly\s+|extremely\s+)?"
+                            r"rather\s+|fairly\s+|extremely\s+|actually\s+|"
+                            r"just\s+|simply\s+|totally\s+|utterly\s+|"
+                            r"incredibly\s+|somewhat\s+)?"
                             r"([a-z][a-z'\-]{2,})\b", _rest):
                         _pred = _m.group(2).strip()
                         _read = _epm.score(_pred)
                         if _read is not None:
-                            return float(_read["polarity"])
+                            _pol = float(_read["polarity"])
+                            # Negation-aware: flip sign if a negation word
+                            # appears within 8 tokens before the predicate.
+                            _full_toks = re.findall(r"[a-z']+", t.lower())
+                            _pred_idx = [i for i, w in enumerate(_full_toks)
+                                         if w == _pred.lower()]
+                            _neg_set = {"not", "n't", "dont", "don't",
+                                        "aint", "ain't", "never", "no",
+                                        "longer", "more", "barely",
+                                        "hardly", "scarcely", "wont",
+                                        "won't", "cannot", "can't",
+                                        "cant", "rarely", "seldom"}
+                            _neg_idx = {i for i, w in enumerate(_full_toks)
+                                        if w in _neg_set}
+                            if any(any(j in _neg_idx
+                                       for j in range(max(0, pi - 8), pi))
+                                   for pi in _pred_idx):
+                                _pol = -_pol
+                            return _pol
         except Exception:
             pass
-        # Fallback: check for explicit sentiment words in the new clause
+        # Fallback: negation-aware sentiment word scan (full query).
         _pos_words = {"good", "great", "love", "like", "enjoy", "wonderful",
                       "amazing", "fantastic", "excellent", "beautiful",
                       "brilliant", "awesome", "perfect", "best", "better"}
         _neg_words = {"bad", "terrible", "awful", "hate", "dislike",
                       "horrible", "worst", "worse", "disgusting", "dreadful",
                       "atrocious", "appalling", "pathetic"}
-        _words = set(re.findall(r"[a-z']+", _rest))
-        _pos = len(_words & _pos_words)
-        _neg = len(_words & _neg_words)
+        _negators = {"not", "n't", "dont", "don't", "aint", "ain't",
+                     "never", "no", "longer", "more", "barely", "hardly",
+                     "scarcely", "wont", "won't", "cannot", "can't", "cant",
+                     "rarely", "seldom"}
+        _tokens = re.findall(r"[a-z']+", t.lower())
+        _neg_idx = {i for i, w in enumerate(_tokens) if w in _negators}
+        def _is_negated(w):
+            for i, x in enumerate(_tokens):
+                if x == w:
+                    return any(j in _neg_idx for j in range(max(0, i-4), i))
+            return False
+        _pos = sum(1 for w in _tokens if w in _pos_words and not _is_negated(w))
+        _neg = sum(1 for w in _tokens if w in _neg_words and not _is_negated(w))
+        _pos += sum(1 for w in _tokens if w in _neg_words and _is_negated(w))
+        _neg += sum(1 for w in _tokens if w in _pos_words and _is_negated(w))
         if _pos > _neg:
-            return 0.5
+            return 0.8
         elif _neg > _pos:
-            return -0.5
+            return -0.8
         return None
 
     def _execute_stance_inversion(
