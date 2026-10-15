@@ -782,16 +782,33 @@ class SelfQueryMixin:
                             return float(_read["polarity"])
         except Exception:
             pass
-        # Fallback: check for explicit sentiment words in the new clause
+        # Fallback: check for explicit sentiment words in the new clause.
+        # Negation-aware: a negation token within a 4-token window BEFORE a
+        # sentiment word flips its sign, so "i don't actually hate crowds"
+        # reads as POSITIVE (the user is negating their hate), not negative.
+        # Same sign-flip rule as _assess_reversal_polarity in user_model.py.
         _pos_words = {"good", "great", "love", "like", "enjoy", "wonderful",
                       "amazing", "fantastic", "excellent", "beautiful",
                       "brilliant", "awesome", "perfect", "best", "better"}
         _neg_words = {"bad", "terrible", "awful", "hate", "dislike",
                       "horrible", "worst", "worse", "disgusting", "dreadful",
                       "atrocious", "appalling", "pathetic"}
-        _words = set(re.findall(r"[a-z']+", _rest))
-        _pos = len(_words & _pos_words)
-        _neg = len(_words & _neg_words)
+        _negators = {"not", "n't", "dont", "don't", "aint", "ain't",
+                     "never", "no", "longer", "more", "barely", "hardly",
+                     "scarcely", "wont", "won't", "cannot", "can't", "cant",
+                     "rarely", "seldom"}
+        _tokens = re.findall(r"[a-z']+", _rest.lower())
+        _neg_idx = {i for i, w in enumerate(_tokens) if w in _negators}
+        def _is_negated(word):
+            for i, w in enumerate(_tokens):
+                if w == word:
+                    return any(j in _neg_idx for j in range(max(0, i-4), i))
+            return False
+        _pos = sum(1 for w in _tokens if w in _pos_words and not _is_negated(w))
+        _neg = sum(1 for w in _tokens if w in _neg_words and not _is_negated(w))
+        # Also count negated positives as negatives and vice versa
+        _pos += sum(1 for w in _tokens if w in _neg_words and _is_negated(w))
+        _neg += sum(1 for w in _tokens if w in _pos_words and _is_negated(w))
         if _pos > _neg:
             return 0.5
         elif _neg > _pos:
@@ -830,7 +847,16 @@ class SelfQueryMixin:
         # prior-turn stance can be inverted in the current turn.
         _turn_num = getattr(stances, "turn_num", 0)
         _held_turn = getattr(_held, "turn_number", 0)
-        if _held_turn >= _turn_num:
+        if _held_turn > _turn_num:
+            return None
+        # Round 2026-10-15: also block inversion of a stance mined earlier
+        # in the SAME turn. mine_personal_facts runs BEFORE the inversion
+        # check, so "i hate X" on the first turn creates a fresh stance that
+        # the natural-contradiction regex then matches and inverts. Check
+        # the turn-start snapshot: if the stance key did NOT exist at the
+        # start of this turn, it was freshly mined and must not be inverted.
+        _turn_start_keys = getattr(self, "_turn_start_stance_keys", None)
+        if _turn_start_keys is not None and topic not in _turn_start_keys:
             return None
         # Try to mine the NEW polarity from the post-contradiction clause.
         # If we can derive a new opinion, use recode_stance_toward (which

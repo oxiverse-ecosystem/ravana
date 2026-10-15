@@ -6934,6 +6934,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # Record which stances existed at the START of this turn so the
+        # inversion path can distinguish a PRIOR-turn stance from one mined
+        # earlier in the SAME turn (mine_personal_facts runs before the
+        # inversion check). Without this, "i hate X" on the first turn
+        # matches the natural-contradiction regex and inverts the freshly-
+        # mined stance. Round 2026-10-15.
+        self._turn_start_stance_keys = set(
+            getattr(getattr(self, "user_model", None), "opinions", None).stances.keys()
+            if getattr(getattr(self, "user_model", None), "opinions", None) is not None
+            else set()
+        )
         # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
         # `_pending_web_evidence` is stashed by the agentic pre-check and
         # consumed by the end-of-turn block that appends it to the reply. Those
