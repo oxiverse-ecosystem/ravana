@@ -1056,6 +1056,13 @@ _OBJ_NONCONTENT = frozenset({
     # particles / framers
     "out", "back", "up", "down", "off", "on", "in", "away", "over", "really",
     "just", "only", "also", "even", "still", "already",
+    # discourse markers / hedges (round 2026-10-13T1307Z): "actually" and
+    # similar fillers must never anchor a content head. Same structural
+    # pattern as the entries above — closed-class, RAVANA-expandable.
+    "actually", "basically", "literally", "honestly", "seriously",
+    "frankly", "clearly", "obviously", "apparently", "presumably",
+    "certainly", "definitely", "absolutely", "probably", "possibly",
+    "maybe", "perhaps", "surely", "truly", "simply", "merely",
     # bare timeframes
     "last", "tonight", "yesterday", "today", "tomorrow", "now", "then",
     "here", "there", "morning", "evening", "night", "day",
@@ -6587,6 +6594,16 @@ class UserModel:
         "now", "today", "tonight", "yesterday", "tomorrow", "soon",
         "later", "earlier", "then", "here", "there", "still", "yet",
         "already", "anymore", "lately", "recently", "currently",
+        # Discourse markers / hedges that leak into stance topics
+        # (round 2026-10-13T1307Z): "i actually prefer noise over silence"
+        # mined topic "actually" instead of "noise" / "silence". These are
+        # closed-class framers, not content heads — same structural pattern
+        # as the stop-words above. Generalizes to any discourse marker the
+        # user rotates in; removing one only re-admits that filler word.
+        "actually", "basically", "literally", "honestly", "seriously",
+        "frankly", "clearly", "obviously", "apparently", "presumably",
+        "certainly", "definitely", "absolutely", "probably", "possibly",
+        "maybe", "perhaps", "surely", "truly", "simply", "merely",
     }
 
     def _opinion_provenance(self, phrase: str) -> List[str]:
