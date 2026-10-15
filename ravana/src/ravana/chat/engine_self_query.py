@@ -778,6 +778,11 @@ class SelfQueryMixin:
                 if _epm is not None:
                     # Look for a copular evaluative construction in the
                     # new opinion clause: "X is Y" where Y is evaluative
+                    _negators = {"not", "n't", "dont", "don't", "aint", "ain't",
+                                 "never", "no", "longer", "more", "barely", "hardly",
+                                 "scarcely", "wont", "won't", "cannot", "can't", "cant",
+                                 "rarely", "seldom"}
+                    _tokens = re.findall(r"[a-z']+", _rest.lower())
                     for _m in re.finditer(
                             r"\b([a-z][a-z'\-]{2,})\s+(?:is|are|was|were)\s+"
                             r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|"
@@ -789,7 +794,24 @@ class SelfQueryMixin:
                         _pred = _m.group(2).strip()
                         _read = _epm.score(_pred)
                         if _read is not None:
-                            return float(_read["polarity"])
+                            _pol = float(_read["polarity"])
+                            # Negation awareness: if a negation token appears
+                            # within 5 tokens before the predicate, flip the
+                            # sign. "not all street art is good" -> "good" is
+                            # negated by "not" -> polarity flips to negative.
+                            _pred_idx = None
+                            for i, w in enumerate(_tokens):
+                                if w == _pred:
+                                    _pred_idx = i
+                                    break
+                            if _pred_idx is not None:
+                                _neg_before = any(
+                                    j in _negators
+                                    for j in _tokens[max(0, _pred_idx - 5):_pred_idx]
+                                )
+                                if _neg_before:
+                                    _pol = -_pol
+                            return _pol
         except Exception:
             pass
         # Fallback: check for explicit sentiment words in the new clause.
@@ -1320,7 +1342,7 @@ class SelfQueryMixin:
         # table.
         if _self_introspect and re.search(
                 r"\b(your|you)\s+(?:honest\s+)?(take|view|opinion|stance|"
-                r"read|thoughts?|think|thinking|thought)\s+"
+                r"read|thoughts?|think|thinking|thought|feel)\s+"
                 r"(on|about|of|regarding|toward)\b", t):
             _self_introspect = None
         # FIRST-PERSON OPINION GUARD (round 2026-10-15): a user opinion
