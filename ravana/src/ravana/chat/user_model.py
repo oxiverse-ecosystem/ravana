@@ -1485,77 +1485,6 @@ _PET_REL_NAMED_PAT = (
 )
 
 @dataclass
-def _extract_activity_obj(phrase: str) -> str:
-    """Extract the activity/event object phrase for fact storage.
-
-    Unlike _opinion_topic (which extracts the salient head concept for
-    stance attribution and CUTS at internal determiners), this preserves
-    the full noun phrase so the stored fact retains the activity target:
-      "to play the veena" -> "play the veena"  (not just "play")
-      "a juniper bonsai"  -> "juniper bonsai"  (not just "juniper")
-      "the reef tank"     -> "reef tank"       (not just "reef")
-
-    Strips leading determiners/particles/framers, keeps content words,
-    stops at prepositions/conjunctions/clause-boundaries. Bounded to 6
-    tokens. Returns '' if nothing real remains.
-
-    ALSO strips leading directional particles (up/down/off/out/in/on/away/
-    back/over/under/around/through/along/by/past/upon) — the same set
-    _opinion_topic rejects. Without this, "i keep coming back to tidal
-    energy" preserves "keep coming back tidal energy" (the phrasal verb
-    particles pollute the stored fact). The particle strip is structural:
-    it generalizes to any "i <verb> <particle> <object>" disclosure.
-    """
-    if not phrase:
-        return ""
-    toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
-    if not toks:
-        return ""
-    # Strip leading directional particles (same set _opinion_topic rejects)
-    _PARTICLES = {
-        "up", "down", "off", "out", "in", "on", "away", "back", "over",
-        "under", "around", "through", "along", "by", "past", "upon",
-    }
-    while toks and toks[0] in _PARTICLES:
-        toks.pop(0)
-    if not toks:
-        return ""
-    # Strip leading determiners, particles, framers, infinitive "to"
-    while toks and (toks[0] in _OBJECT_SKIP or toks[0] in _FRAMER_OBJ or toks[0] == "to"):
-        toks.pop(0)
-    if not toks:
-        return ""
-    # Collect content words, stopping at prepositions/conjunctions AND
-    # naming-clause markers ("named"/"called"). The named-entity miner
-    # already stores the name separately (e.g. ('sourdough starter',
-    # 'name', 'doris')), so the activity fact must NOT include the naming
-    # clause. Without this, "i keep a sourdough starter i named doris"
-    # stores ('i', 'does:keep', 'keep sourdough starter i named doris')
-    # and a later "what did i name that garden gnome?" query leaks "doris"
-    # via memory_recall. This is a targeted stop-set local to this
-    # function — it does NOT modify the global _OBJECT_STOP (which would
-    # break other miners that legitimately include "named X" in their
-    # fact values, e.g. the possession miner's ("i", "dog", "a lurcher
-    # named wren")).
-    _NAMING_CLAUSE = {"named", "called"}
-    out = []
-    for t in toks:
-        if t in _OBJECT_STOP or t in _NAMING_CLAUSE:
-            break
-        if t in _FRAMER_OBJ:
-            continue
-        out.append(t)
-        if len(out) >= 6:
-            break
-    # Strip trailing subject pronoun left by a naming clause: "i keep a
-    # sourdough starter i named doris" -> "sourdough starter i" after the
-    # "named" stop, and the trailing "i" is the subject of the "i named
-    # doris" clause, not part of the activity object.
-    while out and out[-1] in ("i", "you", "he", "she", "it", "we", "they"):
-        out.pop()
-    return " ".join(out)
-
-
 class UserModel:
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
     query_concepts: Set[str] = field(default_factory=set)
@@ -6994,6 +6923,60 @@ class UserModel:
             {'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5})
         self.belief_state = state.get('belief_state', {})
         self.interaction_history = state.get('interaction_history', [])
+
+
+# ── Module-level helpers ──────────────────────────────────────────────────────
+def _extract_activity_obj(phrase: str) -> str:
+    """Extract the activity/event object phrase for fact storage.
+
+    Unlike _opinion_topic (which extracts the salient head concept for
+    stance attribution and CUTS at internal determiners), this preserves
+    the full noun phrase so the stored fact retains the activity target:
+      "to play the veena" -> "play the veena"  (not just "play")
+      "a juniper bonsai"  -> "juniper bonsai"  (not just "juniper")
+      "the reef tank"     -> "reef tank"       (not just "reef")
+
+    Strips leading determiners/particles/framers, keeps content words,
+    stops at prepositions/conjunctions/clause-boundaries. Bounded to 6
+    tokens. Returns '' if nothing real remains.
+
+    ALSO strips leading directional particles (up/down/off/out/in/on/away/
+    back/over/under/around/through/along/by/past/upon) — the same set
+    _opinion_topic rejects. Without this, "i keep coming back to tidal
+    energy" preserves "keep coming back tidal energy" (the phrasal verb
+    particles pollute the stored fact). The particle strip is structural:
+    it generalizes to any "i <verb> <particle> <object>" disclosure.
+    """
+    if not phrase:
+        return ""
+    toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
+    if not toks:
+        return ""
+    _PARTICLES = {
+        "up", "down", "off", "out", "in", "on", "away", "back", "over",
+        "under", "around", "through", "along", "by", "past", "upon",
+    }
+    while toks and toks[0] in _PARTICLES:
+        toks.pop(0)
+    if not toks:
+        return ""
+    while toks and (toks[0] in _OBJECT_SKIP or toks[0] in _FRAMER_OBJ or toks[0] == "to"):
+        toks.pop(0)
+    if not toks:
+        return ""
+    _NAMING_CLAUSE = {"named", "called"}
+    out = []
+    for t in toks:
+        if t in _OBJECT_STOP or t in _NAMING_CLAUSE:
+            break
+        if t in _FRAMER_OBJ:
+            continue
+        out.append(t)
+        if len(out) >= 6:
+            break
+    while out and out[-1] in ("i", "you", "he", "she", "it", "we", "they"):
+        out.pop()
+    return " ".join(out)
 
 
 # ── Module-level persistence helpers ───────────────────────────────────────────
