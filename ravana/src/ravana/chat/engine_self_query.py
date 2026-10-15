@@ -1294,7 +1294,9 @@ class SelfQueryMixin:
             r"opinion|stance|self|who you are|what you (?:are|were)|how you "
             r"(?:see|feel|think)|want|wants|wanted|desire|desires|aim|aims|"
             r"goal|goals|hope|hopes|said|told|spoke|mentioned|recall|remember"
-            r")\b", t)
+            r"|different|become|becoming|learn|learning|learned|grew|growing"
+            r"|changed|changing|process|processing|work|works|working"
+            r"|feel|feeling|feels)\b", t)
         # GUARD (round 2026-09-22): a topic-opinion frame ("what's your
         # take/view/opinion/stance ON <topic>", "your thoughts about X", "what
         # do you think about Y") is NOT self-introspection — it asks RAVANA's
@@ -1603,11 +1605,23 @@ class SelfQueryMixin:
                 "we", "should", "could", "would", "is", "are", "do", "does",
                 "you", "your", "i", "i'm", "i've", "i'd", "i'll", "my", "me",
                 "we're", "our", "us", "they", "them", "he", "she", "his",
-                "her", "its", "their", "it", "that", "this", "and", "or")
+                "her", "its", "their", "it", "that", "this", "and", "or",
+                # Contraction leak fix (round 2026-10-15): "you'll", "you've",
+                # "you're", "you'd" were not stripped, producing garbage targets
+                # like "i'm still forming a view on you'll".  Structural: same
+                # closed-class pronoun class, just the contracted forms.
+                "you'll", "you've", "you're", "you'd", "you're")
             _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
                                "support", "defend", "fund", "build", "make",
                                "change", "help", "avoid", "prevent",
                                "leaving", "feel", "think", "believe",
+                               # Interrogative verb fix (round 2026-10-15):
+                               # "what do you think makes you different" — "makes"
+                               # is question scaffolding, not a topic.  Adding it
+                               # here so the extractor skips it and lands on the
+                               # real subject.  Structural: same verb-scaffold
+                               # class.
+                               "makes", "means", "matters",
                                # attitude verbs (round 2026-08-20T0701Z regression
                                # t_a9ce2550): 'do you think i LIKE X' must resolve
                                # the topic to X, not 'like X'. Structural verb
