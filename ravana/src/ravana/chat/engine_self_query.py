@@ -759,17 +759,7 @@ class SelfQueryMixin:
             "", _rest).strip()
         if not _rest:
             return None
-        # Try _assess_reversal_polarity first — it is the existing reversal
-        # polarity estimator with negation handling and reassessment-term
-        # lexicons. It returns a polarity in [-1, 1] or None.
-        try:
-            from .user_model import _assess_reversal_polarity
-            _rev_pol = _assess_reversal_polarity(t)
-            if _rev_pol is not None:
-                return float(_rev_pol)
-        except Exception:
-            pass
-        # Try the EvaluativePolarityModel next (GloVe-based, can handle
+        # Try the EvaluativePolarityModel first (GloVe-based, can handle
         # arbitrary evaluative predicates)
         try:
             _um = getattr(self, "user_model", None)
@@ -823,6 +813,16 @@ class SelfQueryMixin:
             return 0.5
         elif _neg > _pos:
             return -0.5
+        # Last resort: _assess_reversal_polarity (reassessment-term lexicon
+        # with negation handling). Only used when the EPM and sentiment-word
+        # fallback both return None, so it cannot override a direct read.
+        try:
+            from .user_model import _assess_reversal_polarity
+            _rev_pol = _assess_reversal_polarity(t)
+            if _rev_pol is not None:
+                return float(_rev_pol)
+        except Exception:
+            pass
         return None
 
     def _execute_stance_inversion(
@@ -890,10 +890,13 @@ class SelfQueryMixin:
             except Exception:
                 return None
         else:
-            # No mineable new opinion — fall back to blind reversal
+            # No mineable new opinion — fall back to blind reversal.
+            # Do NOT clear the guard here: if mine_stance_reversal already
+            # softened/reversed this utterance during mine_personal_facts,
+            # reverse_stance will be blocked by the guard and return the
+            # existing stance (correct — no double-recoding).
             try:
                 stances._soft_reversal = False
-                stances._reversed_utterance.pop(topic, None)
                 _prior = stances.reverse_stance(topic, utterance=full_query)
             except Exception:
                 return None
