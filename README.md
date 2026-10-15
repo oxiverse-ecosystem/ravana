@@ -87,6 +87,14 @@ on this codebase:
   table and no retraining. The same bridge fixes the street-art reversal class
   (a reversal naming *street art* links to a stance keyed *murals*). See
   `docs/CAPABILITY_STANCE_PROVENANCE.md`.
+- **Gates all recall paths through a relevance check.** Every recall path —
+  structured, episodic, and agent-own — passes its candidate answer through a
+  multi-signal relevance gate before returning it. If the score is below the
+  learned threshold, the answer is rejected and the turn falls through to
+  honest uncertainty. The threshold is a persisted data store value that
+  adapts incrementally from conversation feedback (false positive/negative
+  signals) — no retraining, no hardcoded replies. See
+  `docs/CAPABILITY_UNIVERSAL_RELEVANCE_GATING.md`.
 - **Corrects itself.** A later *"no, my cat's name is rex"* supersedes the
   earlier *"my cat's name is milo"* — both the old and new values are tracked in
   the fact store, and recall reflects the correction:
