@@ -754,11 +754,18 @@ class SelfQueryMixin:
             return None
         _rest = t[_nc.end():].strip()
         # Strip leading em-dash / dash separators and filler
+        # D2 FIX (round 2026-10-15T0749Z): also strip "i changed my mind",
+        # "i take it back", "i was wrong" so the topic after the reversal
+        # signal is the real subject ("words matter more..."), not the
+        # discourse marker ("actually").
         _rest = re.sub(
             r"^(?:[—–\-:]|i\s+(?:think\s+|feel\s+|now\s+)?|"
             r"about\s+|on\s+|regarding\s+|that\s+|"
             r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
-            r"am\s+(?:now\s+)?|have\s+)?)\s*",
+            r"am\s+(?:now\s+)?|have\s+)?|"
+            r"i\s+changed\s+my\s+mind\s*|"
+            r"i\s+take\s+(?:it|that)\s+back\s*|"
+            r"i\s+was\s+wrong\s*)\s*",
             "", _rest).strip()
         if not _rest:
             return None
