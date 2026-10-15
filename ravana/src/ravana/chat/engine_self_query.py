@@ -822,9 +822,13 @@ class SelfQueryMixin:
         _pos_words = {"good", "great", "love", "like", "enjoy", "wonderful",
                       "amazing", "fantastic", "excellent", "beautiful",
                       "brilliant", "awesome", "perfect", "best", "better"}
+        _pos_strong = {"love", "adore", "wonderful", "amazing", "fantastic",
+                       "excellent", "brilliant", "awesome", "perfect", "best"}
         _neg_words = {"bad", "terrible", "awful", "hate", "dislike",
                       "horrible", "worst", "worse", "disgusting", "dreadful",
                       "atrocious", "appalling", "pathetic"}
+        _neg_strong = {"hate", "loathe", "detest", "horrible", "disgusting",
+                       "atrocious", "appalling", "dreadful", "terrible"}
         _negators = {"not", "n't", "dont", "don't", "aint", "ain't",
                      "never", "no", "longer", "more", "barely", "hardly",
                      "scarcely", "wont", "won't", "cannot", "can't", "cant",
@@ -838,13 +842,15 @@ class SelfQueryMixin:
             return False
         _pos = sum(1 for w in _tokens if w in _pos_words and not _is_negated(w))
         _neg = sum(1 for w in _tokens if w in _neg_words and not _is_negated(w))
+        _pos_strong = sum(1 for w in _tokens if w in _pos_strong and not _is_negated(w))
+        _neg_strong = sum(1 for w in _tokens if w in _neg_strong and not _is_negated(w))
         # Also count negated positives as negatives and vice versa
         _pos += sum(1 for w in _tokens if w in _neg_words and _is_negated(w))
         _neg += sum(1 for w in _tokens if w in _pos_words and _is_negated(w))
         if _pos > _neg:
-            return 0.5
+            return 0.9 if _pos_strong else 0.5
         elif _neg > _pos:
-            return -0.5
+            return -0.9 if _neg_strong else -0.5
         # Last resort: _assess_reversal_polarity (reassessment-term lexicon
         # with negation handling). Only used when the EPM and sentiment-word
         # fallback both return None, so it cannot override a direct read.
@@ -1341,9 +1347,17 @@ class SelfQueryMixin:
         # also caught. Structural (opinion-verb + on/about/of), no per-topic
         # table.
         if _self_introspect and re.search(
-                r"\b(your|you)\s+(?:honest\s+)?(take|view|opinion|stance|"
+                r"\b(your|you)\s+(?:honest\s+|still\s+)?(take|view|opinion|stance|"
                 r"read|thoughts?|think|thinking|thought|feel)\s+"
+                r"(?:that\s+way\s+)?(?:the\s+same\s+way\s+)?"
                 r"(on|about|of|regarding|toward)\b", t):
+            _self_introspect = None
+        # "do you think i'm X" / "do you think you're X" — the verb is
+        # followed by a pronoun + adjective, not a preposition. This is a
+        # question about the USER's trait, not RAVANA's self-introspection.
+        if _self_introspect and re.search(
+                r"\b(your|you)\s+(?:honest\s+|still\s+)?(think|feel|believe)\s+"
+                r"(?:i|you|he|she|they|we)\s*(?:'m|'re|'s|am|are|is|was|were)\b", t):
             _self_introspect = None
         # FIRST-PERSON OPINION GUARD (round 2026-10-15): a user opinion
         # statement ("i think reading books is the best way to expand your
