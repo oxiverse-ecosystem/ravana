@@ -59,6 +59,13 @@ on this codebase:
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
   stale one or stacking a contradiction. A flip on a topic you never stated an
   attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
+- **Articulates the new polarity in reversal acks.** When you reverse a stance,
+  the ack now tells you what RAVANA understood your new position to be — *"you
+  were for it before, now you're against it"* — instead of only the old polarity.
+  The direction words are derived from the live recoded stance value (not authored
+  prose), using the same polarity band thresholds as the rest of the engine. No
+  LLM, no per-topic table, no retraining. See
+  `docs/CAPABILITY_REVERSAL_ACK_NEW_POLARITY.md`.
 - **Recodes a held stance on a FREE-FORM contradiction (no retraction keyword).**
   You don't have to say *"i flipped"* — an opposed restatement with no retraction
   cue still recodes the stance you hold: *"not all street art is good"* after
