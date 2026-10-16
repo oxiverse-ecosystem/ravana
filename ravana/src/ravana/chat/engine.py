@@ -6395,6 +6395,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _verbs = "|".join(self._USER_DISCLOSURE_VERBS)
         # Rule 1: first-person subject + disclosure verb ("what did i tell
         # you", "who have i told you about", "i forget if i told you").
+        # EXCEPTION: "what did i (just |already |recently )?tell you about X"
+        # where X is NOT a user attribute (name, age, live, work, pet, etc.)
+        # is a RECALL query (the user asking about their own disclosure),
+        # not a disclosure. The answer the user wants is RAVANA's reply
+        # confirming the disclosure, so it belongs in the agent-reply store.
+        # But when X IS a user attribute ("my dog", "my name"), the query
+        # must fall through to the user-fact path, not the agent-reply store.
+        _recall_about = re.search(
+            r"\bwhat did i (?:just |already |recently )?tell you about\b(.+)?$",
+            _q)
+        if _recall_about:
+            _topic = _recall_about.group(1) or ""
+            _user_attrs = (
+                r"name|named|called|age|live|lives|from|work|study|studied|"
+                r"grew up|sister|brother|mother|father|mom|dad|family|relative|"
+                r"kin|grandmother|grandfather|grandma|grandpa|aunt|uncle|"
+                r"cousin|niece|nephew|grandchild|wife|husband|partner|kid|"
+                r"child|son|daughter|pet|friend|job|house|home|phone|computer|"
+                r"laptop|car|cat|dog|crow|bird|fish"
+            )
+            if not re.search(r"\b(?:" + _user_attrs + r")\b", _topic):
+                return False
         if re.search(r"\b(i|we)\b(?:\s+\w+){0,2}\s+(?:" + _verbs + r")\b", _q):
             return True
         # ...and the copular frame ("what was i talking about").
@@ -7703,7 +7725,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # value/stance store (grounded) or honestly abstain. Fail-open: if
             # _route_self_query returns None the normal pipeline runs.
             _selfopinion = re.search(
-                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+                r"\b(do\s+you\s+(?:ever\s+)?(think|feel|believe|have|care)\b"
                 r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
                 r"|how\s+do\s+you\s+(feel|think)\s+about\b"
                 r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
