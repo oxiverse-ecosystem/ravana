@@ -6268,8 +6268,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         reply strings. The threshold adapts incrementally from conversation
         feedback (false positive/negative signals).
         """
-        if not answer:
-            return answer
+        if not answer or not answer.strip():
+            return None
         if not query or not query.strip():
             return None
         try:
@@ -6306,6 +6306,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self.user_model._episodic_transcript = self._episodic_transcript
         self.user_model._concept_vocab = self._concept_keywords
         self.user_model._glove_vector_fn = self._glove_vector
+
+        # SEED-backed relevance-scored recall layer (round 2026-10-13).
+        # Multi-signal scoring replaces binary pass/fail guards in the recall
+        # pipeline. All parameters live in a persisted data store — RAVANA
+        # can expand/revise them at runtime from conversation feedback.
+        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
+        if not hasattr(self, '_relevance_threshold') or self._relevance_threshold is None:
+            from .relevance_store import RelevanceThreshold, RelevanceScorer
+            self._relevance_threshold = RelevanceThreshold()
+            self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
 
     def _is_agent_self_recall_query(self, user_input: str) -> bool:
         """True when `user_input` asks about RAVANA's OWN prior speech.

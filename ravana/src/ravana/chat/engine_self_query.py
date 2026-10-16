@@ -1079,6 +1079,15 @@ class SelfQueryMixin:
             except Exception:
                 valence = 0.5
         sm = self._ensure_self_model()
+        # D4 confabulation fix: try the topic-grounded path FIRST when the
+        # query has a concrete topic. This catches queries like "what do you
+        # dream about" or "do you think people can change" where the generic
+        # branches below would return a non-sequitur. If the topic-grounded
+        # path returns None (no topic extracted), fall through to the generic
+        # branches.
+        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
+        if _topic_grounded is not None:
+            return _topic_grounded
         # ── Sub-frame dispatch (composed, state-grounded, never dict/web) ──
         # 1) "how do you feel when X" / "what makes you X" — a simulated
         #    SELF-EVENT (DMN constructive simulation over the agent's own
@@ -1156,13 +1165,6 @@ class SelfQueryMixin:
                     f"like learning things from the people who talk to me, "
                     f"and i'm figuring out the rest as i go. what do you "
                     f"think i'm like?")
-        # D4 confabulation fix: if none of the specific branches fired, try
-        # the topic-grounded fallback before giving up. This catches queries
-        # like "do you think people can change" or "what do you dream about"
-        # where the generic branches would return a non-sequitur.
-        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
-        if _topic_grounded is not None:
-            return _topic_grounded
         return None
 
     def _self_mood_word(self, valence: float) -> str:
@@ -1220,12 +1222,23 @@ class SelfQueryMixin:
                 if _topic_m:
                     _topic = _topic_m.group(1).strip()
                 else:
-                    return None
+                    # Pattern 4: "what makes you feel X" / "how do you feel
+                    # when X" — topic is the adjective/noun at the end
+                    _topic_m = re.search(
+                        r"\b(?:what\s+makes\s+you|how\s+do\s+you\s+feel\s+"
+                        r"(?:when|if))\s+([a-z][a-z\s]{2,40})\s*$", t)
+                    if _topic_m:
+                        _topic = _topic_m.group(1).strip()
+                    else:
+                        return None
         if not _topic or len(_topic) < 3:
             return None
         # Don't fire for purely affective queries ("how do you feel") —
-        # those are handled by the affective branch above.
-        if re.search(r"\b(how\s+do\s+you\s+feel|what\s+makes\s+you)\b", t):
+        # those are handled by the affective branch above. But if we found
+        # a concrete topic (e.g., "what makes you feel calm"), the topic-
+        # grounded path should fire.
+        if re.search(r"\b(how\s+do\s+you\s+feel|what\s+makes\s+you)\b", t) \
+                and not _topic_m:
             return None
         # Check if the topic connects to the agent's real state
         _related = None
