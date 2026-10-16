@@ -2134,6 +2134,76 @@ class SelfQueryMixin:
             return _gate(user_input, ans_text)
         return ans_text
 
+    def _relevance_gate(self, query: str, answer: str) -> Optional[str]:
+        """Topical relevance gate for internal-knowledge and analogical replies.
+
+        Computes the max single-word GloVe cosine between the query's content
+        words and the answer's content words. If the best similarity is below
+        threshold, the answer is off-topic (confabulation) and is withheld
+        (returns None → caller falls through to honest uncertainty).
+
+        This is a GENERALIZABLE capability: it uses distributional semantics
+        (GloVe cosine) to measure topical coherence, which is topic-agnostic
+        and works for any query/answer pair. No hardcoded topic lists.
+
+        Fail-closed: if embeddings are unavailable, returns None (honest
+        uncertainty beats confabulation).
+        """
+        if not query or not answer:
+            return None
+        if not hasattr(self, '_glove_vector'):
+            return None
+        # Extract content words from query (skip stopwords)
+        _STOP = {
+            'what', 'which', 'how', 'who', 'where', 'when', 'why', 'is',
+            'are', 'was', 'were', 'do', 'does', 'did', 'can', 'could',
+            'would', 'should', 'may', 'might', 'must', 'the', 'a', 'an',
+            'of', 'on', 'in', 'to', 'for', 'with', 'and', 'or', 'but',
+            'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he', 'she',
+            'it', 'they', 'them', 'this', 'that', 'these', 'those',
+            'tell', 'know', 'think', 'feel', 'about', 'really', 'just',
+            'something', 'anything', 'everything', 'nothing', 'someone',
+        }
+        _q_words = [
+            w for w in re.findall(r"[a-z']+", query.lower())
+            if w not in _STOP and len(w) >= 3
+        ]
+        if not _q_words:
+            return None
+        # Get the best cosine similarity between any query word and any answer word
+        _best_sim = 0.0
+        _threshold = 0.30  # min GloVe cosine for topical relevance
+        for _qw in _q_words:
+            try:
+                _qv = self._glove_vector(_qw)
+            except Exception:
+                continue
+            if _qv is None:
+                continue
+            for _aw in re.findall(r"[a-z]{3,}", answer.lower()):
+                if _aw in _STOP:
+                    continue
+                try:
+                    _av = self._glove_vector(_aw)
+                except Exception:
+                    continue
+                if _av is None:
+                    continue
+                try:
+                    _sim = float(
+                        np.dot(_qv, _av)
+                        / (np.linalg.norm(_qv) * np.linalg.norm(_av) + 1e-9)
+                    )
+                except Exception:
+                    continue
+                if _sim > _best_sim:
+                    _best_sim = _sim
+        if _best_sim < _threshold:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [relevance_gate] withheld (sim={_best_sim:.2f} < {_threshold}): {answer[:60]!r}")
+            return None
+        return answer
+
     def _try_analogical_reasoning(self, subj: str, user_input: str) -> Optional[str]:
         """When internal knowledge returns MISS, attempt analogical reasoning.
 
