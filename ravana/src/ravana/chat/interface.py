@@ -358,6 +358,10 @@ class ChatInterface:
                 # path fires. Previously this counter was only incremented
                 # in web_learning.py, so the engine reported 0 learnings even
                 # when it was actively absorbing new concepts from conversation.
+                # D8 FIX: increment learning_count when the chat learning
+                # path fires. Previously this counter was only incremented
+                # in web_learning.py, so the engine reported 0 learnings even
+                # when it was actively absorbing new concepts from conversation.
                 self._learning_count += 1
             if self.turn_count % 25 == 0:
                 self._last_sleep = self.pfc_workspace.sleep()

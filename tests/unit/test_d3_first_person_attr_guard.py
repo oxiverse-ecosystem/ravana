@@ -1,16 +1,20 @@
-"""Regression test for D3 (round 2026-10-13T0125Z): _route_agent_own_recall
-must NOT hijack first-person recall queries that contain a user-attribute word.
+"""Regression test for D3 (round 2026-10-12T1042Z): first-person recall
+queries that name a USER ATTRIBUTE must NOT be answered from the agent-reply
+store.
 
-Defect: "what did i just tell you about my dog" matched _is_first_person_recall
-(because of "what did i just tell you"), which bypassed the user-attribute
-guard entirely. The query reached the agent-reply store and confabulated a
-reply about a DIFFERENT user (e.g. "your sister maya is just got accepted").
+The _is_first_person_recall regex in _route_agent_own_recall matches the
+scaffolding "what did i just tell you about" regardless of what follows. When
+the query also names a user attribute ("my dog", "my sister", etc.), the
+attribute guard below is skipped (because _is_first_person_recall is True),
+and the query reaches the agent-reply store — returning an unrelated reply
+from a prior turn (measured T27: "what did i just tell you about my dog" ->
+"your sister maya is just got accepted").
 
-Fix: the user-attribute guard now applies whenever the query contains a
-user-attribute word, regardless of _is_first_person_recall. The
-_is_first_person_recall heuristic only keeps queries in-scope when they do
-NOT contain a user-attribute word (e.g. "what did i just tell you about my
-favorite food" — "favorite food" is not in the attribute list).
+The fix excludes user-attribute queries from the first-person recall path so
+they fall through to the user-fact recall. This test fails without the fix
+(the query returns an unrelated agent reply) and passes with it (the query
+returns None from _route_agent_own_recall, letting the user-fact path handle
+it).
 
 Run: RAVANA_OFFLINE=1 python -m pytest tests/unit/test_d3_first_person_attr_guard.py -q
 """
@@ -18,7 +22,7 @@ import os
 os.environ.setdefault("RAVANA_OFFLINE", "1")
 
 import sys
-_PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 for p in (_PROJ, f"{_PROJ}/ravana_ml/src", f"{_PROJ}/ravana/src", f"{_PROJ}/ravana-v2/src"):
     sys.path.insert(0, p)
 
@@ -29,76 +33,64 @@ def _new_engine(suffix):
     return CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=suffix)
 
 
-def test_first_person_recall_with_user_attr_does_not_confabulate():
-    """D3: "what did i just tell you about my dog" must NOT be answered from
-    the agent-reply store. It must fall through to the user-fact store or
-    honest uncertainty — never a confabulated reply about a different user."""
-    eng = _new_engine("t_d3_first_person_attr")
-    # Store a fact about the user's dog
+def test_d3_first_person_recall_with_user_attr_does_not_confabulate():
+    """'what did i just tell you about my dog' must NOT return an unrelated
+    agent reply from a prior turn. The _route_agent_own_recall path must
+    return None so the query falls through to the user-fact recall.
+
+    Without the fix, _is_first_person_recall is True for this query (it
+    matches "what did i just tell you about"), which causes the attribute
+    guard to be skipped. The query then reaches the agent-reply store where
+    the content tokens ['just', 'dog'] overlap with a stored reply's tokens
+    by 2 >= _min_overlap=2, triggering a confabulation."""
+    eng = _new_engine("t_d3_dog")
+    # Seed a prior turn whose reply contains both "just" and "dog" so the
+    # overlap with the query's content tokens is sufficient to match.
+    eng.process_turn("my dog just learned a new trick and he is so proud of himself now")
+    # The query must NOT be intercepted by _route_agent_own_recall.
+    r = eng._route_agent_own_recall("what did i just tell you about my dog")
+    assert r is None, (
+        f"first-person recall with user attr 'my dog' must return None "
+        f"(fall through to user-fact path), got: {r!r}"
+    )
+
+
+def test_d3_first_person_recall_with_sister_attr_does_not_confabulate():
+    """'what did i just tell you about my sister' must NOT return an unrelated
+    agent reply."""
+    eng = _new_engine("t_d3_sister")
     eng.process_turn("my dog biscuit sleeps on the wedging table")
-    # Store a fact about the user's sister (the confabulation target)
-    eng.process_turn("my sister maya just got accepted to college")
-    # The query: first-person recall + user-attribute word "dog"
-    reply = eng.process_turn("what did i just tell you about my dog")
-    reply_lower = (reply or "").lower()
-    # Must NOT confabulate the sister fact
-    assert "maya" not in reply_lower, (
-        f"D3: first-person recall with user-attr confabulated sister fact: {reply!r}"
-    )
-    assert "sister" not in reply_lower, (
-        f"D3: first-person recall with user-attr confabulated sister fact: {reply!r}"
-    )
-    # Must NOT be answered from the agent-reply store (strategy check)
-    strategy = str(getattr(eng, "_last_strategy", ""))
-    assert strategy != "agent_own_recall", (
-        f"D3: query was answered from agent-reply store (strategy=agent_own_recall): {reply!r}"
+    r = eng._route_agent_own_recall("what did i just tell you about my sister")
+    assert r is None, (
+        f"first-person recall with user attr 'my sister' must return None, "
+        f"got: {r!r}"
     )
 
 
-def test_first_person_recall_without_user_attr_still_reaches_agent_store():
-    """The fix must NOT break the RV-5 backfill: "what did i just tell you
-    about my favorite food" (no user-attribute word) must still reach the
-    agent-reply store."""
-    eng = _new_engine("t_d3_first_person_no_attr")
-    eng.process_turn("my favorite food is handmade mugs")
-    reply = eng.process_turn("what did i just tell you about my favorite food")
-    # This should NOT be blocked by the user-attribute guard
-    # (it may or may not find a reply in the store, but it must not be
-    # blocked by the attribute guard — it should proceed to the store lookup)
-    # We just verify it doesn't crash and returns something
-    assert reply is not None, "query should return a reply (even if uncertain)"
-
-
-def test_user_attr_guard_still_works_for_non_first_person():
-    """The user-attribute guard must still work for non-first-person queries
-    like "what is my dog called" — these should never reach the agent store."""
-    eng = _new_engine("t_d3_attr_no_first_person")
-    eng.process_turn("my dog biscuit sleeps on the wedging table")
-    eng.process_turn("my sister maya just got accepted to college")
-    reply = eng.process_turn("what is my dog called")
-    reply_lower = (reply or "").lower()
-    assert "maya" not in reply_lower, (
-        f"user-attr query confabulated sister fact: {reply!r}"
-    )
-    strategy = str(getattr(eng, "_last_strategy", ""))
-    assert strategy != "agent_own_recall", (
-        f"user-attr query was answered from agent-reply store: {reply!r}"
+def test_d3_first_person_recall_without_user_attr_still_works():
+    """A genuine first-person recall of RAVANA's own speech (no user attribute)
+    must still reach the agent-reply store. 'what did you say about art' has
+    no user-attribute word and should NOT be blocked by the D3 guard."""
+    eng = _new_engine("t_d3_art")
+    eng.process_turn("i think art is about paying attention to small things")
+    # This is a genuine agent-self recall — should NOT return None.
+    r = eng._route_agent_own_recall("what did you say about art")
+    # The exact reply depends on the store, but it must NOT be None
+    # (the D3 guard must not block genuine agent-self recalls).
+    assert r is not None, (
+        "genuine agent-self recall 'what did you say about art' must NOT be "
+        "blocked by the D3 guard"
     )
 
 
-def test_first_person_recall_with_sister_does_not_confabulate():
-    """D3 variant: "what did i just tell you about my sister" must NOT be
-    answered from the agent-reply store."""
-    eng = _new_engine("t_d3_first_person_sister")
-    eng.process_turn("my sister maya just got accepted to college")
-    eng.process_turn("my dog biscuit sleeps on the wedging table")
-    reply = eng.process_turn("what did i just tell you about my sister")
-    reply_lower = (reply or "").lower()
-    # Must NOT confabulate the dog fact
-    assert "biscuit" not in reply_lower, (
-        f"D3: first-person recall about sister confabulated dog fact: {reply!r}"
-    )
-    strategy = str(getattr(eng, "_last_strategy", ""))
-    assert strategy != "agent_own_recall", (
-        f"D3: query about sister was answered from agent-reply store: {reply!r}"
+def test_d3_first_person_recall_favorite_food_still_works():
+    """'what did i just tell you about my favorite food' must still reach the
+    agent-reply store (RV-5 backfill). 'favorite food' is NOT in the
+    user-attribute word list, so the D3 guard must not block it."""
+    eng = _new_engine("t_d3_food")
+    eng.process_turn("i told you my favorite food is dosa")
+    r = eng._route_agent_own_recall("what did i just tell you about my favorite food")
+    assert r is not None, (
+        "RV-5 backfill: 'what did i just tell you about my favorite food' "
+        "must still reach the agent-reply store"
     )

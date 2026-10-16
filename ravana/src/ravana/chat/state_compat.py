@@ -114,9 +114,12 @@ def ravana_unpickler(f) -> pickle.Unpickler:
             try:
                 return super().find_class(module, name)
             except (ModuleNotFoundError, AttributeError, ImportError):
-                # Legacy alias for the CLI entry module.
+                # Legacy alias for the CLI entry module. A snapshot saved from
+                # `python scripts/ravana_chat.py` (module `ravana_chat` or
+                # `__main__`) must resolve to the class's canonical home.
                 if module in ("ravana_chat", "scripts.ravana_chat", "__main__"):
-                    for alias in ("scripts.ravana_chat", "ravana_chat"):
+                    for alias in ("ravana.chat.engine", "scripts.ravana_chat",
+                                "ravana_chat", "ravana.chat"):
                         try:
                             return super().find_class(alias, name)
                         except (ModuleNotFoundError, AttributeError, ImportError):
