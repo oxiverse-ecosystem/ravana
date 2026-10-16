@@ -1838,15 +1838,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._deep_read_relevance_gate = 0.12  # min relevance to deep-read
         self._deep_read_offload = True   # offload deep reads to background
 
-        # SEED-backed relevance-scored recall layer (round 2026-10-13).
-        # Multi-signal scoring replaces binary pass/fail guards in the recall
-        # pipeline. All parameters live in a persisted data store — RAVANA
-        # can expand/revise them at runtime from conversation feedback.
-        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
-        from .relevance_store import RelevanceThreshold, RelevanceScorer
-        self._relevance_threshold = RelevanceThreshold()
-        self._relevance_scorer = RelevanceScorer()
-
         # Phase 18: Curiosity Drive - autonomous topic selection for background learning
         self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
         self._curiosity_cycles_this_session: int = 0  # bg auto-select count per idle session
@@ -6030,32 +6021,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _best_turn = _turn
                     _best_val = _f.value
         return _best_val
-
-    def _temporal_fact(self, subject, attribute, value=None):
-        """Temporal Fact Disambiguation (TFD) — return the most recent,
-        non-superseded PersonalFact for (subject, attribute), or None.
-
-        SEED-compliant: reads from the existing PersonalFactStore which
-        already tracks turn_number and superseded on every fact. No new
-        store, no new data structure — this is a retrieval wrapper that
-        applies the store's own decay_score (confidence x recency) ranking.
-
-        Online/incremental: the store updates turn_number on every
-        assert_fact / reinforce / confirm / contradict, so the "most recent"
-        is always the one the user last corrected or confirmed. No retraining.
-
-        Generalizable: works for ANY (subject, attribute) pair, not just
-        specific entities. Used by _structured_recall branches that
-        previously iterated pf.facts.items() and returned the FIRST match,
-        which could be a stale prior-round value.
-
-        No hardcoded reply strings, no per-topic tables, no authored prose.
-        """
-        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
-        if pf is None:
-            return None
-        _f = pf.get(subject, attribute, value)
-        return _f
 
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later

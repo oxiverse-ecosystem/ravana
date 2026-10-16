@@ -2288,38 +2288,45 @@ class SelfQueryMixin:
     def _relevance_gate(self, query: str, answer: str) -> Optional[str]:
         """Topical relevance gate for internal-knowledge and analogical replies.
 
-        Fail-OPEN: returns the answer unless it is clearly off-topic. The
-        0.65 GloVe cosine threshold was too aggressive — it blocked legitimate
-        answers that were topically related but did not contain a direct
-        synonym of the subject (e.g., "i don't really have a solid grasp on
-        curious so far" for a query about "open source"). The gate now only
-        withholds an answer when the best semantic match is below 0.25
-        (effectively unrelated), and even then only logs the decision.
+        Checks whether the answer is topically about the query's grounded
+        subject by requiring a STRONG semantic match (GloVe cosine >= 0.65)
+        between the subject and at least one content word in the answer.
+
+        Why 0.65: GloVe cosine between common nouns is typically 0.30-0.60
+        (they co-occur in similar contexts). A threshold of 0.65 ensures the
+        answer mentions the subject itself or a very close synonym (e.g.,
+        "dream" -> "dreams" = 0.88), not just any statistically-related word.
 
         This is a GENERALIZABLE capability: it uses distributional semantics
         (GloVe cosine) to measure topical coherence, which is topic-agnostic
         and works for any query/answer pair. No hardcoded topic lists.
+
+        Fail-closed: if embeddings are unavailable, returns None (honest
+        uncertainty beats confabulation).
         """
         if not query or not answer:
-            return answer
+            return None
         if not hasattr(self, '_glove_vector'):
-            return answer
+            return None
+        # Ground the subject from the query (same as _consult_internal_knowledge)
         try:
             _g = self._ground_query(query)
             subj = _g[0] if _g else None
         except Exception:
             subj = None
         if not subj:
-            return answer
+            return None
+        # Check if the answer mentions the subject or a very close synonym
         _subj_vec = None
         try:
             _subj_vec = self._glove_vector(subj.lower().strip())
         except Exception:
             pass
         if _subj_vec is None:
-            return answer
+            return None
+        # Check each content word in the answer for a STRONG match
         _best_sim = 0.0
-        _threshold = 0.25  # min GloVe cosine — below this is clearly off-topic
+        _threshold = 0.65  # min GloVe cosine for "same topic"
         for _aw in re.findall(r"[a-z]{3,}", answer.lower()):
             try:
                 _av = self._glove_vector(_aw)

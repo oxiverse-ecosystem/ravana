@@ -3911,6 +3911,24 @@ class UserModel:
                 else:
                     _name = " ".join(_toks[:_vidx]).lower()
                     _name = _strip_obj_framers(_name).strip(" .,!?")
+                    # COPULA-STRIP (round 2026-10-16, defect D3): the NAME
+                    # slice is "tokens before the verb", and in a copula
+                    # disclosure the copula sits between the name and the
+                    # predicate ("my sister priya IS learning ..."), so the
+                    # slice came back as "priya is" and the fact's attribute
+                    # became "sister priya is". The recall renderer prefixes
+                    # "your", so that attribute rendered as the broken
+                    # "your sister priya is is learning play". A copula is a
+                    # closed-class function word carrying no content, so drop
+                    # a TRAILING copula from the name slice. Structural: it
+                    # generalizes to every copula (is/are/was/were/am/been/
+                    # being) and every relationship word, via the SAME
+                    # pet_slots.is_function_word gate the other head slots
+                    # consult — no per-role branch, no per-topic table, and no
+                    # disclosed word is lost.
+                    while _name.split() and is_function_word(
+                            _name.split()[-1]):
+                        _name = " ".join(_name.split()[:-1]).strip(" .,!?")
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
@@ -3979,7 +3997,31 @@ class UserModel:
                         if _is_clause_obj:
                             _obj = ""
                         else:
-                            _obj = self._opinion_topic(_obj_raw.lower()) or ""
+                            # OBJECT-PHRASE PRESERVATION (round 2026-10-16,
+                            # defect D3): the object was resolved through
+                            # _opinion_topic, which CUTS at internal determiners
+                            # because it is built for stance-KEY extraction.
+                            # For a fact VALUE that is the wrong resolver: "to
+                            # play the violin" collapsed to "play", so the stored
+                            # fact was "learning play" and recall answered
+                            # "your sister priya learning play" — the verb
+                            # survived, the object phrase was lost. The module
+                            # already owns the right resolver for this shape
+                            # (_extract_activity_obj, added for the activity/
+                            # event miners and covered by
+                            # tests/unit/test_activity_object_noun_phrase.py):
+                            # it keeps the full noun phrase, strips only leading
+                            # determiners/particles/framers, and stops at
+                            # prepositions/conjunctions. Routing the
+                            # relationship-verb object through the SAME resolver
+                            # makes the miner agree with the activity miner by
+                            # construction instead of re-implementing a narrower
+                            # rule here. Structural: the phrase is the user's own
+                            # words, bounded to 6 tokens, and no per-verb or
+                            # per-topic branch is added.
+                            _obj = _extract_activity_obj(_obj_raw.lower()) or ""
+                            if not _obj:
+                                _obj = self._opinion_topic(_obj_raw.lower()) or ""
                         _obj = _strip_obj_framers(_obj)
                         if _obj and len(_obj.split()) <= 5:
                             _val = f"{_verb} {_obj}"
