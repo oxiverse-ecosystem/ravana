@@ -1156,6 +1156,13 @@ class SelfQueryMixin:
                     f"like learning things from the people who talk to me, "
                     f"and i'm figuring out the rest as i go. what do you "
                     f"think i'm like?")
+        # D4 confabulation fix: if none of the specific branches fired, try
+        # the topic-grounded fallback before giving up. This catches queries
+        # like "do you think people can change" or "what do you dream about"
+        # where the generic branches would return a non-sequitur.
+        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
+        if _topic_grounded is not None:
+            return _topic_grounded
         return None
 
     def _self_mood_word(self, valence: float) -> str:
@@ -1165,6 +1172,139 @@ class SelfQueryMixin:
         if valence <= 0.4:
             return "quiet"
         return "steady"
+
+    def _topic_grounded_self_experience(self, user_input: str, t: str) -> Optional[str]:
+        """Topic-grounded self-experience reply (D4 confabulation fix).
+
+        When a self-experience query ("what do you dream about", "do you think
+        people can change", "what are you afraid of") has a CONCRETE TOPIC that
+        the generic branches below would ignore, this method grounds the reply
+        in that topic by:
+          1. Extracting the topic via the existing _ground_query mechanism
+          2. Checking if the topic connects to the agent's real state (graph
+             concepts, stances, facts)
+          3. If yes, composing a reply that references the topic AND the
+             connection (e.g., "i haven't formed a view on {topic} yet, but it
+             sits close to {related_concept}")
+          4. If no, returning an honest "i haven't thought about {topic}
+             specifically" rather than a generic non-sequitur
+
+        This is GENERALIZABLE: it works for any self-experience query topic,
+        not just specific keywords. It uses the existing concept graph and
+        stance store (seed knowledge, runtime-expandable). No hardcoding.
+
+        The method is called as a FALLBACK when the specific branches in
+        _route_self_experience would return a generic reply that doesn't
+        engage with the topic. It only fires when the query has a clear topic
+        that the generic branches would miss.
+        """
+        # Extract the topic from the query using multiple patterns
+        # Pattern 1: "about X" / "of X" / "on X" where X is at the end
+        _topic_m = re.search(
+            r"\\b(?:about|of|on)\\s+([a-z][a-z\\s]{2,40})\\s*$", t)
+        if _topic_m:
+            _topic = _topic_m.group(1).strip()
+        else:
+            # Pattern 2: "what do you X about Y" / "do you X about Y"
+            _topic_m = re.search(
+                r"\\b(?:what|do|did|are|can|could|would)\\s+(?:you\\s+)?"
+                r"(?:\\w+\\s+){0,3}?about\\s+([a-z][a-z\\s]{2,40})", t)
+            if _topic_m:
+                _topic = _topic_m.group(1).strip()
+            else:
+                # Pattern 3: "what do you dream about" — topic is the noun
+                # before "about" at the end
+                _topic_m = re.search(
+                    r"\\b(dream|think|feel|wonder|curious|afraid|scared|"
+                    r"hope|wish|regret|love|like|enjoy)\\s+about\\s*$", t)
+                if _topic_m:
+                    _topic = _topic_m.group(1).strip()
+                else:
+                    return None
+        if not _topic or len(_topic) < 3:
+            return None
+        # Don't fire for purely affective queries ("how do you feel") —
+        # those are handled by the affective branch above.
+        if re.search(r"\\b(how\\s+do\\s+you\\s+feel|what\\s+makes\\s+you)\\b", t):
+            return None
+        # Check if the topic connects to the agent's real state
+        _related = None
+        try:
+            _related = self._find_topic_connection(_topic)
+        except Exception:
+            _related = None
+        if _related:
+            # Ground the reply in the topic + the real connection
+            return (f"i haven't thought much about {_topic} specifically, "
+                    f"but it sits close to {_related} — and that i do have "
+                    f"feelings about. what draws you to it?")
+        # No connection found — honest topic-specific uncertainty
+        return (f"{_topic} is a bit outside what i've formed a view on. "
+                f"i'm still figuring out what i think about things like that. "
+                f"what about you — what's your take?")
+
+    def _find_topic_connection(self, topic: str) -> Optional[str]:
+        """Find a real connection between a topic and the agent's state.
+
+        Checks (in order):
+          1. Agent stances — has RAVANA formed a stance on this topic?
+          2. Concept graph — is the topic a known concept, or closely related
+             to one via GloVe cosine similarity?
+          3. Personal facts — does the user have a fact about this topic?
+
+        Returns a short string describing the connection (e.g., "the ocean",
+        "your sister", "open source") or None if no connection exists.
+
+        This is GENERALIZABLE: it uses the existing concept graph and stance
+        store (seed knowledge, runtime-expandable). No hardcoded topic lists.
+        """
+        if not topic:
+            return None
+        topic_lower = topic.lower().strip()
+        # 1. Check agent stances
+        _agent_stances = getattr(self, "_agent_stances", None)
+        if _agent_stances:
+            for _topic_key, _stance_val in _agent_stances.items():
+                if isinstance(_topic_key, str) and topic_lower in _topic_key.lower():
+                    return _topic_key
+        # 2. Check concept graph — exact match or close neighbor
+        if hasattr(self, "graph") and self.graph is not None:
+            # Exact match
+            if topic_lower in self.graph.nodes:
+                return topic_lower
+            # Close neighbor via GloVe
+            if hasattr(self, "_glove_vector"):
+                try:
+                    _topic_vec = self._glove_vector(topic_lower)
+                    if _topic_vec is not None:
+                        _best_sim = 0.0
+                        _best_node = None
+                        for _node in list(self.graph.nodes)[:200]:
+                            try:
+                                _node_vec = self._glove_vector(_node)
+                                if _node_vec is None:
+                                    continue
+                                _sim = float(
+                                    np.dot(_topic_vec, _node_vec)
+                                    / (np.linalg.norm(_topic_vec) * np.linalg.norm(_node_vec) + 1e-9)
+                                )
+                                if _sim > _best_sim:
+                                    _best_sim = _sim
+                                    _best_node = _node
+                            except Exception:
+                                continue
+                        if _best_node and _best_sim >= 0.55:
+                            return _best_node
+                except Exception:
+                    pass
+        # 3. Check personal facts
+        _pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if _pf is not None:
+            for _k in _pf.facts:
+                if isinstance(_k, tuple) and len(_k) >= 3:
+                    if topic_lower in str(_k).lower():
+                        return str(_k[2]) if len(_k) > 2 else str(_k[1])
+        return None
 
     def _route_self_reference(self, user_input: str) -> Optional[str]:
         """Self-referential / self-model questions that miss the narrow

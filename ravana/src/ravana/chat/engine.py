@@ -6012,6 +6012,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return _f.value
         return None
 
+    def _temporal_fact(self, subject, attribute, value=None):
+        """Temporal Fact Disambiguation (TFD) — return the most recent,
+        non-superseded PersonalFact for (subject, attribute), or None.
+
+        SEED-compliant: reads from the existing PersonalFactStore which
+        already tracks turn_number and superseded on every fact. No new
+        store, no new data structure — this is a retrieval wrapper that
+        applies the store's own decay_score (confidence x recency) ranking.
+
+        Online/incremental: the store updates turn_number on every
+        assert_fact / reinforce / confirm / contradict, so the "most recent"
+        is always the one the user last corrected or confirmed. No retraining.
+
+        Generalizable: works for ANY (subject, attribute) pair, not just
+        specific entities. Used by _structured_recall branches that
+        previously iterated pf.facts.items() and returned the FIRST match,
+        which could be a stale prior-round value.
+
+        No hardcoded reply strings, no per-topic tables, no authored prose.
+        """
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            return None
+        _f = pf.get(subject, attribute, value)
+        return _f
+
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
         cued recall about the agent's own speech can answer from RAVANA's output
@@ -6158,6 +6184,124 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 pass
         except Exception:
             pass
+
+    def _temporal_fact(self, subject, attribute, value=None):
+        """Temporal Fact Disambiguation (TFD) — return the most recent,
+        non-superseded PersonalFact for (subject, attribute), or None.
+
+        SEED-compliant: reads from the existing PersonalFactStore which
+        already tracks turn_number and superseded on every fact. No new
+        store, no new data structure — this is a retrieval wrapper that
+        applies the store's own decay_score (confidence x recency) ranking.
+
+        Online/incremental: the store updates turn_number on every
+        assert_fact / reinforce / confirm / contradict, so the "most recent"
+        is always the one the user last corrected or confirmed. No retraining.
+
+        Generalizable: works for ANY (subject, attribute) pair, not just
+        specific entities. Used by _structured_recall branches that
+        previously iterated pf.facts.items() and returned the FIRST match,
+        which could be a stale prior-round value.
+
+        No hardcoded reply strings, no per-topic tables, no authored prose.
+        """
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            return None
+        _f = pf.get(subject, attribute, value)
+        return _f
+
+    def _join_stance_clauses(self, stance, reason):
+        """Join a stance sentence and its reason into one reply.
+
+        SINGLE SOURCE OF TRUTH for this composition (round 2026-10-04T0827Z,
+        defect D2). The pair returned by `_agent_stance_on` is fine; joining it
+        was re-implemented at four sites and three of them were wrong — they
+        terminated only the reason and joined with a bare space, so an
+        unterminated stance clause ran into the reason and the topic was named
+        twice:
+
+            "i'm still forming a view on X i don't have a fixed stance on X yet"
+
+        while the one correct site stripped the stance's terminator first and
+        read "i'm still forming a view on X. i don't have a fixed stance on X
+        yet".
+
+        The reason keeps its own lower-case continuation ("i don't ...", "it is
+        ...") — it CONTINUES the sentence, so force-capitalizing it would read
+        "Is a basic right" (a defect this same helper's comment records from an
+        earlier round). Nothing here is authored per-topic: both halves come
+        from the caller.
+        """
+        if stance is None:
+            return ""
+        _s = str(stance).strip()
+        _r = str(reason).strip() if reason else ""
+        if not _r:
+            return _s if _s.endswith((".", "!", "?")) else (_s + "." if _s else "")
+        _s = _s.rstrip(".?!")
+        if not _s:
+            return _r
+        return f"{_s}. {_r}"
+
+    def _semantic_topic_match(self, phrase: str, topic: str,
+                              min_sim: float = 0.3) -> bool:
+        """Check if two phrases are semantically related via GloVe cosine.
+
+        Computes the max cosine similarity between any content token in the
+        phrase and any content token in the topic. Returns True if any pair
+        clears the threshold. This is a structural semantic gate — it uses
+        the same embedding system the rest of the engine uses, with no
+        per-topic logic and no retraining. Used to prevent false recall
+        matches where token overlap is incidental (e.g. "patience" matching
+        "taught" because they share a common word in a longer phrase).
+        """
+        try:
+            _p_toks = [w for w in re.findall(r"[a-z']+", (phrase or "").lower())
+                       if len(w) >= 3]
+            _t_toks = [w for w in re.findall(r"[a-z']+", (topic or "").lower())
+                       if len(w) >= 3]
+            if not _p_toks or not _t_toks:
+                return False
+            _p_vecs = [(w, self._glove_vector(w)) for w in _p_toks]
+            _p_vecs = [(w, v) for w, v in _p_vecs if v is not None]
+            _t_vecs = [(w, self._glove_vector(w)) for w in _t_toks]
+            _t_vecs = [(w, v) for w, v in _t_vecs if v is not None]
+            if not _p_vecs or not _t_vecs:
+                return False
+            for _pw, _pv in _p_vecs:
+                for _tw, _tv in _t_vecs:
+                    _sim = float(np.dot(_pv, _tv))
+                    if _sim >= min_sim:
+                        return True
+            return False
+        except Exception:
+            return False
+
+    def _relevance_gate(self, query: str, answer: Optional[str]) -> Optional[str]:
+        """SEED-backed relevance gate (round 2026-10-13).
+
+        Verifies that a candidate answer is relevant to the query before
+        returning it. Fail-closed: if the multi-signal relevance score is
+        below the learned threshold, return None (honest uncertainty beats
+        confabulation).
+
+        This is a general structural check — no per-topic logic, no hardcoded
+        reply strings. The threshold adapts incrementally from conversation
+        feedback (false positive/negative signals).
+        """
+        if not answer:
+            return answer
+        try:
+            _score = self._relevance_scorer.score(
+                query, answer,
+                query_turn=self.turn_count,
+                threshold=self._relevance_threshold)
+            if _score >= self._relevance_threshold.base_threshold:
+                return answer
+            return None
+        except Exception:
+            return answer  # fail-open on scorer error (never break recall)
 
     def _bind_user_model_dependencies(self):
         """Inject engine-owned structures into the user model.
@@ -7219,6 +7363,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _cued_self = self._self_cued_episodic(user_input)
         except Exception:
             _cued_self = None
+        # Apply the universal relevance gate at the call site (not inside
+        # _self_cued_episodic) so the gate can be swapped/configured
+        # independently. An answer that passes the cue match but fails
+        # the relevance score returns None — honest uncertainty beats
+        # confabulation.
+        if _cued_self is not None:
+            _cued_self = self._relevance_gate(user_input, _cued_self)
         if _cued_self is not None:
             self._last_strategy = "self_cued_episodic"
             self._last_responses.append(_cued_self)
@@ -11839,6 +11990,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self.cerebellar_ngram.seed_from_pos(self._concept_pos)
             if hasattr(self, 'syntactic_assembly'):
                 self.syntactic_assembly.seed_from_pos(self._concept_pos)
+
+            # Re-bind user-model dependencies after load(). The pickle
+            # serializes _glove_vector_fn as a string (bound methods can't
+            # be pickled), so the binding must be re-applied here — after
+            # user_model is reassigned from the snapshot — or every fact
+            # miner / evaluative-predicate path that reads
+            # user_model._glove_vector_fn gets a dead string and silently
+            # abstains. Same for the relevance scorer's glove_fn.
+            self._bind_user_model_dependencies()
 
             # Fix 7: self-heal a checksum-mismatched snapshot by re-saving a
             # fresh, self-consistent one now that all valid fields are restored.
