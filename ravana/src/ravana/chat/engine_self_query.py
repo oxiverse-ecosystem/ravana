@@ -1079,6 +1079,14 @@ class SelfQueryMixin:
             except Exception:
                 valence = 0.5
         sm = self._ensure_self_model()
+        # ── D4 fix: topic-grounded check BEFORE generic branches ──
+        # If the query has a concrete topic that the generic branches would
+        # ignore, try the topic-grounded fallback FIRST. This prevents
+        # non-sequitur confabulations like "i care about people" for
+        # "do you think people can change".
+        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
+        if _topic_grounded is not None:
+            return _topic_grounded
         # ── Sub-frame dispatch (composed, state-grounded, never dict/web) ──
         # 1) "how do you feel when X" / "what makes you X" — a simulated
         #    SELF-EVENT (DMN constructive simulation over the agent's own
@@ -1156,13 +1164,6 @@ class SelfQueryMixin:
                     f"like learning things from the people who talk to me, "
                     f"and i'm figuring out the rest as i go. what do you "
                     f"think i'm like?")
-        # D4 confabulation fix: if none of the specific branches fired, try
-        # the topic-grounded fallback before giving up. This catches queries
-        # like "do you think people can change" or "what do you dream about"
-        # where the generic branches would return a non-sequitur.
-        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
-        if _topic_grounded is not None:
-            return _topic_grounded
         return None
 
     def _self_mood_word(self, valence: float) -> str:
@@ -1201,22 +1202,22 @@ class SelfQueryMixin:
         # Extract the topic from the query using multiple patterns
         # Pattern 1: "about X" / "of X" / "on X" where X is at the end
         _topic_m = re.search(
-            r"\\b(?:about|of|on)\\s+([a-z][a-z\\s]{2,40})\\s*$", t)
+            r"\b(?:about|of|on)\s+([a-z][a-z\s]{2,40})\s*$", t)
         if _topic_m:
             _topic = _topic_m.group(1).strip()
         else:
             # Pattern 2: "what do you X about Y" / "do you X about Y"
             _topic_m = re.search(
-                r"\\b(?:what|do|did|are|can|could|would)\\s+(?:you\\s+)?"
-                r"(?:\\w+\\s+){0,3}?about\\s+([a-z][a-z\\s]{2,40})", t)
+                r"\b(?:what|do|did|are|can|could|would)\s+(?:you\s+)?"
+                r"(?:\w+\s+){0,3}?about\s+([a-z][a-z\s]{2,40})", t)
             if _topic_m:
                 _topic = _topic_m.group(1).strip()
             else:
                 # Pattern 3: "what do you dream about" — topic is the noun
                 # before "about" at the end
                 _topic_m = re.search(
-                    r"\\b(dream|think|feel|wonder|curious|afraid|scared|"
-                    r"hope|wish|regret|love|like|enjoy)\\s+about\\s*$", t)
+                    r"\b(dream|think|feel|wonder|curious|afraid|scared|"
+                    r"hope|wish|regret|love|like|enjoy)\s+about\s*$", t)
                 if _topic_m:
                     _topic = _topic_m.group(1).strip()
                 else:
@@ -1225,7 +1226,7 @@ class SelfQueryMixin:
             return None
         # Don't fire for purely affective queries ("how do you feel") —
         # those are handled by the affective branch above.
-        if re.search(r"\\b(how\\s+do\\s+you\\s+feel|what\\s+makes\\s+you)\\b", t):
+        if re.search(r"\b(how\s+do\s+you\s+feel|what\s+makes\s+you)\b", t):
             return None
         # Check if the topic connects to the agent's real state
         _related = None
