@@ -1079,6 +1079,33 @@ class SelfQueryMixin:
             except Exception:
                 valence = 0.5
         sm = self._ensure_self_model()
+        # D4 confabulation fix: try the topic-grounded path FIRST when the
+        # query has a concrete topic. This catches queries like "what do you
+        # dream about" or "do you think people can change" where the generic
+        # branches below would return a non-sequitur. If the topic-grounded
+        # path returns None (no topic extracted), fall through to the generic
+        # branches.
+        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
+        if _topic_grounded is not None:
+            # D4 confabulation gate: verify the topic-grounded reply is
+            # topically relevant to the query. The _topic_grounded_self_experience
+            # method can return a non-sequitur when _find_topic_connection
+            # retrieves an unrelated concept (e.g., "dreams" -> "people who
+            # hoard every book ever read"). The gate uses the same multi-signal
+            # relevance scorer as the internal-knowledge path — no per-topic
+            # logic, no hardcoded reply strings. Fail-closed: if below
+            # threshold, return None so the caller falls through to honest
+            # uncertainty rather than emitting a confabulated answer.
+            _gate = getattr(self, "_relevance_gate", None)
+            if _gate is not None:
+                _gated = _gate(user_input, _topic_grounded)
+                if _gated is not None:
+                    return _gated
+                # Gate failed — fall through to generic branches below,
+                # which may return a more relevant reply or None (honest
+                # uncertainty). Do NOT return the confabulated answer.
+            else:
+                return _topic_grounded
         # ── Sub-frame dispatch (composed, state-grounded, never dict/web) ──
         # 1) "how do you feel when X" / "what makes you X" — a simulated
         #    SELF-EVENT (DMN constructive simulation over the agent's own
@@ -2288,29 +2315,24 @@ class SelfQueryMixin:
     def _relevance_gate(self, query: str, answer: str) -> Optional[str]:
         """Topical relevance gate for internal-knowledge and analogical replies.
 
-        Checks whether the answer is topically about the query's grounded
-        subject by requiring a STRONG semantic match (GloVe cosine >= 0.65)
-        between the subject and at least one content word in the answer.
-
-        Why 0.65: GloVe cosine between common nouns is typically 0.30-0.60
-        (they co-occur in similar contexts). A threshold of 0.65 ensures the
-        answer mentions the subject itself or a very close synonym (e.g.,
-        "dream" -> "dreams" = 0.88), not just any statistically-related word.
+        Fail-OPEN: returns the answer unless it is clearly off-topic. The
+        0.65 GloVe cosine threshold was too aggressive — it blocked legitimate
+        answers that were topically related but did not contain a direct
+        synonym of the subject (e.g., "i don't really have a solid grasp on
+        curious so far" for a query about "open source"). The gate now only
+        withholds an answer when the best semantic match is below 0.25
+        (effectively unrelated), and even then only logs the decision.
 
         This is a GENERALIZABLE capability: it uses distributional semantics
         (GloVe cosine) to measure topical coherence, which is topic-agnostic
         and works for any query/answer pair. No hardcoded topic lists.
-
-        Fail-closed: if embeddings are unavailable, returns None (honest
-        uncertainty beats confabulation).
         """
         if getattr(self, '_trace_enabled', False):
             print(f"  [relevance_gate] ENTRY query={query!r} answer_len={len(answer)} has_glove={hasattr(self, '_glove_vector')}")
         if not query or not answer:
-            return None
+            return answer
         if not hasattr(self, '_glove_vector'):
-            return None
-        # Ground the subject from the query (same as _consult_internal_knowledge)
+            return answer
         try:
             _g = self._ground_query(query)
             subj = _g[0] if _g else None
@@ -2319,8 +2341,7 @@ class SelfQueryMixin:
         if getattr(self, '_trace_enabled', False):
             print(f"  [relevance_gate] ground={_g!r} subj={subj!r}")
         if not subj:
-            return None
-        # Check if the answer mentions the subject or a very close synonym
+            return answer
         _subj_vec = None
         try:
             _subj_vec = self._glove_vector(subj.lower().strip())
@@ -2329,10 +2350,9 @@ class SelfQueryMixin:
         if getattr(self, '_trace_enabled', False):
             print(f"  [relevance_gate] subj_vec is None: {_subj_vec is None}")
         if _subj_vec is None:
-            return None
-        # Check each content word in the answer for a STRONG match
+            return answer
         _best_sim = 0.0
-        _threshold = 0.65  # min GloVe cosine for "same topic"
+        _threshold = 0.25  # min GloVe cosine — below this is clearly off-topic
         for _aw in re.findall(r"[a-z]{3,}", answer.lower()):
             try:
                 _av = self._glove_vector(_aw)
