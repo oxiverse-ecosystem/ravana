@@ -408,14 +408,12 @@ except Exception:  # pragma: no cover - defensive
 try:
     from .topic_head import (default_function_class as _default_function_class,
                              referent_head as _referent_head,
-                             expand_contractions as _expand_contractions,
                              _INTRANSITIVE_PREDICATE_SEED)
     _HAS_TOPIC_HEAD = True
 except Exception as _exc:  # pragma: no cover - defensive
     _HAS_TOPIC_HEAD = False
     _default_function_class = None
     _referent_head = None
-    _expand_contractions = None
     _INTRANSITIVE_PREDICATE_SEED = frozenset()
     report_missing("ravana.chat.topic_head",
                    "referent-head extraction (function class + clause head)",
@@ -1838,15 +1836,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._deep_read_relevance_gate = 0.12  # min relevance to deep-read
         self._deep_read_offload = True   # offload deep reads to background
 
-        # SEED-backed relevance-scored recall layer (round 2026-10-13).
-        # Multi-signal scoring replaces binary pass/fail guards in the recall
-        # pipeline. All parameters live in a persisted data store — RAVANA
-        # can expand/revise them at runtime from conversation feedback.
-        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
-        from .relevance_store import RelevanceThreshold, RelevanceScorer
-        self._relevance_threshold = RelevanceThreshold()
-        self._relevance_scorer = RelevanceScorer()
-
         # Phase 18: Curiosity Drive - autonomous topic selection for background learning
         self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
         self._curiosity_cycles_this_session: int = 0  # bg auto-select count per idle session
@@ -2959,10 +2948,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
-        # Expand apostrophe-less contractions so "whats my dog called" matches
-        # the same recall path as "what is my dog called" (round 2026-10-03T2040Z).
-        if _expand_contractions is not None:
-            q = _expand_contractions(q)
         # (0y) SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). A query
         # asking about RAVANA's OWN prior speech ("what did you just tell me
         # about pantographs?") must never be answered out of the USER's
@@ -6031,32 +6016,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _best_val = _f.value
         return _best_val
 
-    def _temporal_fact(self, subject, attribute, value=None):
-        """Temporal Fact Disambiguation (TFD) — return the most recent,
-        non-superseded PersonalFact for (subject, attribute), or None.
-
-        SEED-compliant: reads from the existing PersonalFactStore which
-        already tracks turn_number and superseded on every fact. No new
-        store, no new data structure — this is a retrieval wrapper that
-        applies the store's own decay_score (confidence x recency) ranking.
-
-        Online/incremental: the store updates turn_number on every
-        assert_fact / reinforce / confirm / contradict, so the "most recent"
-        is always the one the user last corrected or confirmed. No retraining.
-
-        Generalizable: works for ANY (subject, attribute) pair, not just
-        specific entities. Used by _structured_recall branches that
-        previously iterated pf.facts.items() and returned the FIRST match,
-        which could be a stale prior-round value.
-
-        No hardcoded reply strings, no per-topic tables, no authored prose.
-        """
-        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
-        if pf is None:
-            return None
-        _f = pf.get(subject, attribute, value)
-        return _f
-
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
         cued recall about the agent's own speech can answer from RAVANA's output
@@ -6309,14 +6268,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         reply strings. The threshold adapts incrementally from conversation
         feedback (false positive/negative signals).
         """
-        if not answer:
-            return answer
+        if not answer or not answer.strip():
+            return None
+        if not query or not query.strip():
+            return None
         try:
             _score = self._relevance_scorer.score(
                 query, answer,
                 query_turn=self.turn_count,
                 threshold=self._relevance_threshold)
-            if _score >= self._relevance_threshold.base_threshold:
+            # Require BOTH a minimum overall score AND some content overlap.
+            # The overall score alone is too permissive: recency and type
+            # signals default to 1.0, so even a completely off-topic answer
+            # scores 0.35 (above the 0.15 threshold). Content overlap is
+            # the signal that actually distinguishes on-topic from off-topic.
+            from .relevance_store import _content_words, _jaccard_overlap
+            _q_words = set(_content_words(query))
+            _a_words = set(_content_words(answer))
+            _overlap = _jaccard_overlap(_q_words, _a_words)
+            if (_score >= self._relevance_threshold.base_threshold
+                    and _overlap >= 0.15):
                 return answer
             return None
         except Exception:
