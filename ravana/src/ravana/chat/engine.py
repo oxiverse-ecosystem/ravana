@@ -3900,8 +3900,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"^(what|who|which|where|when|why|how|is|are|was|were|"
                     r"do|does|did|has|have|had|can|could|would|will|tell|"
                     r"said|say|recall|remember|know|mention)\b", q.strip()))
+                # ATTRIBUTE AGREEMENT GUARD (round 2026-10-16): a name query
+                # ("what is my dog called", "what is my dog name") must NOT be
+                # answered with the pet's ACTIVITY. The _ACT_CUES set contains
+                # the generic interrogative "what", so every "what ..." pet
+                # question counted as an activity ask — even one that only
+                # wants the name. Reuse the same `asks_name_only` predicate
+                # the name branch below already uses, so the activity and
+                # name branches agree by construction. A compound ask
+                # ("what is my dog called and what does it do") stands the
+                # guard down because asks_name_only returns False for it.
+                _asks_name = attribute_gate.asks_name_only(q)
                 if _distress_g:
                     pass  # bereavement / other-suffering -> empathy handler
+                elif _asks_name:
+                    pass  # name query -> let the name branch below handle it
                 elif not (_ask_activity or _is_question_g):
                     pass  # declarative disclosure -> storage, not a recall query
                 else:
@@ -6283,6 +6296,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if not answer:
             return None
         try:
+            if not hasattr(self, '_relevance_scorer') or self._relevance_scorer is None:
+                from .relevance_store import RelevanceThreshold, RelevanceScorer
+                self._relevance_threshold = RelevanceThreshold()
+                self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
             _score = self._relevance_scorer.score(
                 query, answer,
                 query_turn=self.turn_count,
@@ -6296,7 +6313,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return answer
             return None
         except Exception:
-            return answer  # fail-open on scorer error (never break recall)
+            return None  # fail-closed on scorer error (honest uncertainty beats confabulation)
 
     def _bind_user_model_dependencies(self):
         """Inject engine-owned structures into the user model.
@@ -6465,11 +6482,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _q = (user_input or "").lower().strip()
         if not _q:
             return None
-        # Gate lives in `_is_agent_self_recall_query` — ONE definition shared with
-        # the structured-recall top guard, so the two can never disagree about
-        # what counts as an agent-self-recall (round 2026-10-04T0827Z).
-        if not self._is_agent_self_recall_query(_q):
-            return None
         # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
         # you about my favorite food" is a user recall query, but the answer the
         # user wants is RAVANA's OWN prior reply confirming the disclosure. The
@@ -6480,7 +6492,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # recall my name?") which must NOT be answered from the agent-reply
         # store. So we only apply the attribute guard when the query is NOT a
         # first-person recall of the agent's own speech. Computed BEFORE the
-        # attribute guard (which consumes it) so no UnboundLocalError.
+        # gate so a first-person recall can bypass the agent-self gate (which
+        # would otherwise reject it via _is_user_speaker_recall Rule 1).
         _is_first_person_recall = bool(re.search(
             r"\b(what did i (?:just |already |recently )?tell you|"
             r"what did i just say|what did i tell you|"
@@ -6489,6 +6502,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"what did i say about|"
             r"what was it i told you|"
             r"what did i just tell you about)\b", _q))
+        # Gate lives in `_is_agent_self_recall_query` — ONE definition shared with
+        # the structured-recall top guard, so the two can never disagree about
+        # what counts as an agent-self-recall (round 2026-10-04T0827Z).
+        # Skip the gate for first-person recalls (they are in-scope by the
+        # heuristic above, not by the agent-self flag).
+        if not _is_first_person_recall and not self._is_agent_self_recall_query(_q):
+            return None
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
