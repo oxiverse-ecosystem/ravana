@@ -48,6 +48,7 @@ from ravana_ml.nn.neural_decoder import NeuralDecoder
 from ravana.core import UserEmotionDetector, EmotionalMirrorEngine, MirrorConfig
 from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
 from ravana.core.proposition_parser import PropositionParser
+from . import attribute_gate
 from ravana.core.causal_schema import CausalSchemaLearner, CausalSchemaConfig
 from ravana.core.implicature_detector import ImplicatureDetector
 from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
@@ -525,6 +526,17 @@ class MemoryMixin:
         "would", "should", "may", "might", "shall", "am", "have", "has", "had",
     )
 
+    # FIX-RV-13 (round auto/round-20260925T0823-fix-7): the interrogative
+    # SUB-CLASS of _QUESTION_LEAD — the wh-words. Grammatical category, not a
+    # topic list: a wh-word is a question word wherever it leads an utterance,
+    # whereas a yes/no AUXILIARY is a question word only in initial position
+    # (English builds a yes/no question by inverting subject and auxiliary, so
+    # an auxiliary with a subject already in front of it is declaring
+    # something). _is_question consults the split to tell the two apart.
+    _QUESTION_WH = frozenset({
+        "what", "where", "when", "who", "whom", "whose", "which", "why", "how",
+    })
+
     def _is_question(self, text: str) -> bool:
         _t = (text or "").strip().lower()
         if not _t:
@@ -534,10 +546,23 @@ class MemoryMixin:
         _first = re.findall(r"[a-z']+", _t)
         if not _first:
             return False
-        # Allow a short lead-in ("so, ..." / "and ...") before the question word.
-        for _w in _first[:3]:
+        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): the lead window
+        # forgives a LEAD-IN, and only for a WH-word. The old check scanned
+        # three tokens for ANY question-lead word, so a canonical disclosure
+        # whose third token happened to be an auxiliary ("my cat HAS been
+        # diagnosed", "my dog HAD surgery last month") was classified as a
+        # question. That was not cosmetic: the episodic cue pass skips prior
+        # turns that look like questions, so it skipped the very episodes a
+        # cued recall was looking for, and the recall degenerated into
+        # echoing an unrelated turn — the same wrong episode for every query.
+        # Structural (interrogative syntax), not a per-topic rule.
+        for _i, _w in enumerate(_first[:3]):
             if _w in self._QUESTION_LEAD:
-                return True
+                if _w in self._QUESTION_WH:
+                    return True
+                # A yes/no auxiliary leads a question only in INITIAL
+                # position. A later one is a statement's predicate.
+                return _i == 0
         return False
 
     # D-fix (round 2026-08-22T0058Z): a disclosed entity is often recalled with a
@@ -1032,9 +1057,25 @@ class MemoryMixin:
         if _ent_hit is not None:
             _facts = _entity_idx[_ent_hit]
             if _facts:
-                _bits = _reconstruct_entity(_ent_hit, _facts)
-                if _bits:
-                    return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
+                # A name query may only be answered by a name. This path
+                # renders EVERY attribute it holds for the cued entity, so
+                # "what is my cat's name" was answered "you told me your cat
+                # is diagnosed with a chronic illness" — right entity, wrong
+                # attribute, stated confidently. Keep only name-shaped values;
+                # if none survives, fall through so the caller fails CLOSED
+                # rather than substituting a different attribute for the one
+                # the user asked about. Same attribute-agreement rule the two
+                # other recall sites apply, so all three agree.
+                if attribute_gate.asks_name_only(q):
+                    _name_only = {
+                        _a: _v for _a, _v in _facts.items()
+                        if attribute_gate.is_name_shaped(_v)}
+                    _facts = _name_only
+                if _facts:
+                    _bits = _reconstruct_entity(_ent_hit, _facts)
+                    if _bits:
+                        return "you told me " + "; ".join(
+                            dict.fromkeys(_bits)) + "."
         # (a0) LITERAL-CONTENT CUE PASS (B-fix, round v-aug04). The previous
         # semantic cosine matcher returned the highest-scoring UNRELATED
         # episode because GloVe similarity is loosely positive across many
@@ -2703,6 +2744,19 @@ class MemoryMixin:
                 _cued = self._retrieve_episodic(user_input)
                 if _cued:
                     return _cued
+                # FIX-RV-13 (round auto/round-20260925T0823-fix-7): a query that
+                # NAMES a cue has already told us which memory it wants, so
+                # when nothing resolves that cue the honest answer is to say
+                # so — not to fall through and quote the most recent turn
+                # instead. The old fall-through did exactly that: "what did i
+                # just tell you about my ferret" (never disclosed) returned the
+                # user's remote-work opinion verbatim, a confident quote of a
+                # memory the user never asked about. Abstaining here is not a
+                # limitation dressed up — the user cued a specific episode, and
+                # answering with a different one is worse than silence. A query
+                # with NO cue ("what did i just say?") still legitimately means
+                # "the previous turn" and keeps the fall-through below.
+                return None
             last_turn = prior[-1].strip()
             # Pull the matching transcript record (highest turn_index = prev).
             matching = [r for r in self._episodic_transcript

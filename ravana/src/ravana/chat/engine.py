@@ -404,6 +404,7 @@ from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .user_model import is_activity_attr as _is_activity_attr
 from .user_model import activity_role_objects, _activity_role_phrases
+from . import attribute_gate
 from .personal_fact_store import QuantityMemory, render_count
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
@@ -1306,6 +1307,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # other runtime stores.
         self._own_replies = {}  # topic(str) -> list[dict(text, turn, t)]
         self._own_reply_topic_idx = {}  # topic -> 1 (presence index for content lookup)
+
+        # RFIX-01: agent-utterance log (ring buffer) for self-reference recall.
+        # Stores (turn_number, reply_text) tuples of the agent's genuine replies
+        # (NOT recall responses — those are skipped by _record_own_reply). When
+        # the topic-keyed _own_replies store misses a cued recall because topic
+        # extraction didn't align, this ring buffer matches by direct token
+        # overlap with the reply text. Pure data-driven (the stored text is real
+        # output, never authored prose); no retraining.
+        self._utterance_log = deque(maxlen=30)
 
         # P6: one epistemic register (roadmap #12) toggling confidence /
         # verbosity / curiosity in a single place, instead of scattering
@@ -3075,7 +3085,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _best:
                 return f"your call sign is {_best}."
             return None
-        if re.search(r"\bwhat'?s\s+my\s+favorite\b", q):
+        if re.search(r"\bwhat(?:'s|\s+(?:is|was|are|were))\s+my\s+favorite\b", q):
             # surface every favorite_* fact
             if pf is not None:
                 _bits = []
@@ -3515,6 +3525,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             from .user_model import is_verb_phrase as _is_act
                         except Exception:
                             _is_act = lambda w: False
+                        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): a
+                        # pet slot holds ONE thing, so a query asking for a
+                        # specific ATTRIBUTE of the pet may only be answered
+                        # by a value that actually IS that attribute. Without
+                        # this gate "what is my cat's name" answered "your cat
+                        # is diagnosed with a chronic illness" — the right
+                        # animal, the wrong attribute, stated confidently. A
+                        # name is the short single token the user gave as the
+                        # animal's name; a predicate phrase is the animal's
+                        # STATE. Failing the gate we fall through so the
+                        # honest uncertainty path runs — the user was never
+                        # told a name, and saying so beats inventing one.
+                        # Structural (attribute agreement), not a per-topic
+                        # rule: it holds for any entity and any attribute.
+                        # `asks_name_only` stands the gate down for a COMPOUND
+                        # question, which asks for more than the name.
+                        if attribute_gate.asks_name_only(q):
+                            _vs = (_v or "").strip()
+                            if not attribute_gate.is_name_shaped(_vs) \
+                                    or _is_act(_vs):
+                                continue
                         _vv = (_v or "").strip()
                         if _vv and _vv.split() and _is_act(_vv.split()[0]):
                             return f"your {_attr} {_v}."
@@ -5378,18 +5409,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._us_obj_hold = None
         # Same-subject attitude frame (the user is the attitude holder). The
         # object clause after the attitude verb carries the topic.
-        # FIX-RV-12 (pre-existing crash, reproduced at the pre-fix commit): the
-        # shape-1/2 matchers below set `_fm_match` only on their *fallback*
-        # branches, so a query that matched shape 1 or 2 directly ("do you think
-        # i love jazz music?") reached the honest-abstain branch at line ~5515
-        # with `_fm_match` UNBOUND and raised
-        # `UnboundLocalError: cannot access local variable '_fm_match'` — the
-        # user-stance recall path crashed instead of answering honestly. Fixed
-        # by initializing the flag at the top of the frame match. The flag's
-        # meaning is unchanged: True only for the "for/against" polarity frame.
-        _fm_match = False
-        # Same-subject attitude frame (the user is the attitude holder). The
-        # object clause after the attitude verb carries the topic.
         # Two surface shapes for the SAME user-stance question:
         #   Shape 1: "<i> think <you> <like/dislike-verb> <topic>"  (topic after
         #            the attitude verb)
@@ -5761,6 +5780,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "src_tokens": list(_words),
             }]
             self._own_reply_topic_idx[_topic] = 1
+            # RFIX-01: also append to the utterance log ring buffer so a later
+            # cued recall can match by direct token overlap with the reply text
+            # when the topic-keyed store misses (e.g. topic extraction didn't
+            # align). The stored text is real generated output, never authored
+            # prose. Skip recall responses — they are already filtered above
+            # (this method returns early for recall queries).
+            try:
+                self._utterance_log.append(
+                    (int(getattr(self, "turn_count", 0) or 0), _store_text))
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -5874,10 +5904,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "something", "anything", "the", "a", "an", "is", "are", "was", "were",
             "have", "has", "had", "i", "my", "we", "our", "it", "this", "that",
             "form", "formed", "opinion", "think", "feel", "feel", "mention",
-            "mentioned", "remember", "recall", "answer", "answered", "reply",
-            "replied", "state", "stated", "still", "now", "then", "how", "why",
-            "who", "when", "where", "which", "any", "some", "thing", "things",
-            "yes", "no", "ask", "asked", "wonder", "wondering", "tellme",
+            "mentioned", "remember", "recall", "remind", "answer", "answered",
+            "reply", "replied", "state", "stated", "still", "now", "then", "how",
+            "why", "who", "when", "where", "which", "any", "some", "thing",
+            "things", "yes", "no", "ask", "asked", "wonder", "wondering",
+            "tellme",
         }
         _cands = [w for w in re.findall(r"[a-z']+", _q)
                   if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
@@ -5917,7 +5948,55 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _ov > _best_overlap:
                 _best_overlap = _ov
                 _best = _e
-        if _best is None or _best_overlap < 2:
+        _min_overlap = 1 if len(_cands) <= 1 else 2
+        if _best is None or _best_overlap < _min_overlap:
+            # RFIX-01: fallback to the utterance log ring buffer. The topic-keyed
+            # store missed because topic extraction didn't align (e.g. a query
+            # about "season" when the reply was about "autumn season" and the
+            # store key was "clean"). Search the ring buffer for any content
+            # token overlap with the reply text — this is a last-resort check
+            # before identity disclosure, so a threshold of 1 is appropriate
+            # (any overlap with the genuine reply text is a valid recall).
+            # Pure data-driven: the stored text is real output, never authored
+            # prose; no retraining.
+            try:
+                _log = getattr(self, "_utterance_log", None)
+                if _log and _cands:
+                    _q_tokens = set(_cands)
+                    _best_entry = None
+                    _best_log_overlap = 0
+                    for _turn_num, _reply_text in reversed(_log):
+                        if not _reply_text:
+                            continue
+                        _reply_tokens = set(
+                            w for w in re.findall(r"[a-z']+", _reply_text.lower())
+                            if len(w) >= 3 and w not in _stop)
+                        _ov = len(_q_tokens & _reply_tokens)
+                        if _ov > _best_log_overlap:
+                            _best_log_overlap = _ov
+                            _best_entry = (_turn_num, _reply_text)
+                    # FIX-RV-13 (round auto/round-20260925T0823-fix-7): apply
+                    # the SAME _min_overlap the topic-keyed store above already
+                    # enforces, instead of accepting a single incidental shared
+                    # token. A threshold of 1 made this fallback a
+                    # most-recent-turn echo: every recall query shares at least
+                    # one ordinary content word with the most recent reply, so
+                    # an entity-cued recall that should have resolved ONE
+                    # episode ("about my cat") instead returned the SAME
+                    # unrelated turn as every other query ("about my dog",
+                    # "about hiking") — a confident quote of a memory the user
+                    # never asked about. RAVANA's bar is to fail CLOSED: with no
+                    # episode matching the cue the honest answer is no answer,
+                    # which lets the caller fall through to the episodic
+                    # retriever or to honest uncertainty. One shared token is
+                    # not evidence of the same topic.
+                    if _best_entry and _best_log_overlap >= _min_overlap:
+                        _, _matched_text = _best_entry
+                        _matched_text = _matched_text.strip()
+                        if _matched_text:
+                            return f"earlier i said: {_matched_text}"
+            except Exception:
+                pass
             return None
         _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()
@@ -6457,14 +6536,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # carries the extracted event span ("lost half the colony"). Consumed
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
-        # FIX (round 2026-09-14): advance turn_count and tick the RNG at the
-        # TOP of process_turn, BEFORE any early return. Otherwise short-circuit
-        # paths skip both, breaking the determinism contract.
-        self.turn_count += 1
-        try:
-            self.rng.random()
-        except Exception:
-            pass
         # ── Spike log: record cognitive event at TOP of every turn ──
         # Recording here (before any early-return path) guarantees EVERY turn
         # is captured: meta_command, structured_recall, temporal_recall,
@@ -6482,6 +6553,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # FIX (round 2026-09-14): advance turn_count and tick the RNG at the
+        # TOP of process_turn, BEFORE any early return. Otherwise short-circuit
+        # paths skip both, breaking the determinism contract.
+        self.turn_count += 1
+        try:
+            self.rng.random()
+        except Exception:
+            pass
         # Reset the prior turn's stance-reversal marker so a retraction recorded
         # this turn is consumed/acked the SAME turn and cannot leak into the next
         # turn's acknowledgment (attitude change is a within-turn valuation
@@ -6603,34 +6682,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses = self._last_responses[-10:]
             return resp
 
-        # ── SELF-CUED EPISODIC RETRIEVAL (capability: retrieval-by-cue) ──────
-        # A question about something the user ALREADY disclosed is a memory
-        # question, not a world-knowledge gap. Before RAVANA consults its
-        # internal knowledge base or reaches for the web, it reactivates its
-        # OWN record: _self_cued_episodic returns the stored user turn whose
-        # rare content cue the query stem-matches. This runs BEFORE the
-        # agentic hands below and before _consult_internal_knowledge, so a
-        # fact the user gave us is answered from the user, not the world.
-        # Fails closed (None) unless a specific, rare cue matches a stored
-        # user turn — genuine world queries ("what is the capital of france")
-        # have no such cue and proceed unchanged.
-        try:
-            _cued_self = self._self_cued_episodic(user_input)
-        except Exception:
-            _cued_self = None
-        if _cued_self is not None:
-            self._last_strategy = "self_cued_episodic"
-            self._last_responses.append(_cued_self)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            self._recent_user_turns.append(user_input)
-            if len(self._recent_user_turns) > 12:
-                self._recent_user_turns = self._recent_user_turns[-12:]
-            self._record_episode(user_input)
-            self._record_own_reply(user_input, _cued_self, self._last_subject)
-            self.notify_user_idle()
-            return _cued_self
-
         # ── Agentic pre-check (fix 'c'): if this is a knowledge gap RAVANA cannot
         # answer from memory, USE ITS HANDS. State-driven (curiosity/recall-query/
         # metacog), no keyword table. The tool result is stored as grounded
@@ -6710,7 +6761,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # "[\w'-]+" greedily eats the possessive: "my cat's name" captures
             # "cat's" — normalize to the bare attribute so the store lookup hits.
             _attr = re.sub(r"'s$", "", _attr)
+            # A name query may only be answered by a name. This block captures
+            # the entity but DISCARDS which attribute was asked for (the
+            # trailing group is non-capturing), so it looked the entity up and
+            # rendered whatever it found — "what is my cat's name" came back
+            # "your cat is diagnosed with a chronic illness (i'm 65% sure)",
+            # right animal and wrong attribute with a confidence figure
+            # bolted to a fact the user never stated. Fail the gate and the
+            # turn falls through to honest uncertainty. Same
+            # attribute-agreement rule the other two recall sites apply.
+            # The gate stands down for a COMPOUND question, which asks for
+            # more than the name.
+            _pf_asked_name = attribute_gate.asks_name_only(user_input)
             _hit = self.user_model.personal_facts.get("i", _attr)
+            if _hit is not None and _pf_asked_name:
+                # A name is a short single token; a predicate phrase is state.
+                if not attribute_gate.is_name_shaped(_hit.value):
+                    _hit = None
             if _hit is not None:
                 _val = _hit.value
                 _conf = _hit.confidence
@@ -7755,7 +7822,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"retired|unemployed|single|married|divorced|widowed)\b",
                 _low_b))
             _suffering_word_b = bool(re.search(
-                r"\b(hurt|hurts|pain|ache|suffering|suffer|grief|grieving|"
+                r"\b(hurt|hurts|hollow|empt(y|iness)|numb|invisible|fading|ghost|phantom|shadow|shell|pain|ache|suffering|suffer|grief|grieving|"
                 r"lonely|alone|scared|afraid|terrified|anxious|panic|"
                 r"devastated|broken|dying|dead|miserable|hopeless|"
                 r"overwhelmed|exhausted|furious|angry|cry|cried|crying)\b",
@@ -7907,7 +7974,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"anxious|panic|devastated|broken|dying|dead|died|death|"
                     r"dies|passed|miserable|hopeless|overwhelmed|exhausted|"
                     r"furious|angry|cry|cried|crying|sad|sick|ill|hospital|"
-                    r"wounded|bleeding|lost|worried|troubled|upset)\b", _low_d))
+                    r"wounded|bleeding|lost|worried|troubled|upset|hollow|"
+                    r"empty|numb|invisible|fading|ghost|phantom|shadow|shell)\b", _low_d))
                 if _possessive_attr and not _suffering:
                     _disc = None
                 # W-loss-homograph guard (round 2026-08-10T1401Z F2): the VAD
@@ -10878,7 +10946,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if os.path.exists(_um_path):
                     _separate_um = load_user_model(getattr(self, 'user_suffix', ''))
                     if _separate_um is not None:
-                        self.user_model = _separate_um
+                        # Only prefer the dedicated file when it actually
+                        # CONTAINS data. An empty dedicated file (e.g. written
+                        # by a prior save when the model was fresh) must NOT
+                        # overwrite a non-empty embedded snapshot — otherwise
+                        # every load wipes all learned stances and facts.
+                        _sep_stances = len(getattr(_separate_um.opinions, 'stances', {})) if hasattr(_separate_um, 'opinions') else 0
+                        _sep_facts = len(getattr(_separate_um.personal_facts, 'facts', {})) if hasattr(_separate_um, 'personal_facts') else 0
+                        _emb_stances = len(getattr(self.user_model.opinions, 'stances', {})) if hasattr(self.user_model, 'opinions') else 0
+                        _emb_facts = len(getattr(self.user_model.personal_facts, 'facts', {})) if hasattr(self.user_model, 'personal_facts') else 0
+                        if _sep_stances > 0 or _sep_facts > 0 or (_emb_stances == 0 and _emb_facts == 0):
+                            self.user_model = _separate_um
             except Exception:
                 pass
             # A reask/correction is only meaningful within a single session.
