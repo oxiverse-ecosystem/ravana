@@ -48,7 +48,6 @@ from ravana_ml.nn.neural_decoder import NeuralDecoder
 from ravana.core import UserEmotionDetector, EmotionalMirrorEngine, MirrorConfig
 from ravana.core.hippocampal_buffer import HippocampalBuffer, HippocampalConfig
 from ravana.core.proposition_parser import PropositionParser
-from . import attribute_gate
 from ravana.core.causal_schema import CausalSchemaLearner, CausalSchemaConfig
 from ravana.core.implicature_detector import ImplicatureDetector
 from ravana.core.relation_memory import RelationMemory, RelationMemoryConfig
@@ -75,32 +74,6 @@ from .web_learning import WebLearningMixin
 from ravana._import_guard import report_missing  # non-silent import-guard logging
 from . import pet_slots as _pet_slots
 from . import possession_attrs as _poss_attrs
-
-# SINGLE SOURCE OF TRUTH for "is this turn asking RAVANA for its OWN stance?".
-# Two independent routers need this judgement — `_route_self_query`'s
-# _agent_opinion gate and `_self_cued_episodic`'s source-monitoring gate — and
-# two hand-kept copies of the same phrase list is precisely how the two drift
-# apart and one of them starts stealing the other's turns. Defined once here
-# (the module that owns episodic/memory routing) and imported by the self-query
-# router.
-#
-# Also covers "are you still ..." (a self-opinion RECALL) and "do i <verb> ..."
-# (the user asking RAVANA to confirm THEIR OWN stance), both of which share the
-# user's content cues with the stored disclosure and would otherwise be
-# answered out of the episodic record instead of from the stance stores.
-_SELF_OPINION_SHAPE = (
-    r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
-    r"|what\s+do\s+you\s+(think|feel|believe|make)\s+(about|of)\b"
-    r"|how\s+do\s+you\s+(feel|think)\s+about\b"
-    r"|what'?s\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
-    r"|your\s+(opinion|thoughts|take|view|stance|read|honest\s+read)\s+(on|about)\b"
-    r"|what\s+is\s+your\s+(opinion|take|read|view|stance)\s+(on|of)\b"
-    r"|give\s+me\s+your\s+(honest\s+)?(read|take|view|opinion)\s+(on|about)\b"
-    r"|your\s+(honest\s+)?(read|take|view)\s+(now|these\s+days)?\s*(on|about)\b"
-    r"|are\s+you\s+still\b"
-    r"|do\s+i\s+(like|love|hate|think|feel|believe)\b"
-    r"|what\s+do\s+you\s+make\s+of\b)"
-)
 
 # Closed-class + recall-scaffold vocabulary used to reduce a recall query to
 # its CONTENT CUE. This is a grammatical/scaffolding class, not a topic table:
@@ -214,7 +187,6 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 
 from .user_model import UserModel
 from .user_model import is_verb_phrase as _mem_is_activity_verb
-from .user_model import drops_copula as _mem_drops_copula
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -238,207 +210,8 @@ from ravana.language.register import RegisterController
 
 
 
-# Retirement (round 2026-09-29T1239Z): a user retraction is a store-level event.
-from .retirement import (
-    RetirementLedger,
-    Retraction,
-    _stem,
-    _toks,
-    looks_like_retraction,
-    parse_contrast,
-)
-
-
-def _value_stems(text: str) -> set:
-    """Content stems of a value phrase, determiners excluded.
-
-    Used to decide whether a store record ACTUALLY HOLDS a value that the user
-    is now retracting. Subset/superset relations over these sets are the
-    grounding test in `_observe_retirement` -- "plays shehnai" must be
-    recognisable inside "my brother nikhil plays the shehnai, he is in his
-    thirties", and "the shehnai" must match a fact stored as "shehnai".
-    """
-    return {_stem(w) for w in _toks(text) if w not in _VALUE_STOP}
-
-
-_VALUE_STOP = {
-    "the", "a", "an", "my", "his", "her", "their", "its", "our", "your",
-    "is", "are", "was", "were", "be", "been", "am",
-    "of", "in", "on", "at", "to", "for", "with", "he", "she", "they",
-    "him", "her", "them", "and", "but", "not", "no", "so", "then",
-}
-
-
 class MemoryMixin:
     """Episodic & working-memory mixin — recall, retrieval, activation, user-model updates, forward simulation."""
-
-    # ── retirement (round 2026-09-29T1239Z) ────────────────────────────────
-    #
-    # RAVANA previously had no notion that "the user told me this and then took
-    # it back" is a property of the RECORD. A correction retired a value in the
-    # PersonalFactStore only; the episodic transcript kept the original
-    # utterance verbatim and the recall paths answered from it, so a corrected
-    # fact kept being served. Measured in scratch/_retire_probe.py:
-    #
-    #   "my brother nikhil plays the shehnai" then
-    #   "no, nikhil plays the surbahari, not the shehnai"
-    #   -> "which instrument does my brother play now?" still answered shehnai.
-    #
-    # `_observe_retirement` is the single place this runs. It is called from
-    # `_record_episode`, which is on the path of EVERY user turn (both the
-    # early-return and the main pipeline call it), so a correction can never be
-    # skipped by a short-circuit — the same bug class as the 2026-09-14
-    # determinism fix and the 2026-09-29 grounded-evidence fix.
-    #
-    # It MUTATES stores and records the event. It renders nothing; the reply is
-    # composed by the existing strategies from live state, so no reply string
-    # is authored here.
-    def _observe_retirement(self, text: str) -> Optional[Retraction]:
-        """Detect, GROUND and propagate one user retraction from `text`.
-
-        Grounding is what keeps this honest: the rejected phrase is only
-        retired if a live store actually holds that value. A retraction about
-        something RAVANA never recorded is a no-op, so this path cannot
-        manufacture a "correction" out of ordinary conversation.
-
-        Returns the grounded Retraction, or None.
-        """
-        led = getattr(self, "retirement_ledger", None)
-        if led is None:
-            led = RetirementLedger()
-            self.retirement_ledger = led
-        if not looks_like_retraction(text, led.all_markers()):
-            return None
-
-        # The interjective set must be the AUTHORED revision class PLUS the
-        # learned one. Passing `learned_markers` alone (empty until something
-        # is learned) makes parse_contrast REPLACE its REVISION_MARKERS
-        # default, which reclassifies every authored interjection as a
-        # negation and inverts the direction — retiring the value the user
-        # just asserted. See RetirementLedger.interjective_markers.
-        parsed = parse_contrast(text, led.all_markers(),
-                                led.interjective_markers())
-        if parsed is None:
-            return None
-        asserted, rejected, marker = parsed
-
-        # ── ground: find a live record that actually holds the rejected value
-        #    (and, when the utterance asserts a replacement, one that holds the
-        #    same subject — that is what makes it a revision of THAT claim
-        #    rather than an unrelated coincidence).
-        store = self._episodic_transcript or []
-        pf = getattr(getattr(self.user_model, "personal_facts", None), "facts", {}) or {}
-
-        _rej = _value_stems(rejected)
-        _ass = _value_stems(asserted)
-        hit_pf = None      # (subj_key, attr)
-        hit_rec = None     # transcript record
-
-        for key, f in pf.items():
-            fv = _value_stems(getattr(f, "value", "") or "")
-            if not fv or not _rej.issubset(fv):
-                continue
-            if _ass and _ass.intersection(fv):
-                # Holds BOTH values -> not a revision, it is a disjunction.
-                continue
-            hit_pf = key
-            break
-
-        if hit_pf is None:
-            for rec in store:
-                rv = _value_stems(rec.get("text", "") or "")
-                if rv and _rej.issubset(rv) and not (_ass & rv):
-                    hit_rec = rec
-                    break
-
-        if hit_pf is None and hit_rec is None:
-            # Nothing held it -> nothing to retire. Fail closed.
-            return None
-
-        slot_key = "|".join(str(x) for x in hit_pf) if hit_pf else "episodic"
-        retr = Retraction(
-            retired_value=rejected,
-            replaced_by=asserted or None,
-            marker=marker,
-            slot=tuple(str(x) for x in hit_pf) if hit_pf else None,
-            turn_index=int(self.turn_count),
-            evidence=text,
-        )
-        led.retire(retr, slot_key)
-
-        # ── propagate: retire the old value in EVERY store that holds it, not
-        #    just the fact store. This is the structural half of the fix.
-        self._propagate_retirement(retr, pf, store)
-        return retr
-
-    def _propagate_retirement(self, retr: Retraction, pf, store) -> None:
-        """Retire `retr.retired_value` in every store that holds it.
-
-        Each store has its own notion of retirement and its own readers, so
-        each is updated where it already filters — never by inventing a second
-        convention. The episodic transcript is the store that previously had
-        NO retirement at all, which is why the stale value kept being served.
-        """
-        rejected = retr.retired_value or ""
-
-        # 1. PersonalFactStore — use its own contradict() so the existing
-        #    `superseded` filter (engine_memory.py:973 and friends) does the
-        #    work, and the replacement is asserted as an active fact.
-        subj, attr = "i", None
-        if retr.slot:
-            subj, attr = retr.slot[0], retr.slot[1]
-        try:
-            if attr and (retr.slot[0], attr) in {
-                    (str(k[0]), str(k[1])) for k in pf.keys()}:
-                for (s, a, _v), f in list(pf.items()):
-                    if str(s) == str(retr.slot[0]) and str(a) == str(attr) \
-                            and self.retirement_ledger.is_retired(
-                                getattr(f, "value", ""), f"{s}|{a}"):
-                        f.superseded = True
-                if retr.replaced_by:
-                    self.user_model.personal_facts.assert_fact(
-                        subj, attr, retr.replaced_by,
-                        confidence=0.7, source="correction")
-        except Exception:
-            pass
-
-        # 2. Episodic transcript — mark the record RETRACTED so every recall
-        #    path can skip it. The record is kept, not deleted: it is real
-        #    conversational history, and `_reconstruct_gist` may legitimately
-        #    need it to answer "what did you use to think / what did i tell
-        #    you earlier". Retirement hides it from ORDINARY recall; it does
-        #    not erase the trace.
-        for rec in store:
-            txt = (rec.get("text") or "").lower()
-            if not txt:
-                continue
-            if retr.retired_value.lower() in txt or \
-                    self.retirement_ledger.is_retired(txt):
-                rec["retracted"] = True
-                rec["retracted_by"] = retr.turn_index
-
-    def _record_is_retracted(self, rec: Dict[str, Any]) -> bool:
-        """Is this transcript record superseded by a user retraction?
-
-        Read by the recall paths so an ordinary self-recall can never re-serve
-        a value the user took back. A record is retracted if it was flagged at
-        write time, OR if the value it uniquely carries is now in the ledger —
-        the second clause covers records written before the ledger existed and
-        keeps the two paths from drifting.
-        """
-        if rec.get("retracted"):
-            return True
-        led = getattr(self, "retirement_ledger", None)
-        if led is None or not led.retired:
-            return False
-        txt = (rec.get("text") or "").lower()
-        if not txt:
-            return False
-        for vals in led.retired.values():
-            for v in vals:
-                if v and v in txt:
-                    return True
-        return False
 
     def _record_episode(self, user_input: str) -> None:
         """Append a structured turn record to the gist-based episodic transcript.
@@ -461,18 +234,6 @@ class MemoryMixin:
         t = (user_input or "").strip()
         if not t:
             return
-        # Retirement runs BEFORE the turn is stored, so the retraction is learned
-        # from the state as it stood when the user spoke (the rejected value is
-        # still live) and the corrected utterance is recorded as the new truth.
-        # Placing it here -- the one function every turn passes through -- is what
-        # makes a correction unskippable by any short-circuit strategy.
-        try:
-            self._observe_retirement(t)
-        except Exception:
-            # Retirement must never take a turn down. A failure here means the
-            # capability is inert, which the tests catch; it must not become a
-            # silent crash that breaks conversation.
-            pass
         _topic = ""
         try:
             _topic = self._ground_query(t)[0] or ""
@@ -764,17 +525,6 @@ class MemoryMixin:
         "would", "should", "may", "might", "shall", "am", "have", "has", "had",
     )
 
-    # FIX-RV-13 (round auto/round-20260925T0823-fix-7): the interrogative
-    # SUB-CLASS of _QUESTION_LEAD — the wh-words. Grammatical category, not a
-    # topic list: a wh-word is a question word wherever it leads an utterance,
-    # whereas a yes/no AUXILIARY is a question word only in initial position
-    # (English builds a yes/no question by inverting subject and auxiliary, so
-    # an auxiliary with a subject already in front of it is declaring
-    # something). _is_question consults the split to tell the two apart.
-    _QUESTION_WH = frozenset({
-        "what", "where", "when", "who", "whom", "whose", "which", "why", "how",
-    })
-
     def _is_question(self, text: str) -> bool:
         _t = (text or "").strip().lower()
         if not _t:
@@ -784,23 +534,10 @@ class MemoryMixin:
         _first = re.findall(r"[a-z']+", _t)
         if not _first:
             return False
-        # FIX-RV-13 (round auto/round-20260925T0823-fix-7): the lead window
-        # forgives a LEAD-IN, and only for a WH-word. The old check scanned
-        # three tokens for ANY question-lead word, so a canonical disclosure
-        # whose third token happened to be an auxiliary ("my cat HAS been
-        # diagnosed", "my dog HAD surgery last month") was classified as a
-        # question. That was not cosmetic: the episodic cue pass skips prior
-        # turns that look like questions, so it skipped the very episodes a
-        # cued recall was looking for, and the recall degenerated into
-        # echoing an unrelated turn — the same wrong episode for every query.
-        # Structural (interrogative syntax), not a per-topic rule.
-        for _i, _w in enumerate(_first[:3]):
+        # Allow a short lead-in ("so, ..." / "and ...") before the question word.
+        for _w in _first[:3]:
             if _w in self._QUESTION_LEAD:
-                if _w in self._QUESTION_WH:
-                    return True
-                # A yes/no auxiliary leads a question only in INITIAL
-                # position. A later one is a statement's predicate.
-                return _i == 0
+                return True
         return False
 
     # D-fix (round 2026-08-22T0058Z): a disclosed entity is often recalled with a
@@ -903,23 +640,15 @@ class MemoryMixin:
         q = (query or "").strip()
         if not q or not self._is_question(q):
             return None
-        qn = q.lower()
-        # ── SOURCE-MONITORING GATE: an ask about RAVANA's OWN stance is not a
-        # recall of the user's disclosure ─────────────────────────────────────
-        # "do you think i hate cold coffee?" shares every content cue with the
-        # stored disclosure "i hate cold coffee" — cue coverage alone therefore
-        # matched it, and this capability echoed the user's own words back
-        # instead of letting the stance machinery answer. The retrieval target
-        # is RAVANA's belief, not the user's record, so the episodic store is
-        # the wrong source and the turn must fall through.
-        #
-        # This consults the SINGLE shared self-opinion pattern
-        # (_SELF_OPINION_SHAPE below), the same constant
-        # `_route_self_query._agent_opinion` matches on
-        # (engine_self_query.py:1268) — one definition, two call sites, so the
-        # two routers cannot drift apart.
-        if re.search(_SELF_OPINION_SHAPE, qn):
+        # This path is for follow-up questions about a third-party entity
+        # disclosed earlier; it must not hijack first-person stance recall.
+        if re.search(r"\b(?:i|me|my|mine|we|us|our|ours)\b", q.lower()):
             return None
+        if re.search(r"\b(?:think|thought|opinion|honest|read|prefer|like|hate|love|know what)\b", q.lower()):
+            return None
+        if re.search(r"\bwhat is\b.*\b(?:made of|capital|definition|mean)\b", q.lower()):
+            return None
+        qn = q.lower()
         store = self._episodic_transcript or []
         if not store:
             try:
@@ -941,13 +670,6 @@ class MemoryMixin:
                 continue
             if self._is_question(text):
                 continue
-            # A record the user has since RETRACTED must not be re-served by an
-            # ordinary self-recall ("what did i tell you about my brother?").
-            # Before this the transcript kept the original utterance verbatim with
-            # no retirement notion at all, so a corrected fact kept coming back
-            # from the one store the correction never reached.
-            if self._record_is_retracted(rec):
-                continue
             if re.search(
                 r"\b(remember|recall|remind(?: me)?)\b"
                 r".*\b(told|said|ask|mention|tell|mentioned|asked)\b", text):
@@ -968,154 +690,43 @@ class MemoryMixin:
             _stem = (lambda w: w)
         # Cue coverage per stored user turn. Coverage is measured in DISTINCT
         # query cues stem-matched by the record, so morphology variation
-        # ("restore"/"restores") counts as the same cue.
-        #
-        # COVERAGE is the source-monitoring discriminator, and it is what
-        # separates a question about the user's own life from a world question
-        # that merely shares a word with it:
-        #   "where does meera restore clocks" -> the record accounts for
-        #       meera + restore + clocks = 3/3 of the query's content. The
-        #       user is asking me to re-surface what they told me.
-        #   "what is cooking oil made of" -> the record accounts only for
-        #       "cooking" = 1/3. The question is really about oil and what it
-        #       is made of, which the user never told me; answering it from
-        #       the autobiographical record would be confabulation dressed as
-        #       recall. A single shared word is a coincidence, not a cue.
-        # A record must therefore account for a MAJORITY of the query's
-        # content cues. The threshold is structural (majority, not a tuned
-        # constant) and is recomputed against the live query every time.
+        # ("restore"/"restores") counts as the same cue and a record can only
+        # win by covering several cues — one shared word is not evidence.
         n = len(eligible)
         _stem_sets = []
         for rec in eligible:
             _stem_sets.append({
                 _stem(w) for w in re.findall(
                     r"[a-z']+", (rec.get("text", "") or "").lower())})
-        # Rarity (idf-like): a cue carried by MOST of the store is a
-        # background word, not evidence. Computed live so it scales with the
-        # store: one qualifying record in a one-record store is legitimate
-        # evidence, while a word shared by every record in a large store is
-        # not. Coverage AND rarity are both required — either alone lets a
-        # coincidence through.
+        # Rarity (idf-like): a cue carried by MOST of the store is a background
+        # word, not evidence. It is computed live and scales with the store:
+        # one qualifying record in a one-record store is legitimate evidence;
+        # a word shared by every record in a large store is not.
         _max_df = max(1, n // 2)
-        _need = (len(cues) // 2) + 1
         _cand = []
         for _i, rec in enumerate(eligible):
-            _matched = [c for c in cues
-                        if _stem(c) in _stem_sets[_i]
-                        and sum(1 for _s in _stem_sets
-                                if _stem(c) in _s) <= _max_df]
-            if len(_matched) < _need:
+            _matched = [c for c in cues if _stem(c) in _stem_sets[_i]]
+            if len(_matched) < 2:
+                # A single-cue record can still qualify when the cue is rare in
+                # the live store AND the record is the only one carrying it
+                # (a fresh one-fact disclosure) — otherwise one common word
+                # would anchor an unrelated recall.
+                _rare = [c for c in cues
+                         if _stem(c) in _stem_sets[_i]
+                         and sum(1 for _s in _stem_sets
+                                 if _stem(c) in _s) <= _max_df]
+                if len(_rare) != 1:
+                    continue
+                _matched = _rare
+            _df = max(sum(1 for _s in _stem_sets if _stem(c) in _s)
+                      for c in _matched)
+            if _df > _max_df:
                 continue
-            _cand.append((len(_matched), _i))
+            _cand.append((len(_matched), -_df, _i))
         if not _cand:
             return None
         _cand.sort(reverse=True)
-        # EVIDENCE FUSION decides the winner WITHIN the top coverage tier.
-        #
-        # Records are qualified above by how many of the query's content cues
-        # they account for (majority) AND how rare those cues are in the store.
-        # That gate is unchanged and still fails closed. But when two records
-        # tie on coverage, `sort` falls through to the store index — i.e.
-        # recency, which is not evidence about relevance, and measurably
-        # returned the wrong record on an exact 5v5 tie (see
-        # docs/SYNTHESIS_TOTAL_AGENT_MEMORY.md). The two independent channels
-        # RAVANA already owns (_bm25_rank at :624 and the GloVe tier) break
-        # that tie instead, by rank fusion.
-        _top = _cand[0][0]
-        _tied = [_i for _cov, _i in _cand if _cov == _top]
-        if len(_tied) > 1:
-            _winner = self._fuse_tied_candidates(q, cues, _tied, eligible)
-        else:
-            _winner = _tied[0]
-        return self._reconstruct_gist(eligible[_winner])
-
-    def _cue_semantic_ranks(self, cues: List[str],
-                            records: List[Dict[str, Any]]) -> Dict[int, int]:
-        """Rank `records` by summed GloVe cosine against the query's content cues.
-
-        This is an EVIDENCE CHANNEL, not a gate: a record sharing no token with
-        the query still receives a position, so a lexical tier cannot hide a
-        record that is topically related by meaning alone. Returns ``{}`` when
-        no projection is available, so the caller fuses the channels it does
-        have instead of acting on invented evidence.
-        """
-        qvecs = []
-        for w in cues:
-            wv = self._glove_vector(w)
-            if wv is not None:
-                qvecs.append(wv)
-        if not qvecs:
-            return {}
-        scored = []
-        for i, rec in enumerate(records):
-            total = 0.0
-            for tw in re.findall(r"[a-z']+", (rec.get("text", "") or "").lower()):
-                if tw in STOP_WORDS or len(tw) < 3:
-                    continue
-                tv = self._glove_vector(tw)
-                if tv is None:
-                    continue
-                for wv in qvecs:
-                    total += float(np.dot(wv, tv))
-            scored.append((i, total))
-        scored.sort(key=lambda kv: -kv[1])
-        return {i: rank for rank, (i, _s) in enumerate(scored)}
-
-    @staticmethod
-    def _rrf_fuse(channels: List[List[int]], k: int = 60) -> List[Tuple[int, float]]:
-        """Reciprocal Rank Fusion over independently ranked channels.
-
-        Combines channels by RANK POSITION only. The lexical and semantic
-        channels are not commensurable — BM25 here is an unbounded sum of
-        ``idf * tf`` and the semantic tier an unbounded sum of dot products — so
-        weighting them would require a normalisation constant fitted to one
-        conversation. Rank fusion needs none, and it rewards a record that
-        agrees with BOTH channels over one that tops a single channel.
-
-        Adopted from total-agent-memory `src/memory_core/episodes/retriever.py`
-        `_rrf_fuse`; see docs/SYNTHESIS_TOTAL_AGENT_MEMORY.md.
-        """
-        scores: Dict[int, float] = {}
-        for ranked in channels:
-            for rank, i in enumerate(ranked):
-                scores[i] = scores.get(i, 0.0) + 1.0 / (k + rank + 1)
-        return sorted(scores.items(), key=lambda kv: -kv[1])
-
-    def _fuse_tied_candidates(self, query: str, cues: List[str],
-                              indices: List[int],
-                              records: List[Dict[str, Any]]) -> int:
-        """Pick the winner among equally-qualifying records by evidence fusion.
-
-        The cue-coverage gate has already decided these records are equally
-        supported by the query's content. Ordering them by store index (i.e. by
-        recency) is not evidence about relevance, so the two independent
-        channels RAVANA already owns — lexical BM25 and GloVe cosine — decide
-        instead. Returns the winning position in `indices`.
-
-        Fails safe: with only one channel available (or none) this degrades to
-        the caller's ordering rather than guessing.
-        """
-        if len(indices) < 2:
-            return indices[0]
-        subset = [records[i] for i in indices]
-        by_id = {id(r): pos for pos, r in enumerate(subset)}
-        channels: List[List[int]] = []
-
-        ranked = self._bm25_rank(query, subset)
-        if ranked:
-            order = [by_id[id(r)] for r, _s in ranked if id(r) in by_id]
-            if order:
-                channels.append(order)
-
-        sem = self._cue_semantic_ranks(cues, subset)
-        if sem:
-            channels.append([pos for pos, _ in sorted(sem.items(),
-                                                      key=lambda kv: kv[1])])
-
-        if not channels:
-            return indices[0]
-        fused = self._rrf_fuse(channels)
-        return indices[fused[0][0]] if fused else indices[0]
+        return self._reconstruct_gist(eligible[_cand[0][2]])
 
     def _retrieve_episodic(self, query: str,
                            transcript: Optional[List[Dict[str, Any]]] = None) -> Optional[str]:
@@ -1200,13 +811,7 @@ class MemoryMixin:
                         # boundary holds at the recall source, not just the
                         # fact-store.
                         _subj = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
-                        # A fact stored under a SPECIES key (subject="cat") is a
-                        # user-owned pet fact — the miner keys it by species
-                        # entity, not "i". The self/other boundary must let these
-                        # through while still excluding third-party owners
-                        # (subject="sister"): species_of("cat")="cat" vs
-                        # species_of("sister")=None. FIX-RV-02.
-                        if _subj not in (None, "i", "I") and _pet_slots.species_of(_subj) is None:
+                        if _subj not in (None, "i", "I"):
                             continue
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
                         _ent = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
@@ -1279,7 +884,7 @@ class MemoryMixin:
                         # D7 cued-recall render rule; seed lexicon, no authored
                         # text). A plain noun value keeps the copula.
                         _val_str = (val or "").strip()
-                        if _mem_drops_copula(_val_str):
+                        if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
                             bits.append(f"your {attr} {_val_str}")
                         else:
                             bits.append(f"your {attr} is {_val_str}")
@@ -1294,12 +899,7 @@ class MemoryMixin:
                 elif attr.startswith("event"):
                     bits.append(f"you {val}")
                 elif attr == "is":
-                    # FIX-RV-13: a predicate value carries its own tense, so
-                    # it must not take a second copula ("your dog is had
-                    # surgery"). Same shared grammar rule as every other site.
-                    bits.append(f"your {ent} {val}"
-                                if _mem_drops_copula((val or "").strip())
-                                else f"your {ent} is {val}")
+                    bits.append(f"your {ent} is {val}")
                 elif attr == "location":
                     bits.append(f"you live in {val}")
                 elif attr == "background":
@@ -1332,7 +932,7 @@ class MemoryMixin:
                     # self-profile dump above + D7 cued recall) so a mined
                     # activity reads "your cabin's roof <val>", not "is <val>".
                     _val_str = (val or "").strip()
-                    if _mem_drops_copula(_val_str):
+                    if _val_str and _mem_is_activity_verb(_val_str.split()[0]):
                         bits.append(f"your {ent}'s {attr} {_val_str}")
                     else:
                         bits.append(f"your {ent}'s {attr} is {_val_str}")
@@ -1432,25 +1032,9 @@ class MemoryMixin:
         if _ent_hit is not None:
             _facts = _entity_idx[_ent_hit]
             if _facts:
-                # A name query may only be answered by a name. This path
-                # renders EVERY attribute it holds for the cued entity, so
-                # "what is my cat's name" was answered "you told me your cat
-                # is diagnosed with a chronic illness" — right entity, wrong
-                # attribute, stated confidently. Keep only name-shaped values;
-                # if none survives, fall through so the caller fails CLOSED
-                # rather than substituting a different attribute for the one
-                # the user asked about. Same attribute-agreement rule the two
-                # other recall sites apply, so all three agree.
-                if attribute_gate.asks_name_only(q):
-                    _name_only = {
-                        _a: _v for _a, _v in _facts.items()
-                        if attribute_gate.is_name_shaped(_v)}
-                    _facts = _name_only
-                if _facts:
-                    _bits = _reconstruct_entity(_ent_hit, _facts)
-                    if _bits:
-                        return "you told me " + "; ".join(
-                            dict.fromkeys(_bits)) + "."
+                _bits = _reconstruct_entity(_ent_hit, _facts)
+                if _bits:
+                    return "you told me " + "; ".join(dict.fromkeys(_bits)) + "."
         # (a0) LITERAL-CONTENT CUE PASS (B-fix, round v-aug04). The previous
         # semantic cosine matcher returned the highest-scoring UNRELATED
         # episode because GloVe similarity is loosely positive across many
@@ -1517,11 +1101,6 @@ class MemoryMixin:
                     r"\b(told|said|mentioned|asked|tell|remember|recall)\b", _t) or \
                     self._is_question(_t):
                     continue
-                # Same retirement gate as _self_cued_episodic: a record the
-                # user has taken back must not be re-served by an ordinary
-                # cued recall.
-                if self._record_is_retracted(rec):
-                    continue
                 _eligible.append(rec)
             _GENERIC_CUE = {
                 "came", "come", "back", "went", "gone", "go", "going",
@@ -1548,11 +1127,6 @@ class MemoryMixin:
                 if val and (val in q or slot.replace("_", " ") in q):
                     return self._reconstruct_gist(rec)
         # (b) semantic match over turn text / gist.
-        # SEED-backed relevance scoring (round 2026-10-13): after finding the
-        # best semantic match, verify its relevance with a multi-signal score.
-        # This replaces the binary any-match guard with a continuous score and
-        # an autonomously adapting threshold. Fail-closed: if the score is below
-        # the threshold, return None (honest uncertainty beats confabulation).
         best = None
         best_score = 0.0
         qwords = [w.strip(".,!?") for w in q.split()
@@ -1650,17 +1224,7 @@ class MemoryMixin:
                 and c not in _GENERIC_CUE
                 for c in qwords)
             if _verbatim:
-                # SEED-backed relevance gate (round 2026-10-13): verify the
-                # match with a multi-signal relevance score before returning.
-                # Fail-closed: if below threshold, return None (honest
-                # uncertainty beats confabulation).
-                _rel_score = self._relevance_scorer.score(
-                    q, best.get("text", ""),
-                    candidate_turn=best.get("turn", 0),
-                    query_turn=getattr(self, "turn_count", 0),
-                    threshold=self._relevance_threshold)
-                if _rel_score >= self._relevance_threshold.base_threshold:
-                    return self._reconstruct_gist(best)
+                return self._reconstruct_gist(best)
         return None
 
     # ════════════════════════════════════════════════════════════════
@@ -2952,7 +2516,7 @@ class MemoryMixin:
                             # fixes bicycles", not "is fixes bicycles". A plain
                             # noun value keeps the copula.
                             _sv = (str(_val) or "").strip()
-                            if _mem_drops_copula(_sv):
+                            if _sv and _mem_is_activity_verb(_sv.split()[0]):
                                 _bits.append(
                                     f"your {_ent}'s {_attr} {_sv}" if not _is_user
                                     else f"your {_attr} {_sv}")
@@ -3126,8 +2690,7 @@ class MemoryMixin:
             # not a per-topic table.
             _m = re.search(
                 r"\b(?:about|that|regarding|on|my|the)\s+"
-                r"(?:(?:the|my|your|our|their)\s+)*"
-                r"([a-z']+)"
+                r"(?:the\s+)?([a-z']+)"
                 r"|([a-z']+)'s\b", t)
             if _m:
                 _cue = (_m.group(1) or _m.group(2) or "").lower().strip(".,!?")
@@ -3140,19 +2703,6 @@ class MemoryMixin:
                 _cued = self._retrieve_episodic(user_input)
                 if _cued:
                     return _cued
-                # FIX-RV-13 (round auto/round-20260925T0823-fix-7): a query that
-                # NAMES a cue has already told us which memory it wants, so
-                # when nothing resolves that cue the honest answer is to say
-                # so — not to fall through and quote the most recent turn
-                # instead. The old fall-through did exactly that: "what did i
-                # just tell you about my ferret" (never disclosed) returned the
-                # user's remote-work opinion verbatim, a confident quote of a
-                # memory the user never asked about. Abstaining here is not a
-                # limitation dressed up — the user cued a specific episode, and
-                # answering with a different one is worse than silence. A query
-                # with NO cue ("what did i just say?") still legitimately means
-                # "the previous turn" and keeps the fall-through below.
-                return None
             last_turn = prior[-1].strip()
             # Pull the matching transcript record (highest turn_index = prev).
             matching = [r for r in self._episodic_transcript

@@ -17,11 +17,7 @@ import sys
 import pytest
 
 os.environ.setdefault("RAVANA_OFFLINE", "1")
-# Resolve the repo from THIS test file's location, not a hardcoded absolute
-# path: a hardcoded root silently imports the engine from a different checkout
-# (e.g. the main working tree) when the suite runs inside a worktree, so the
-# tests measure the wrong code. tests/unit/ -> repo root is two levels up.
-PROJ = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+PROJ = r"C:\Users\Likhith\Documents\Projects\ravana"
 for _p in (PROJ,
            os.path.join(PROJ, "ravana", "src"),
            os.path.join(PROJ, "ravana_ml", "src"),
@@ -30,6 +26,7 @@ for _p in (PROJ,
         sys.path.insert(0, _p)
 
 from ravana.chat.engine import CognitiveChatEngine  # noqa: E402
+
 
 DISCLOSURE = "my cousin meera restores antique clocks in pune"
 QUESTION = "where does meera restore clocks"
@@ -92,48 +89,3 @@ def test_second_disclosure_is_independently_recallable(engine):
     assert "jaipur" in hit.lower()
     # A question carrying only scaffolding has no content cue at all.
     assert engine._self_cued_episodic("what is it about") is None
-
-
-def test_world_question_sharing_one_word_is_not_recalled(engine):
-    """Source monitoring: a world question that shares ONE word with a stored
-    autobiographical fact must NOT be answered from that fact.
-
-    This is the exact regression the first cut of this capability caused: a
-    single-cue escape hatch let "what is cooking oil made of?" match the
-    stored "i enjoy cooking pasta on weekends" on the lone word "cooking".
-    The user's record accounts for only part of what was asked, so answering
-    from it is confabulation dressed as recall.
-    """
-    engine.process_turn("i enjoy cooking pasta on weekends")
-    assert engine._self_cued_episodic("what is cooking oil made of?") is None
-
-
-def test_partial_overlap_world_question_is_not_recalled(engine):
-    """Coverage, not vocabulary: a question only PARTLY covered by the store
-    is a question about something the user never disclosed."""
-    engine.process_turn(DISCLOSURE)
-    # "meera" is covered but the question is really about the tide tables.
-    assert engine._self_cued_episodic(
-        "what tide tables does meera use") is None
-
-
-def test_self_opinion_question_is_not_answered_from_the_record(engine):
-    """A question about RAVANA's OWN stance must not be cued out of the
-    user's own disclosure.
-
-    "do you think i hate cold coffee?" shares EVERY content cue with the
-    stored turn "i hate cold coffee", so cue coverage alone matched it and
-    the capability echoed the user's words back ("you mentioned: ...")
-    instead of letting the stance machinery answer. The retrieval target is
-    RAVANA's belief, not the user's record — wrong source, so fail closed.
-    """
-    engine.process_turn("i hate cold coffee")
-    assert engine._self_cued_episodic(
-        "do you think i hate cold coffee?") is None
-
-
-def test_user_stance_confirmation_is_not_answered_from_the_record(engine):
-    """Asking RAVANA to confirm the USER's own stance ("do i like cold
-    coffee") is a stance-store question, not an episodic recall."""
-    engine.process_turn("i hate cold coffee")
-    assert engine._self_cued_episodic("do i like cold coffee") is None
