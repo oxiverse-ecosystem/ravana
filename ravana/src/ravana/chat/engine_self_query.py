@@ -1087,7 +1087,25 @@ class SelfQueryMixin:
         # branches.
         _topic_grounded = self._topic_grounded_self_experience(user_input, t)
         if _topic_grounded is not None:
-            return _topic_grounded
+            # D4 confabulation gate: verify the topic-grounded reply is
+            # topically relevant to the query. The _topic_grounded_self_experience
+            # method can return a non-sequitur when _find_topic_connection
+            # retrieves an unrelated concept (e.g., "dreams" -> "people who
+            # hoard every book ever read"). The gate uses the same multi-signal
+            # relevance scorer as the internal-knowledge path — no per-topic
+            # logic, no hardcoded reply strings. Fail-closed: if below
+            # threshold, return None so the caller falls through to honest
+            # uncertainty rather than emitting a confabulated answer.
+            _gate = getattr(self, "_relevance_gate", None)
+            if _gate is not None:
+                _gated = _gate(user_input, _topic_grounded)
+                if _gated is not None:
+                    return _gated
+                # Gate failed — fall through to generic branches below,
+                # which may return a more relevant reply or None (honest
+                # uncertainty). Do NOT return the confabulated answer.
+            else:
+                return _topic_grounded
         # ── Sub-frame dispatch (composed, state-grounded, never dict/web) ──
         # 1) "how do you feel when X" / "what makes you X" — a simulated
         #    SELF-EVENT (DMN constructive simulation over the agent's own

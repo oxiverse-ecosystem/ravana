@@ -68,49 +68,26 @@ def test_relevance_gate_passes_relevant_answer(engine):
 
 
 def test_relevance_gate_withholds_off_topic_answer(engine):
-    """An off-topic answer should be withheld when the threshold is high.
-
-    The multi-signal scorer gives a moderate score for most answers
-    (recency/type signals default to 1.0). To verify the gate withholds
-    off-topic answers, we raise the threshold above the score.
-    """
+    """An off-topic answer should be withheld (no content overlap)."""
     answer = "car engine repair requires mechanical tools and oil changes"
-    sr = engine._relevance_scorer.score("what is sleep", answer, query_turn=0, threshold=engine._relevance_threshold)
-    original_threshold = engine._relevance_threshold.base_threshold
-    try:
-        engine._relevance_threshold.base_threshold = sr + 0.1
-        result = engine._relevance_gate("what is sleep", answer)
-        assert result is None, (
-            "relevance_gate should withhold an off-topic answer "
-            f"(got: {result!r})")
-    finally:
-        engine._relevance_threshold.base_threshold = original_threshold
+    result = engine._relevance_gate("what is sleep", answer)
+    assert result is None, (
+        "relevance_gate should withhold an off-topic answer "
+        f"(got: {result!r})")
 
 
 def test_relevance_gate_withholds_analogical_confabulation(engine):
     """The D4 confabulation: analogical replies that are off-topic must be
     withheld. This is the core test — it reproduces the exact failure mode
-    from the round report (dreams -> book hoarding).
-
-    Note: the engine.py _relevance_gate uses a multi-signal scorer (not
-    single-word GloVe cosine). The scorer gives a moderate score for
-    topically-related-but-not-identical answers, so this test raises
-    threshold above the score to verify the gate withholds it.
-    """
+    from the round report (dreams -> book hoarding)."""
     confabulated = (
         "when i let my mind wander, i find myself drawn to people "
         "who hoard every book ever read"
     )
-    sr = engine._relevance_scorer.score("what do you dream about", confabulated, query_turn=0, threshold=engine._relevance_threshold)
-    original_threshold = engine._relevance_threshold.base_threshold
-    try:
-        engine._relevance_threshold.base_threshold = sr + 0.1
-        result = engine._relevance_gate("what do you dream about", confabulated)
-        assert result is None, (
-            "relevance_gate should withhold analogical confabulation "
-            f"(got: {result!r})")
-    finally:
-        engine._relevance_threshold.base_threshold = original_threshold
+    result = engine._relevance_gate("what do you dream about", confabulated)
+    assert result is None, (
+        "relevance_gate should withhold analogical confabulation "
+        f"(got: {result!r})")
 
 
 def test_relevance_gate_returns_answer_string_when_relevant(engine):
@@ -125,8 +102,7 @@ def test_relevance_gate_handles_empty_inputs(engine):
     """Edge cases: empty answer returns None (fail-closed on empty answer)."""
     assert engine._relevance_gate("some query", "") is None
     assert engine._relevance_gate("", "") is None
-    # Non-empty query with non-empty answer should pass through the gate
-    # (the gate returns the answer or None based on the score)
+    # Non-empty query with relevant answer should pass through the gate
     result = engine._relevance_gate("what is sleep", "sleep is when the mind rests")
     assert result is not None, "gate should pass a relevant answer"
 
