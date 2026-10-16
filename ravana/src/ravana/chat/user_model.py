@@ -3902,6 +3902,22 @@ class UserModel:
                             r"\s*(?:[.!?]+|where|that|which|when|but)\b",
                             _after)[0].strip(" ,.!?;:")
                         _after = re.sub(r"\s+", " ", _after).lower()
+                        # COPULA-STRIP (defect D3, no-verb-name path): when no
+                        # activity/relation/aux verb is found, the trailing
+                        # clause starts with a copula ("is ..." / "are ..."),
+                        # which is a closed-class function word carrying no
+                        # content. Without stripping it the stored VALUE was
+                        # "is and i have known each other" and the stored ATTR
+                        # leaked the copula ("sister priya is"), so recall
+                        # rendered "your friend arjun IS is ...". Drop a leading
+                        # copula / function word chain from the value using the
+                        # SAME pet_slots.is_function_word gate the other head
+                        # slots consult; no per-topic branch, and no disclosed
+                        # word is lost (only closed-class heads are removed).
+                        _after_toks = _after.split()
+                        while _after_toks and is_function_word(_after_toks[0]):
+                            _after_toks.pop(0)
+                        _after = " ".join(_after_toks).strip(" .,!?")
                         # The comma-bound embedded-relative path (above) already
                         # captured the descriptor; don't overwrite it with the
                         # whole trailing clause.

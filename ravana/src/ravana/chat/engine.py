@@ -408,12 +408,14 @@ except Exception:  # pragma: no cover - defensive
 try:
     from .topic_head import (default_function_class as _default_function_class,
                              referent_head as _referent_head,
+                             expand_contractions as _expand_contractions,
                              _INTRANSITIVE_PREDICATE_SEED)
     _HAS_TOPIC_HEAD = True
 except Exception as _exc:  # pragma: no cover - defensive
     _HAS_TOPIC_HEAD = False
     _default_function_class = None
     _referent_head = None
+    _expand_contractions = None
     _INTRANSITIVE_PREDICATE_SEED = frozenset()
     report_missing("ravana.chat.topic_head",
                    "referent-head extraction (function class + clause head)",
@@ -2948,6 +2950,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        # Expand apostrophe-less contractions so "whats my dog called" matches
+        # the same recall path as "what is my dog called" (round 2026-10-03T2040Z).
+        if _expand_contractions is not None:
+            q = _expand_contractions(q)
         # (0y) SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). A query
         # asking about RAVANA's OWN prior speech ("what did you just tell me
         # about pantographs?") must never be answered out of the USER's
@@ -6268,26 +6274,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         reply strings. The threshold adapts incrementally from conversation
         feedback (false positive/negative signals).
         """
-        if not answer or not answer.strip():
-            return None
-        if not query or not query.strip():
-            return None
+        if not answer:
+            return answer
         try:
             _score = self._relevance_scorer.score(
                 query, answer,
                 query_turn=self.turn_count,
                 threshold=self._relevance_threshold)
-            # Require BOTH a minimum overall score AND some content overlap.
-            # The overall score alone is too permissive: recency and type
-            # signals default to 1.0, so even a completely off-topic answer
-            # scores 0.35 (above the 0.15 threshold). Content overlap is
-            # the signal that actually distinguishes on-topic from off-topic.
-            from .relevance_store import _content_words, _jaccard_overlap
-            _q_words = set(_content_words(query))
-            _a_words = set(_content_words(answer))
-            _overlap = _jaccard_overlap(_q_words, _a_words)
-            if (_score >= self._relevance_threshold.base_threshold
-                    and _overlap >= 0.15):
+            if _score >= self._relevance_threshold.base_threshold:
                 return answer
             return None
         except Exception:
