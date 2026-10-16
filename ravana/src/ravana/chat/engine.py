@@ -6275,13 +6275,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         feedback (false positive/negative signals).
         """
         if not answer:
-            return answer
+            return None
         try:
             _score = self._relevance_scorer.score(
                 query, answer,
                 query_turn=self.turn_count,
                 threshold=self._relevance_threshold)
-            if _score >= self._relevance_threshold.base_threshold:
+            # Require BOTH a minimum overall score AND some content overlap.
+            # The overall score alone is too permissive: recency and type
+            # signals default to 1.0, so even a completely off-topic answer
+            # scores 0.35 (above the 0.15 threshold). Content overlap is
+            # the signal that actually distinguishes on-topic from off-topic.
+            # Threshold 0.05 (not 0.15) so legitimate recall answers that
+            # share even one content word with the query still pass.
+            from .relevance_store import _content_words, _jaccard_overlap
+            _q_words = set(_content_words(query))
+            _a_words = set(_content_words(answer))
+            _overlap = _jaccard_overlap(_q_words, _a_words)
+            if (_score >= self._relevance_threshold.base_threshold
+                    and _overlap >= 0.05):
                 return answer
             return None
         except Exception:
@@ -7357,13 +7369,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _cued_self = self._self_cued_episodic(user_input)
         except Exception:
             _cued_self = None
-        # Apply the universal relevance gate at the call site (not inside
-        # _self_cued_episodic) so the gate can be swapped/configured
-        # independently. An answer that passes the cue match but fails
-        # the relevance score returns None — honest uncertainty beats
-        # confabulation.
-        if _cued_self is not None:
-            _cued_self = self._relevance_gate(user_input, _cued_self)
+        # Do NOT apply the relevance gate to cued-recall answers. The recall
+        # path (_self_cued_episodic) has its own topical-overlap matching
+        # logic; a stored reply may legitimately share zero content words
+        # with the query (e.g. "remind me what you said about board games"
+        # recalls "i said: hmm, i'm not totally sure about friends yet...")
+        # because the reply paraphrases rather than repeats the query words.
+        # Filtering here broke recall for paraphrased replies (round 2026-10-16).
         if _cued_self is not None:
             self._last_strategy = "self_cued_episodic"
             self._last_responses.append(_cued_self)
