@@ -2304,6 +2304,8 @@ class SelfQueryMixin:
         Fail-closed: if embeddings are unavailable, returns None (honest
         uncertainty beats confabulation).
         """
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [relevance_gate] ENTRY query={query!r} answer_len={len(answer)} has_glove={hasattr(self, '_glove_vector')}")
         if not query or not answer:
             return None
         if not hasattr(self, '_glove_vector'):
@@ -2314,6 +2316,8 @@ class SelfQueryMixin:
             subj = _g[0] if _g else None
         except Exception:
             subj = None
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [relevance_gate] ground={_g!r} subj={subj!r}")
         if not subj:
             return None
         # Check if the answer mentions the subject or a very close synonym
@@ -2322,6 +2326,8 @@ class SelfQueryMixin:
             _subj_vec = self._glove_vector(subj.lower().strip())
         except Exception:
             pass
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [relevance_gate] subj_vec is None: {_subj_vec is None}")
         if _subj_vec is None:
             return None
         # Check each content word in the answer for a STRONG match
@@ -2343,6 +2349,8 @@ class SelfQueryMixin:
                 continue
             if _sim > _best_sim:
                 _best_sim = _sim
+        if getattr(self, '_trace_enabled', False):
+            print(f"  [relevance_gate] best_sim={_best_sim:.4f} threshold={_threshold}")
         if _best_sim < _threshold:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [relevance_gate] withheld (sim={_best_sim:.2f} < {_threshold}): {answer[:60]!r}")
