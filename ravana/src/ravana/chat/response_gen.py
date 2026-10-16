@@ -2023,9 +2023,11 @@ class ResponseGenMixin(ChainWalkerMixin):
         if intent == "affect_disclosure":
             _disc = self._detect_emotional_disclosure(text=text)
             if _disc is not None:
-                _resp, _strat = self._emotional_response(None, _disc)
-                self._last_strategy = _strat
-                return _resp
+                _emot = self._emotional_response(None, _disc)
+                if _emot is not None:
+                    _resp, _strat = _emot
+                    self._last_strategy = _strat
+                    return _resp
 
         # Retrieve emotional valence and arousal for mood modulation
         valence = 0.5

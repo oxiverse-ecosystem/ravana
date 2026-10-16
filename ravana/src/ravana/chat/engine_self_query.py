@@ -514,9 +514,9 @@ class SelfQueryMixin:
         # on X means no stance on X. RAVANA can still form a real stance on
         # this topic later, from experience (online; no retraining).
         _display_target = self._normalize_stance_topic(target)
-        _stance = f"i'm still forming a view on {_display_target}"
+        _stance = f"i'm still forming a view on {_display_target}."
         _reason = (f"i don't have a fixed stance on {_display_target} yet — what's your "
-                  f"take? i'd rather hear how you see it than guess.")
+                   f"take? i'd rather hear how you see it than guess.")
         # F3 FIX (round 2026-09-06): do NOT record a provisional stance when
         # there is NO evidence (no seeded value, no user stance). Recording a
         # fake "still forming a view" stance for an evidence-less topic is a

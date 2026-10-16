@@ -8597,11 +8597,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _vad_label = self.emotion.get_emotional_label()
                     _cause = classify_cause(user_input, self._glove_vector).label
                     _frame = select_empathy_frame(_vad_label, _cause)
-                    _resp, _strat = self._emotional_response(None, _disc)
-                    # Tag the chosen frame for instrumentation / BOS conditioning.
-                    self._last_empathy_frame = _frame
-                    self._last_strategy = _strat
-                    self._last_responses.append(_resp)
+                    _emot = self._emotional_response(None, _disc)
+                    if _emot is not None:
+                        _resp, _strat = _emot
+                        # Tag the chosen frame for instrumentation / BOS conditioning.
+                        self._last_empathy_frame = _frame
+                        self._last_strategy = _strat
+                        self._last_responses.append(_resp)
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     self.notify_user_idle()
