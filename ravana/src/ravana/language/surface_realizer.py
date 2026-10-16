@@ -78,10 +78,9 @@ class SurfaceRealizer:
     # as "it", "this", or "that" for natural discourse variety.
     # The first reference uses the mapping, subsequent references cycle through variants.
     # PRONOUNS replaced by _get_pronouns_for_concept() - GloVe-based classifier
-    # The old 7-entry pronoun IDENTITY map was deleted in round 2026-10-03T2040Z:
-    # every value equalled its own key, and _resolve_pronoun already returned the
-    # subject verbatim for that same 7-tuple, so it was unreachable dead code.
-    # tests/unit/test_pronouns_fallback_deleted.py fails if it ever returns.
+    # PRONOUNS_FALLBACK deleted: was an identity map whose 7 keys are all
+    # short-circuited by the guard at _resolve_pronoun, making the read site
+    # unreachable for every key the map held.
 
     # Variant pronouns for second+ references — selected by sentence position and
     # whether the subject is abstract. "it" is always valid; variants add texture.
@@ -853,6 +852,7 @@ class SurfaceRealizer:
         if subject_lower in ('i', 'you', 'we', 'they', 'he', 'she', 'it'):
             return subject
 
+        # Get pronoun options for this subject (list of variants or single string)
         # Get pronoun options via GloVe-based classifier (ATL semantic category)
         pronoun_opts = self._get_pronouns_for_concept(subject_lower)
 

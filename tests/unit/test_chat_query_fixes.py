@@ -356,8 +356,8 @@ def test_reversal_not_misattributed_via_filler():
     assert "thunderstorms" not in last, \
         f"grass contradiction wrongly acked the storm stance: {last!r}"
     # The held storm stance must remain intact (its polarity unchanged by the
-    # unrelated grass turn). The stance key is "thunderstorms" (without "now")
-    # because "now" is a temporal filler stripped from stance keys.
+    # unrelated grass turn). The stance-key trim removes trailing temporal
+    # adverbs, so "thunderstorms now" is stored as "thunderstorms".
     storm = e.user_model.opinions.stances.get("thunderstorms")
     assert storm is not None and storm.polarity < 0, \
         f"storm stance corrupted by unrelated contradiction: {storm}"

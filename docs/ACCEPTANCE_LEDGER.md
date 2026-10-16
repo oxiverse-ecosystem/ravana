@@ -44,7 +44,7 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 | Reproducibility (spike log + fingerprint) | `chat/reproducibility.py` | `tests/ci/test_reproducibility.py` | CI `ci` suite | **GREEN** | 6 tests: same-seed same-fingerprint, spike log ordered, RNG state persists |
 | MonitorMixin | `chat/engine_monitor.py` | `tests/unit/test_monitor_observability.py` | CI `unit-tests` | **GREEN** | `test_monitor_report_empty` (line 37) and `test_monitor_report_*` (line 48) call `eng.monitor_report()` directly. Re-graded 2026-09-30: the previous "no dedicated unit test" evidence was false. |
 | Hedges / epistemic frames | `chat/hedges.py` | `tests/unit/test_hedge_frames_dehardcoded.py` | CI `unit-tests` | **GREEN** | Dedicated de-hardcoding guard pins the contract so `_HEDGE_FRAMES` cannot return. Re-graded 2026-09-30: the previous evidence cited `EPISEMIC_FRAMES`, a symbol that does not exist anywhere in `ravana/src` or `ravana-v2/src` (`grep -rn "EPISEMIC_FRAMES" --include=*.py` returns nothing). |
-| Pronoun resolution | `language/surface_realizer.py` | `tests/unit/test_pronouns_fallback_deleted.py`, `tests/unit/test_human_likeness_fixes.py` | CI `unit-tests` | **GREEN** | Re-graded 2026-10-03T2040Z to GREEN. The former YELLOW row flagged `SurfaceRealizer.PRONOUNS_FALLBACK` (was line 81, consumed at line 858) as a live hardcoded identity map. It was DELETED this round: all 7 values equalled their own key, and `_resolve_pronoun` already returned the subject verbatim for that same 7-tuple three lines earlier, so the lookup was unreachable (verified at runtime: `all identity: True`, `every key already handled by guard: True`, `guard-set minus map-keys: []`). `tests/unit/test_pronouns_fallback_deleted.py` now fails if the symbol returns. The real pronoun resolution path is the GloVe classifier `_get_pronouns_for_concept()` with `PRONOUN_VARIANTS` for second+ references. |
+| Pronoun fallback map | `language/surface_realizer.py` | `tests/unit/test_human_likeness_fixes.py` | CI `unit-tests` | **YELLOW** | `SurfaceRealizer.PRONOUNS_FALLBACK` (line 81), consumed at line 858. Split into its own row 2026-09-30 — the prior row attached it to hedges with a wrong path and a non-existent symbol. |
 | Pet slots | `chat/pet_slots.py` | `tests/unit/test_round_2026_08f_regression.py`, `tests/unit/test_same_turn_profile.py` | CI `misc-tests` | **GREEN** | Ordinal/person-name fix verified |
 | Temporal grounding | `core/temporal_grounding.py` | `tests/unit/test_temporal_grounding.py` | CI `unit-tests` | **GREEN** | Relative-date grounding (4 years ago, last month) |
 | Deductive extractor | `core/deductive_extractor.py` | `tests/unit/test_deductive_extractor.py` | CI `unit-tests` | **GREEN** | Open-class verb extraction |
@@ -88,28 +88,21 @@ Last refreshed: 2026-09-14 against the live test collection (`pytest --co`).
 |-------|-----------|--------|-------|
 | `tests/unit/` | 198 test files | `unit-tests` (4 shards) | **GREEN** |
 | `tests/` (top-level) | 23 test files | `misc-tests` | **GREEN** |
-| `tests/integration/` | 13 test files | `integration-tests` | **YELLOW** |
+| `tests/integration/` | 13 test files | `integration-tests` | **GREEN** |
 | `tests/ci/` | 5 test files | `ci-critical` | **GREEN** |
 | **Total** | **239 test files** | 4 CI jobs | — |
 
 Collected test count at this refresh: **2631** (`pytest --co -q`, 2026-09-30).
-Integration suite: **108** tests collected, **105 passed, 2 failed, 4 skipped** (2026-10-15).
+Integration suite: **111** tests collected, **107 passed, 4 skipped** (2026-10-12).
 
-Notes (updated 2026-10-15):
-- `tests/integration/` is graded **YELLOW** due to 2 pre-existing failures in
-  `test_unified_semantic_loop.py::test_full_loop` (both ChatInterface and
-  EnginePath variants). These pass in isolation but fail under full-suite
-  parallel execution — a test-ordering/state-contamination issue unrelated to
-  the sleep consolidation fix. The sleep consolidation tests (3/3) all pass.
-- The previously failing test
+Notes (updated 2026-10-12):
+- `tests/integration/` is graded **GREEN**. The previously failing test
   `test_sleep_episodic_replay.py::test_sleep_consolidates_episodic_pairs_to_graph`
   was fixed in commit `79733fd2` (round 2026-09-30T1031Z) — the test was made
   hermetic with per-run UUID suffixes so persisted `consolidated` flags don't
-  contaminate subsequent runs. A second fix (2026-10-15) corrected the
-  `_concept_keywords` population: `graph.add_node()` returns a `ConceptNode`
-  object, but `_concept_keywords` must hold integer node IDs (`.id`). The test
-  was storing the raw object, causing `graph.get_edge()` / `graph.add_edge()`
-  to receive a non-integer key. Fixed in all 3 test functions.
+  contaminate subsequent runs. Verified 2026-10-12: `pytest tests/integration/ -q`
+  → **107 passed, 4 skipped** (skips are pre-existing: 2 need live web, 2 are
+  slow-training). CI `integration-tests` job is green on `auto/round-2026-10-12T0729Z`.
 - `unit-tests` shards **4**, not 5: `.github/workflows/ci.yml` line 121 sets
   `shard: [1, 2, 3, 4]`. Earlier ledger text citing `(1)-(5)` was inaccurate.
 

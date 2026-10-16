@@ -1168,6 +1168,11 @@ class MemoryMixin:
                 if val and (val in q or slot.replace("_", " ") in q):
                     return self._reconstruct_gist(rec)
         # (b) semantic match over turn text / gist.
+        # SEED-backed relevance scoring (round 2026-10-13): after finding the
+        # best semantic match, verify its relevance with a multi-signal score.
+        # This replaces the binary any-match guard with a continuous score and
+        # an autonomously adapting threshold. Fail-closed: if the score is below
+        # the threshold, return None (honest uncertainty beats confabulation).
         best = None
         best_score = 0.0
         qwords = [w.strip(".,!?") for w in q.split()
@@ -1265,7 +1270,17 @@ class MemoryMixin:
                 and c not in _GENERIC_CUE
                 for c in qwords)
             if _verbatim:
-                return self._reconstruct_gist(best)
+                # SEED-backed relevance gate (round 2026-10-13): verify the
+                # match with a multi-signal relevance score before returning.
+                # Fail-closed: if below threshold, return None (honest
+                # uncertainty beats confabulation).
+                _rel_score = self._relevance_scorer.score(
+                    q, best.get("text", ""),
+                    candidate_turn=best.get("turn", 0),
+                    query_turn=getattr(self, "turn_count", 0),
+                    threshold=self._relevance_threshold)
+                if _rel_score >= self._relevance_threshold.base_threshold:
+                    return self._reconstruct_gist(best)
         return None
 
     # ════════════════════════════════════════════════════════════════
