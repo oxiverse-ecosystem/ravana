@@ -59,6 +59,13 @@ on this codebase:
   toward the opposite pole (`reef tank` +0.95 → −0.665) instead of leaving the
   stale one or stacking a contradiction. A flip on a topic you never stated an
   attitude about is a harmless no-op. See `docs/STANCE_REVERSAL.md`.
+- **Derives new polarity from a natural contradiction (IN PROGRESS).** When you
+  say *"changed my mind — silence is actually wonderful"*, the engine is supposed
+  to mine the new opinion from the post-contradiction clause and recode the
+  stance toward that value (not just blindly flip). The polarity-mining
+  infrastructure (`_mine_new_opinion_polarity`) works in isolation but the
+  routing gap means the end-to-end path is not yet wired. See
+  `docs/CAPABILITY_STANCE_INVERSION_NEW_POLARITY.md`.
 - **Recodes a held stance on a FREE-FORM contradiction (no retraction keyword).**
   You don't have to say *"i flipped"* — an opposed restatement with no retraction
   cue still recodes the stance you hold: *"not all street art is good"* after

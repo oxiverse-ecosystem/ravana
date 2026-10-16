@@ -3020,34 +3020,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
-        # ── SELF-OPINION GATE (round 2026-10-13T0125Z) ──────────────────────
-        # A query asking for RAVANA's OWN stance ("do you think X", "what's your
-        # take on Y") must NOT be answered from the USER's personal-fact store.
-        # _structured_recall fires at the TOP of process_turn, BEFORE
-        # _route_self_query, so without this gate a self-opinion query matches a
-        # loosely-related user fact and returns a degenerate reply (measured:
-        # "do you think dreams have meaning or are they just noise?" -> "your
-        # friend is just is moved to another country."). The gate is the SAME
-        # _SELF_OPINION_SHAPE regex that _self_cued_episodic uses (imported from
-        # engine_memory.py) — one definition, two call sites, so the two routers
-        # cannot drift apart. Fail-closed: returns None so the query falls
-        # through to _route_self_query which computes RAVANA's real stance.
-        try:
-            from .engine_memory import _SELF_OPINION_SHAPE as _SOS
-            if re.search(_SOS, q):
-                # Aggregation queries ("what's your read on me") match the
-                # self-opinion shape but must reach the aggregation gate below.
-                if not re.search(
-                    r"\b(what(?:'s| is| do| did) your (?:read|take) on me|"
-                    r"what do you (?:make|think) of me|"
-                    r"tell me about myself|describe me|"
-                    r"what have you picked up about me|"
-                    r"everything you know about me|"
-                    r"what stands out about me)\b", q):
-                    return None
-        except Exception:
-            pass
-
         # (0a) R1 (2026-08-18T1340Z round): ENTITY-SCOPED NAME recall with
         # cross-lemma linking. A possession named by the user is stored under
         # the ENTITY key (e.g. ('sourdough starter','name','doris'),
@@ -3084,18 +3056,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _stored_entities = {_k[0] for _k in _ent_name_keys}
                     _linked_ent = self._link_recall_entity(q, _stored_entities)
                     if _linked_ent is not None:
-                        # pick the most recent name fact for this entity
-                        # (the user may have corrected the name across rounds)
-                        _best_v = None
-                        _best_tn = -1
+                        # pick the (possibly multi-instance) name fact for it
                         for _k in _ent_name_keys:
                             if _k[0] == _linked_ent:
-                                _tn = getattr(pf.facts[_k], "turn_number", 0) or 0
-                                if _tn > _best_tn:
-                                    _best_tn = _tn
-                                    _best_v = getattr(pf.facts[_k], "value", _k[2])
-                        if _best_v is not None:
-                            return f"your {_linked_ent}'s name is {_best_v}."
+                                _v = getattr(pf.facts[_k], "value", _k[2])
+                                return f"your {_linked_ent}'s name is {_v}."
             except Exception:
                 pass
 
@@ -3158,8 +3123,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
-            r"give me your (?:read|take|impression) (?:of|on) me|"
-            r"is there anything you(?:'ve| have) (?:learned|noticed|picked up) about me"
+            r"give me your (?:read|take|impression) (?:of|on) me"
             r")\b", q)
         if _agg_early:
             return self._aggregate_user_model()
@@ -3197,8 +3161,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
-            r"give me your (?:read|take|impression) (?:of|on) me|"
-            r"is there anything you(?:'ve| have) (?:learned|noticed|picked up) about me"
+            r"give me your (?:read|take|impression) (?:of|on) me"
             r")\b", q)
         if _agg:
             return self._aggregate_user_model()
@@ -5282,11 +5245,47 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 belief_items.append((_pred, _val, _conf))
         return facts, stances, belief_items
 
+    def _semantic_topic_match(self, phrase: str, topic: str,
+                              min_sim: float = 0.3) -> bool:
+        """Check if two phrases are semantically related via GloVe cosine.
+
+        Computes the max cosine similarity between any content token in the
+        phrase and any content token in the topic. Returns True if any pair
+        clears the threshold. This is a structural semantic gate — it uses
+        the same embedding system the rest of the engine uses, with no
+        per-topic logic and no retraining. Used to prevent false recall
+        matches where token overlap is incidental (e.g. "patience" matching
+        "taught" because they share a common word in a longer phrase).
+        """
+        try:
+            _p_toks = [w for w in re.findall(r"[a-z']+", (phrase or "").lower())
+                       if len(w) >= 3]
+            _t_toks = [w for w in re.findall(r"[a-z']+", (topic or "").lower())
+                       if len(w) >= 3]
+            if not _p_toks or not _t_toks:
+                return False
+            _p_vecs = [(w, self._glove_vector(w)) for w in _p_toks]
+            _p_vecs = [(w, v) for w, v in _p_vecs if v is not None]
+            _t_vecs = [(w, self._glove_vector(w)) for w in _t_toks]
+            _t_vecs = [(w, v) for w, v in _t_vecs if v is not None]
+            if not _p_vecs or not _t_vecs:
+                return False
+            for _pw, _pv in _p_vecs:
+                for _tw, _tv in _t_vecs:
+                    _sim = float(np.dot(_pv, _tv))
+                    if _sim >= min_sim:
+                        return True
+            return False
+        except Exception:
+            return False
+
     def _match_stance(self, phrase: str):
         """Find the user's real stance whose topic relates to `phrase`. Returns
         (topic, polarity, conf) or None. Containment + content-token-overlap,
         both directions — no per-topic table, generalizes across any topic the
-        user has actually disclosed."""
+        user has actually disclosed. Semantic gate: token-overlap matches
+        are verified by GloVe cosine to prevent false matches (round
+        2026-10-15 RL-1 fix)."""
         opinions = getattr(getattr(self, "user_model", None), "opinions", None)
         if opinions is None:
             return None
@@ -5304,14 +5303,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 break
             _ttoks = set(w for w in re.findall(r"[a-z']+", _t) if len(w) >= 3)
             if _ttoks & _ptoks:
-                _best = (_topic, getattr(_s, "polarity", 0.0),
-                         getattr(_s, "confidence", 0.5))
-                break
+                # Semantic gate: verify the match is genuine, not incidental
+                # token overlap (round 2026-10-15 RL-1 fix).
+                if self._semantic_topic_match(_p, _t):
+                    _best = (_topic, getattr(_s, "polarity", 0.0),
+                             getattr(_s, "confidence", 0.5))
+                    break
         return _best
 
     def _match_fact(self, phrase: str):
         """Find the user's real fact whose attr OR value relates to `phrase`.
-        Returns (attr, val, conf) or None — prefers the longest matching value."""
+        Returns (attr, val, conf) or None — prefers the longest matching value.
+        Semantic gate: token-overlap matches are verified by GloVe cosine to
+        prevent false matches (round 2026-10-15 RL-1 fix)."""
         facts, _, _ = self._collect_user_model_state()
         _p = (phrase or "").lower().strip().replace("-", " ")
         # Drop the closed-class functional word "does"/"did"/"do" from the
@@ -5345,9 +5349,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _vtoks = set(w for w in re.findall(r"[a-z']+", _val_l + " " + _attr_l)
                       if len(w) >= 3 and w not in ("does", "did", "do", "done"))
             if _vtoks & _ptoks:
-                _overlap = len(_vtoks & _ptoks)
-                if _best is None or _overlap > _best[2]:
-                    _best = (_attr, _val, _conf, _overlap)
+                # Semantic gate: verify the match is genuine, not incidental
+                # token overlap (round 2026-10-15 RL-1 fix).
+                _fact_phrase = (_val_l + " " + _attr_l).strip()
+                if self._semantic_topic_match(_p, _fact_phrase):
+                    _overlap = len(_vtoks & _ptoks)
+                    if _best is None or _overlap > _best[2]:
+                        _best = (_attr, _val, _conf, _overlap)
         if _best is not None and len(_best) == 4:
             _best = (_best[0], _best[1], _best[2])
         return _best
@@ -6040,13 +6048,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     def _recall_user_fact(self, attr_hint, q):
         """Helpers for _structured_recall: read a personal_fact by attribute.
 
-        When multiple facts match the same attribute (e.g. the user changed
-        their name or location across rounds), prefer the MOST RECENT one by
-        turn_number. This is a general recency weighting — no per-entity
-        hardcoding, no authored prose. The turn_number is read from the fact
-        store at runtime, so RAVANA's own learning determines which fact is
-        current. Facts with no turn_number default to 0 (oldest).
-        """
+        When multiple facts match the same attribute (e.g. the user had a
+        childhood dog named pepper in a prior round and now mentions a new
+        dog biscuit), prefer the MOST RECENT fact by turn_number. This is
+        a general recency weighting — no per-entity hardcoding, no authored
+        prose. The turn_number is read from the fact store at runtime, so
+        RAVANA's own learning determines which fact is current."""
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
             return None
@@ -6181,15 +6188,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._own_replies.setdefault(_topic, [])
             # Replace any prior reply on the same topic so re-stating a view keeps
             # the store current (incremental self-revision).
-            # Store only TOPIC content tokens as src_tokens, excluding generic
-            # scaffolding words (opinion/view/concept/etc.) that appear in every
-            # recall query and would cause false overlap matches. This is the
-            # same exclusion applied to query candidates in _route_agent_own_recall.
-            _src_scaffold = {"opinion", "view", "take", "stance", "position",
-                             "concept", "thought", "thoughts", "idea",
-                             "question", "thing", "something", "anything",
-                             "what", "your", "you", "the", "on", "of", "about"}
-            _src_tokens = [w for w in _words if w not in _src_scaffold]
             self._own_replies[_topic] = [{
                 "text": _store_text,
                 "turn": int(getattr(self, "turn_count", 0) or 0),
@@ -6203,7 +6201,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # trigger a wrong-topic echo. Genuine same-subject recalls
                 # ("you talked about neuromorphic computing" vs src {neuromorphic,
                 # computing}) overlap on 2 and recall correctly.
-                "src_tokens": _src_tokens,
+                "src_tokens": list(_words),
             }]
             self._own_reply_topic_idx[_topic] = 1
             # RFIX-01: also append to the utterance log ring buffer so a later
@@ -6249,10 +6247,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # recall/reference verb, so plain world/opinion questions are untouched.
         _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
         _recall_v = bool(re.search(
-            r"\b(said|say|mention|mentioned|formed|opinion|"
+            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
             r"stated|answered|replied|remember|recall|earlier|before|"
-            r"said about|say about|what did you say|what was it you said|"
-            r"you said|you mentioned|you told)\b", _q))
+            r"said about|say about|tell me about what you)\b", _q))
         if not (_agent_ref and _recall_v):
             return None
         # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
@@ -6338,10 +6335,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "tellme",
         }
         _cands = [w for w in re.findall(r"[a-z']+", _q)
-                  if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC
-                  and w not in ("concept", "opinion", "view", "take", "stance",
-                                "position", "thought", "thoughts", "idea",
-                                "question", "thing", "something", "anything")]
+                  if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
         if not _cands:
             return None
         # DEFECT C/D FIX (round 2026-08-19T0625Z): retrieve by TOPICAL OVERLAP
@@ -6985,6 +6979,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # Record which stances existed at the START of this turn so the
+        # inversion path can distinguish a PRIOR-turn stance from one mined
+        # earlier in the SAME turn (mine_personal_facts runs before the
+        # inversion check). Round 2026-10-15.
+        _om = getattr(self, "user_model", None)
+        _op = getattr(_om, "opinions", None) if _om is not None else None
+        self._turn_start_stance_keys = set(_op.stances.keys()) if _op is not None else set()
         # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
         # `_pending_web_evidence` is stashed by the agentic pre-check and
         # consumed by the end-of-turn block that appends it to the reply. Those
@@ -8619,7 +8620,48 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
-        if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
+        # D7 FIX: check for implicit emotional content BEFORE the self-disclosure
+        # handler stores the fact. If the input matches an implicit emotional
+        # pattern (diagnosed with, don't belong, rejected, etc.), skip the
+        # "noted" self-disclosure reply and let it fall through to the emotional
+        # detector so the user gets empathy, not a flat fact acknowledgment.
+        _implicit_emotional = False
+        if not _is_interrogative:
+            _IMPLICIT_PATTERNS = (
+                r"\bdiagnosed\s+with\b",
+                r"\b(chronic|terminal|serious)\s+(illness|disease|condition)\b",
+                r"\b(don'?t|do not|never)\s+belong\b",
+                r"\b(feel|feeling|felt)\s+alone\b",
+                r"\b(rejected|refused|denied)\b",
+                r"\b(failed|failure|flunked)\b",
+                r"\b(fired|sacked|laid\s+off)\b",
+                r"\b(broke\s+up|divorced|separated)\b",
+                r"\b(worried|anxious|nervous|scared)\s+about\b",
+                r"\b(can'?t|cannot)\s+sleep\b",
+                r"\b(overwhelmed|burned?\s+out)\b",
+                r"\b(ashamed|embarrassed|guilty|regret)\b",
+            )
+            for _pat in _IMPLICIT_PATTERNS:
+                if re.search(_pat, user_input.lower()):
+                    _implicit_emotional = True
+                    break
+        # Round 2026-10-15: contradiction-revision / stance inversion must
+        # fire BEFORE the self-disclosure gate.
+        _inversion_ans = self._route_own_stance_inversion(user_input)
+        if _inversion_ans is not None:
+            self._last_strategy = "own_stance_inversion"
+            self._last_responses.append(_inversion_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _inversion_ans.lower()
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
+        if not _implicit_emotional and not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
             # Root-cause recall fix: persist the disclosed fact to the
@@ -8869,34 +8911,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # correction side-effects and runs later with the real subject).
         self.user_model.mine_personal_facts(user_input)
 
-        # Round 2026-09-05: contradiction-revision / stance inversion.
-        # "argue the opposite", "flip your stance", "take the other
-        # side" — detect these BEFORE the revisit check so inversion
-        # takes precedence. The inversion method reads/writes
-        # _agent_stances and produces a genuinely inverted view
-        # from RAVANA's own recorded stance or its current valence.
-        _inversion_ans = self._route_own_stance_inversion(user_input)
-        if _inversion_ans is not None:
-            self._last_strategy = "own_stance_inversion"
-            self._last_responses.append(_inversion_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _inversion_ans.lower()
-
-        # Round 2026-08-19T0625Z limitation #2: a revisit query
-        # ("do you still feel that way about X?" / "have you changed
-        # your mind about X?" / "revisit your stance on X") must be
-        # answered from RAVANA's RECORDED own stance, not recomputed
-        # fresh nor echoed. Check this BEFORE the opinion/identity
-        # gates so a recorded stance takes precedence over a
-        # re-derived provisional one.
-        _revisit_ans = self._route_own_stance_revisit(user_input)
-        if _revisit_ans is not None:
-            self._last_strategy = "own_stance_revisit"
-            self._last_responses.append(_revisit_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _revisit_ans.lower()
 
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""
@@ -11204,10 +11218,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _frame_re = re.compile(
                         r"^(i (?:said|told you)|you (?:said|told me)|earlier (?:you said|i said))\s*[:\-]\s*",
                         re.IGNORECASE)
-                    _src_scaffold = {"opinion", "view", "take", "stance", "position",
-                                     "concept", "thought", "thoughts", "idea",
-                                     "question", "thing", "something", "anything",
-                                     "what", "your", "you", "the", "on", "of", "about"}
                     for _k in list(self._own_replies.keys()):
                         _entries = self._own_replies[_k]
                         if isinstance(_entries, list):
@@ -11218,9 +11228,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                         _clean = _frame_re.sub("", _t).strip()
                                         if _clean:
                                             _e["text"] = _clean
-                                    _st = _e.get("src_tokens")
-                                    if isinstance(_st, list):
-                                        _e["src_tokens"] = [w for w in _st if w not in _src_scaffold]
                     self._own_reply_topic_idx = {k: 1 for k in self._own_replies}
                 else:
                     self._own_replies = {}

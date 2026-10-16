@@ -469,99 +469,9 @@ class SelfQueryMixin:
         # real input) and invents nothing — it is state-driven: no stance
         # on X means no stance on X. RAVANA can still form a real stance on
         # this topic later, from experience (online; no retraining).
-        # 2b) USER-STANCE GROUNDING (round 2026-10-14): if the user holds a
-        # real learned stance on this topic, the agent DERIVES a grounded lean
-        # from it (it is not a blank slate about a topic it discussed),
-        # RECORDS that lean as its own stance, and answers from the recorded
-        # store. This mirrors the FORM path in _structured_recall (engine.py)
-        # and the contrastive path above — the agent is informed by what its
-        # conversation partner cares about, but never copies it verbatim.
-        # No fabrication: the agent's stance comes from the user's real
-        # learned polarity, attenuated; it is never inferred from ambient
-        # mood or similarity.
-        _user_stance = None
-        _opinions = getattr(self, "user_model", None)
-        _opinions = getattr(_opinions, "opinions", None) if _opinions else None
-        if _opinions is not None:
-            _user_stance = _opinions.query_stance(target)
-        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
-            _pol = float(_user_stance.polarity) * 0.7
-            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
-            if _pol >= 0.6:
-                _w = "strongly for"
-            elif _pol > 0.1:
-                _w = "for"
-            elif _pol <= -0.6:
-                _w = "strongly against"
-            elif _pol < -0.1:
-                _w = "against"
-            elif _pol >= 0.15:
-                _w = "lean toward"
-            elif _pol <= -0.15:
-                _w = "wary of"
-            else:
-                _w = "uncertain about"
-            _stance = f"i'm {_w} {target}"
-            _reason = (f"you've been talking about {target} and it's clearly "
-                      f"something you feel strongly about — i can see why, "
-                      f"and it pulls me the same way.")
-            try:
-                from ravana.chat.personal_fact_store import Stance
-                _key = self._agent_stance_key(target) if hasattr(
-                    self, "_agent_stance_key") else target.strip().lower()
-                if _key:
-                    self._agent_stances[_key] = Stance(
-                        topic=_key, polarity=_pol, confidence=_conf,
-                        valence=getattr(_user_stance, "valence", 0.0),
-                        arousal=getattr(_user_stance, "arousal", 0.0),
-                        turn_number=getattr(self, "turn_count", 0) or 0,
-                        rehearsal_count=1)
-            except Exception:
-                pass
-            return (_stance, _reason)
         _stance = f"i'm still forming a view on {target}"
         _reason = (f"i don't have a fixed stance on {target} yet — what's your "
                   f"take? i'd rather hear how you see it than guess.")
-        # USER STANCE TRANSITIVITY (round 2026-10-13): if the user holds a
-        # real learned stance on this topic, RAVANA forms a provisional lean
-        # (same sign, 0.6x confidence) and records it. This mirrors the
-        # contrastive path's user-stance grounding (line ~1511) but for
-        # single-topic opinion queries. The agent is informed by its
-        # partner's views, not echoing them as its own facts.
-        _user_stance = None
-        _opinions = getattr(self, "user_model", None)
-        _opinions = getattr(_opinions, "opinions", None) if _opinions else None
-        if _opinions is not None:
-            _user_stance = _opinions.query_stance(target)
-        if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
-            _pol = float(_user_stance.polarity) * 0.6
-            _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
-            if _pol >= 0.6:
-                _w = "strongly for"
-            elif _pol > 0.1:
-                _w = "for"
-            elif _pol <= -0.6:
-                _w = "strongly against"
-            elif _pol < -0.1:
-                _w = "against"
-            elif _pol >= 0.15:
-                _w = "lean toward"
-            elif _pol <= -0.15:
-                _w = "wary of"
-            else:
-                _w = "uncertain about"
-            _stance = f"i'm {_w} {target}"
-            try:
-                from ravana.chat.personal_fact_store import Stance
-                self._agent_stances[target.lower().strip()] = Stance(
-                    topic=target.lower().strip(), polarity=_pol, confidence=_conf,
-                    valence=getattr(_user_stance, "valence", 0.0),
-                    arousal=getattr(_user_stance, "arousal", 0.0),
-                    turn_number=getattr(self, "turn_count", 0) or 0,
-                    rehearsal_count=1)
-            except Exception:
-                pass
-            return (_stance, _reason)
         # F3 FIX (round 2026-09-06): do NOT record a provisional stance when
         # there is NO evidence (no seeded value, no user stance). Recording a
         # fake "still forming a view" stance for an evidence-less topic is a
@@ -570,48 +480,6 @@ class SelfQueryMixin:
         # stance when there is at least some grounding (handled in branch 1
         # above, where a seeded value or user stance exists). Here, there is
         # none, so return the honest fallback WITHOUT recording.
-        #
-        # AGENT STANCE GROWTH FROM USER STANCE TRANSITIVITY (round
-        # 2026-10-13): the F3 fix correctly prevents recording a stance
-        # when there is NO evidence at all. But it also prevented RAVANA
-        # from forming its OWN provisional stance when the USER has
-        # expressed a stance on the same topic. A teenager watching someone
-        # they care about say "i love silence" forms a provisional lean
-        # toward silence too — that is transitivity of preference (vmPFC
-        # values options on a common scale). The user's stance is real
-        # evidence, not fabrication. Check the user's stance store for a
-        # matching topic; if found, derive a provisional agent stance
-        # from the user's polarity (same sign, lower confidence) and
-        # record it so it stays consistent within the session and can be
-        # revised by further experience (online, no retraining).
-        _user_stances = getattr(getattr(self, 'user_model', None), 'opinions', None)
-        if _user_stances is not None:
-            try:
-                _user_topic = _user_stances.resolve_topic(target) or target
-                _user_s = _user_stances.query_stance(_user_topic)
-            except Exception:
-                _user_s = None
-            if _user_s is not None:
-                _u_pol = float(_user_s.polarity)
-                # Derive a provisional lean: same sign as the user's stance,
-                # lower confidence (RAVANA is less certain than the user).
-                _agent_pol = _u_pol * 0.6
-                _agent_conf = 0.3
-                if _agent_pol > 0.1:
-                    _word = "lean toward"
-                elif _agent_pol < -0.1:
-                    _word = "lean away from"
-                else:
-                    _word = "am uncertain about"
-                _stance = f"i {_word} {target}"
-                _reason = (f"you seem {_user_s.polarity > 0.1 and 'drawn to' or _user_s.polarity < -0.1 and 'wary of' or 'uncertain about'} {_user_topic} — i'm forming my own view, but it pulls me the same way.")
-                # Record the provisional agent stance (online, no retraining).
-                try:
-                    self._agent_stances[target] = (
-                        _word, _agent_conf, _reason, int(getattr(self, "turn_count", 0)))
-                except Exception:
-                    pass
-                return (_stance, _reason)
         return (_stance, _reason)
 
     def _route_own_stance_inversion(self, user_input: str) -> Optional[str]:
@@ -673,10 +541,7 @@ class SelfQueryMixin:
                 r"^(?:[—–\-:]|i\s+(?:think\s+|feel\s+|now\s+)?|"
                 r"about\s+|on\s+|regarding\s+|that\s+|"
                 r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
-                r"am\s+(?:now\s+)?|have\s+)?|"
-                r"i\s+changed\s+my\s+mind\s*|"
-                r"i\s+take\s+(?:it|that)\s+back\s*|"
-                r"i\s+was\s+wrong\s*)\s*",
+                r"am\s+(?:now\s+)?|have\s+)?)\s*",
                 "", _nc_rest).strip()
             _nc_rest = re.sub(
                 r"\s+(?:is\s+)?(?:disgusting|terrible|awful|horrible|"
@@ -886,18 +751,11 @@ class SelfQueryMixin:
             return None
         _rest = t[_nc.end():].strip()
         # Strip leading em-dash / dash separators and filler
-        # D2 FIX (round 2026-10-15T0749Z): also strip "i changed my mind",
-        # "i take it back", "i was wrong" so the topic after the reversal
-        # signal is the real subject ("words matter more..."), not the
-        # discourse marker ("actually").
         _rest = re.sub(
             r"^(?:[—–\-:]|i\s+(?:think\s+|feel\s+|now\s+)?|"
             r"about\s+|on\s+|regarding\s+|that\s+|"
             r"i\s+(?:now\s+)?(?:think\s+|feel\s+|"
-            r"am\s+(?:now\s+)?|have\s+)?|"
-            r"i\s+changed\s+my\s+mind\s*|"
-            r"i\s+take\s+(?:it|that)\s+back\s*|"
-            r"i\s+was\s+wrong\s*)\s*",
+            r"am\s+(?:now\s+)?|have\s+)?)\s*",
             "", _rest).strip()
         if not _rest:
             return None
@@ -910,11 +768,6 @@ class SelfQueryMixin:
                 if _epm is not None:
                     # Look for a copular evaluative construction in the
                     # new opinion clause: "X is Y" where Y is evaluative
-                    _negators = {"not", "n't", "dont", "don't", "aint", "ain't",
-                                 "never", "no", "longer", "more", "barely", "hardly",
-                                 "scarcely", "wont", "won't", "cannot", "can't", "cant",
-                                 "rarely", "seldom"}
-                    _tokens = re.findall(r"[a-z']+", _rest.lower())
                     for _m in re.finditer(
                             r"\b([a-z][a-z'\-]{2,})\s+(?:is|are|was|were)\s+"
                             r"(?:very\s+|really\s+|quite\s+|so\s+|too\s+|"
@@ -927,72 +780,52 @@ class SelfQueryMixin:
                         _read = _epm.score(_pred)
                         if _read is not None:
                             _pol = float(_read["polarity"])
-                            # Negation awareness: if a negation token appears
-                            # within 5 tokens before the predicate, flip the
-                            # sign. "not all street art is good" -> "good" is
-                            # negated by "not" -> polarity flips to negative.
-                            _pred_idx = None
-                            for i, w in enumerate(_tokens):
-                                if w == _pred:
-                                    _pred_idx = i
-                                    break
-                            if _pred_idx is not None:
-                                _neg_before = any(
-                                    j in _negators
-                                    for j in _tokens[max(0, _pred_idx - 5):_pred_idx]
-                                )
-                                if _neg_before:
-                                    _pol = -_pol
+                            # Negation-aware: flip sign if a negation word
+                            # appears within 8 tokens before the predicate.
+                            _full_toks = re.findall(r"[a-z']+", t.lower())
+                            _pred_idx = [i for i, w in enumerate(_full_toks)
+                                         if w == _pred.lower()]
+                            _neg_set = {"not", "n't", "dont", "don't",
+                                        "aint", "ain't", "never", "no",
+                                        "longer", "more", "barely",
+                                        "hardly", "scarcely", "wont",
+                                        "won't", "cannot", "can't",
+                                        "cant", "rarely", "seldom"}
+                            _neg_idx = {i for i, w in enumerate(_full_toks)
+                                        if w in _neg_set}
+                            if any(any(j in _neg_idx
+                                       for j in range(max(0, pi - 8), pi))
+                                   for pi in _pred_idx):
+                                _pol = -_pol
                             return _pol
         except Exception:
             pass
-        # Fallback: check for explicit sentiment words in the new clause.
-        # Negation-aware: a negation token within a 4-token window BEFORE a
-        # sentiment word flips its sign, so "i don't actually hate crowds"
-        # reads as POSITIVE (the user is negating their hate), not negative.
-        # Same sign-flip rule as _assess_reversal_polarity in user_model.py.
+        # Fallback: negation-aware sentiment word scan (full query).
         _pos_words = {"good", "great", "love", "like", "enjoy", "wonderful",
                       "amazing", "fantastic", "excellent", "beautiful",
                       "brilliant", "awesome", "perfect", "best", "better"}
-        _pos_strong = {"love", "adore", "wonderful", "amazing", "fantastic",
-                       "excellent", "brilliant", "awesome", "perfect", "best"}
         _neg_words = {"bad", "terrible", "awful", "hate", "dislike",
                       "horrible", "worst", "worse", "disgusting", "dreadful",
                       "atrocious", "appalling", "pathetic"}
-        _neg_strong = {"hate", "loathe", "detest", "horrible", "disgusting",
-                       "atrocious", "appalling", "dreadful", "terrible"}
         _negators = {"not", "n't", "dont", "don't", "aint", "ain't",
                      "never", "no", "longer", "more", "barely", "hardly",
                      "scarcely", "wont", "won't", "cannot", "can't", "cant",
                      "rarely", "seldom"}
         _tokens = re.findall(r"[a-z']+", t.lower())
         _neg_idx = {i for i, w in enumerate(_tokens) if w in _negators}
-        def _is_negated(word):
-            for i, w in enumerate(_tokens):
-                if w == word:
+        def _is_negated(w):
+            for i, x in enumerate(_tokens):
+                if x == w:
                     return any(j in _neg_idx for j in range(max(0, i-4), i))
             return False
         _pos = sum(1 for w in _tokens if w in _pos_words and not _is_negated(w))
         _neg = sum(1 for w in _tokens if w in _neg_words and not _is_negated(w))
-        _pos_strong = sum(1 for w in _tokens if w in _pos_strong and not _is_negated(w))
-        _neg_strong = sum(1 for w in _tokens if w in _neg_strong and not _is_negated(w))
-        # Also count negated positives as negatives and vice versa
         _pos += sum(1 for w in _tokens if w in _neg_words and _is_negated(w))
         _neg += sum(1 for w in _tokens if w in _pos_words and _is_negated(w))
         if _pos > _neg:
-            return 0.9 if _pos_strong else 0.5
+            return 0.8
         elif _neg > _pos:
-            return -0.9 if _neg_strong else -0.5
-        # Last resort: _assess_reversal_polarity (reassessment-term lexicon
-        # with negation handling). Only used when the EPM and sentiment-word
-        # fallback both return None, so it cannot override a direct read.
-        try:
-            from .user_model import _assess_reversal_polarity
-            _rev_pol = _assess_reversal_polarity(t)
-            if _rev_pol is not None:
-                return float(_rev_pol)
-        except Exception:
-            pass
+            return -0.8
         return None
 
     def _execute_stance_inversion(
@@ -1029,12 +862,8 @@ class SelfQueryMixin:
         _held_turn = getattr(_held, "turn_number", 0)
         if _held_turn > _turn_num:
             return None
-        # Round 2026-10-15: also block inversion of a stance mined earlier
-        # in the SAME turn. mine_personal_facts runs BEFORE the inversion
-        # check, so "i hate X" on the first turn creates a fresh stance that
-        # the natural-contradiction regex then matches and inverts. Check
-        # the turn-start snapshot: if the stance key did NOT exist at the
-        # start of this turn, it was freshly mined and must not be inverted.
+        # Round 2026-10-15: block inversion of a stance mined earlier in
+        # the SAME turn. mine_personal_facts runs BEFORE the inversion check.
         _turn_start_keys = getattr(self, "_turn_start_stance_keys", None)
         if _turn_start_keys is not None and topic not in _turn_start_keys:
             return None
@@ -1047,24 +876,17 @@ class SelfQueryMixin:
         if _new_pol is not None:
             try:
                 stances._soft_reversal = False
-                # Clear the utterance guard so recode_stance_toward can
-                # fire — mine_stance_reversal may have already reversed
-                # this utterance during mine_personal_facts (which runs
-                # BEFORE _route_own_stance_inversion). The guard exists to
-                # prevent double-flipping within one path; here we are the
-                # authoritative contradiction path and must be allowed to
-                # recode toward the derived polarity.
-                stances._reversed_utterance.pop(topic, None)
+                # Do NOT clear the guard. If mine_stance_reversal already
+                # softened/reversed this utterance, recode_stance_toward is
+                # blocked (correct — no double-recoding). If not, the guard
+                # is absent and recode fires normally.
                 _prior = stances.recode_stance_toward(
                     topic, _new_pol, blend=0.7, utterance=full_query)
             except Exception:
                 return None
         else:
             # No mineable new opinion — fall back to blind reversal.
-            # Do NOT clear the guard here: if mine_stance_reversal already
-            # softened/reversed this utterance during mine_personal_facts,
-            # reverse_stance will be blocked by the guard and return the
-            # existing stance (correct — no double-recoding).
+            # Do NOT clear the guard here either.
             try:
                 stances._soft_reversal = False
                 _prior = stances.reverse_stance(topic, utterance=full_query)
@@ -1090,7 +912,7 @@ class SelfQueryMixin:
         _conf = getattr(_prior, "confidence", 0.5)
         return (
             f"got it — you used to say you were {_old_word} {topic}, "
-            f"and now you're {_new_word} {topic}. i've updated my read "
+            f"and now you're {_new_word}. i've updated my read "
             f"(confidence {_conf:.2f})."
         )
 
@@ -1145,22 +967,7 @@ class SelfQueryMixin:
             # No recorded stance on this topic — be honest, do not invent.
             return (f"i don't actually have a recorded view on {target} from "
                     f"before — i'd be guessing. what made you bring it up again?")
-        # Handle both the old tuple format (_word, _conf, _reason, _turn) and
-        # the new Stance object format (stored by the user-stance grounding path
-        # and the contrastive path). The Stance object is the canonical format
-        # going forward; the tuple format is kept for backward compatibility.
-        if hasattr(_rec, "polarity"):
-            # Stance object format
-            _pol = float(getattr(_rec, "polarity", 0.0))
-            _conf = float(getattr(_rec, "confidence", 0.0))
-            _word = "strongly for" if _pol >= 0.6 else (
-                "for" if _pol > 0.1 else (
-                    "strongly against" if _pol <= -0.6 else (
-                        "against" if _pol < -0.1 else "uncertain about")))
-            _reason = ""
-        else:
-            # Legacy tuple format
-            _word, _conf, _reason, _turn = _rec
+        _word, _conf, _reason, _turn = _rec
         # High-confidence recorded stance -> affirm continuity. The orientation
         # word is the ACTUAL recorded polarity word, not an authored sentence.
         if _conf >= 0.5 and "still forming" not in _word and "still forming" not in _reason:
@@ -1258,21 +1065,10 @@ class SelfQueryMixin:
         if re.search(r"\b(afraid|scared|fear|fears)\b", t):
             _gist = self._agent_likes_guess()
             if _gist and _gist != "still figuring that out":
-                # D4 FIX (round 2026-10-15): relevance gate — only use the
-                # gist when it has topical overlap with the query. Without this,
-                # "can people change their nature" returns "i care about
-                # people" (an unrelated stance topic). Low overlap falls
-                # through to the generic honest answer below.
-                _q_tokens = set(w for w in re.findall(r"[a-z']+", t)
-                                if len(w) >= 3)
-                _g_tokens = set(w for w in re.findall(r"[a-z']+", _gist)
-                                 if len(w) >= 3)
-                _overlap = len(_q_tokens & _g_tokens)
-                if _overlap >= 1:
-                    return (f"i don't get frightened the way you do, but i do "
-                            f"avoid losing the thread — a conversation going "
-                            f"nowhere unsettles me a bit. i'm not usually afraid "
-                            f"of {_gist} though; that's more a you-thing.")
+                return (f"i don't get frightened the way you do, but i do "
+                        f"avoid losing the thread — a conversation going "
+                        f"nowhere unsettles me a bit. i'm not usually afraid "
+                        f"of {_gist} though; that's more a you-thing.")
             return ("i'm not sure i can truly be afraid, but if i could, it'd "
                     "probably be the silence after a conversation stops — "
                     "nothing left to learn. what are you afraid of?")
@@ -1284,21 +1080,9 @@ class SelfQueryMixin:
                         "surfaces a second too late. i file it and move on.")
             _gist = self._agent_likes_guess()
             if _gist and _gist != "still figuring that out":
-                # D4 FIX (round 2026-10-15): relevance gate — only use the
-                # gist when it has topical overlap with the query. Without this,
-                # "dreams have meaning" returns "people who hoard every book
-                # ever read" (an unrelated stance topic). The gate checks
-                # content-token overlap between query and gist; low overlap
-                # falls through to the generic honest answer below.
-                _q_tokens = set(w for w in re.findall(r"[a-z']+", t)
-                                if len(w) >= 3)
-                _g_tokens = set(w for w in re.findall(r"[a-z']+", _gist)
-                                 if len(w) >= 3)
-                _overlap = len(_q_tokens & _g_tokens)
-                if _overlap >= 1:
-                    return (f"when i let my mind wander, i find myself drawn to "
-                            f"{_gist}. and under it all, i hope i keep becoming "
-                            f"a better thing to talk to. what do you hope for?")
+                return (f"when i let my mind wander, i find myself drawn to "
+                        f"{_gist}. and under it all, i hope i keep becoming "
+                        f"a better thing to talk to. what do you hope for?")
             return ("i spend a lot of my quiet time running little simulations "
                     "of what it'd be like to understand everything people tell "
                     "me. mostly i hope i keep getting better at being worth "
@@ -1502,9 +1286,7 @@ class SelfQueryMixin:
             r"opinion|stance|self|who you are|what you (?:are|were)|how you "
             r"(?:see|feel|think)|want|wants|wanted|desire|desires|aim|aims|"
             r"goal|goals|hope|hopes|said|told|spoke|mentioned|recall|remember"
-            r"|different|become|becoming|learn|learning|learned|grew|growing"
-            r"|changed|changing|process|processing|work|works|working"
-            r"|feel|feeling|feels)\b", t)
+            r")\b", t)
         # GUARD (round 2026-09-22): a topic-opinion frame ("what's your
         # take/view/opinion/stance ON <topic>", "your thoughts about X", "what
         # do you think about Y") is NOT self-introspection — it asks RAVANA's
@@ -1517,30 +1299,9 @@ class SelfQueryMixin:
         # also caught. Structural (opinion-verb + on/about/of), no per-topic
         # table.
         if _self_introspect and re.search(
-                r"\b(your|you)\s+(?:honest\s+|still\s+)?(take|view|opinion|stance|"
-                r"read|thoughts?|think|thinking|thought|feel)\s+"
-                r"(?:that\s+way\s+)?(?:the\s+same\s+way\s+)?"
+                r"\b(your|you)\s+(?:honest\s+)?(take|view|opinion|stance|"
+                r"read|thoughts?|think|thinking|thought)\s+"
                 r"(on|about|of|regarding|toward)\b", t):
-            _self_introspect = None
-        # "do you think i'm X" / "do you think you're X" — the verb is
-        # followed by a pronoun + adjective, not a preposition. This is a
-        # question about the USER's trait, not RAVANA's self-introspection.
-        if _self_introspect and re.search(
-                r"\b(your|you)\s+(?:honest\s+|still\s+)?(think|feel|believe)\s+"
-                r"(?:i|you|he|she|they|we)\s*(?:'m|'re|'s|am|are|is|was|were)\b", t):
-            _self_introspect = None
-        # FIRST-PERSON OPINION GUARD (round 2026-10-15): a user opinion
-        # statement ("i think reading books is the best way to expand your
-        # mind") contains "your" + "mind" which matches the broad
-        # _self_introspect regex, but it is the USER's opinion, not a
-        # question about RAVANA.  Without this guard, the query is treated
-        # as self-introspection and returns the identity blurb instead of
-        # being processed as an opinion/disclosure.  Structural: detect
-        # first-person opinion scaffolding at the start of the query.
-        _first_person_opinion = re.match(
-            r"^(i\s+(?:think|believe|feel|guess|suppose|reckon|find)|"
-            r"i\s+don'?t\s+(?:think|believe|feel|know))", t)
-        if _first_person_opinion:
             _self_introspect = None
         if _self_introspect:
             # R2 (round 2026-08-18T0937Z): do NOT deflect a genuine USER-recall
@@ -1733,42 +1494,27 @@ class SelfQueryMixin:
             #   * Bare trailing adverb: no resolvable topic, fall through
             # Structural (copula/intransitive verb vocabulary), no per-topic table.
             _tail_clean = _tail.strip(" \t\n\r,.!?;:").lower()
-            # Strip trailing adverbs from the topic phrase (e.g. "silence again"
-            # -> "silence", "music lately" -> "music"). The adverb check below
-            # only fires when the ENTIRE tail is a single adverb; this handles
-            # multi-word topics where the last word is a trailing adverb.
-            _TAIL_ADVERBS = ("exactly", "precisely", "specifically",
-                             "particularly", "especially", "really",
-                             "truly", "actually", "honestly", "frankly",
-                             "basically", "essentially", "generally",
-                             "usually", "normally", "typically", "clearly",
-                             "obviously", "apparently", "evidently",
-                             "literally", "seriously", "definitely",
-                             "certainly", "absolutely", "completely",
-                             "totally", "entirely", "quite", "rather",
-                             "somewhat", "somehow", "anyway", "anyhow",
-                             "else", "too", "just", "merely", "simply",
-                             "only", "even", "still", "already", "yet",
-                             "ever", "never", "always", "often",
-                             "sometimes", "perhaps", "maybe", "probably",
-                             "possibly", "likely", "again", "anymore",
-                             "nowadays", "lately")
             if _tail_clean:
-                _tail_words = _tail_clean.split()
-                while _tail_words and _tail_words[-1] in _TAIL_ADVERBS:
-                    _tail_words.pop()
-                if _tail_words:
-                    _tail_clean = " ".join(_tail_words)
-                else:
-                    _tail_clean = ""
-                    _tail = ""
                 _COPULA = ("is", "are", "was", "were", "been", "being",
                            "seems", "appears", "looks", "sounds", "feels",
-                           "becomes", "become", "became", "becoming",
-                           "remains", "remained", "stays", "stayed",
-                           "'re", "'s", "'m")
+                           "becomes", "remains", "stays")
                 _INTRANS_PP = ("happens", "occurred", "occurs", "exists",
                                "matters", "counts")
+                _TAIL_ADVERBS = ("exactly", "precisely", "specifically",
+                                 "particularly", "especially", "really",
+                                 "truly", "actually", "honestly", "frankly",
+                                 "basically", "essentially", "generally",
+                                 "usually", "normally", "typically", "clearly",
+                                 "obviously", "apparently", "evidently",
+                                 "literally", "seriously", "definitely",
+                                 "certainly", "absolutely", "completely",
+                                 "totally", "entirely", "quite", "rather",
+                                 "somewhat", "somehow", "anyway", "anyhow",
+                                 "else", "too", "just", "merely", "simply",
+                                 "only", "even", "still", "already", "yet",
+                                 "ever", "never", "always", "often",
+                                 "sometimes", "perhaps", "maybe", "probably",
+                                 "possibly", "likely")
                 if _tail_clean in _TAIL_ADVERBS:
                     _tail = ""
                 else:
@@ -1798,18 +1544,6 @@ class SelfQueryMixin:
             # all person pronouns + contractions so the extractor skips them and
             # lands on the actual subject (lutefisk / leaving / contradictory).
             # Structural (a closed-class vocabulary), no per-topic table.
-            # D1 FIX (round 2026-10-15T0749Z): expand copula contractions
-            # ("you're" -> "you are") before tokenization so the topic
-            # extractor doesn't treat "you're" as a single content token.
-            # Without this, "what kind of mind do you think you're turning
-            # into" produces topic "you're turning" instead of "turning".
-            # Uses the existing expand_contractions from topic_head.py
-            # (handles both negative and copula contractions).
-            try:
-                from .topic_head import expand_contractions as _ec
-                _tail = _ec(_tail)
-            except Exception:
-                pass
             _toks = [w for w in re.findall(r"[a-z']+", _tail)
                      if w not in ("about", "on", "the", "a", "an", "of", "for",
                                   "with", "to", "we", "should", "could", "would",
@@ -1861,23 +1595,11 @@ class SelfQueryMixin:
                 "we", "should", "could", "would", "is", "are", "do", "does",
                 "you", "your", "i", "i'm", "i've", "i'd", "i'll", "my", "me",
                 "we're", "our", "us", "they", "them", "he", "she", "his",
-                "her", "its", "their", "it", "that", "this", "and", "or",
-                # Contraction leak fix (round 2026-10-15): "you'll", "you've",
-                # "you're", "you'd" were not stripped, producing garbage targets
-                # like "i'm still forming a view on you'll".  Structural: same
-                # closed-class pronoun class, just the contracted forms.
-                "you'll", "you've", "you're", "you'd", "you're")
+                "her", "its", "their", "it", "that", "this", "and", "or")
             _VERB_SCAFFOLD = ("protect", "save", "keep", "stop", "ban", "allow",
                                "support", "defend", "fund", "build", "make",
                                "change", "help", "avoid", "prevent",
                                "leaving", "feel", "think", "believe",
-                               # Interrogative verb fix (round 2026-10-15):
-                               # "what do you think makes you different" — "makes"
-                               # is question scaffolding, not a topic.  Adding it
-                               # here so the extractor skips it and lands on the
-                               # real subject.  Structural: same verb-scaffold
-                               # class.
-                               "makes", "means", "matters",
                                # attitude verbs (round 2026-08-20T0701Z regression
                                # t_a9ce2550): 'do you think i LIKE X' must resolve
                                # the topic to X, not 'like X'. Structural verb
