@@ -1079,6 +1079,15 @@ class SelfQueryMixin:
             except Exception:
                 valence = 0.5
         sm = self._ensure_self_model()
+        # D4 confabulation fix: try the topic-grounded path FIRST when the
+        # query has a concrete topic. This catches queries like "what do you
+        # dream about" or "do you think people can change" where the generic
+        # branches below would return a non-sequitur. If the topic-grounded
+        # path returns None (no topic extracted), fall through to the generic
+        # branches.
+        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
+        if _topic_grounded is not None:
+            return _topic_grounded
         # ── Sub-frame dispatch (composed, state-grounded, never dict/web) ──
         # 1) "how do you feel when X" / "what makes you X" — a simulated
         #    SELF-EVENT (DMN constructive simulation over the agent's own
@@ -1156,13 +1165,6 @@ class SelfQueryMixin:
                     f"like learning things from the people who talk to me, "
                     f"and i'm figuring out the rest as i go. what do you "
                     f"think i'm like?")
-        # D4 confabulation fix: if none of the specific branches fired, try
-        # the topic-grounded fallback before giving up. This catches queries
-        # like "do you think people can change" or "what do you dream about"
-        # where the generic branches would return a non-sequitur.
-        _topic_grounded = self._topic_grounded_self_experience(user_input, t)
-        if _topic_grounded is not None:
-            return _topic_grounded
         return None
 
     def _self_mood_word(self, valence: float) -> str:
@@ -1201,31 +1203,42 @@ class SelfQueryMixin:
         # Extract the topic from the query using multiple patterns
         # Pattern 1: "about X" / "of X" / "on X" where X is at the end
         _topic_m = re.search(
-            r"\\b(?:about|of|on)\\s+([a-z][a-z\\s]{2,40})\\s*$", t)
+            r"\b(?:about|of|on)\s+([a-z][a-z\s]{2,40})\s*$", t)
         if _topic_m:
             _topic = _topic_m.group(1).strip()
         else:
             # Pattern 2: "what do you X about Y" / "do you X about Y"
             _topic_m = re.search(
-                r"\\b(?:what|do|did|are|can|could|would)\\s+(?:you\\s+)?"
-                r"(?:\\w+\\s+){0,3}?about\\s+([a-z][a-z\\s]{2,40})", t)
+                r"\b(?:what|do|did|are|can|could|would)\s+(?:you\s+)?"
+                r"(?:\w+\s+){0,3}?about\s+([a-z][a-z\s]{2,40})", t)
             if _topic_m:
                 _topic = _topic_m.group(1).strip()
             else:
                 # Pattern 3: "what do you dream about" — topic is the noun
                 # before "about" at the end
                 _topic_m = re.search(
-                    r"\\b(dream|think|feel|wonder|curious|afraid|scared|"
-                    r"hope|wish|regret|love|like|enjoy)\\s+about\\s*$", t)
+                    r"\b(dream|think|feel|wonder|curious|afraid|scared|"
+                    r"hope|wish|regret|love|like|enjoy)\s+about\s*$", t)
                 if _topic_m:
                     _topic = _topic_m.group(1).strip()
                 else:
-                    return None
+                    # Pattern 4: "what makes you feel X" / "how do you feel
+                    # when X" — topic is the adjective/noun at the end
+                    _topic_m = re.search(
+                        r"\b(?:what\s+makes\s+you|how\s+do\s+you\s+feel\s+"
+                        r"(?:when|if))\s+([a-z][a-z\s]{2,40})\s*$", t)
+                    if _topic_m:
+                        _topic = _topic_m.group(1).strip()
+                    else:
+                        return None
         if not _topic or len(_topic) < 3:
             return None
         # Don't fire for purely affective queries ("how do you feel") —
-        # those are handled by the affective branch above.
-        if re.search(r"\\b(how\\s+do\\s+you\\s+feel|what\\s+makes\\s+you)\\b", t):
+        # those are handled by the affective branch above. But if we found
+        # a concrete topic (e.g., "what makes you feel calm"), the topic-
+        # grounded path should fire.
+        if re.search(r"\b(how\s+do\s+you\s+feel|what\s+makes\s+you)\b", t) \
+                and not _topic_m:
             return None
         # Check if the topic connects to the agent's real state
         _related = None
@@ -2273,6 +2286,70 @@ class SelfQueryMixin:
         if _gate is not None:
             return _gate(user_input, ans_text)
         return ans_text
+
+    def _relevance_gate(self, query: str, answer: str) -> Optional[str]:
+        """Topical relevance gate for internal-knowledge and analogical replies.
+
+        Checks whether the answer is topically about the query's grounded
+        subject by requiring a STRONG semantic match (GloVe cosine >= 0.65)
+        between the subject and at least one content word in the answer.
+
+        Why 0.65: GloVe cosine between common nouns is typically 0.30-0.60
+        (they co-occur in similar contexts). A threshold of 0.65 ensures the
+        answer mentions the subject itself or a very close synonym (e.g.,
+        "dream" -> "dreams" = 0.88), not just any statistically-related word.
+
+        This is a GENERALIZABLE capability: it uses distributional semantics
+        (GloVe cosine) to measure topical coherence, which is topic-agnostic
+        and works for any query/answer pair. No hardcoded topic lists.
+
+        Fail-closed: if embeddings are unavailable, returns None (honest
+        uncertainty beats confabulation).
+        """
+        if not query or not answer:
+            return None
+        if not hasattr(self, '_glove_vector'):
+            return None
+        # Ground the subject from the query (same as _consult_internal_knowledge)
+        try:
+            _g = self._ground_query(query)
+            subj = _g[0] if _g else None
+        except Exception:
+            subj = None
+        if not subj:
+            return None
+        # Check if the answer mentions the subject or a very close synonym
+        _subj_vec = None
+        try:
+            _subj_vec = self._glove_vector(subj.lower().strip())
+        except Exception:
+            pass
+        if _subj_vec is None:
+            return None
+        # Check each content word in the answer for a STRONG match
+        _best_sim = 0.0
+        _threshold = 0.65  # min GloVe cosine for "same topic"
+        for _aw in re.findall(r"[a-z]{3,}", answer.lower()):
+            try:
+                _av = self._glove_vector(_aw)
+            except Exception:
+                continue
+            if _av is None:
+                continue
+            try:
+                _sim = float(
+                    np.dot(_subj_vec, _av)
+                    / (np.linalg.norm(_subj_vec) * np.linalg.norm(_av) + 1e-9)
+                )
+            except Exception:
+                continue
+            if _sim > _best_sim:
+                _best_sim = _sim
+        if _best_sim < _threshold:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [relevance_gate] withheld (sim={_best_sim:.2f} < {_threshold}): {answer[:60]!r}")
+            return None
+        return answer
 
     def _try_analogical_reasoning(self, subj: str, user_input: str) -> Optional[str]:
         """When internal knowledge returns MISS, attempt analogical reasoning.
