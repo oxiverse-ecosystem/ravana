@@ -295,7 +295,6 @@ except ImportError:
     report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
 from .state_compat import ravana_unpickler, report_dropped
-from . import topic_head
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
@@ -1112,7 +1111,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the engine remains the sole writer of these structures during normal
         # turns. The miner only MUTATES them on an explicit owner re-attribution
         # (superseding the user's record) — never during ordinary disclosure.
-        self._bind_user_model_dependencies()
+        self.user_model._episodic_index = self._episodic_index
+        self.user_model._episodic_transcript = self._episodic_transcript
+        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
+        # vocabulary to the user-model so stance mining can REJECT single-word
+        # topics that are not real concepts (comparative/handle artifacts like
+        # "anything"/"standing" that pollute the stance store). The vocabulary
+        # is the engine's OWN learned concept set, not a per-topic deny-list.
+        self.user_model._concept_vocab = self._concept_keywords
+        # Give the user model a route to the engine's concept vectors so the
+        # evaluative-predicate miner (feature round t_e45928d1) can read the
+        # polarity of a predicate the frozen word lists never listed, from
+        # where it sits in concept space. INJECTED, not imported: the user
+        # model owns no GloVe table and must not grow one. Bound method, so it
+        # always reads the CURRENT projection state and honours the
+        # `glove_ready` contract (returns None when no table is present, which
+        # the model treats as "abstain").
+        self.user_model._glove_vector_fn = self._glove_vector
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -2995,17 +3010,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
-        # SPOKEN-FORM NORMALISATION (round 2026-10-03T2040Z). Every gate below
-        # tests a query for grammatical shape — interrogative inversion, a
-        # possessive, a name attribute — and those tests only fire on the
-        # SPELLED-OUT form. A transcription loses the apostrophe ("whats my dog
-        # called"), so the fact was in the store and this resolver returned
-        # None, dropping the whole turn to the honest-but-empty fallback.
-        # Normalise ONCE here, at the single entry every branch reads, using
-        # the one morphological expander the module already owns (it covers
-        # the n't class and the elision class by rule, not by table). Nothing
-        # downstream changes shape except the spelling.
-        q = topic_head.expand_contractions(q)
         # (0z) COMPOUND / MULTI-PART QUERY DECOMPOSITION (round 2026-08-22T0703Z
         # residual). The resolvers below are single-shot: a compound
         # interrogative ("what's my ferret's name and what does he do with my
@@ -3316,6 +3320,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"\b(keep|have|store|keep\s+on|have\s+on|raise|grow|put|"
                 r"place)\b", q)
             _qverb = _qverb.group(1).lower().strip() if _qverb else ""
+            # TFD (round 2026-10-13): collect ALL matching non-superseded
+            # activity facts, then return the one with the highest turn_number
+            # (most recent). The old code returned the FIRST match in dict
+            # insertion order, which could be a stale prior-round value.
+            _matches = []
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
@@ -3327,7 +3336,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if (any(re.search(r"\b" + re.escape(_n) + r"\b", _val)
                          for _n in _qn)
                         or (_qverb and _qverb == _fverb)):
-                    return f"you {_val}."
+                    _matches.append((_f, _val))
+            if _matches:
+                _matches.sort(key=lambda x: getattr(x[0], "turn_number", 0),
+                             reverse=True)
+                return f"you {_matches[0][1]}."
         if re.search(r"\b(where do i work|what do i do|what's my job|what is my work)\b", q):
             _v = pf.get("i", "work") if pf else None
             if _v is not None and not getattr(_v, "superseded", False):
@@ -3423,6 +3436,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "what", "do", "did", "tell", "say", "think", "feel", "s",
                 "is", "are", "was", "were", "to", "in", "for", "with", "that",
                 "this", "it", "and", "or", "but", "from", "by", "as", "at"}
+            # TFD (round 2026-10-13): collect ALL matching non-superseded
+            # facts, then return the one with the highest turn_number.
+            # The old code returned the FIRST match in dict insertion order,
+            # which could be a stale prior-round value.
+            _tf_matches = []
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
@@ -3433,39 +3451,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # strong match: the whole cue phrase appears verbatim in the
                 # stored value, or the attribute itself is the cue topic.
                 if _cue in _v or _attr == _cue:
-                    if _attr == "name":
-                        return f"your name is {_v}."
-                    if _attr == "work":
-                        return f"you work as {_v}."
-                    if _is_activity_attr(_attr) and not _attr.startswith("event"):
-                        return f"you {_v}."
-                    # D7 (round 2026-08-16T1745Z): verb-phrase values (from the
-                    # relationship-activity miner) render without a copula.
-                    try:
-                        from .user_model import is_verb_phrase as _is_act
-                    except Exception:
-                        _is_act = lambda w: False
-                    # FIX-RV-13: the copula decision goes through the ONE
-                    # shared grammar rule (drops_copula) rather than a local
-                    # re-implementation of it.
-                    _vv = (_v or "").strip()
-                    if drops_copula(_vv):
-                        return f"your {_attr} {_v}."
-                    return f"your {_attr} is {_v}."
+                    _tf_matches.append((_f, _v, _attr, True))
                 # weak match: require >=2 salient cue tokens to co-occur in the
                 # value (a single shared stop-word like "the"/"ocean" is not
                 # enough to claim this is the fact the user meant).
-                if _cnouns and sum(1 for n in _cnouns if n in _v) >= 2:
-                    if _attr == "name":
-                        return f"your name is {_v}."
-                    if _attr == "work":
-                        return f"you work as {_v}."
-                    if _is_activity_attr(_attr) and not _attr.startswith("event"):
-                        return f"you {_v}."
-                    _vvw = (_v or "").strip()
-                    if _vvw and _vvw.split() and _is_act(_vvw.split()[0]):
-                        return f"your {_attr} {_v}."
-                    return f"your {_attr} is {_v}."
+                elif _cnouns and sum(1 for n in _cnouns if n in _v) >= 2:
+                    _tf_matches.append((_f, _v, _attr, False))
+            if _tf_matches:
+                _tf_matches.sort(key=lambda x: getattr(x[0], "turn_number", 0),
+                                 reverse=True)
+                _f, _v, _attr, _strong = _tf_matches[0]
+                if _attr == "name":
+                    return f"your name is {_v}."
+                if _attr == "work":
+                    return f"you work as {_v}."
+                if _is_activity_attr(_attr) and not _attr.startswith("event"):
+                    return f"you {_v}."
+                try:
+                    from .user_model import is_verb_phrase as _is_act
+                except Exception:
+                    _is_act = lambda w: False
+                _vv = (_v or "").strip()
+                if drops_copula(_vv):
+                    return f"your {_attr} {_v}."
+                return f"your {_attr} is {_v}."
             # (c) GENERALIZE (round 2026-08-16): the cue may be a RELATIONSHIP
             # ENTITY ("my niece", "my cousin", "my sister"), not a bare topic
             # word. The miner stores "my niece priya is X" as a COMBINED attr
@@ -3481,6 +3490,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # per-entity table; generalizes to ANY relationship the user named.
             _cue_head = next(iter(_cnouns)) if _cnouns else None
             if _cue_head:
+                # TFD (round 2026-10-13): collect ALL matching non-superseded
+                # facts, then return the one with the highest turn_number.
+                _ent_matches = []
                 for _k, _f in pf.facts.items():
                     if not (isinstance(_k, tuple) and len(_k) == 3):
                         continue
@@ -3489,24 +3501,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     _attr = _k[1].lower()
                     if _attr == _cue_head or _attr.startswith(_cue_head + " ") \
                             or _attr.startswith(_cue_head + "'"):
-                        _v = _f.value
-                        # D7 (round 2026-08-16T1745Z): a relationship-activity
-                        # fact stores a VERB PHRASE value ("weaves baskets"),
-                        # not a noun phrase. Render it WITHOUT a copula so the
-                        # reply is grammatical ("your grandmother indira weaves
-                        # baskets") instead of "your grandmother indira is weaves
-                        # baskets". Noun-phrase values ("an astronomer who
-                        # studies pulsars") keep the copula. The verb test is the
-                        # shared SEED lexicon (user_model.is_activity_verb), not
-                        # a per-topic table and not authored prose.
-                        try:
-                            from .user_model import is_verb_phrase as _is_act
-                        except Exception:
-                            _is_act = lambda w: False
-                        _vv = (_v or "").strip()
-                        if drops_copula(_vv):
-                            return f"your {_attr} {_v}."
-                        return f"your {_attr} is {_v}."
+                        _ent_matches.append((_f, _attr))
+                if _ent_matches:
+                    _ent_matches.sort(key=lambda x: getattr(x[0], "turn_number", 0),
+                                     reverse=True)
+                    _f, _attr = _ent_matches[0]
+                    _v = _f.value
+                    try:
+                        from .user_model import is_verb_phrase as _is_act
+                    except Exception:
+                        _is_act = lambda w: False
+                    _vv = (_v or "").strip()
+                    if drops_copula(_vv):
+                        return f"your {_attr} {_v}."
+                    return f"your {_attr} is {_v}."
             return None
 
         # ── (1b2) PRIOR / ORIGINAL-STANCE recall (feature round 2026-08-21T1653Z,
@@ -3743,33 +3751,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         "climb", "climbs", "swim", "swims", "run", "runs",
                         "fetch", "catches", "catch", "pounce", "pounces",
                     }
-                    # Round 2026-10-03T2040Z. _ACT_CUES contains the generic
-                    # interrogative "what", so ANY "what ..." pet question
-                    # counted as an activity ask — including one that asks for a
-                    # different ATTRIBUTE entirely. Measured: after "my dog
-                    # biscuit sleeps on the wedging table", the query "what is
-                    # my dog called" was answered by this branch with "your dog
-                    # biscuit sleeps wedging table." — the animal's ACTIVITY, for
-                    # a question about its NAME. The name was in the store the
-                    # whole time; this branch simply answered first.
-                    #
-                    # The cue set cannot fix this by growing: "what" is not an
-                    # activity word, it is a question word, and every attribute
-                    # question ("what is my dog called", "what is my cat's
-                    # name") starts with it. The question is about ATTRIBUTE
-                    # AGREEMENT, which this file already owns in one place —
-                    # attribute_gate.asks_name_only, the same predicate the
-                    # name-render branch below consults. Reusing it makes the two
-                    # branches agree BY CONSTRUCTION instead of each keeping a
-                    # private idea of what a pet question is about, and it stands
-                    # down correctly for a genuine compound ask ("what is my
-                    # dog's name and what does it do?") without a new cue.
-                    #
-                    # Structural: no new vocabulary, no per-animal rule, no
-                    # authored reply, and it generalises to every attribute any
-                    # entity can hold.
-                    _ask_attribute = attribute_gate.asks_name_only(q)
-                    _ask_activity = bool(_q_toks2 & _ACT_CUES) and not _ask_attribute
+                    _ask_activity = bool(_q_toks2 & _ACT_CUES)
                     _is_q2 = bool(re.search(r"\?$", q.strip()) or re.match(
                         r"^(what|who|which|where|when|why|how|is|are|was|were|"
                         r"do|does|did|has|have|had|can|could|would|will|tell|"
@@ -6030,18 +6012,47 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return "you've told me about: " + "; ".join(_bits) + "."
 
     def _recall_user_fact(self, attr_hint, q):
-        """Helpers for _structured_recall: read a personal_fact by attribute."""
+        """Helpers for _structured_recall: read a personal_fact by attribute.
+
+        Uses the store's own get() method which sorts by confidence x recency
+        (_decay_score), so the most recent non-superseded fact wins. This is
+        the L2 fix: when multiple facts exist for the same attribute (from
+        different rounds), the most recent one is returned, not the first one
+        inserted into the dict.
+        """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
             return None
-        for _k, _f in pf.facts.items():
-            if not (isinstance(_k, tuple) and len(_k) == 3):
-                continue
-            if getattr(_f, "superseded", False):
-                continue
-            if _k[1].lower() == attr_hint:
-                return _f.value
+        _f = pf.get("i", attr_hint)
+        if _f is not None:
+            return _f.value
         return None
+
+    def _temporal_fact(self, subject, attribute, value=None):
+        """Temporal Fact Disambiguation (TFD) — return the most recent,
+        non-superseded PersonalFact for (subject, attribute), or None.
+
+        SEED-compliant: reads from the existing PersonalFactStore which
+        already tracks turn_number and superseded on every fact. No new
+        store, no new data structure — this is a retrieval wrapper that
+        applies the store's own decay_score (confidence x recency) ranking.
+
+        Online/incremental: the store updates turn_number on every
+        assert_fact / reinforce / confirm / contradict, so the "most recent"
+        is always the one the user last corrected or confirmed. No retraining.
+
+        Generalizable: works for ANY (subject, attribute) pair, not just
+        specific entities. Used by _structured_recall branches that
+        previously iterated pf.facts.items() and returned the FIRST match,
+        which could be a stale prior-round value.
+
+        No hardcoded reply strings, no per-topic tables, no authored prose.
+        """
+        pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
+        if pf is None:
+            return None
+        _f = pf.get(subject, attribute, value)
+        return _f
 
     def _record_own_reply(self, user_input: str, response: str, subject: str) -> None:
         """Record RAVANA's OWN emitted reply into the AgentReplyStore so a later
@@ -6773,60 +6784,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return None
 
-    def _bind_user_model_dependencies(self) -> None:
-        """Re-inject the engine-owned structures the user model reads.
-
-        The user model owns no GloVe table, no concept vocabulary and no
-        episodic memory of its own; the engine does and hands it over here.
-        ONE call site per place that (re)ASSIGNS ``self.user_model``.
-
-        ``_load()`` REPLACES ``self.user_model`` outright -- with the embedded
-        snapshot, or with the dedicated ``user_models/`` store when that wins
-        -- so these bindings do NOT survive a reload unless they are re-applied.
-        When they are not, every geometry-backed and episodic-backed capability
-        degrades to fail-closed, silently: a bound method cannot be pickled, so
-        the stale copy can even arrive as a truthy STRING that a naive presence
-        check accepts and that raises ``TypeError`` on call (swallowed
-        downstream). Measured on this defect: the evaluative-predicate model
-        abstained on 22/22 unseen words after a reload and end-to-end mining
-        minted ZERO stances, while ``_glove_vector_fn is not None`` still passed.
-        """
-        um = getattr(self, "user_model", None)
-        if um is None:
-            return
-        # Share the hippocampal episodic entity index + raw transcript with the
-        # user_model so the fact miner can enforce the self/other boundary on
-        # OWNER re-attribution (a pet moved off the user must also drop the
-        # user-facing episodic entry + raw transcript fact for that entity, not
-        # just its fact-store record). Read-only intent from the miner's side;
-        # the engine remains the sole writer of these structures during normal
-        # turns. The miner only MUTATES them on an explicit owner
-        # re-attribution (superseding the user's record) -- never during
-        # ordinary disclosure.
-        um._episodic_index = self._episodic_index
-        um._episodic_transcript = self._episodic_transcript
-        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
-        # vocabulary to the user-model so stance mining can REJECT single-word
-        # topics that are not real concepts (comparative/handle artifacts like
-        # "anything"/"standing" that pollute the stance store). The vocabulary
-        # is the engine's OWN learned concept set, not a per-topic deny-list.
-        um._concept_vocab = self._concept_keywords
-        # Give the user model a route to the engine's concept vectors so the
-        # evaluative-predicate miner (feature round t_e45928d1) can read the
-        # polarity of a predicate the frozen word lists never listed, from
-        # where it sits in concept space. INJECTED, not imported: the user
-        # model owns no GloVe table and must not grow one. Bound method, so it
-        # always reads the CURRENT projection state and honours the
-        # `glove_ready` contract (returns None when no table is present, which
-        # the model treats as "abstain").
-        um._glove_vector_fn = self._glove_vector
-        # The hippocampal buffer is built later in __init__ and is bound to the
-        # user_model at its own site; re-point it here too whenever it exists,
-        # so a reload cannot leave it pointing at a stale instance either.
-        _hbuf = getattr(self, "hippocampal_buffer", None)
-        if _hbuf is not None:
-            um._hippocampal_buffer = _hbuf
-
     def reset_episodic_state(self) -> None:
         """Clear all PER-CASE episodic/persona stores so the next benchmark
         case starts from a clean slate. Called by the evaluation harness when
@@ -7168,6 +7125,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _cued_self = self._self_cued_episodic(user_input)
         except Exception:
             _cued_self = None
+        # UNIVERSAL RELEVANCE GATING (round 2026-10-13T0022Z): the MRS
+        # relevance gate already wraps _structured_recall, but the episodic
+        # and agent-own recall paths could still confabulate — they matched
+        # by content-word overlap without verifying the answer actually
+        # addresses the query. Wire the same gate here so ALL recall paths
+        # are relevance-gated, not just structured recall. Fail-closed: if
+        # below threshold, return None (honest uncertainty beats
+        # confabulation). No new store, no new data structure — this is a
+        # wiring change that applies the existing MRS scorer to the
+        # episodic recall path.
+        if _cued_self is not None:
+            _cued_self = self._relevance_gate(user_input, _cued_self)
         if _cued_self is not None:
             self._last_strategy = "self_cued_episodic"
             self._last_responses.append(_cued_self)
@@ -11813,15 +11782,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self.cerebellar_ngram.seed_from_pos(self._concept_pos)
             if hasattr(self, 'syntactic_assembly'):
                 self.syntactic_assembly.seed_from_pos(self._concept_pos)
-
-            # self.user_model was REPLACED above (embedded snapshot, or the
-            # dedicated user_models/ store when that wins), so the engine-owned
-            # bindings it was given in __init__ did not come along with it.
-            # Re-inject them here, after every restore, so a reload is
-            # indistinguishable from a fresh boot for any capability that reads
-            # engine state through the user model. Same method __init__ uses, so
-            # the two sites cannot drift.
-            self._bind_user_model_dependencies()
 
             # Fix 7: self-heal a checksum-mismatched snapshot by re-saving a
             # fresh, self-consistent one now that all valid fields are restored.
