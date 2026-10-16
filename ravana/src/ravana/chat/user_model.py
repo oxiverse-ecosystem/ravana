@@ -6690,6 +6690,10 @@ class UserModel:
                 # removing an entry only re-admits one adverb-shaped topic suffix, so it
                 # is seed vocabulary. Generalizes to ANY topic the user times with any of
                 # these adverbs; no per-topic rule, no retraining.
+                # NOTE: trailing-only modifiers (earlier, later, soon, then, etc.)
+                # are NOT listed here — they are handled by strip_trailing_modifiers
+                # in slot_naming.py, which preserves them when they are the ONLY
+                # token (so _opinion_topic("earlier") returns "earlier", not None).
                 "now", "currently", "today", "tonight", "presently", "lately", "rightnow",
 
                 "really", "very", "just", "only", "also", "too", "quite", "more",
@@ -6705,7 +6709,7 @@ class UserModel:
         # _OPINION_STOP words from the head phrase (line ~6673). Structural:
         # generalizes to any trailing temporal adverb, no per-topic rule.
         "now", "today", "tonight", "yesterday", "tomorrow", "soon",
-        "later", "earlier", "then", "here", "there", "still", "yet",
+        "later", "then", "here", "there", "still", "yet",
         "already", "anymore", "lately", "recently", "currently",
     }
 

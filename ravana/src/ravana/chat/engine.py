@@ -3900,8 +3900,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"^(what|who|which|where|when|why|how|is|are|was|were|"
                     r"do|does|did|has|have|had|can|could|would|will|tell|"
                     r"said|say|recall|remember|know|mention)\b", q.strip()))
+                # ATTRIBUTE AGREEMENT GUARD (round 2026-10-16): a name query
+                # ("what is my dog called", "what is my dog name") must NOT be
+                # answered with the pet's ACTIVITY. The _ACT_CUES set contains
+                # the generic interrogative "what", so every "what ..." pet
+                # question counted as an activity ask — even one that only
+                # wants the name. Reuse the same `asks_name_only` predicate
+                # the name branch below already uses, so the activity and
+                # name branches agree by construction. A compound ask
+                # ("what is my dog called and what does it do") stands the
+                # guard down because asks_name_only returns False for it.
+                _asks_name = attribute_gate.asks_name_only(q)
                 if _distress_g:
                     pass  # bereavement / other-suffering -> empathy handler
+                elif _asks_name:
+                    pass  # name query -> let the name branch below handle it
                 elif not (_ask_activity or _is_question_g):
                     pass  # declarative disclosure -> storage, not a recall query
                 else:
@@ -6273,19 +6286,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         This is a general structural check — no per-topic logic, no hardcoded
         reply strings. The threshold adapts incrementally from conversation
         feedback (false positive/negative signals).
+
+        Requires BOTH a minimum overall score AND some content overlap.
+        The overall score alone is too permissive: recency and type signals
+        default to 1.0, so even a completely off-topic answer scores 0.35
+        (above the 0.15 threshold). Content overlap is the signal that
+        actually distinguishes on-topic from off-topic.
         """
         if not answer:
-            return answer
+            return None
         try:
+            if not hasattr(self, '_relevance_scorer') or self._relevance_scorer is None:
+                from .relevance_store import RelevanceThreshold, RelevanceScorer
+                self._relevance_threshold = RelevanceThreshold()
+                self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
             _score = self._relevance_scorer.score(
                 query, answer,
                 query_turn=self.turn_count,
                 threshold=self._relevance_threshold)
-            if _score >= self._relevance_threshold.base_threshold:
+            from .relevance_store import _content_words, _jaccard_overlap
+            _q_words = set(_content_words(query))
+            _a_words = set(_content_words(answer))
+            _overlap = _jaccard_overlap(_q_words, _a_words)
+            if (_score >= self._relevance_threshold.base_threshold
+                    and _overlap >= 0.15):
                 return answer
             return None
         except Exception:
-            return answer  # fail-open on scorer error (never break recall)
+            return None  # fail-closed on scorer error (honest uncertainty beats confabulation)
 
     def _bind_user_model_dependencies(self):
         """Inject engine-owned structures into the user model.
