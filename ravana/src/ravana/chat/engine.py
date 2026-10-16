@@ -6314,17 +6314,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _q_words = set(_content_words(query))
             _a_words = set(_content_words(answer))
             _overlap = _jaccard_overlap(_q_words, _a_words)
-            # Adaptive Jaccard threshold: the flat 0.15 was too aggressive for
-            # short queries. For a 1-content-word query like "what do you dream
-            # about", a perfect reply has Jaccard ~0.11 (1 overlap / 9 words).
-            # The threshold scales with query size: 1.0 / max(len(q), len(a), 7)
-            # gives 0.14 for a 7-word answer, 0.10 for a 10-word answer.
-            _denom = max(len(_q_words), len(_a_words), 7)
-            _jaccard_threshold = min(0.15, 1.0 / _denom)
-            if getattr(self, '_trace_enabled', False):
-                print(f"  [relevance_gate] q={query!r} score={_score:.3f} overlap={_overlap:.3f} jthr={_jaccard_threshold:.3f} qwords={_q_words}")
+            # Jaccard threshold: the flat 0.15 was too aggressive for short
+            # queries. A 1-content-word query like "what do you dream about"
+            # has Jaccard ~0.11 with a perfect reply (1 overlap / 9 words).
+            # Lower to 0.05: still blocks 0.0 overlap (true confabulation)
+            # but allows any non-zero overlap.
             if (_score >= self._relevance_threshold.base_threshold
-                    and _overlap >= _jaccard_threshold):
+                    and _overlap >= 0.05):
                 return answer
             return None
         except Exception:
@@ -7770,7 +7766,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # value/stance store (grounded) or honestly abstain. Fail-open: if
             # _route_self_query returns None the normal pipeline runs.
             _selfopinion = re.search(
-                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+                r"\b(do\s+you\s+(?:ever\s+)?(think|feel|believe|have|care)\b"
                 r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
                 r"|how\s+do\s+you\s+(feel|think)\s+about\b"
                 r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
