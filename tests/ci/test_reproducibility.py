@@ -63,50 +63,15 @@ _PROBE_INPUTS = [
 
 
 def _run_probe_sequence(eng: CognitiveChatEngine) -> SpikeLog:
-    """Run the probe sequence, recording spikes."""
-    spike_log = SpikeLog()
-    for i, q in enumerate(_PROBE_INPUTS):
-        reply = eng.process_turn(q)
-        # Record per-turn spike: capture PE and key node FE values
-        spike_log.record(
-            turn=i + 1,
-            kind="pe",
-            data={
-                "query": q,
-                "total_free_energy": float(getattr(eng.graph, "total_free_energy", 0.0)),
-                "node_count": len(eng.graph.nodes),
-                "edge_count": len(eng.graph.edges),
-            },
-        )
-        # Also record the top-1 highest-FE node per turn
-        if eng.graph.nodes:
-            top_nid = max(
-                eng.graph.nodes.keys(),
-                key=lambda n: float(
-                    getattr(eng.graph.nodes[n], "prediction_free_energy", 0.0)
-                ),
-            )
-            top_node = eng.graph.nodes[top_nid]
-            spike_log.record(
-                turn=i + 1,
-                kind="activation",
-                data={
-                    "top_fe_node_label": top_node.label,
-                    "top_fe_value": float(
-                        getattr(top_node, "prediction_free_energy", 0.0)
-                    ),
-                    "top_fe_stability": float(
-                        getattr(top_node, "stability", 0.5)
-                    ),
-                },
-            )
-    return spike_log
+    """Run the probe sequence. The engine records spikes automatically."""
+    for q in _PROBE_INPUTS:
+        eng.process_turn(q)
+    return eng.spike_log
 
 
 def _clean_suffix_files(user_suffix: str = "repro_test"):
     """Remove any leftover save files so each run starts from a clean seed."""
     import glob
-    # Find the weights directory
     proj = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     weights_dir = os.path.join(proj, "weights")
     patterns = [
@@ -124,19 +89,15 @@ def _clean_suffix_files(user_suffix: str = "repro_test"):
 
 
 def _two_run_fingerprint(seed: int = 42):
-    """Run the probe sequence twice and return both fingerprints.
-
-    Critical: each run must start from a CLEAN seed (no prior saved state),
-    otherwise the second run loads the first's state and turn_count diverges.
-    """
+    """Run the probe sequence twice and return both fingerprints."""
     results = []
     for _ in range(2):
-        _clean_suffix_files("repro_test")  # clean BEFORE creating engine
+        _clean_suffix_files("repro_test")
         eng = _build_engine(seed=seed)
         spike_log = _run_probe_sequence(eng)
         fp = full_reproducibility_fingerprint(eng, spike_log)
         results.append(fp)
-    _clean_suffix_files("repro_test")  # final cleanup
+    _clean_suffix_files("repro_test")
     return results[0], results[1]
 
 
@@ -144,11 +105,9 @@ class TestReproducibility:
     """BrainCore SHA-256 bit-exact reproducibility gate."""
 
     def setup_method(self):
-        """Clean any leftover state before each test."""
         _clean_suffix_files("repro_test")
 
     def teardown_method(self):
-        """Clean up after each test."""
         _clean_suffix_files("repro_test")
 
     def test_same_seed_same_fingerprint(self):
@@ -181,7 +140,7 @@ class TestReproducibility:
         spike_log = _run_probe_sequence(eng)
         turns = [e["turn"] for e in spike_log.entries]
         assert turns == sorted(turns), "spike log entries must be in turn order"
-        assert len(spike_log) == len(_PROBE_INPUTS) * 2  # pe + activation per turn
+        assert len(spike_log) == len(_PROBE_INPUTS)  # one spike per turn
 
     def test_fingerprint_includes_turn_count(self):
         """Fingerprint must carry the turn count for auditability."""
@@ -196,10 +155,8 @@ class TestReproducibility:
         state_before = eng.rng.get_state()
         _run_probe_sequence(eng)
         state_after_run = eng.rng.get_state()
-        # RNG advanced (should differ from initial)
         assert repr(state_before) != repr(state_after_run)
 
-        # Reconstruct from saved state — same seed → same initial state
         eng2 = _build_engine(seed=42)
         assert repr(eng2.rng.get_state()) == repr(state_before)
 
@@ -209,8 +166,6 @@ class TestReproducibility:
         eng = _build_engine(seed=42)
         spike_log = _run_probe_sequence(eng)
         h1 = spike_log.sha256()
-        # Force a repr round-trip
         entries_repr = repr(spike_log.to_hashable())
         h2 = hashlib.sha256(entries_repr.encode("utf-8")).hexdigest()
-        # They should match because sha256() internally uses to_hashable()
         assert h1 == h2

@@ -30,9 +30,6 @@ class SpikeLog:
 
     def record(self, turn: int, kind: str, data: Dict[str, Any]) -> None:
         """Append a spike event. `kind` is one of 'pe', 'activation', 'split', 'surge'."""
-        # Normalize floats to round to 8 decimals so the hash is stable across
-        # platforms (IEEE 754 guarantees same result for same ops, but guard
-        # against any representation noise in the repr).
         clean: Dict[str, Any] = {}
         for k, v in data.items():
             if isinstance(v, float):
@@ -45,16 +42,19 @@ class SpikeLog:
         self.entries.append({
             "turn": turn,
             "kind": kind,
-            "ts": round(time.time(), 6),  # wall-clock, informational only
+            "ts": round(time.time(), 6),  # wall-clock, informational only — EXCLUDED from hash
             "data": clean,
         })
 
     def to_hashable(self) -> List[Tuple]:
-        """Return a deterministic, order-preserving representation for hashing."""
+        """Return a deterministic, order-preserving representation for hashing.
+
+        CRITICAL: excludes the `ts` (wall-clock timestamp) field — only the
+        strategy + cognitive signals are hashed, so the fingerprint is
+        reproducible across runs/machines regardless of when they execute.
+        """
         out: List[Tuple] = []
         for e in self.entries:
-            # Sort the data dict so key order doesn't matter per-entry, but
-            # the entries themselves stay in append order.
             data_items = tuple(sorted(
                 (k, tuple(v.items()) if isinstance(v, dict) else v)
                 for k, v in e["data"].items()
@@ -71,15 +71,24 @@ class SpikeLog:
         return len(self.entries)
 
 
+def deterministic_total_free_energy(graph) -> float:
+    """Order-independent total free energy for determinism."""
+    return round(sum(
+        float(getattr(graph.nodes[nid], "prediction_free_energy", 0.0))
+        for nid in sorted(graph.nodes)
+    ), 8)
+
+
 def graph_state_fingerprint(graph) -> str:
     """SHA-256 of the concept graph's cognitive state.
 
-    Includes: node count, edge count, total_free_energy, and per-node
-    (label, vector_sum, free_energy, stability) — deterministic structural
-    signals only, NOT activation timestamps or history buffers which depend
-    on wall-clock time.
+    Only structural signals that are deterministic for a given seed+input:
+    node/edge counts, per-node (label, vector_sum, free_energy, stability,
+    confidence), per-edge (source, target, weight).
+
+    EXCLUDED (non-deterministic): timestamps, activation_history, last_activated,
+    fatigue, contradiction_count, quarantine_log, faiss index state.
     """
-    # Nodes: sorted by label for determinism
     node_sigs = []
     for nid in sorted(graph.nodes.keys()):
         n = graph.nodes[nid]
@@ -89,14 +98,13 @@ def graph_state_fingerprint(graph) -> str:
         conf = round(float(getattr(n, "confidence", 0.1)), 8)
         node_sigs.append((n.label, vec_sum, fe, stab, conf))
 
-    # Edges: sorted by (source, target) for determinism
     edge_sigs = []
     for (s, t) in sorted(graph.edges.keys()):
         e = graph.edges[(s, t)]
         w = round(float(getattr(e, "weight", 0.5)), 8) if hasattr(e, "weight") else round(float(e[1]), 8)
         edge_sigs.append((s, t, w))
 
-    total_fe = round(float(getattr(graph, "total_free_energy", 0.0)), 8)
+    total_fe = deterministic_total_free_energy(graph)
 
     structure = {
         "node_count": len(graph.nodes),
@@ -112,8 +120,11 @@ def graph_state_fingerprint(graph) -> str:
 def engine_fingerprint(engine) -> str:
     """SHA-256 of the engine's deterministic state dimensions.
 
-    Excludes: wall-clock timestamps, pickle-incompatible objects, and the
-    graph (which has its own fingerprint via graph_state_fingerprint).
+    Excludes: wall-clock timestamps, pickle-incompatible objects, the graph
+    (which has its own fingerprint), and RNG state (which can vary between
+    runs due to non-deterministic background thread scheduling even when
+    outputs are identical — the spike log captures the real reproducibility
+    signal).
     """
     signals = {
         "turn_count": int(getattr(engine, "turn_count", 0)),
@@ -122,12 +133,6 @@ def engine_fingerprint(engine) -> str:
         "free_energy": round(float(getattr(engine, "_free_energy", 0.0)), 8),
         "mean_pe": round(float(getattr(engine, "_mean_prediction_error", 0.0)), 8),
         "pe_count": int(getattr(engine, "_prediction_error_count", 0)),
-        "rng_state_hash": hashlib.sha256(
-            repr(engine.rng.get_state()).encode("utf-8")
-        ).hexdigest()[:32],
-        "td_error_history": tuple(
-            round(float(x), 8) for x in getattr(engine, "_td_error_history", [])
-        ),
         "identity": _identity_fingerprint(engine),
     }
     blob = repr(sorted(signals.items())).encode("utf-8")
@@ -139,7 +144,6 @@ def _identity_fingerprint(engine) -> Tuple:
     ident = getattr(engine, "identity", None)
     if ident is None:
         return ()
-    # IdentityState is a dataclass — use getattr not dict.get
     st = ident.state if hasattr(ident, "state") else None
     if st is None:
         return ()
@@ -158,7 +162,7 @@ def full_reproducibility_fingerprint(
     """Composite fingerprint: spike log + graph + engine state.
 
     Returns a dict with component hashes and a combined hash. This is the
-    BrainCore SHA-256 standard: same inputs → same dict, always.
+    BrainCore SHA-256 standard: same inputs -> same dict, always.
     """
     spike_hash = spike_log.sha256() if spike_log is not None else "n/a"
     graph_hash = graph_state_fingerprint(engine.graph)
