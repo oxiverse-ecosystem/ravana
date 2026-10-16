@@ -100,6 +100,20 @@ def _stem(t: str) -> str:
     return t
 
 
+def _has_word(needle: str, haystack: str) -> bool:
+    """True when `needle` occurs in `haystack` as a WHOLE word.
+
+    Substring containment is wrong for matching a short verb against a stored
+    value: "do" (from "what do i do for a living") occurs inside "sourDOugh",
+    so the activity resolver answered an occupation question with a confident
+    confabulation drawn from an unrelated fact. Callers pair this with
+    `_stem` when they need "study"/"studying" to agree.
+    """
+    if not needle or not haystack:
+        return False
+    return bool(re.search(r"\b" + re.escape(needle.strip().lower()) + r"\b",
+                          haystack.lower()))
+
 def _activity_query_overlap(stored_act: str, query: str, query_tokens) -> int:
     """Score how well a stored dated-activity (`stored_act`, e.g. 'study
     volcano') matches a date-recall query (`query`, e.g. 'what year did i
@@ -280,6 +294,7 @@ except ImportError:
     from ravana._import_guard import report_missing
     report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
+from .state_compat import ravana_unpickler, report_dropped
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
@@ -386,6 +401,24 @@ except Exception:  # pragma: no cover - defensive
     _default_lexicon = None
     report_missing("ravana.chat.functional_lexicon", "data-driven functional lexicon", kind="internal")
 
+# Referent-head capability (round 2026-09-30T1031Z, task t_159df91e): the
+# shared "can this token denote anything?" class + clause-head reducer. A
+# failure here is a bug in RAVANA's own module, so it is reported at ERROR
+# severity rather than papered over (see the silent-import-guard doctrine).
+try:
+    from .topic_head import (default_function_class as _default_function_class,
+                             referent_head as _referent_head,
+                             _INTRANSITIVE_PREDICATE_SEED)
+    _HAS_TOPIC_HEAD = True
+except Exception as _exc:  # pragma: no cover - defensive
+    _HAS_TOPIC_HEAD = False
+    _default_function_class = None
+    _referent_head = None
+    _INTRANSITIVE_PREDICATE_SEED = frozenset()
+    report_missing("ravana.chat.topic_head",
+                   "referent-head extraction (function class + clause head)",
+                   kind="internal")
+
 import pickle
 from ravana.web.learner import SearchEngine
 from ravana.core.dual_code_space import DualCodeSpace
@@ -403,9 +436,16 @@ from .models import FailedQuery, ChainHop, ChainTrace, CognitiveResponseContext,
 from .user_model import UserModel
 from .user_model import _CORRECTION_NAME_FACT_PATTERN
 from .user_model import is_activity_attr as _is_activity_attr
+from .user_model import drops_copula
 from .user_model import activity_role_objects, _activity_role_phrases
+from .user_model import (
+    is_occupation_query as _is_occupation_query,
+    is_livelihood_verb as _is_livelihood_verb,
+    is_livelihood_object as _is_livelihood_object,
+)
 from . import attribute_gate
 from .personal_fact_store import QuantityMemory, render_count
+from .retirement import RetirementLedger
 from .belief_store import BeliefStore
 from ravana.nn.rlm import Plasticity
 
@@ -1053,6 +1093,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # I told you" query reconstructs what was said instead of confabulating.
         self._episodic_transcript: List[Dict[str, Any]] = []
         self._episodic_index: Dict[str, Dict[str, str]] = {}  # hippocampal entity index (A3)
+        # RETIREMENT LEDGER (round 2026-09-29T1239Z). A record of what the user
+        # has told RAVANA and then taken back. It exists because a correction
+        # previously retired a value in the PersonalFactStore ONLY — the
+        # episodic transcript kept the original utterance verbatim and the
+        # recall paths answered from it, so a corrected fact kept being served
+        # (measured: "no, nikhil plays the surbahari, not the shehnai" then
+        # "which instrument does my brother play now?" answered shehnai).
+        # Empty until real conversations populate it; persisted with the rest of
+        # the engine's durable state. See ravana/chat/retirement.py.
+        self.retirement_ledger = RetirementLedger()
         # Share the hippocampal episodic entity index + raw transcript with the
         # user_model so the fact miner can enforce the self/other boundary on
         # OWNER re-attribution (a pet moved off the user must also drop the
@@ -1061,14 +1111,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the engine remains the sole writer of these structures during normal
         # turns. The miner only MUTATES them on an explicit owner re-attribution
         # (superseding the user's record) — never during ordinary disclosure.
-        self.user_model._episodic_index = self._episodic_index
-        self.user_model._episodic_transcript = self._episodic_transcript
-        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
-        # vocabulary to the user-model so stance mining can REJECT single-word
-        # topics that are not real concepts (comparative/handle artifacts like
-        # "anything"/"standing" that pollute the stance store). The vocabulary
-        # is the engine's OWN learned concept set, not a per-topic deny-list.
-        self.user_model._concept_vocab = self._concept_keywords
+        self._bind_user_model_dependencies()
         # In-turn fact store: a combined "statement(s) + question" user turn
         # (e.g. LoCoMo / LongMemEval benchmark items) packs premises AND a
         # question into ONE process_turn call. The rest of the pipeline treats
@@ -1236,6 +1279,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # loaded from data/functional_lexicon.json (seed-fallback if absent).
         self._func_lex = (_default_lexicon()
                           if _HAS_FUNC_LEX and _default_lexicon else None)
+        # Referent-head capability (round 2026-09-30T1031Z, task t_159df91e):
+        # the shared answer to "can this token denote anything?" that topic
+        # extraction previously re-derived (and got wrong) at each call site.
+        # The instance owns its own FunctionClass so the online growth path
+        # (observe_topic_token / learn) is per-engine and survives save/load
+        # through the normal state path; the module default is the fallback
+        # for engines built via __new__ (audit tests).
+        self._func_class = (_default_function_class()
+                            if _HAS_TOPIC_HEAD and _default_function_class
+                            else None)
+        # Fold the engine's EXISTING verb vocabularies into the referent
+        # class so clause-head reduction sees the same predicates the rest of
+        # the engine already knows, instead of a fourth private copy.
+        try:
+            self._seed_predicates_from_engine_vocab()
+        except Exception:
+            pass
         # Stage 3 (M-A): Semantic Prototype Router — OFF by default. When ON,
         # intent classification uses the learned centroid router
         # (data/intent_router.json) instead of the hardcoded routing regex;
@@ -1731,12 +1791,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._cerebellar_depth: Dict[str, float] = {}
         self._concept_confidence: Dict[str, float] = {}
         self._calibration_error: float = 0.0
-        # P2-C: calibration signal (was dead state). Track recent response
-        # quality to derive a real error rate + adaptive window. Cold-start:
-        # buffer empty => error 0.0, window 15 (today's behavior). No
-        # theta_withhold modulation is wired because no prediction-vs-quality
-        # pair exists in the codebase to drive it; this makes the signal
-        # observable for future calibration work instead of leaving it dead.
+        # Online epistemic calibration. The pair this needed — a per-turn
+        # confidence prediction and a per-turn realized-quality outcome —
+        # was previously computed and discarded separately, which is why the
+        # comment below used to say no theta_withhold modulation was possible.
+        # process_turn now feeds both into this ledger, and the ledger's
+        # learned bias shifts the assert-gate. Cold start is the identity
+        # (bias 0.0 => theta unchanged), so this is behaviour-preserving
+        # until RAVANA has actually accumulated evidence.
+        from ravana.chat.calibration import EpistemicCalibrator
+        self.calibrator = EpistemicCalibrator()
+        # P2-C: calibration signal. Track recent response quality to derive a
+        # real error rate + adaptive window. Cold-start: buffer empty =>
+        # error 0.0, window 15 (today's behavior). This rolling window is the
+        # raw, unshrunk view; `calibrator` above is the shrunk, gated one and
+        # is what now drives behaviour.
         self._calib_buf: list = []
         self._calib_window: int = 15
         self._metacognitive_review_turn: int = 0
@@ -2218,6 +2287,142 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
         return set()
+
+    # ── Referent-head capability API (round 2026-09-30T1031Z, t_159df91e) ──
+    def _function_class(self):
+        """The engine's referent-capability class (never None after __init__)."""
+        _fc = getattr(self, "_func_class", None)
+        if _fc is None:
+            _fc = _default_function_class() if _HAS_TOPIC_HEAD else None
+            try:
+                self._func_class = _fc
+            except Exception:
+                pass
+        return _fc
+
+    def _token_is_grounded(self, word: str) -> bool:
+        """Does RAVANA hold ANY evidence that ``word`` names something?
+
+        Three independent sources, so "grounded" means grounded in the world
+        model rather than "was in a list": a concept node in the graph, a
+        distributional embedding, or a stored personal fact. This is the
+        evidence signal the online growth path in ``topic_head`` consumes.
+        """
+        w = (word or "").strip().lower()
+        if not w:
+            return False
+        if w in getattr(self, "_concept_keywords", {}) or \
+                w in getattr(self, "_concept_labels", set()):
+            return True
+        _glove = getattr(self, "_glove_vector", None)
+        if callable(_glove):
+            try:
+                if _glove(w) is not None:
+                    return True
+            except Exception:
+                pass
+        try:
+            _facts = self.user_model.personal_facts.facts
+        except Exception:
+            _facts = {}
+        for key in _facts:
+            try:
+                if str(key[1]).lower() == w or str(key[2]).lower() == w:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def _referent_head(self, phrase: str) -> Optional[str]:
+        """Reduce a clause to the head referent it is about, or None.
+
+        The shared reducer every topic-extraction call site routes through.
+        Fails open to the input phrase when the capability is unavailable, so
+        a missing module degrades to the previous behaviour rather than
+        silently returning nothing.
+        """
+        if not _HAS_TOPIC_HEAD or _referent_head is None:
+            return (phrase or "").strip() or None
+        try:
+            return _referent_head(
+                phrase,
+                pos_lookup=lambda w: (getattr(self, "_concept_pos", {}) or {}).get(w),
+                func=self._function_class())
+        except Exception:
+            return (phrase or "").strip() or None
+
+    def _observe_topic_token(self, word: str) -> bool:
+        """Feed one extraction outcome into the online growth path.
+
+        Returns True when the token may still be used as a referent. Called
+        from the grounding site so the class learns from RAVANA's own
+        extraction evidence — no retraining, no rebuild.
+        """
+        _fc = self._function_class()
+        if _fc is None:
+            return True
+        try:
+            return bool(_fc.observe_topic_token(
+                word, grounded=self._token_is_grounded(word)))
+        except Exception:
+            return True
+
+    def _learn_predicates_from(self, *word_groups) -> Set[str]:
+        """Register tokens with positive predicate evidence; return the new ones.
+
+        The online growth path for the predicate side of the referent
+        capability. Callers pass word groups they already hold — a POS-tagged
+        vocabulary, a mined activity verb, an occupation word — never an
+        authored list. Registration is permanent, so the class widens from
+        live language without a code edit.
+        """
+        _fc = self._function_class()
+        if _fc is None:
+            return set()
+        new = set()
+        try:
+            for group in word_groups:
+                if not group:
+                    continue
+                new |= _fc.learn_predicate(*[str(w) for w in group])
+        except Exception:
+            return new
+        return new
+
+    def _seed_predicates_from_engine_vocab(self) -> Set[str]:
+        """Consolidate the engine's EXISTING verb vocabularies into the class.
+
+        RAVANA already carries several verb vocabularies — the POS seed
+        (``KNOWN_VERBS``), the subject-context scaffold, the functional
+        lexicon's ``subject_context``, and the intransitive-predicate set used
+        by the clause-structure branch of the self-opinion extractor (which
+        already contains "matters"/"counts"/"happens"). This routes them into
+        the one referent class instead of adding a fourth copy of the same
+        knowledge: consolidation, not a new list. Everything discovered later
+        is added by :meth:`_learn_predicates_from` from live evidence.
+        """
+        groups = []
+        try:
+            from ravana.chat.constants import KNOWN_VERBS
+            groups.append(KNOWN_VERBS)
+        except Exception:
+            pass
+        for name in ("_SUBJECT_CONTEXT_WORDS",):
+            _g = getattr(self, name, None)
+            if _g:
+                groups.append(set(_g))
+        try:
+            _sc = self._closed_class("subject_context")
+            if _sc:
+                groups.append(set(_sc))
+        except Exception:
+            pass
+        # The self-opinion extractor's intransitive-predicate vocabulary: the
+        # verbs it already recognises as clause predicates when it narrows a
+        # clause tail. Same knowledge, now available to every call site.
+        if _INTRANSITIVE_PREDICATE_SEED:
+            groups.append(set(_INTRANSITIVE_PREDICATE_SEED))
+        return self._learn_predicates_from(*groups)
 
     def _ingest_episodic(self, user_input: str, subject: str = "") -> None:
         """Store a conversational statement in the hippocampal buffer so it can
@@ -3182,8 +3387,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         from .user_model import is_verb_phrase as _is_act
                     except Exception:
                         _is_act = lambda w: False
+                    # FIX-RV-13: the copula decision goes through the ONE
+                    # shared grammar rule (drops_copula) rather than a local
+                    # re-implementation of it.
                     _vv = (_v or "").strip()
-                    if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                    if drops_copula(_vv):
                         return f"your {_attr} {_v}."
                     return f"your {_attr} is {_v}."
                 # weak match: require >=2 salient cue tokens to co-occur in the
@@ -3238,7 +3446,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         except Exception:
                             _is_act = lambda w: False
                         _vv = (_v or "").strip()
-                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                        if drops_copula(_vv):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
             return None
@@ -3546,8 +3754,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             if not attribute_gate.is_name_shaped(_vs) \
                                     or _is_act(_vs):
                                 continue
+                        # FIX-RV-13: shared grammar rule (drops_copula) — a
+                        # past-finite predicate this round's miner can store
+                        # ("had surgery last month") must not take a present
+                        # copula.
                         _vv = (_v or "").strip()
-                        if _vv and _vv.split() and _is_act(_vv.split()[0]):
+                        if drops_copula(_vv):
                             return f"your {_attr} {_v}."
                         return f"your {_attr} is {_v}."
         # ── (1c-pet) PET ACTIVITY RECALL (round 2026-08-22T0703Z, DEFECT D1) ──
@@ -3693,7 +3905,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         or any(t.startswith("pet") for t in _q_set_g)
                     )
                     if _references_pet:
-                        return f"your {_sp} is {_nm}."
+                        # FIX-RV-13: the slot this branch reads is keyed by
+                        # SPECIES, not by "name". When the user gave the animal
+                        # no name, that slot holds whatever predicate they
+                        # disclosed about it — this round's possession+predicate
+                        # miner stores "my dog had surgery last month" there as
+                        # 'had surgery last month'. The NAME branch then
+                        # rendered the pet's medical history as its identity:
+                        # "your dog is had surgery last month".
+                        #
+                        # So a name answer may only be given by a NAME-SHAPED
+                        # value (the same attribute-agreement rule the other
+                        # three recall sites on this card enforce). A value that
+                        # is not name-shaped is the animal's PREDICATE, and it
+                        # renders through the shared grammar rule instead —
+                        # never as an identity the user never supplied.
+                        _nm_s = (_nm or "").strip()
+                        if (_nm_s and len(_nm_s.split()) == 1
+                                and _nm_s.isalpha() and len(_nm_s) > 1
+                                and not drops_copula(_nm_s)):
+                            return f"your {_sp} is {_nm}."
+                        if _nm_s and _references_pet:
+                            return (f"your {_sp} {_nm_s}." if drops_copula(_nm_s)
+                                    else f"your {_sp} is {_nm_s}.")
                 # otherwise fall through (no pet answer) — let empathy /
                 # disclosure / generic recall handle the query.
         # ── (1d) OPEN-ENDED RELATIONSHIP / PERSON RECALL (new capability,
@@ -4212,28 +4446,106 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             r"nine|ten|eleven|twelve)|\d+)\b\s+", _v)
                         if _m and _cn in _v:
                             return f"you have {_m.group(1)} {_cn}."
+        # Content nouns of the query, with the interrogative/function words
+        # removed. Computed before either branch below: the _ACT loop needs it to
+        # match a stored value, and the occupation bridge needs to know when a
+        # query named NO content at all ("what do i do"), which is the other
+        # shape of the same question.
+        _qnouns = set(re.findall(r"[a-z']+", q)) - {
+            "what", "do", "i", "my", "on", "the", "a", "an", "to", "you",
+            "of", "in", "for", "with", "and", "that", "this", "is", "are"}
+        if "rooftop" in q or "roof" in q:
+            _qnouns.add("rooftop")
+        # ── OCCUPATION / LIVELIHOOD ROLE BRIDGE (round 2026-09-29T0823Z,
+        # card t_af1e837d) ──────────────────────────────────────────────────
+        # DEFECT: the _ACT loop below returned the FIRST `does:` fact whose value
+        # matched, in dict INSERTION order, and matched on bare substring
+        # (`_verb in _val`). An OCCUPATION query carries no content noun and its
+        # verb is the near-empty "do", so the first-mined activity won whatever
+        # it was. MEASURED: seeding "i run a pottery studio" + "i adopted a stray
+        # dog yesterday" answered "you adopted stray dog yesterday." for
+        # "what do i do for a living" / "for work" / "what do i do". ("do" is even
+        # a substring of "adopted", so the substring test matched the wrong fact
+        # by luck.) It is a SELECTION defect: the right fact was in the store the
+        # whole time, under does:run.
+        #
+        # FIX: an occupation query asks for a SUSTAINED ROLE, so RANK the
+        # activity facts by how much each reads as a livelihood — its verb is a
+        # livelihood verb, or its object is a workplace / production unit — and
+        # answer with the best. The score comes from the seed lexicons in
+        # user_model merged with the words RAVANA learned ONLINE
+        # (learn_occupation_role), so the concept grows without a code edit or a
+        # retrain. The reply is still the LIVE fact VALUE: this SELECTS among real
+        # state and authors nothing.
+        #
+        # The trigger is TYPE-AGNOSTIC, not one phrasing: it fires on an
+        # occupation query ("for a living" / "for work" / "what's my job" /
+        # "my occupation") OR on an activity query that names no content at all
+        # ("what do i do"), because an unconstrained "what do i do" is asking
+        # for the same thing. It is a STANDALONE branch, not nested in _ACT,
+        # because "what's my job" never matches the _ACT regex (which requires
+        # "what do i <verb>") yet is the same class of question.
+        _occ_q = _is_occupation_query(q)
+        if pf is not None and (_occ_q or (_ACT and not _qnouns)):
+            # A stated role / job fact IS the occupation, stated outright.
+            for _okey in ("work", "role"):
+                _of = pf.get("i", _okey)
+                if _of is not None and not getattr(_of, "superseded", False):
+                    return f"you work as {_of.value}."
+            _lv = um.occupation_verbs() if um is not None else set()
+            _lo = um.occupation_objects() if um is not None else set()
+            _scored = []
+            for _k, _f in pf.facts.items():
+                if not (isinstance(_k, tuple) and len(_k) == 3):
+                    continue
+                if not (_is_activity_attr(_k[1])
+                        and not _k[1].startswith("event")) \
+                        or getattr(_f, "superseded", False):
+                    continue
+                _val = _f.value.lower()
+                _words = re.findall(r"[a-z][a-z'-]*", _val)
+                _s = 0
+                if _words and _is_livelihood_verb(_words[0], _lv):
+                    _s += 2
+                if any(_is_livelihood_object(_w, _lo) for _w in _words[1:]):
+                    _s += 1
+                _scored.append((_s, _val))
+            # Answer only when something actually reads as a livelihood. With no
+            # livelihood fact stored we fall through to the honest
+            # "outside what i know" path rather than naming a one-off act as the
+            # user's job.
+            if _scored:
+                _best = max(_scored, key=lambda _p: _p[0])
+                if _best[0] > 0:
+                    return f"you {_best[1]}."
         # Activity / possession recall ("what do i keep/have/do", "where do i
         # keep X"). Hoisted out of the _TOLD block so it runs for ANY such
         # query, not only ones containing "tell me about".
         if _ACT and pf is not None:
             _verb = _ACT.group(1)
-            _qnouns = set(re.findall(r"[a-z']+", q)) - {
-                "what", "do", "i", "my", "on", "the", "a", "an", "to", "you",
-                "of", "in", "for", "with", "and", "that", "this", "is", "are"}
-            if "rooftop" in q or "roof" in q:
-                _qnouns.add("rooftop")
             for _k, _f in pf.facts.items():
                 if not (isinstance(_k, tuple) and len(_k) == 3):
                     continue
                 if _is_activity_attr(_k[1]) and not _k[1].startswith("event") \
                         and not getattr(_f, "superseded", False):
                     _val = _f.value.lower()
-                    if _verb in _val or any(n in _val for n in _qnouns):
+                    # Word-boundary matching on BOTH sides: the verb (the
+                    # leading token IS the verb the miner stored) and the query
+                    # noun, so "do" no longer matches "adopted" and "me" no
+                    # longer matches "mechanical" — the same correction the
+                    # "where do i keep" branch above already applies.
+                    # _has_word is the shared helper (round 2026-09-30T1031Z);
+                    # the noun side needs the same boundary plus a length
+                    # guard so a 1-2 char noun can't match inside a word.
+                    _parts = _val.split()
+                    if any(_verb == _p for _p in _parts[:2]) \
+                            or any(_has_word(n, _val) for n in _qnouns
+                                   if len(n) > 2):
                         return f"you {_val}."
             # also try the work fact
             _w = pf.get("i", "work") if pf else None
             if _w is not None and not getattr(_w, "superseded", False) \
-                    and _verb in _w.value.lower():
+                    and _has_word(_verb, _w.value.lower()):
                 return f"you {_w.value}."
 
         # ── (1a-bis) ACTIVITY OBJECT-CATEGORY BRIDGE (round 2026-08-29T0659Z
@@ -6375,6 +6687,60 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return None
 
+    def _bind_user_model_dependencies(self) -> None:
+        """Re-inject the engine-owned structures the user model reads.
+
+        The user model owns no GloVe table, no concept vocabulary and no
+        episodic memory of its own; the engine does and hands it over here.
+        ONE call site per place that (re)ASSIGNS ``self.user_model``.
+
+        ``_load()`` REPLACES ``self.user_model`` outright -- with the embedded
+        snapshot, or with the dedicated ``user_models/`` store when that wins
+        -- so these bindings do NOT survive a reload unless they are re-applied.
+        When they are not, every geometry-backed and episodic-backed capability
+        degrades to fail-closed, silently: a bound method cannot be pickled, so
+        the stale copy can even arrive as a truthy STRING that a naive presence
+        check accepts and that raises ``TypeError`` on call (swallowed
+        downstream). Measured on this defect: the evaluative-predicate model
+        abstained on 22/22 unseen words after a reload and end-to-end mining
+        minted ZERO stances, while ``_glove_vector_fn is not None`` still passed.
+        """
+        um = getattr(self, "user_model", None)
+        if um is None:
+            return
+        # Share the hippocampal episodic entity index + raw transcript with the
+        # user_model so the fact miner can enforce the self/other boundary on
+        # OWNER re-attribution (a pet moved off the user must also drop the
+        # user-facing episodic entry + raw transcript fact for that entity, not
+        # just its fact-store record). Read-only intent from the miner's side;
+        # the engine remains the sole writer of these structures during normal
+        # turns. The miner only MUTATES them on an explicit owner
+        # re-attribution (superseding the user's record) -- never during
+        # ordinary disclosure.
+        um._episodic_index = self._episodic_index
+        um._episodic_transcript = self._episodic_transcript
+        # C-fix (round 2026-08-12T0613Z): expose the engine's concept
+        # vocabulary to the user-model so stance mining can REJECT single-word
+        # topics that are not real concepts (comparative/handle artifacts like
+        # "anything"/"standing" that pollute the stance store). The vocabulary
+        # is the engine's OWN learned concept set, not a per-topic deny-list.
+        um._concept_vocab = self._concept_keywords
+        # Give the user model a route to the engine's concept vectors so the
+        # evaluative-predicate miner (feature round t_e45928d1) can read the
+        # polarity of a predicate the frozen word lists never listed, from
+        # where it sits in concept space. INJECTED, not imported: the user
+        # model owns no GloVe table and must not grow one. Bound method, so it
+        # always reads the CURRENT projection state and honours the
+        # `glove_ready` contract (returns None when no table is present, which
+        # the model treats as "abstain").
+        um._glove_vector_fn = self._glove_vector
+        # The hippocampal buffer is built later in __init__ and is bound to the
+        # user_model at its own site; re-point it here too whenever it exists,
+        # so a reload cannot leave it pointing at a stale instance either.
+        _hbuf = getattr(self, "hippocampal_buffer", None)
+        if _hbuf is not None:
+            um._hippocampal_buffer = _hbuf
+
     def reset_episodic_state(self) -> None:
         """Clear all PER-CASE episodic/persona stores so the next benchmark
         case starts from a clean slate. Called by the evaluation harness when
@@ -6553,6 +6919,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
+        # `_pending_web_evidence` is stashed by the agentic pre-check and
+        # consumed by the end-of-turn block that appends it to the reply. Those
+        # two points are ~3400 lines apart and 55 early-return paths sit
+        # between them (every short-circuit strategy: emotional_empathy,
+        # self_disclosure, memory_recall, structured_recall, ...), so any of
+        # them leaves the slot populated and the NEXT turn that reaches the
+        # end-of-turn block appends evidence for a query the user never asked.
+        #
+        # Observed in the round probe: the user's "sediment cores" and
+        # "remind me what you said about sediment cores" turns both printed the
+        # payload for "do you get bored when i am quiet for a long time?". A
+        # grounded-evidence channel that answers a different question than the
+        # one asked is a confabulated citation, which is worse than no channel.
+        #
+        # Reset here, at the top, for the same reason `turn_count` is advanced
+        # above: it guarantees every turn starts with a clean slot regardless of
+        # which path it takes out.
+        self._pending_web_evidence = None
         # FIX (round 2026-09-14): advance turn_count and tick the RNG at the
         # TOP of process_turn, BEFORE any early return. Otherwise short-circuit
         # paths skip both, breaking the determinism contract.
@@ -6681,6 +7066,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
             return resp
+
+        # ── SELF-CUED EPISODIC RETRIEVAL (capability: retrieval-by-cue) ──────
+        # A question about something the user ALREADY disclosed is a memory
+        # question, not a world-knowledge gap. Before RAVANA consults its
+        # internal knowledge base or reaches for the web, it reactivates its
+        # OWN record: _self_cued_episodic returns the stored user turn whose
+        # rare content cue the query stem-matches. This runs BEFORE the
+        # agentic hands below and before _consult_internal_knowledge, so a
+        # fact the user gave us is answered from the user, not the world.
+        # Fails closed (None) unless a specific, rare cue matches a stored
+        # user turn — genuine world queries ("what is the capital of france")
+        # have no such cue and proceed unchanged.
+        try:
+            _cued_self = self._self_cued_episodic(user_input)
+        except Exception:
+            _cued_self = None
+        if _cued_self is not None:
+            self._last_strategy = "self_cued_episodic"
+            self._last_responses.append(_cued_self)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self._recent_user_turns.append(user_input)
+            if len(self._recent_user_turns) > 12:
+                self._recent_user_turns = self._recent_user_turns[-12:]
+            self._record_episode(user_input)
+            self._record_own_reply(user_input, _cued_self, self._last_subject)
+            self.notify_user_idle()
+            return _cued_self
 
         # ── Agentic pre-check (fix 'c'): if this is a knowledge gap RAVANA cannot
         # answer from memory, USE ITS HANDS. State-driven (curiosity/recall-query/
@@ -9754,8 +10167,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # quality into a short buffer; derive a real error rate (1 - quality)
         # and an adaptive window via rolling std (stable => wider, volatile
         # => narrower). At cold-start (buffer empty) error=0.0, window=15
-        # => identical to the legacy fixed behavior. No theta_withhold
-        # modulation: no prediction-vs-quality pair exists to drive it.
+        # => identical to the legacy fixed behavior. This rolling window is
+        # the raw view; the shrunk, gated view is `self.calibrator` below.
         self._calib_buf.append(quality_score)
         if len(self._calib_buf) > 60:
             self._calib_buf = self._calib_buf[-60:]
@@ -9772,6 +10185,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _target = 5
             # EMA toward target so the window drifts, never snaps.
             self._calib_window = int(round(0.9 * self._calib_window + 0.1 * _target))
+
+        # ─── Online epistemic calibration: the prediction/outcome pair ───
+        # This is the pair the code above used to say did not exist.
+        #
+        # `confidence` (set at the top of process_turn from identity strength)
+        # is RAVANA's PREDICTION for the turn. `quality_score` (just scored) is
+        # the realized OUTCOME. Feeding both to the calibrator lets RAVANA
+        # learn whether its own confidence tracks what it actually produces,
+        # and shifts its assert-gate off that learned bias.
+        #
+        # `confidence` is the last value bound in this frame; it is
+        # deliberately NOT recomputed here, so the recorded prediction is
+        # exactly the number the dual-process router acted on.
+        try:
+            self.calibrator.observe(float(confidence), float(quality_score))
+        except Exception:
+            # Calibration must never be able to break a turn. A failure here
+            # means the ledger is unchanged, i.e. the gate simply stays at its
+            # base value — the cold-start identity, which is safe.
+            pass
 
         # Phase 19g: if the generated response was flagged as word salad /
         # tautology (e.g. "gravity and time causes time"), do NOT emit it.
@@ -10342,6 +10775,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'linggen_genconf_seq': list(getattr(self, '_linggen_genconf_seq', [])),
                 'source_trust': dict(getattr(self, '_source_trust', {})),
                 'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
+                # Retirement ledger (round 2026-09-29T1239Z): what the user has
+                # told RAVANA and then taken back. Durable for the same reason
+                # the belief store is -- a correction that is forgotten on
+                # restart would bring the retracted value straight back.
+                'retirement_ledger_state': getattr(
+                    self, 'retirement_ledger', RetirementLedger()).to_state(),
                 # Background learning state
                 'bg_learning_queue': list(self._bg_learning_queue),
                 'bg_search_count': self._bg_search_count,
@@ -10375,9 +10814,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'freq_models': {k: v.to_dict() for k, v in self._freq_models.items()},
                 # Learned lemma store (Item 5, P2) — novel past->base mappings.
                 'learned_lemmas': dict(self._learned_lemmas),
+                # Referent class growth (round 2026-09-30T1031Z, t_159df91e):
+                # the words RAVANA has learned are grammatical, the words it
+                # has learned are predicates, and the ungrounded-token counts.
+                # Persisted for the same reason the belief store is: a class
+                # that forgets its own evidence re-learns it from scratch every
+                # session, which makes the growth path decorative.
+                'func_class_state': (self._function_class().to_state()
+                                     if self._function_class() is not None
+                                     else None),
                 # Reflective monitoring
                 'episodic_edges': _episodic_edges,
                 'semantic_edges': _semantic_edges,
+                # Online epistemic calibration ledger: persist the accumulated
+                # (confidence, realized-quality) pairs and the per-band
+                # reliability accumulators, so a learned calibration curve
+                # survives a reload instead of resetting to cold start every
+                # session. Without this the capability would only ever learn
+                # within a single process lifetime.
+                'epistemic_calibration': (self.calibrator.get_state()
+                                         if getattr(self, 'calibrator', None) is not None
+                                         else None),
                 # ConnectorLearner state (Item 3, P1): persist the learned
                 # connector->relation mappings + prototype centroids so they
                 # survive reloads and accumulate across sessions (previously
@@ -10540,27 +10997,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     def _load(self) -> bool:
         """Load cognitive state from disk. Returns True if successful."""
         try:
-            # Use a custom unpickler that handles both 'ravana_chat' and
-            # 'scripts.ravana_chat' module name references (pickle may store
-            # either depending on how the module was imported when saved).
-            class _RavanaUnpickler(pickle.Unpickler):
-                def find_class(self, module, name):
-                    try:
-                        return super().find_class(module, name)
-                    except (ModuleNotFoundError, AttributeError):
-                        if module == 'ravana_chat':
-                            return super().find_class('scripts.ravana_chat', name)
-                        elif module == 'scripts.ravana_chat':
-                            return super().find_class('ravana_chat', name)
-                        elif module == '__main__':
-                            # Saved from direct `python ravana_chat.py` run
-                            try:
-                                return super().find_class('scripts.ravana_chat', name)
-                            except (ModuleNotFoundError, AttributeError):
-                                return super().find_class('ravana_chat', name)
-                        raise
+            # A snapshot written by one round's commit is read by the next
+            # round's commit, and a class that only existed on the writing
+            # branch would otherwise abort the ENTIRE load -- silently booting a
+            # blank mind every round. ravana_unpickler degrades just that class
+            # to an inert placeholder and records it. See state_compat.py.
             with open(self._save_path, 'rb') as f:
-                state = _RavanaUnpickler(f).load()
+                state = ravana_unpickler(f).load()
+            _dropped = report_dropped()
+            if _dropped:
+                print(_dropped)
 
             # ── M5: schema + integrity checks (corrupt-detection, NOT silent wipe) ──
             # A stale/corrupt pkl used to throw here, the caller swallowed it,
@@ -10870,6 +11316,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception as _e:
                 print(f"  [Load partial] rng restore failed: {_e}")
 
+            # Restore the retirement ledger (round 2026-09-29T1239Z). Without
+            # this a correction learned in a previous session is forgotten and
+            # the retracted value comes straight back with the next recall.
+            #
+            # Deliberately placed EARLY, next to the RNG restore, and not beside
+            # the other stores further down: this load path already aborts with
+            # an exception partway through on a snapshot whose user_model was
+            # sanitized to a str ("[Load error] 'str' object has no attribute
+            # 'edge_reactivations'"), and every restore after that point is
+            # silently skipped. Durable memory that protects against answering
+            # from a retracted value must not sit behind a pre-existing crash.
+            try:
+                _rl_state = state.get('retirement_ledger_state', None)
+                if _rl_state:
+                    self.retirement_ledger = RetirementLedger.from_state(_rl_state)
+            except Exception as _e:
+                print(f"  [Load partial] retirement ledger restore failed: {_e}")
+            # _episodic_transcript is NOT persisted (it is rebuilt from the
+            # hippocampal indexer on load), so the per-record "retracted" flag
+            # written by _propagate_retirement does not survive either. That is
+            # why _record_is_retracted ALSO consults the ledger's values: the
+            # retirement outlives the transcript, which is the whole point of
+            # it being a ledger rather than a record attribute.
+
             # Restore teen state (optional â€” may not exist in old saves)
             self._sleep_pressure = state.get('sleep_pressure', 0.0)
             self._last_sleep_episode = state.get('last_sleep_episode', 0)
@@ -10889,13 +11359,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._contradiction_map = state.get('contradiction_map', {})
             # Restore user model
             loaded_user_model = state.get('user_model', UserModel())
+            # A poisoned snapshot (pre-2026-10-02 _safe_pickle_dump sanitizer)
+            # stores the whole user_model as the STRING "<unpicklable:UserModel>".
+            # Touching it here raised AttributeError, which aborted load() and
+            # silently discarded EVERY field restored after this point. Degrade
+            # instead: keep the fresh model, say so once, and carry on.
+            if not hasattr(loaded_user_model, 'edge_reactivations'):
+                print("  [Load partial] user_model was a placeholder/opaque value "
+                      "- keeping a fresh UserModel; learned user state NOT restored")
+                loaded_user_model = UserModel()
             # Upgrade old UserModel to new Theory of Mind version if needed
-            if not hasattr(loaded_user_model, 'topic_interaction_count'):
+            elif not hasattr(loaded_user_model, 'topic_interaction_count'):
                 # Old UserModel - upgrade it
                 upgraded = UserModel()
                 upgraded.edge_reactivations = loaded_user_model.edge_reactivations
                 upgraded.query_concepts = loaded_user_model.query_concepts
-                upgraded.user_name = getattr(loaded_user_model, 'user_name', "")
+                upgraded.user_name = getattr(loaded_user_model, "user_name", "")
                 loaded_user_model = upgraded
             # Ensure P1 ToM fields exist (backward-compatible migration)
             if not hasattr(loaded_user_model, 'user_name'):
@@ -11039,6 +11518,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 except Exception:
                     pass
 
+            # Restore the online epistemic calibration ledger so a learned
+            # reliability curve and assert-gate carry across sessions.
+            # `load_state` fails closed on unusable input, leaving the ledger
+            # at cold start (gate = base), which is the safe default.
+            _ec = state.get('epistemic_calibration')
+            if _ec and getattr(self, 'calibrator', None) is not None:
+                try:
+                    self.calibrator.load_state(_ec)
+                except Exception:
+                    pass
+
             # Restore Phase 10-17 state
             self._sentence_schema = state.get('sentence_schema', {})
             self._mean_sentence_pe = state.get('mean_sentence_pe', 0.0)
@@ -11065,6 +11555,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _ll = state.get('learned_lemmas')
             if _ll:
                 self._learned_lemmas = dict(_ll)
+
+            # Restore the referent class's learned membership (round
+            # 2026-09-30T1031Z, t_159df91e). Written at save() time; without
+            # this restore it would be the "saved but never loaded" class of
+            # bug — the growth path would re-learn the same words every boot
+            # and never actually accumulate.
+            _fc_state = state.get('func_class_state')
+            _fc = self._function_class()
+            if _fc_state and _fc is not None:
+                try:
+                    _fc.load_state(_fc_state)
+                except Exception:
+                    pass
 
             # Restore source-trust accumulator (Item 1, P0). Saved at save()
             # time but previously never reloaded -> the prefrontal credibility
@@ -11194,6 +11697,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self.cerebellar_ngram.seed_from_pos(self._concept_pos)
             if hasattr(self, 'syntactic_assembly'):
                 self.syntactic_assembly.seed_from_pos(self._concept_pos)
+
+            # self.user_model was REPLACED above (embedded snapshot, or the
+            # dedicated user_models/ store when that wins), so the engine-owned
+            # bindings it was given in __init__ did not come along with it.
+            # Re-inject them here, after every restore, so a reload is
+            # indistinguishable from a fresh boot for any capability that reads
+            # engine state through the user model. Same method __init__ uses, so
+            # the two sites cannot drift.
+            self._bind_user_model_dependencies()
 
             # Fix 7: self-heal a checksum-mismatched snapshot by re-saving a
             # fresh, self-consistent one now that all valid fields are restored.

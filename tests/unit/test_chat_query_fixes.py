@@ -31,7 +31,6 @@ sys.path.insert(0, os.path.join(_PROJ, "ravana-v2", "src"))
 
 from ravana.chat.engine import CognitiveChatEngine
 from ravana.chat.monitor_gate import _METAWORDS
-from ravana.chat.slot_naming import slot_name
 
 
 def _has_conceptnet_ontology():
@@ -336,15 +335,17 @@ def test_humor_grammar_agreement():
     assert len(seen) >= 2, f"humor did not rotate: {seen!r}"
 
 
-# ── Fix: stance-reversal misattribution (2026-08-21T0843Z). A held stance
-# DISCLOSED with a temporal filler ("i hate thunderstorms now") must NOT be
-# reversed when an UNRELATED later utterance merely shares that filler word.
+# ── Fix: stance-reversal misattribution (2026-08-21T0843Z). A held stance keyed
+# on a temporal filler (e.g. "thunderstorms now") must NOT be reversed when an
+# UNRELATED later utterance merely shares that filler word. Previously the
 # reversal-topic resolver matched ANY shared token, so a grass contradiction
 # ("... fresh-cut grass now makes me sneeze ...") acked "you've changed your
 # mind about thunderstorms" — the wrong topic. The filler-token guard in the
 # three resolvers (_stance_key_in_text / _stance_key_in_text_stem /
 # resolve_topic) drops temporal/discourse fillers, so the grass contradiction
-# no longer binds the storm stance.
+# no longer binds the storm stance.  Round 2026-10-02T0706Z extended the
+# stopword set so "now" is stripped from the stance key itself (the key is
+# "thunderstorms", not "thunderstorms now").
 def test_reversal_not_misattributed_via_filler():
     d = tempfile.mkdtemp(prefix="ravana_rev_")
     e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, data_dir=d)
@@ -357,14 +358,8 @@ def test_reversal_not_misattributed_via_filler():
     assert "thunderstorms" not in last, \
         f"grass contradiction wrongly acked the storm stance: {last!r}"
     # The held storm stance must remain intact (its polarity unchanged by the
-    # unrelated grass turn). Resolve the key through the SAME shared slot
-    # naming chokepoint the miner uses (slot_naming.slot_name) rather than a
-    # frozen literal: the canonical spelling of a topic key is owned by that
-    # module, and a hardcoded "thunderstorms now" asserts a spelling the
-    # chokepoint deliberately trims ("now" is a temporal modifier). Hardcoding
-    # it re-broke this test the moment naming changed, without any behavior
-    # regression having occurred.
-    storm_key = slot_name(["thunderstorms", "now"])
-    storm = e.user_model.opinions.stances.get(storm_key)
+    # unrelated grass turn).  The temporal adverb "now" is stripped from stance
+    # keys (round 2026-10-02T0706Z), so the key is "thunderstorms".
+    storm = e.user_model.opinions.stances.get("thunderstorms")
     assert storm is not None and storm.polarity < 0, \
-        f"storm stance corrupted by unrelated contradiction: {storm} (key {storm_key!r})"
+        f"storm stance corrupted by unrelated contradiction: {storm}"
