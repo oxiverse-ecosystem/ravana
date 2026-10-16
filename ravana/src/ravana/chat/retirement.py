@@ -464,6 +464,15 @@ def looks_like_retraction(text: str, markers: Optional[set[str]] = None) -> bool
 
     Cheap pre-filter so the common case (an ordinary disclosure) costs one
     regex rather than a store scan.
+
+    Also returns True when the utterance has a clause boundary whose first
+    token is a potential (unknown) contrast marker — this is the growth-path
+    prefilter. Without it, a retraction with a genuinely new interjection
+    (e.g. "patna, franks he lives in delhi") would be rejected before
+    ``parse_contrast`` even runs, because the new marker is not in any
+    authored set. The check is structural (clause boundary + non-function-
+    word token), not semantic, so it does not invite false positives the way
+    a free-text matcher would.
     """
     low = (text or "").lower().strip()
     if not low:
@@ -471,4 +480,88 @@ def looks_like_retraction(text: str, markers: Optional[set[str]] = None) -> bool
     if _PURE_RETRACTION.search(low):
         return True
     head = " ".join(_toks(low)[:4])
-    return any(op in head for op in RETRACTION_OPENERS)
+    if any(op in head for op in RETRACTION_OPENERS):
+        return True
+    mk = set(markers) if markers is not None else set(CONTRAST_MARKERS)
+    clauses: List[List[str]] = []
+    for c in re.split(r"[,;]|\bbut\b", low):
+        parts = c.strip().split()
+        if parts:
+            clauses.append(parts)
+    if len(clauses) < 2:
+        return False
+    _EXCLUDE = (
+        mk | _RELATION_HEADS | _DETERMINERS | set(RETRACTION_OPENERS)
+        | {
+            "the", "a", "an", "and", "or", "but", "so", "if", "when",
+            "which", "who", "whom", "whose", "where", "why", "how",
+            "what", "this", "that", "these", "those", "there", "here",
+            "it", "its", "he", "she", "they", "we", "you", "i", "me",
+            "him", "her", "them", "us", "my", "your", "his", "our",
+            "their", "am", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "must", "can",
+            "shall", "not", "no", "yes", "yeah", "oh", "ah", "um",
+            "well", "like", "just", "also", "too", "very", "really",
+            "quite", "rather", "pretty", "much", "many", "more", "most",
+            "some", "any", "all", "each", "every", "both", "few",
+        }
+    )
+    for cl in clauses[1:]:
+        if not cl:
+            continue
+        cand = cl[0].lower().strip(".,!?;:'\"")
+        if cand and cand.isalpha() and cand not in _EXCLUDE:
+            return True
+    return False
+
+
+def extract_candidate_marker(text: str, known_markers: set[str]) -> Optional[str]:
+    """Extract a candidate contrast marker from a retraction utterance.
+
+    Called ONLY when ``looks_like_retraction`` passed but ``parse_contrast``
+    returned ``None``. The candidate is fed to ``learn_contrast_marker``
+    and the text is re-parsed with the expanded set.
+
+    Deliberately conservative: only tokens at a CLAUSE BOUNDARY (first
+    token of a clause after splitting on ``,;`` or ``but``), excluding
+    known markers, relation heads, determiners, retraction openers, and
+    common function words. Must be a single alphabetic word.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    clauses: List[List[str]] = []
+    for c in re.split(r"[,;]|\bbut\b", raw):
+        parts = c.strip().split()
+        if parts:
+            clauses.append(parts)
+    if len(clauses) < 2:
+        return None
+    _EXCLUDE = (
+        known_markers | _RELATION_HEADS | _DETERMINERS | set(RETRACTION_OPENERS)
+        | {
+            "the", "a", "an", "and", "or", "but", "so", "if", "when",
+            "which", "who", "whom", "whose", "where", "why", "how",
+            "what", "this", "that", "these", "those", "there", "here",
+            "it", "its", "he", "she", "they", "we", "you", "i", "me",
+            "him", "her", "them", "us", "my", "your", "his", "our",
+            "their", "am", "is", "are", "was", "were", "be", "been",
+            "being", "have", "has", "had", "do", "does", "did", "will",
+            "would", "could", "should", "may", "might", "must", "can",
+            "shall", "not", "no", "yes", "yeah", "oh", "ah", "um",
+            "well", "like", "just", "also", "too", "very", "really",
+            "quite", "rather", "pretty", "much", "many", "more", "most",
+            "some", "any", "all", "each", "every", "both", "few",
+        }
+    )
+    for cl in clauses[1:]:
+        if not cl:
+            continue
+        cand = cl[0].lower().strip(".,!?;:'\"")
+        if not cand or not cand.isalpha():
+            continue
+        if cand in _EXCLUDE:
+            continue
+        return cand
+    return None
