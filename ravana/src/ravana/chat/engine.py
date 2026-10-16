@@ -6270,12 +6270,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """
         if not answer:
             return answer
+        if not query or not query.strip():
+            return None
         try:
             _score = self._relevance_scorer.score(
                 query, answer,
                 query_turn=self.turn_count,
                 threshold=self._relevance_threshold)
-            if _score >= self._relevance_threshold.base_threshold:
+            # Require BOTH a minimum overall score AND some content overlap.
+            # The overall score alone is too permissive: recency and type
+            # signals default to 1.0, so even a completely off-topic answer
+            # scores 0.35 (above the 0.15 threshold). Content overlap is
+            # the signal that actually distinguishes on-topic from off-topic.
+            from .relevance_store import _content_words, _jaccard_overlap
+            _q_words = set(_content_words(query))
+            _a_words = set(_content_words(answer))
+            _overlap = _jaccard_overlap(_q_words, _a_words)
+            if (_score >= self._relevance_threshold.base_threshold
+                    and _overlap >= 0.15):
                 return answer
             return None
         except Exception:

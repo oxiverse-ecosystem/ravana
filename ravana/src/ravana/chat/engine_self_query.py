@@ -1201,22 +1201,22 @@ class SelfQueryMixin:
         # Extract the topic from the query using multiple patterns
         # Pattern 1: "about X" / "of X" / "on X" where X is at the end
         _topic_m = re.search(
-            r"\\b(?:about|of|on)\\s+([a-z][a-z\\s]{2,40})\\s*$", t)
+            r"\b(?:about|of|on)\s+([a-z][a-z\s]{2,40})\s*$", t)
         if _topic_m:
             _topic = _topic_m.group(1).strip()
         else:
             # Pattern 2: "what do you X about Y" / "do you X about Y"
             _topic_m = re.search(
-                r"\\b(?:what|do|did|are|can|could|would)\\s+(?:you\\s+)?"
-                r"(?:\\w+\\s+){0,3}?about\\s+([a-z][a-z\\s]{2,40})", t)
+                r"\b(?:what|do|did|are|can|could|would)\s+(?:you\s+)?"
+                r"(?:\w+\s+){0,3}?about\s+([a-z][a-z\s]{2,40})", t)
             if _topic_m:
                 _topic = _topic_m.group(1).strip()
             else:
                 # Pattern 3: "what do you dream about" — topic is the noun
                 # before "about" at the end
                 _topic_m = re.search(
-                    r"\\b(dream|think|feel|wonder|curious|afraid|scared|"
-                    r"hope|wish|regret|love|like|enjoy)\\s+about\\s*$", t)
+                    r"\b(dream|think|feel|wonder|curious|afraid|scared|"
+                    r"hope|wish|regret|love|like|enjoy)\s+about\s*$", t)
                 if _topic_m:
                     _topic = _topic_m.group(1).strip()
                 else:
@@ -1225,7 +1225,7 @@ class SelfQueryMixin:
             return None
         # Don't fire for purely affective queries ("how do you feel") —
         # those are handled by the affective branch above.
-        if re.search(r"\\b(how\\s+do\\s+you\\s+feel|what\\s+makes\\s+you)\\b", t):
+        if re.search(r"\b(how\s+do\s+you\s+feel|what\s+makes\s+you)\b", t):
             return None
         # Check if the topic connects to the agent's real state
         _related = None
