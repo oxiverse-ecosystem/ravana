@@ -6314,8 +6314,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _q_words = set(_content_words(query))
             _a_words = set(_content_words(answer))
             _overlap = _jaccard_overlap(_q_words, _a_words)
+            # Adaptive Jaccard threshold: for short queries (1-2 content words),
+            # even a single matching word is a strong signal. The flat 0.15
+            # threshold was too aggressive for single-word-topic queries like
+            # "what do you dream about" where a perfect reply has Jaccard ~0.125.
+            _min_q = max(len(_q_words), 1)
+            _jaccard_threshold = min(0.15, 1.0 / _min_q)
             if (_score >= self._relevance_threshold.base_threshold
-                    and _overlap >= 0.15):
+                    and _overlap >= _jaccard_threshold):
                 return answer
             return None
         except Exception:

@@ -2356,11 +2356,7 @@ class SelfQueryMixin:
                 continue
             if _sim > _best_sim:
                 _best_sim = _sim
-        if getattr(self, '_trace_enabled', False):
-            print(f"  [relevance_gate] subj={subj!r} best_sim={_best_sim:.4f} threshold={_threshold}")
         if _best_sim < _threshold:
-            if getattr(self, '_trace_enabled', False):
-                print(f"  [relevance_gate] withheld (sim={_best_sim:.2f} < {_threshold}): {answer[:60]!r}")
             return None
         return answer
 
