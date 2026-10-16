@@ -6033,18 +6033,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return "you've told me about: " + "; ".join(_bits) + "."
 
     def _recall_user_fact(self, attr_hint, q):
-        """Helpers for _structured_recall: read a personal_fact by attribute."""
+        """Helpers for _structured_recall: read a personal_fact by attribute.
+
+        Returns the most recent non-superseded fact (highest turn_number)
+        for the given attribute. This is the temporal disambiguation:
+        when the user has corrected a fact, the latest correction wins.
+        """
         pf = getattr(getattr(self, "user_model", None), "personal_facts", None)
         if pf is None:
             return None
+        _best_val = None
+        _best_turn = -1
         for _k, _f in pf.facts.items():
             if not (isinstance(_k, tuple) and len(_k) == 3):
                 continue
             if getattr(_f, "superseded", False):
                 continue
             if _k[1].lower() == attr_hint:
-                return _f.value
-        return None
+                _turn = getattr(_f, "turn_number", 0) or 0
+                if _turn > _best_turn:
+                    _best_turn = _turn
+                    _best_val = _f.value
+        return _best_val
 
     def _temporal_fact(self, subject, attribute, value=None):
         """Temporal Fact Disambiguation (TFD) — return the most recent,
@@ -6350,6 +6360,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self.user_model._episodic_transcript = self._episodic_transcript
         self.user_model._concept_vocab = self._concept_keywords
         self.user_model._glove_vector_fn = self._glove_vector
+
+        # SEED-backed relevance-scored recall layer (round 2026-10-13).
+        # Multi-signal scoring replaces binary pass/fail guards in the recall
+        # pipeline. All parameters live in a persisted data store — RAVANA
+        # can expand/revise them at runtime from conversation feedback.
+        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
+        if not hasattr(self, '_relevance_threshold') or self._relevance_threshold is None:
+            from .relevance_store import RelevanceThreshold, RelevanceScorer
+            self._relevance_threshold = RelevanceThreshold()
+            self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
 
     def _is_agent_self_recall_query(self, user_input: str) -> bool:
         """True when `user_input` asks about RAVANA's OWN prior speech.
