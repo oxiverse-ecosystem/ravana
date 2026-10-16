@@ -295,6 +295,7 @@ except ImportError:
     report_missing("bs4", "BeautifulSoup HTML parsing (web scraping)", kind="optional")
 
 from .state_compat import ravana_unpickler, report_dropped
+from . import topic_head
 # Import constants
 from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
                         _is_word_salad, _is_keyboard_mash,
@@ -2948,6 +2949,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        # SPOKEN-FORM NORMALISATION (round 2026-10-03T2040Z). Every gate below
+        # tests a query for grammatical shape — interrogative inversion, a
+        # possessive, a name attribute — and those tests only fire on the
+        # SPELLED-OUT form. A transcription loses the apostrophe ("whats my dog
+        # called"), so the fact was in the store and this resolver returned
+        # None, dropping the whole turn to the honest-but-empty fallback.
+        # Normalise ONCE here, at the single entry every branch reads, using
+        # the one morphological expander the module already owns (it covers
+        # the n't class and the elision class by rule, not by table). Nothing
+        # downstream changes shape except the spelling.
+        q = topic_head.expand_contractions(q)
         # (0z) COMPOUND / MULTI-PART QUERY DECOMPOSITION (round 2026-08-22T0703Z
         # residual). The resolvers below are single-shot: a compound
         # interrogative ("what's my ferret's name and what does he do with my
@@ -3685,7 +3697,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         "climb", "climbs", "swim", "swims", "run", "runs",
                         "fetch", "catches", "catch", "pounce", "pounces",
                     }
-                    _ask_activity = bool(_q_toks2 & _ACT_CUES)
+                    # Round 2026-10-03T2040Z. _ACT_CUES contains the generic
+                    # interrogative "what", so ANY "what ..." pet question
+                    # counted as an activity ask — including one that asks for a
+                    # different ATTRIBUTE entirely. Measured: after "my dog
+                    # biscuit sleeps on the wedging table", the query "what is
+                    # my dog called" was answered by this branch with "your dog
+                    # biscuit sleeps wedging table." — the animal's ACTIVITY, for
+                    # a question about its NAME. The name was in the store the
+                    # whole time; this branch simply answered first.
+                    #
+                    # The cue set cannot fix this by growing: "what" is not an
+                    # activity word, it is a question word, and every attribute
+                    # question ("what is my dog called", "what is my cat's
+                    # name") starts with it. The question is about ATTRIBUTE
+                    # AGREEMENT, which this file already owns in one place —
+                    # attribute_gate.asks_name_only, the same predicate the
+                    # name-render branch below consults. Reusing it makes the two
+                    # branches agree BY CONSTRUCTION instead of each keeping a
+                    # private idea of what a pet question is about, and it stands
+                    # down correctly for a genuine compound ask ("what is my
+                    # dog's name and what does it do?") without a new cue.
+                    #
+                    # Structural: no new vocabulary, no per-animal rule, no
+                    # authored reply, and it generalises to every attribute any
+                    # entity can hold.
+                    _ask_attribute = attribute_gate.asks_name_only(q)
+                    _ask_activity = bool(_q_toks2 & _ACT_CUES) and not _ask_attribute
                     _is_q2 = bool(re.search(r"\?$", q.strip()) or re.match(
                         r"^(what|who|which|where|when|why|how|is|are|was|were|"
                         r"do|does|did|has|have|had|can|could|would|will|tell|"

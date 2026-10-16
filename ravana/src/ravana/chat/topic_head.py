@@ -91,6 +91,28 @@ _IRREGULAR_NEG = {
 }
 
 
+# ── Elision morphology (the same idea, the other lost apostrophe) ────────
+# THE RULE: English also drops the apostrophe in "<pronoun/question-word>'s"
+# ("what's" -> "what is", "whats" -> "what is"). Unlike the n't class there is
+# no auxiliary to recover — the missing element is always the copula "is" — so
+# the rule is: a token ending in "s" whose STEM is a word that can take a
+# copula is that word plus "is". Grammatical, not enumerated: the stems come
+# from the function class below, so a form nobody listed ("wheres", "hows")
+# reduces by the same rule, exactly as "don't" did.
+#
+# Two guards keep it from eating real words:
+#   * the token itself must NOT already be a function word — that protects
+#     "its" (possessive), "was", "has", "as", "is", "thus" and every other
+#     closed-class item that legitimately ends in "s";
+#   * only closed-class stems qualify, so a plural noun ("dogs") whose stem
+#     happened to be a pronoun is left alone.
+_ELISION_STEMS: FrozenSet[str] = frozenset("""
+i you he she it we they that there what who where when why how
+""".split())
+
+_ELISION_RE = re.compile(r"\b([a-z][a-z']*)s\b")
+
+
 def _neg_stem(raw: str) -> str:
     """Auxiliary stem of a negative contraction.
 
@@ -106,15 +128,34 @@ def _neg_stem(raw: str) -> str:
 
 
 def expand_contractions(text: str) -> str:
-    """Expand negative contractions to their full ``aux + not`` form.
+    """Expand English contractions to their full ``aux + not`` / ``X is`` form.
 
-    ``"i don't know"`` -> ``"i do not know"``. Done by morphology, so a
+    ``"i don't know"`` -> ``"i do not know"``; ``"whats my dog called"`` ->
+    ``"what is my dog called"``. Both classes are done by MORPHOLOGY, so a
     contraction the author never saw is still expanded by the same rule.
     """
     s = (text or "").lower()
     for src, dst in _IRREGULAR_NEG.items():
         s = re.sub(r"\b" + re.escape(src) + r"\b", dst, s)
-    return _NT_RE.sub(lambda m: f"{_neg_stem(m.group(1))} not", s)
+    s = _NT_RE.sub(lambda m: f"{_neg_stem(m.group(1))} not", s)
+    return _ELISION_RE.sub(_elision, s)
+
+
+def _elision(m: "re.Match") -> str:
+    """``whats`` -> ``what is``; leave every other token untouched.
+
+    Fires only when the WHOLE token is not itself a closed-class word (so
+    "its", "was", "has", "is", "as" survive) and its stem is a pronoun /
+    question word that takes a copula. Both tests are membership lookups in
+    the seed function class — no per-form table.
+    """
+    tok = m.group(1)
+    if m.group(0) in _SEED_FUNCTION:
+        return m.group(0)
+    # group(1) is the token WITHOUT its trailing -s, so it IS the stem.
+    if tok in _ELISION_STEMS:
+        return f"{tok} is"
+    return m.group(0)
 
 
 # ── Seed closed class ─────────────────────────────────────────────────────
