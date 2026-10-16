@@ -3027,6 +3027,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # ── SELF-OPINION GATE (round 2026-10-13T0125Z) ──────────────────────
+        # A query asking for RAVANA's OWN stance ("do you think X", "what's your
+        # take on Y") must NOT be answered from the USER's personal-fact store.
+        # _structured_recall fires at the TOP of process_turn, BEFORE
+        # _route_self_query, so without this gate a self-opinion query matches a
+        # loosely-related user fact and returns a degenerate reply (measured:
+        # "do you think dreams have meaning or are they just noise?" -> "your
+        # friend is just is moved to another country."). The gate is the SAME
+        # _SELF_OPINION_SHAPE regex that _self_cued_episodic uses (imported from
+        # engine_memory.py) — one definition, two call sites, so the two routers
+        # cannot drift apart. Fail-closed: returns None so the query falls
+        # through to _route_self_query which computes RAVANA's real stance.
+        try:
+            from .engine_memory import _SELF_OPINION_SHAPE as _SOS
+            if re.search(_SOS, q):
+                # Aggregation queries ("what's your read on me") match the
+                # self-opinion shape but must reach the aggregation gate below.
+                if not re.search(
+                    r"\b(what(?:'s| is| do| did) your (?:read|take) on me|"
+                    r"what do you (?:make|think) of me|"
+                    r"tell me about myself|describe me|"
+                    r"what have you picked up about me|"
+                    r"everything you know about me|"
+                    r"what stands out about me)\b", q):
+                    return None
+        except Exception:
+            pass
+
         # (0a) R1 (2026-08-18T1340Z round): ENTITY-SCOPED NAME recall with
         # cross-lemma linking. A possession named by the user is stored under
         # the ENTITY key (e.g. ('sourdough starter','name','doris'),
@@ -3130,7 +3158,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
-            r"give me your (?:read|take|impression) (?:of|on) me"
+            r"give me your (?:read|take|impression) (?:of|on) me|"
+            r"is there anything you(?:'ve| have) (?:learned|noticed|picked up) about me"
             r")\b", q)
         if _agg_early:
             return self._aggregate_user_model()
@@ -3168,7 +3197,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"everything you know about me|"
             r"what stands out (?:about|to you)? ?(?:me|about me)|"
             r"who do you think i am|"
-            r"give me your (?:read|take|impression) (?:of|on) me"
+            r"give me your (?:read|take|impression) (?:of|on) me|"
+            r"is there anything you(?:'ve| have) (?:learned|noticed|picked up) about me"
             r")\b", q)
         if _agg:
             return self._aggregate_user_model()
@@ -6230,9 +6260,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # recall/reference verb, so plain world/opinion questions are untouched.
         _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q))
         _recall_v = bool(re.search(
-            r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+            r"\b(said|say|mention|mentioned|formed|opinion|"
             r"stated|answered|replied|remember|recall|earlier|before|"
-            r"said about|say about|tell me about what you)\b", _q))
+            r"said about|say about|what did you say|what was it you said|"
+            r"you said|you mentioned|you told)\b", _q))
         if not (_agent_ref and _recall_v):
             return None
         # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
