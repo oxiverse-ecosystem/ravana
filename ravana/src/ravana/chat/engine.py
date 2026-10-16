@@ -1838,6 +1838,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._deep_read_relevance_gate = 0.12  # min relevance to deep-read
         self._deep_read_offload = True   # offload deep reads to background
 
+        # SEED-backed relevance-scored recall layer (round 2026-10-13).
+        # Multi-signal scoring replaces binary pass/fail guards in the recall
+        # pipeline. All parameters live in a persisted data store — RAVANA
+        # can expand/revise them at runtime from conversation feedback.
+        # No LLM, no hardcoded reply logic, no per-topic tables, no retraining.
+        from .relevance_store import RelevanceThreshold, RelevanceScorer
+        self._relevance_threshold = RelevanceThreshold()
+        self._relevance_scorer = RelevanceScorer()
+
         # Phase 18: Curiosity Drive - autonomous topic selection for background learning
         self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
         self._curiosity_cycles_this_session: int = 0  # bg auto-select count per idle session
@@ -2923,6 +2932,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return None
 
+
+    def _relevance_gate(self, query: str, answer: Optional[str]) -> Optional[str]:
+        """SEED-backed relevance gate (round 2026-10-13).
+
+        Verifies that a candidate answer is relevant to the query before
+        returning it. Fail-closed: if the multi-signal relevance score is
+        below the learned threshold, return None (honest uncertainty beats
+        confabulation).
+
+        This is a general structural check — no per-topic logic, no hardcoded
+        reply strings. The threshold adapts incrementally from conversation
+        feedback (false positive/negative signals).
+        """
+        if not answer:
+            return answer
+        try:
+            _score = self._relevance_scorer.score(
+                query, answer,
+                query_turn=self.turn_count,
+                threshold=self._relevance_threshold)
+            if _score >= self._relevance_threshold.base_threshold:
+                return answer
+            return None
+        except Exception:
+            return answer  # fail-open on scorer error (never break recall)
 
     def _structured_recall(self, user_input: str) -> Optional[str]:
         """Structured-first biographical / stance recall (round 2026-08-08).
