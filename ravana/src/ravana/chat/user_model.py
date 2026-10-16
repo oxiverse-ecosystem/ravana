@@ -3907,13 +3907,12 @@ class UserModel:
                         # clause starts with a copula ("is ..." / "are ..."),
                         # which is a closed-class function word carrying no
                         # content. Without stripping it the stored VALUE was
-                        # "is and i have known each other" and the stored ATTR
-                        # leaked the copula ("sister priya is"), so recall
-                        # rendered "your friend arjun IS is ...". Drop a leading
-                        # copula / function word chain from the value using the
-                        # SAME pet_slots.is_function_word gate the other head
-                        # slots consult; no per-topic branch, and no disclosed
-                        # word is lost (only closed-class heads are removed).
+                        # "is and i have known each other", so recall rendered
+                        # "your friend arjun is and i have known each other."
+                        # with a leading copula. Drop leading function words
+                        # from the value using the SAME pet_slots.is_function_word
+                        # gate the other head slots consult — structural, no
+                        # per-topic branch, no disclosed word lost.
                         _after_toks = _after.split()
                         while _after_toks and is_function_word(_after_toks[0]):
                             _after_toks.pop(0)
@@ -3931,8 +3930,8 @@ class UserModel:
                     # closed-class function word carrying no content. Without
                     # removing it the stored attribute became "sister priya is"
                     # and recall rendered "your sister priya is is learning...".
-                    # Drop TRAILING function words from the name slice using the
-                    # SAME pet_slots.is_function_word gate the head slots
+                    # Drop a TRAILING copula from the name slice using the SAME
+                    # pet_slots.is_function_word gate the other head slots
                     # consult — structural, no per-topic branch, no disclosed
                     # word lost.
                     while _name.split() and is_function_word(_name.split()[-1]):
@@ -4005,31 +4004,32 @@ class UserModel:
                         if _is_clause_obj:
                             _obj = ""
                         else:
-                            # OBJECT-PHRASE PRESERVATION (round 2026-10-16,
-                            # defect D3): the object was resolved through
-                            # _opinion_topic, which CUTS at internal determiners
-                            # because it is built for stance-KEY extraction.
-                            # For a fact VALUE that is the wrong resolver: "to
-                            # play the violin" collapsed to "play", so the stored
-                            # fact was "learning play" and recall answered
-                            # "your sister priya learning play" — the verb
-                            # survived, the object phrase was lost. The module
-                            # already owns the right resolver for this shape
-                            # (_extract_activity_obj, added for the activity/
-                            # event miners and covered by
-                            # tests/unit/test_activity_object_noun_phrase.py):
-                            # it keeps the full noun phrase, strips only leading
-                            # determiners/particles/framers, and stops at
-                            # prepositions/conjunctions. Routing the
-                            # relationship-verb object through the SAME resolver
-                            # makes the miner agree with the activity miner by
-                            # construction instead of re-implementing a narrower
-                            # rule here. Structural: the phrase is the user's own
-                            # words, bounded to 6 tokens, and no per-verb or
-                            # per-topic branch is added.
-                            _obj = _extract_activity_obj(_obj_raw.lower()) or ""
+                            # OBJECT-PHRASE PRESERVATION (defect D3): _opinion_topic
+                            # CUTS at internal determiners (it is built for
+                            # stance-KEY extraction), so "to play the violin"
+                            # collapsed to "play" — the stored fact was
+                            # "learning play" and recall answered "your sister
+                            # priya learning play". Use _extract_activity_obj
+                            # (covers the activity/event miners, tested in
+                            # tests/unit/test_activity_object_noun_phrase.py)
+                            # which keeps the full noun phrase. Its only defect
+                            # for this shape: it strips a leading "to" particle
+                            # (treating it as a determiner) even when "to" is an
+                            # INFINITIVE particle of "to play". Detect that case
+                            # structurally (leading "to" + verb) and re-attach
+                            # it, so the kin-miner value matches the
+                            # general-disclosure loop (which keeps the clause
+                            # verbatim via _after). No per-verb or per-topic
+                            # branch; bounded to 6 tokens by _extract_activity_obj.
+                            _obj_raw_lc = _obj_raw.lower()
+                            _ot = _obj_raw_lc.split()
+                            _inf = (len(_ot) >= 2 and _ot[0] == "to"
+                                    and is_activity_verb(_ot[1]))
+                            _obj = _extract_activity_obj(_obj_raw_lc) or ""
+                            if _inf and not _obj.startswith("to "):
+                                _obj = "to " + _obj
                             if not _obj:
-                                _obj = self._opinion_topic(_obj_raw.lower()) or ""
+                                _obj = self._opinion_topic(_obj_raw_lc) or ""
                         _obj = _strip_obj_framers(_obj)
                         if _obj and len(_obj.split()) <= 5:
                             _val = f"{_verb} {_obj}"
