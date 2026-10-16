@@ -2137,10 +2137,14 @@ class SelfQueryMixin:
     def _relevance_gate(self, query: str, answer: str) -> Optional[str]:
         """Topical relevance gate for internal-knowledge and analogical replies.
 
-        Computes the max single-word GloVe cosine between the query's content
-        words and the answer's content words. If the best similarity is below
-        threshold, the answer is off-topic (confabulation) and is withheld
-        (returns None → caller falls through to honest uncertainty).
+        Checks whether the answer is topically about the query's grounded
+        subject by requiring a STRONG semantic match (GloVe cosine >= 0.65)
+        between the subject and at least one content word in the answer.
+
+        Why 0.65: GloVe cosine between common nouns is typically 0.30-0.60
+        (they co-occur in similar contexts). A threshold of 0.65 ensures the
+        answer mentions the subject itself or a very close synonym (e.g.,
+        "dream" -> "dreams" = 0.88), not just any statistically-related word.
 
         This is a GENERALIZABLE capability: it uses distributional semantics
         (GloVe cosine) to measure topical coherence, which is topic-agnostic
@@ -2153,51 +2157,41 @@ class SelfQueryMixin:
             return None
         if not hasattr(self, '_glove_vector'):
             return None
-        # Extract content words from query (skip stopwords)
-        _STOP = {
-            'what', 'which', 'how', 'who', 'where', 'when', 'why', 'is',
-            'are', 'was', 'were', 'do', 'does', 'did', 'can', 'could',
-            'would', 'should', 'may', 'might', 'must', 'the', 'a', 'an',
-            'of', 'on', 'in', 'to', 'for', 'with', 'and', 'or', 'but',
-            'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he', 'she',
-            'it', 'they', 'them', 'this', 'that', 'these', 'those',
-            'tell', 'know', 'think', 'feel', 'about', 'really', 'just',
-            'something', 'anything', 'everything', 'nothing', 'someone',
-        }
-        _q_words = [
-            w for w in re.findall(r"[a-z']+", query.lower())
-            if w not in _STOP and len(w) >= 3
-        ]
-        if not _q_words:
+        # Ground the subject from the query (same as _consult_internal_knowledge)
+        try:
+            _g = self._ground_query(query)
+            subj = _g[0] if _g else None
+        except Exception:
+            subj = None
+        if not subj:
             return None
-        # Get the best cosine similarity between any query word and any answer word
+        # Check if the answer mentions the subject or a very close synonym
+        _subj_vec = None
+        try:
+            _subj_vec = self._glove_vector(subj.lower().strip())
+        except Exception:
+            pass
+        if _subj_vec is None:
+            return None
+        # Check each content word in the answer for a STRONG match
         _best_sim = 0.0
-        _threshold = 0.30  # min GloVe cosine for topical relevance
-        for _qw in _q_words:
+        _threshold = 0.65  # min GloVe cosine for "same topic"
+        for _aw in re.findall(r"[a-z]{3,}", answer.lower()):
             try:
-                _qv = self._glove_vector(_qw)
+                _av = self._glove_vector(_aw)
             except Exception:
                 continue
-            if _qv is None:
+            if _av is None:
                 continue
-            for _aw in re.findall(r"[a-z]{3,}", answer.lower()):
-                if _aw in _STOP:
-                    continue
-                try:
-                    _av = self._glove_vector(_aw)
-                except Exception:
-                    continue
-                if _av is None:
-                    continue
-                try:
-                    _sim = float(
-                        np.dot(_qv, _av)
-                        / (np.linalg.norm(_qv) * np.linalg.norm(_av) + 1e-9)
-                    )
-                except Exception:
-                    continue
-                if _sim > _best_sim:
-                    _best_sim = _sim
+            try:
+                _sim = float(
+                    np.dot(_subj_vec, _av)
+                    / (np.linalg.norm(_subj_vec) * np.linalg.norm(_av) + 1e-9)
+                )
+            except Exception:
+                continue
+            if _sim > _best_sim:
+                _best_sim = _sim
         if _best_sim < _threshold:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [relevance_gate] withheld (sim={_best_sim:.2f} < {_threshold}): {answer[:60]!r}")
