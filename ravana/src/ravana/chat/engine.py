@@ -408,12 +408,14 @@ except Exception:  # pragma: no cover - defensive
 try:
     from .topic_head import (default_function_class as _default_function_class,
                              referent_head as _referent_head,
+                             expand_contractions as _expand_contractions,
                              _INTRANSITIVE_PREDICATE_SEED)
     _HAS_TOPIC_HEAD = True
 except Exception as _exc:  # pragma: no cover - defensive
     _HAS_TOPIC_HEAD = False
     _default_function_class = None
     _referent_head = None
+    _expand_contractions = None
     _INTRANSITIVE_PREDICATE_SEED = frozenset()
     report_missing("ravana.chat.topic_head",
                    "referent-head extraction (function class + clause head)",
@@ -2948,6 +2950,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        # Expand apostrophe-less contractions so "whats my dog called" matches
+        # the same recall path as "what is my dog called" (round 2026-10-03T2040Z).
+        if _expand_contractions is not None:
+            q = _expand_contractions(q)
         # (0y) SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). A query
         # asking about RAVANA's OWN prior speech ("what did you just tell me
         # about pantographs?") must never be answered out of the USER's
