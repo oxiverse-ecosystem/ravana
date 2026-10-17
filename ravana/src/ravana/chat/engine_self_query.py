@@ -1057,7 +1057,10 @@ class SelfQueryMixin:
         # Opinion frames with a concrete topic object ("what do you think
         # about wegovy", "how do you feel about the war") are STANCE
         # questions — leave them to the vmPFC stance resolver below.
-        if re.search(r"\b(think|feel|opinion)\b.*\babout\s+\w", t):
+        # Note: "feel curious about X" is EXPERIENTIAL (asking about the
+        # agent's experience), not an opinion question. The regex requires
+        # "feel" to be immediately followed by "about" (not "feel <adj> about").
+        if re.search(r"\b(think|opinion)\b.*\babout\s+\w|\bfeel\s+about\s+\w", t):
             return None
         # Introspective frame: the agent's own mind / body / affect.
         _intro = re.search(
@@ -2357,8 +2360,6 @@ class SelfQueryMixin:
             if _sim > _best_sim:
                 _best_sim = _sim
         if _best_sim < _threshold:
-            if getattr(self, '_trace_enabled', False):
-                print(f"  [relevance_gate] withheld (sim={_best_sim:.2f} < {_threshold}): {answer[:60]!r}")
             return None
         return answer
 

@@ -3712,7 +3712,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         r"do|does|did|has|have|had|can|could|would|will|tell|"
                         r"said|say|recall|remember|know|mention)\b", q.strip()))
                     _pet_in_q = (_pet_mentioned or any(t.startswith("pet") for t in _q_toks2))
-                    if _is_q2 and _ask_activity and _pet_in_q and not _distress:
+                    # ATTRIBUTE AGREEMENT GUARD (round 2026-10-16): a name query
+                    # ("what is my dog called", "what is my dog name") must NOT
+                    # be answered with the pet's ACTIVITY. Reuse the same
+                    # `asks_name_only` predicate the (1c-pet) resolver below uses.
+                    _asks_name_first = attribute_gate.asks_name_only(q)
+                    if _is_q2 and _ask_activity and _pet_in_q and not _distress \
+                            and not _asks_name_first:
                         _pet_acts = {}
                         for _pk, _pf in pf.facts.items():
                             if not (isinstance(_pk, tuple) and len(_pk) == 3):
@@ -6308,8 +6314,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _q_words = set(_content_words(query))
             _a_words = set(_content_words(answer))
             _overlap = _jaccard_overlap(_q_words, _a_words)
+            # Jaccard threshold: the flat 0.15 was too aggressive for short
+            # queries. A 1-content-word query like "what do you dream about"
+            # has Jaccard ~0.11 with a perfect reply (1 overlap / 9 words).
+            # Lower to 0.05: still blocks 0.0 overlap (true confabulation)
+            # but allows any non-zero overlap.
             if (_score >= self._relevance_threshold.base_threshold
-                    and _overlap >= 0.15):
+                    and _overlap >= 0.05):
                 return answer
             return None
         except Exception:
@@ -6510,15 +6521,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if not _is_first_person_recall and not self._is_agent_self_recall_query(_q):
             return None
         # Guard: user-attribute recall ("can you recall my name?", "do you
-        # remember my sister") must NOT be answered from the agent-reply store —
-        # those ask about the USER's own facts, resolved by the user stores
-        # further down. Structural (1st-person possessive + user-attribute noun),
-        # but ONLY when the query is NOT already a first-person recall of the
-        # agent's own prior speech (RV-5: "what did i just tell you about my
-        # favorite food" must reach the agent-reply store, not be blocked here).
-        if (not _is_first_person_recall
-                and re.search(
-                    r"\b(my|mine|me|i|we|our|myself)\b", _q)
+        # remember my sister", "what did i just tell you about my dog") must
+        # NOT be answered from the agent-reply store — those ask about the
+        # USER's own facts, resolved by the user stores further down.
+        # Structural (1st-person possessive + user-attribute noun).
+        # RV-5 BACKFILL (round 2026-10-16): "favorite food" is NOT a user
+        # attribute — it is a TOPIC the user disclosed, and the first-person
+        # recall heuristic already established that the query is a recall of
+        # the agent's own prior reply. Exclude "favorite"/"favourite" from
+        # the attribute guard so the first-person recall path stays open for
+        # topic-based recalls.
+        if re.search(
+                r"\b(my|mine|me|i|we|our|myself)\b", _q) \
                 and re.search(
                     r"\b(name|named|called|age|live|lives|from|work|study|"
                     r"studied|grew up|sister|brother|mother|father|mom|dad|"
@@ -6526,7 +6540,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"grandpa|aunt|uncle|cousin|niece|nephew|grandchild|"
                     r"wife|husband|partner|kid|child|son|daughter|pet|"
                     r"friend|job|house|home|phone|computer|laptop|car|"
-                    r"cat|dog|crow|bird|fish|petname|pet name)\b", _q)):
+                    r"cat|dog|crow|bird|fish|petname|pet name)\b", _q) \
+                and not re.search(r"\b(favorite|favourite)\b", _q):
             return None
         # Extract the topic: drop recall scaffolding + question words, keep
         # content nouns. Reuse the same stopword philosophy as the existing
@@ -7863,7 +7878,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # value/stance store (grounded) or honestly abstain. Fail-open: if
             # _route_self_query returns None the normal pipeline runs.
             _selfopinion = re.search(
-                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+                r"\b(do\s+you\s+(?:ever\s+)?(think|feel|believe|have|care)\b"
                 r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
                 r"|how\s+do\s+you\s+(feel|think)\s+about\b"
                 r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"

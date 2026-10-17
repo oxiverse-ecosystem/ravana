@@ -1265,6 +1265,10 @@ _RETRACTION_CUES = (
     r"\btake\s+(?:it|this|that|things|them|what\s+i\s+said)\s*back\b",
     r"\bi\s+retract",
     r"\bi\s+(?:have|'ve)?\s*changed\s+my\s+mind",
+    # Round 2026-10-16: "changed my mind" without the "i" prefix (e.g.
+    # "changed my mind — silence is actually wonderful"). The prior pattern
+    # required \bi\s+ before "changed", so the bare recant was missed.
+    r"\bchanged\s+my\s+mind",
     # GENERALIZE (round 2026-08-29T0659Z, L3): the bare \"i've changed\" /
     # \"i changed\" recant (without the \"my mind\" object, e.g. \"actually now
     # it makes me lonely, i've changed\") was missed, so a love->lonely flip
