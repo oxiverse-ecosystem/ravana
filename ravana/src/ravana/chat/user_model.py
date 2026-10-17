@@ -1368,11 +1368,22 @@ _REASSESS_SENT_POS = (
     "love", "loves", "loved", "like", "likes", "liked", "enjoy", "enjoys",
     "enjoyed", "adore", "adores", "adored", "cherish", "treasure", "relish",
     "savor", "savour", "prefer", "prefers", "fond of", "care for",
+    # Round 2026-10-16: sentiment ADJECTIVES as reassessment signals.
+    # "changed my mind — silence is actually wonderful" / "talking is actually
+    # terrible" carry the new attitude in an adjective, not a verb. Without
+    # these the polarity scorer returned None and the recode never fired.
+    "wonderful", "great", "amazing", "fantastic", "excellent", "awesome",
+    "brilliant", "beautiful", "perfect", "good", "nice", "lovely",
 )
 _REASSESS_SENT_NEG = (
     "hate", "hates", "hated", "dislike", "dislikes", "detest", "loathe",
     "despise", "abhor", "can't stand", "cant stand", "can't bear",
     "cant bear", "dread", "resent",
+    # Round 2026-10-16: sentiment ADJECTIVES as reassessment signals.
+    # "changed my mind — talking is actually terrible" carries the new
+    # attitude in an adjective, not a verb.
+    "terrible", "awful", "horrible", "dreadful", "bad", "worst",
+    "disgusting", "pathetic", "useless", "stupid",
 )
 _REASSESS_SENT_POS_SET = frozenset(_REASSESS_SENT_POS)
 _REASSESS_SENT_NEG_SET = frozenset(_REASSESS_SENT_NEG)
@@ -6662,7 +6673,7 @@ class UserModel:
         # _OPINION_STOP words from the head phrase (line ~6673). Structural:
         # generalizes to any trailing temporal adverb, no per-topic rule.
         "now", "today", "tonight", "yesterday", "tomorrow", "soon",
-        "later", "earlier", "then", "here", "there", "still", "yet",
+        "later", "then", "here", "there", "still", "yet",
         "already", "anymore", "lately", "recently", "currently",
     }
 

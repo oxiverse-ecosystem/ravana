@@ -408,12 +408,14 @@ except Exception:  # pragma: no cover - defensive
 try:
     from .topic_head import (default_function_class as _default_function_class,
                              referent_head as _referent_head,
+                             expand_contractions as _expand_contractions,
                              _INTRANSITIVE_PREDICATE_SEED)
     _HAS_TOPIC_HEAD = True
 except Exception as _exc:  # pragma: no cover - defensive
     _HAS_TOPIC_HEAD = False
     _default_function_class = None
     _referent_head = None
+    _expand_contractions = None
     _INTRANSITIVE_PREDICATE_SEED = frozenset()
     report_missing("ravana.chat.topic_head",
                    "referent-head extraction (function class + clause head)",
@@ -2948,6 +2950,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         q = (user_input or "").lower().strip()
         if not q:
             return None
+        # Expand apostrophe-less contractions so "whats my dog called" matches
+        # the same recall path as "what is my dog called" (round 2026-10-03T2040Z).
+        if _expand_contractions is not None:
+            q = _expand_contractions(q)
         # (0y) SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). A query
         # asking about RAVANA's OWN prior speech ("what did you just tell me
         # about pantographs?") must never be answered out of the USER's
@@ -3894,8 +3900,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     r"^(what|who|which|where|when|why|how|is|are|was|were|"
                     r"do|does|did|has|have|had|can|could|would|will|tell|"
                     r"said|say|recall|remember|know|mention)\b", q.strip()))
+                # ATTRIBUTE AGREEMENT GUARD (round 2026-10-16): a name query
+                # ("what is my dog called", "what is my dog name") must NOT be
+                # answered with the pet's ACTIVITY. The _ACT_CUES set contains
+                # the generic interrogative "what", so every "what ..." pet
+                # question counted as an activity ask — even one that only
+                # wants the name. Reuse the same `asks_name_only` predicate
+                # the name branch below already uses, so the activity and
+                # name branches agree by construction. A compound ask
+                # ("what is my dog called and what does it do") stands the
+                # guard down because asks_name_only returns False for it.
+                _asks_name = attribute_gate.asks_name_only(q)
                 if _distress_g:
                     pass  # bereavement / other-suffering -> empathy handler
+                elif _asks_name:
+                    pass  # name query -> let the name branch below handle it
                 elif not (_ask_activity or _is_question_g):
                     pass  # declarative disclosure -> storage, not a recall query
                 else:
@@ -6267,21 +6286,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         This is a general structural check — no per-topic logic, no hardcoded
         reply strings. The threshold adapts incrementally from conversation
         feedback (false positive/negative signals).
+
+        Requires BOTH a minimum overall score AND some content overlap.
+        The overall score alone is too permissive: recency and type signals
+        default to 1.0, so even a completely off-topic answer scores 0.35
+        (above the 0.15 threshold). Content overlap is the signal that
+        actually distinguishes on-topic from off-topic.
         """
-        if not answer or not answer.strip():
-            return None
-        if not query or not query.strip():
+        if not answer:
             return None
         try:
+            if not hasattr(self, '_relevance_scorer') or self._relevance_scorer is None:
+                from .relevance_store import RelevanceThreshold, RelevanceScorer
+                self._relevance_threshold = RelevanceThreshold()
+                self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
             _score = self._relevance_scorer.score(
                 query, answer,
                 query_turn=self.turn_count,
                 threshold=self._relevance_threshold)
-            # Require BOTH a minimum overall score AND some content overlap.
-            # The overall score alone is too permissive: recency and type
-            # signals default to 1.0, so even a completely off-topic answer
-            # scores 0.35 (above the 0.15 threshold). Content overlap is
-            # the signal that actually distinguishes on-topic from off-topic.
             from .relevance_store import _content_words, _jaccard_overlap
             _q_words = set(_content_words(query))
             _a_words = set(_content_words(answer))
@@ -6291,7 +6313,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return answer
             return None
         except Exception:
-            return answer  # fail-open on scorer error (never break recall)
+            return None  # fail-closed on scorer error (honest uncertainty beats confabulation)
 
     def _bind_user_model_dependencies(self):
         """Inject engine-owned structures into the user model.
@@ -6460,11 +6482,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _q = (user_input or "").lower().strip()
         if not _q:
             return None
-        # Gate lives in `_is_agent_self_recall_query` — ONE definition shared with
-        # the structured-recall top guard, so the two can never disagree about
-        # what counts as an agent-self-recall (round 2026-10-04T0827Z).
-        if not self._is_agent_self_recall_query(_q):
-            return None
         # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
         # you about my favorite food" is a user recall query, but the answer the
         # user wants is RAVANA's OWN prior reply confirming the disclosure. The
@@ -6475,7 +6492,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # recall my name?") which must NOT be answered from the agent-reply
         # store. So we only apply the attribute guard when the query is NOT a
         # first-person recall of the agent's own speech. Computed BEFORE the
-        # attribute guard (which consumes it) so no UnboundLocalError.
+        # gate so a first-person recall can bypass the agent-self gate (which
+        # would otherwise reject it via _is_user_speaker_recall Rule 1).
         _is_first_person_recall = bool(re.search(
             r"\b(what did i (?:just |already |recently )?tell you|"
             r"what did i just say|what did i tell you|"
@@ -6484,6 +6502,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"what did i say about|"
             r"what was it i told you|"
             r"what did i just tell you about)\b", _q))
+        # Gate lives in `_is_agent_self_recall_query` — ONE definition shared with
+        # the structured-recall top guard, so the two can never disagree about
+        # what counts as an agent-self-recall (round 2026-10-04T0827Z).
+        # Skip the gate for first-person recalls (they are in-scope by the
+        # heuristic above, not by the agent-self flag).
+        if not _is_first_person_recall and not self._is_agent_self_recall_query(_q):
+            return None
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
@@ -6554,6 +6579,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # store-driven; no authored prose; no retraining.
         _store = getattr(self, "_own_replies", {}) or {}
         if not _store:
+            # D5 FIX: no AgentReplyStore entries — fall back to _agent_stances
+            # before returning None, so a self-reference recall can still find
+            # RAVANA's own stance on the topic.
+            try:
+                _stance_res = self._route_agent_own_recall_stances(user_input)
+                if _stance_res is not None:
+                    return _stance_res
+            except Exception:
+                pass
             return None
         _q_set = set(_cands)
         _best = None
@@ -6620,6 +6654,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             return f"earlier i said: {_matched_text}"
             except Exception:
                 pass
+            # D5 FIX: fallback to _agent_stances — if RAVANA formed a stance
+            # on the topic but never uttered a reply about it, answer from the
+            # agent stance store instead of returning None (which would let
+            # _structured_recall answer from the USER's stance store).
+            try:
+                _stance_res = self._route_agent_own_recall_stances(user_input)
+                if _stance_res is not None:
+                    return _stance_res
+            except Exception:
+                pass
             return None
         _text = (_best.get("text") if isinstance(_best, dict) else None) or ""
         _text = _text.strip()
@@ -6628,6 +6672,99 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Render in FIRST person (it is RAVANA's own prior speech), with a
         # light source tag so the boundary is explicit and honest.
         return f"i said: {_text}"
+
+    def _route_agent_own_recall_stances(self, user_input: str) -> Optional[str]:
+        """Answer a cued recall about RAVANA's OWN prior stance from the
+        _agent_stances store, never from the user's stance store.
+
+        D5 FIX (round 2026-10-16T0756Z): _route_agent_own_recall searches
+        _own_replies (the AgentReplyStore) and _utterance_log, but NOT
+        _agent_stances. When RAVANA has formed a stance on a topic (stored in
+        _agent_stances) but never uttered a reply about it, a self-reference
+        recall ("what did you say about X earlier") finds nothing in
+        _own_replies, returns None, and the turn falls through to
+        _structured_recall — which then answers from the USER's stance store,
+        returning the user's stance as if it were RAVANA's own. This is the
+        speaker-inversion defect D5.
+
+        This method searches _agent_stances for a stance on the query topic
+        and returns it in first person. It is called by _route_agent_own_recall
+        as a fallback when _own_replies and _utterance_log both miss.
+
+        Fail-open: returns None when no matching agent stance exists, so the
+        turn proceeds to honest uncertainty. No authored prose, no per-topic
+        table — the content is whatever RAVANA actually formed and stored at
+        runtime.
+        """
+        _q = (user_input or "").lower().strip()
+        if not _q:
+            return None
+        if not self._is_agent_self_recall_query(_q):
+            return None
+        _own_store = getattr(self, "_agent_stances", None)
+        if not isinstance(_own_store, dict) or not _own_store:
+            return None
+        # Extract content tokens from the query (same stopword philosophy as
+        # _route_agent_own_recall — no per-topic synonym table).
+        _stop = {
+            "what", "did", "do", "you", "your", "yourself", "say", "said", "says",
+            "tell", "told", "telling", "me", "about", "earlier", "before", "again",
+            "something", "anything", "the", "a", "an", "is", "are", "was", "were",
+            "have", "has", "had", "i", "my", "we", "our", "it", "this", "that",
+            "form", "formed", "opinion", "think", "feel", "mention",
+            "mentioned", "remember", "recall", "remind", "answer", "answered",
+            "reply", "replied", "state", "stated", "still", "now", "then", "how",
+            "why", "who", "when", "where", "which", "any", "some", "thing",
+            "things", "yes", "no", "ask", "asked", "wonder", "wondering",
+            "tellme",
+        }
+        _TAIL_SCAFFOLD_REC = {
+            "most", "behind", "would", "view", "start", "change", "first",
+            "live", "does", "will", "been", "conversation", "good", "really",
+            "something", "anything", "thing", "things", "everything",
+            "nothing", "me", "myself", "yourself", "itself", "them", "they",
+            "us", "one", "way", "else", "rather", "instead", "that", "this",
+            "these", "those", "ever", "even", "also", "too", "back",
+        }
+        _cands = [w for w in re.findall(r"[a-z']+", _q)
+                  if len(w) >= 3 and w not in _stop and w not in _TAIL_SCAFFOLD_REC]
+        if not _cands:
+            return None
+        _q_set = set(_cands)
+        # Search _agent_stances for a stance whose topic overlaps the query.
+        # The agent stance key is a clean single concept (see _agent_stance_key),
+        # so we check if any query candidate matches a stored stance key.
+        _best_key = None
+        _best_stance = None
+        _best_overlap = 0
+        for _key, _stance in _own_store.items():
+            if not isinstance(_key, str) or not _key:
+                continue
+            _key_tokens = set(re.findall(r"[a-z']+", _key.lower()))
+            if not _key_tokens:
+                continue
+            _ov = len(_q_set & _key_tokens)
+            if _ov > _best_overlap:
+                _best_overlap = _ov
+                _best_key = _key
+                _best_stance = _stance
+        _min_overlap = 1 if len(_cands) <= 1 else 2
+        if _best_stance is None or _best_overlap < _min_overlap:
+            return None
+        # Render in FIRST person (it is RAVANA's own stance), with a light
+        # source tag so the boundary is explicit and honest.
+        _pol = getattr(_best_stance, "polarity", 0.0)
+        if _pol >= 0.6:
+            _w = "strongly for"
+        elif _pol > 0.1:
+            _w = "for"
+        elif _pol <= -0.6:
+            _w = "strongly against"
+        elif _pol < -0.1:
+            _w = "against"
+        else:
+            _w = "uncertain about"
+        return f"i said: i'm {_w} {_best_key}."
 
     def _try_fact_reasoning(self, user_input: str) -> Optional[str]:
         """Answer question-shaped input from the hippocampal buffer's stored
@@ -7363,11 +7500,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _cued_self = self._self_cued_episodic(user_input)
         except Exception:
             _cued_self = None
-        # Apply the universal relevance gate at the call site (not inside
-        # _self_cued_episodic) so the gate can be swapped/configured
-        # independently. An answer that passes the cue match but fails
-        # the relevance score returns None — honest uncertainty beats
-        # confabulation.
+        # Apply the relevance gate at the call site. The gate uses the
+        # multi-signal score (not Jaccard overlap) so paraphrased replies
+        # that share zero content words with the query still pass — the
+        # scorer's default signals (recency, type) give a moderate score
+        # for any plausible reply. At the default threshold (0.15), only
+        # truly off-topic answers are rejected.
         if _cued_self is not None:
             _cued_self = self._relevance_gate(user_input, _cued_self)
         if _cued_self is not None:
