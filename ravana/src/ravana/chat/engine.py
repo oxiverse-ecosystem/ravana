@@ -9028,23 +9028,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
-        # CONTRADICTION-REVISION EARLY CHECK (round 2026-10-17, refined
-        # 2026-10-19): a genuine reversal signal means the user is REVERSING
-        # a prior stance, not making a fresh disclosure. The self-disclosure
-        # path below would treat it as a new disclosure and return an affective
-        # ack, bypassing the stance inversion handler at ~9253.
-        #
-        # REFINEMENT: the previous version matched any "i hate/dislike/can't
-        # stand X" as a contradiction, intercepting FRESH disclosures that
-        # should create a new stance, not reverse one. Now it only fires on
-        # explicit reversal markers: "changed my mind", "actually",
-        # "i was wrong", "i don't ... anymore", "i've changed/reversed my
-        # mind/position/stance". A bare emotion verb ("i hate X") is NOT a
-        # contradiction signal.
+        # CONTRADICTION-REVISION EARLY CHECK (round 2026-10-19, refined):
+        # "changed my mind" WITHOUT a "but" clause is a genuine reversal
+        # signal that the self-disclosure path cannot handle correctly
+        # (it treats it as a fresh disclosure). Concessions with "but"
+        # ("but actually I prefer X") are handled correctly by the
+        # self-disclosure path via mine_personal_facts.
         if not _is_interrogative:
+            _has_but = bool(re.search(r"\bbut\b", user_input.lower()))
             _nc_signal = bool(re.search(
-                r"\b(actually|on\s+second\s+thought|"
-                r"(?:i\s+)?changed\s+my\s+mind|"
+                r"\b((?:i\s+)?changed\s+my\s+mind|"
                 r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
                 r"i\s+don'?t\s+think\s+so\s+anymore|"
                 r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
@@ -9054,7 +9047,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"i\s+(?:take|am\s+taking)\s+it\s+all\s+back|"
                 r"i\s+don'?t\s+feel\s+that\s+way\s+anymore)\b",
                 user_input.lower()))
-            if _nc_signal:
+            if _nc_signal and not _has_but:
                 _inv_early = self._route_own_stance_inversion(user_input)
                 if _inv_early is not None:
                     self._last_strategy = "own_stance_inversion"
