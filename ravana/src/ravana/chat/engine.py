@@ -3212,6 +3212,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # not a per-place table).
         if re.search(r"\b(where do i live|what city|what town|where am i (?:from|grew up)|where did i grow up|where (?:was|were) i (?:from|born|raised))\b", q) and \
                 re.search(r"\b(live|from|grew|grow)\b", q):
+            # Try "grew up" first (more specific), then "location" (generic)
+            _v = pf.get("i", "grew up") if pf else None
+            if _v is not None and not getattr(_v, "superseded", False):
+                return f"you grew up in {_v.value}."
             _v = pf.get("i", "location") if pf else None
             if _v is not None and not getattr(_v, "superseded", False):
                 return f"you live in {_v.value}."
@@ -5130,6 +5134,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _attr_d = _display(_attr_d)
         if _attr_d in ("location", "live in", "grew"):
             return f"you're from {val}"
+        if _attr_d == "grew up":
+            return f"you grew up in {val}"
         if _attr_d.startswith("favorite"):
             return f"your {_attr_d.replace('favorite ', '')} is {val}"
         if _attr_d == "name":
