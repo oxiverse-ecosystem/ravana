@@ -1143,10 +1143,17 @@ _PARTICLES = frozenset({"up", "on", "in", "out", "off", "down", "with", "into"})
 # (RAVANA-expandable): a word added here only changes where the object span
 # ends, never the answer. Generalizes across phrasal/time adjuncts.
 _OBJECT_STOP = frozenset({
-    "since", "in", "on", "at", "for", "from", "to", "by", "of",
-    "about", "around", "into", "during", "after", "before", "when", "while",
-    "where", "because", "but", "and", "or", "so", "that", "which", "what",
-    "who", "how", "why", "over", "near", "under", "with",
+    "since", "from", "to", "by", "about", "during", "after", "before",
+    "when", "while", "where", "because", "but", "and", "or", "so",
+    "which", "what", "who", "how", "why",
+})
+# Prepositions that do NOT close the object span when they introduce a
+# noun phrase that is part of the activity object. "at a community library"
+# is a location phrase, not a clause boundary — stopping at "at" truncates
+# the object. These are kept as part of the object.
+_OBJECT_KEEP_PREP = frozenset({
+    "in", "on", "at", "for", "of", "over", "near", "under", "with", "into",
+    "around",
 })
 # Determiners / particles to SKIP (not close the span) before/within the
 # object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
