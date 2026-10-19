@@ -2568,7 +2568,12 @@ class UserModel:
             _loc = _named_loc.group(1).strip().strip(" .,!")
             if _loc and len(_loc.split()) <= 4:
                 self.user_location = _loc
-                _put_fact("location", _loc, 0.6)
+                # Round 2026-10-19: preserve the location verb as the fact
+                # attribute (same fix as the m_loc branch below).
+                _loc_verb = "location"
+                if re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE):
+                    _loc_verb = "grew up"
+                _put_fact(_loc_verb, _loc, 0.6)
         elif m_loc_on and not m_loc:
             # Round 2026-08-15T0326Z: "i keep the lighthouse on hollis rock"
             # -> capture the place head after "on". Trim a trailing clause at a
@@ -2602,6 +2607,18 @@ class UserModel:
         elif m_loc:
             _loc = m_loc.group(1).strip().strip(" .,!")
             _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            # Round 2026-10-19: preserve the location verb as the fact
+            # attribute so recall renders the right phrasing. "i grew up in
+            # X" was stored as "location" and recalled as "you live in X" —
+            # wrong verb. Store "grew up" as the attribute when the verb is
+            # "grew up"; other verbs keep "location". Structural: the verb is
+            # read from the matched text, not hardcoded per-place.
+            _loc_verb = "location"
+            if re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE):
+                _loc_verb = "grew up"
+            if _loc and len(_loc.split()) <= 5:
+                self.user_location = _loc
+                _put_fact(_loc_verb, _loc, 0.6)
             # DEFECT B FIX (round 2026-08-19T0625Z): a location clause with a
             # trailing relative clause ("i live in a small coastal town called
             # greyport where the fog comes in thick most mornings") was captured
@@ -6675,6 +6692,14 @@ class UserModel:
         "now", "today", "tonight", "yesterday", "tomorrow", "soon",
         "later", "then", "here", "there", "still", "yet",
         "already", "anymore", "lately", "recently", "currently",
+        # Round 2026-10-19: "used" is a semi-auxiliary in the "used to
+        # <verb>" construction ("i used to think X but now Y"). Without
+        # this, _opinion_topic("used to think genetic engineering was
+        # dangerous") returns "used" as the topic head, mining a stance
+        # on "used" instead of "genetic engineering". Structural: "used"
+        # in this construction is closed-class (like "is"/"was"/"been"
+        # already above), generalizes to any "used to <verb>" disclosure.
+        "used",
     }
 
     def _opinion_provenance(self, phrase: str) -> List[str]:
