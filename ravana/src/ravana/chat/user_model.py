@@ -4928,11 +4928,13 @@ class UserModel:
             # same clause, e.g. "i've repaired tube amps for eleven years").
             # Round 2026-08-15T0326Z GENERALIZE: extract the activity verb
             # STRUCTURALLY (any word that passes _activity_verb_ok), skipping
-            # aspectual/framer verbs, and take the FIRST such verb — a verb
-            # precedes its object, so the first activity-ok verb is the head
-            # ("i've REPAIRED tube amps" -> repair), not a trailing noun
-            # ("amps") that merely passes _activity_verb_ok. Replaces the
-            # frozen verb allowlist so rotated-persona activities land too.
+            # aspectual/framer verbs, and take the LAST such verb — a duration
+            # attaches to the NEAREST preceding activity, not the first verb
+            # in the clause. "my favourite instrument is the veena and i have
+            # been playing it for five years" — "for five years" attaches to
+            # "playing" (the nearest activity), not "is" (the first verb).
+            # Replaces the frozen verb allowlist so rotated-persona activities
+            # land too.
             _pre = q_clean[:_rm.start()]
             _av = re.findall(
                 r"\b([a-z][a-z']+)\b", _pre, re.IGNORECASE)
@@ -4943,9 +4945,16 @@ class UserModel:
                 if _vl in _ASPECTUAL_VERBS:
                     continue
                 if _activity_verb_ok(_vl):
+                    # Skip a word that immediately follows another activity-ok
+                    # word — it is the OBJECT of that verb, not a separate
+                    # activity. "practicing yoga for three years" — "yoga" is
+                    # the object of "practicing", not a separate activity, so
+                    # the duration attaches to "practicing".
+                    if _i > 0 and _av[_i - 1].lower() not in _ASPECTUAL_VERBS \
+                            and _activity_verb_ok(_av[_i - 1].lower()):
+                        continue
                     _verb = _vl
                     _vidx = _i
-                    break
             if _verb is None:
                 continue
             _act = self._verb_stem(_verb)
