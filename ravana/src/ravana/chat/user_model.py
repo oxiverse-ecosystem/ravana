@@ -1143,17 +1143,10 @@ _PARTICLES = frozenset({"up", "on", "in", "out", "off", "down", "with", "into"})
 # (RAVANA-expandable): a word added here only changes where the object span
 # ends, never the answer. Generalizes across phrasal/time adjuncts.
 _OBJECT_STOP = frozenset({
-    "since", "from", "to", "by", "about", "during", "after", "before",
-    "when", "while", "where", "because", "but", "and", "or", "so",
-    "which", "what", "who", "how", "why",
-})
-# Prepositions that do NOT close the object span when they introduce a
-# noun phrase that is part of the activity object. "at a community library"
-# is a location phrase, not a clause boundary — stopping at "at" truncates
-# the object. These are kept as part of the object.
-_OBJECT_KEEP_PREP = frozenset({
-    "in", "on", "at", "for", "of", "over", "near", "under", "with", "into",
-    "around",
+    "since", "in", "on", "at", "for", "from", "to", "by", "of",
+    "about", "around", "into", "during", "after", "before", "when", "while",
+    "where", "because", "but", "and", "or", "so", "that", "which", "what",
+    "who", "how", "why", "over", "near", "under", "with",
 })
 # Determiners / particles to SKIP (not close the span) before/within the
 # object, so "building THE cabinets" -> "cabinets" and "build UP the frame" ->
@@ -3967,15 +3960,24 @@ class UserModel:
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
-                    # Strip a leading indirect object ("me", "us") from
-                    # taught/showed/told/gave clauses — it carries no
-                    # content ("taught me astronomy" -> "taught astronomy").
-                    _obj_rtoks = _obj_rest.split()
-                    if _obj_rtoks and _obj_rtoks[0] in (
-                            "me", "us", "them", "him", "her", "you",
-                            "myself", "himself", "herself"):
-                        _obj_rest = " ".join(_obj_rtoks[1:])
                     if _v_is_rel:
+                        # Strip a leading indirect object ("me", "us") from
+                        # taught/showed/told/gave clauses — it carries no
+                        # content ("taught me astronomy" -> "taught astronomy").
+                        # Only strip when followed by a noun phrase (not a
+                        # question word like "how"/"what" — those are part of
+                        # the clause object and must be preserved).
+                        _obj_rtoks = _obj_rest.split()
+                        _QUESTION_WORDS = {
+                            "how", "what", "why", "when", "where",
+                            "which", "who", "whom", "whose",
+                        }
+                        if (_obj_rtoks and _obj_rtoks[0] in (
+                                "me", "us", "them", "him", "her", "you",
+                                "myself", "himself", "herself")
+                                and len(_obj_rtoks) >= 2
+                                and _obj_rtoks[1] not in _QUESTION_WORDS):
+                            _obj_rest = " ".join(_obj_rtoks[1:])
                         # Relation-verb value: KEEP the enumeration + connective.
                         # The activity path splits the object on "and" (so "baskets
                         # from river reeds" -> "baskets") because activities rarely
