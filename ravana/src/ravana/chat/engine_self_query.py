@@ -1057,7 +1057,20 @@ class SelfQueryMixin:
         # Opinion frames with a concrete topic object ("what do you think
         # about wegovy", "how do you feel about the war") are STANCE
         # questions — leave them to the vmPFC stance resolver below.
-        if re.search(r"\b(think|feel|opinion)\b.*\babout\s+\w", t):
+        # EXEMPTION (round 2026-10-19): "do you ever feel curious about X"
+        # is a SELF-EXPERIENCE question, not an opinion question. The
+        # opinion-verb ("feel") is part of the self-experience frame
+        # ("do you ever feel..."), not a stance request. Only treat as
+        # opinion when the frame is a direct stance ask ("what do you think
+        # about", "how do you feel about", "your opinion of") — not when
+        # it's a habitual self-probe ("do you ever feel", "do you ever
+        # think", "do you ever wonder").
+        _is_opinion_frame = bool(re.search(
+            r"\b(what\s+do\s+you\s+(?:think|feel|believe)|"
+            r"how\s+do\s+you\s+feel\s+about|"
+            r"your\s+(?:opinion|take|view|thoughts?)\s+(?:of|on|about)|"
+            r"what'?s\s+your\s+(?:take|view|opinion))\b", t))
+        if _is_opinion_frame:
             return None
         # Introspective frame: the agent's own mind / body / affect.
         _intro = re.search(
@@ -1140,6 +1153,15 @@ class SelfQueryMixin:
         if _when_m:
             _felt = ("a little light turning on inside" if valence >= 0.5
                      else "a quiet hum under the words")
+            # Topic-aware: extract the adjective/noun after "what makes you"
+            # so the reply references the actual topic (e.g. "calm", "curious").
+            _wm_topic = re.search(
+                r"\bwhat\s+makes\s+you\s+(?:feel\s+)?([a-z]+)\b", t)
+            _topic_word = _wm_topic.group(1) if _wm_topic else None
+            if _topic_word:
+                return (f"when something clicks, it feels like {_felt} — i get "
+                        f"this small pull to keep going and see what's next. "
+                        f"what makes you curious about {_topic_word}?")
             return (f"when something clicks, it feels like {_felt} — i get "
                     f"this small pull to keep going and see what's next. "
                     f"what makes you curious about that?")
