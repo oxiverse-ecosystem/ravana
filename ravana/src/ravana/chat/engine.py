@@ -3740,6 +3740,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                                 # query names this pet (by species or by its name)
                                 _p_name = _pf.value.strip().lower().split()[0]
                                 if _p_sp in _q_toks2 or _p_name in _q_toks2:
+                                    # ATTRIBUTE AGREEMENT GUARD: a name query
+                                    # ("what is my dog called") must NOT be
+                                    # answered with name+activity combined.
+                                    # Return only the name.
+                                    if attribute_gate.asks_name_only(q):
+                                        return f"your {_p_sp} is {_pf.value.strip()}."
                                     return f"your {_p_sp} {_pf.value.strip()} {_pet_acts[_p_sp]}."
                 except Exception:
                     pass
@@ -6488,6 +6494,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _q = (user_input or "").lower().strip()
         if not _q:
             return None
+        # Do NOT intercept USER-disclosure recalls. "what did I tell you about my
+        # sister", "what do I think of X", "what have I said about Y" ask about the
+        # USER's own facts/stances, which live in the user stores — not RAVANA's
+        # speech. Intercepting them here would misroute to the agent-reply store
+        # and surface the wrong speaker (a self/other boundary inversion). Let them
+        # fall through to the user-fact / stance recall paths. Structural
+        # (first-person + disclosure verb), no per-topic table.
+        _user_disclosure_recall = bool(re.search(
+            r"\b(what did i (tell|say|mention|share)|what (do|did) i (think|feel|like|"
+            r"love|hate|believe|know|remember|recall|tell you)|what have i (said|"
+            r"told|mentioned|shared)|what (am|was) i|how (do|did) i (feel|think)|"
+            r"do you remember (what|when) i|my (sister|brother|mom|dad|pet|friend))\b", _q))
+        # D3 fix: "what did i just tell you about my dog/sister" must return None.
+        # The query is a first-person recall that names a USER ATTRIBUTE, so it
+        # must fall through to the user-fact path, not the agent-reply store.
+        # "favorite food" is NOT a user-attribute word, so RV-5 backfill passes.
+        if not _user_disclosure_recall:
+            _fp_attr = bool(re.search(
+                r"\bwhat did i (?:just |already |recently )?tell you about my\s+"
+                r"(name|named|called|age|live|lives|from|work|study|studied|"
+                r"grew up|sister|brother|mother|father|mom|dad|family|relative|"
+                r"kin|grandmother|grandfather|grandma|grandpa|aunt|uncle|"
+                r"cousin|niece|nephew|grandchild|wife|husband|partner|kid|"
+                r"child|son|daughter|pet|friend|job|house|home|phone|computer|"
+                r"laptop|car|cat|dog|crow|bird|fish)\b", _q))
+            if _fp_attr:
+                _user_disclosure_recall = True
+        if _user_disclosure_recall:
+            return None
         # FIRST-PERSON RECALL IS IN-SCOPE (RV-5 backfill): "what did i just tell
         # you about my favorite food" is a user recall query, but the answer the
         # user wants is RAVANA's OWN prior reply confirming the disclosure. The
@@ -7319,6 +7354,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # Record which stances existed at the START of this turn so the
+        # inversion path can distinguish a PRIOR-turn stance from one mined
+        # earlier in the SAME turn (mine_personal_facts runs before the
+        # inversion check). Without this, "i hate X" on the first turn
+        # matches the natural-contradiction regex and inverts the freshly-
+        # mined stance. Round 2026-10-15.
+        self._turn_start_stance_keys = set(
+            getattr(getattr(self, "user_model", None), "opinions", None).stances.keys()
+            if getattr(getattr(self, "user_model", None), "opinions", None) is not None
+            else set()
+        )
         # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
         # `_pending_web_evidence` is stashed by the agentic pre-check and
         # consumed by the end-of-turn block that appends it to the reply. Those
@@ -7438,6 +7484,48 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+        # D5 FIX (round 2026-10-15): Self-reference recall queries ("what did
+        # you say about X", "what was your opinion about Y") must be answered
+        # from RAVANA's OWN prior replies, NOT from the user's stance store.
+        # Previously _structured_recall ran first and found the user's stance
+        # on X, returning it as if it were RAVANA's own opinion — a
+        # self/other boundary inversion. The fix: detect self-reference
+        # recall queries structurally (agent reference + recall verb, same
+        # detection _route_agent_own_recall uses) and give _route_agent_own_recall
+        # the FIRST chance to answer them. Fail-open: when no matching agent
+        # reply exists, the query falls through to _structured_recall as before.
+        _is_self_ref_recall = False
+        try:
+            _q_lower = (user_input or "").lower().strip()
+            _agent_ref = bool(re.search(r"\b(you|your|yourself)\b", _q_lower))
+            _recall_v = bool(re.search(
+                r"\b(said|tell|told|say|mention|mentioned|formed|opinion|"
+                r"stated|answered|replied|remember|recall|earlier|before|"
+                r"said about|say about|tell me about what you)\b", _q_lower))
+            _is_self_ref_recall = _agent_ref and _recall_v
+            # Do NOT intercept first-person recall queries ("remind me what
+            # you said about X", "what did I tell you about Y") — these ask
+            # about the USER's own opinion, which lives in the user stores.
+            # Intercepting them here would misroute to the agent-reply store
+            # and surface the wrong speaker (a self/other boundary inversion).
+            if _is_self_ref_recall and re.search(r"\b(i|my|me|myself|we|our)\b", _q_lower):
+                _is_self_ref_recall = False
+        except Exception:
+            pass
+        if _is_self_ref_recall:
+            try:
+                _own_res = self._route_agent_own_recall(user_input)
+                if _own_res is not None:
+                    self._last_strategy = "agent_own_recall"
+                    self._last_responses.append(_own_res)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    self._record_own_reply(user_input, _own_res, subject)
+                    self.notify_user_idle()
+                    return _own_res
+            except Exception:
+                pass
+
         # Structured biographical/stance recall — TOP guard (round 2026-08-08).
         # Answers user-fact / user-stance queries ("what's my name", "where do
         # i work", "what did i tell you about my favorite time of day", "you
@@ -7449,7 +7537,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # returns None for genuinely self-directed queries, so this is
         # fail-open and never masks a real self-answer.
         try:
-            _sr_top = self._structured_recall(user_input)
+            _sr_top = self._relevance_gate(user_input, self._structured_recall(user_input))
             if _sr_top is not None:
                 self._last_strategy = "structured_recall"
                 self._last_responses.append(_sr_top)
@@ -9014,6 +9102,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]
                     return _inv_early.lower()
+        # Round 2026-10-15: contradiction-revision / stance inversion must
+        # fire BEFORE the self-disclosure gate. A query like "changed my mind —
+        # silence is actually wonderful" matches _is_self_disclosure_stmt
+        # (because "changed" is not a stative verb), so the self-disclosure path
+        # caught it and returned a generic ack BEFORE the inversion path could
+        # recode the held stance. Fix: check inversion/revisit FIRST so a
+        # contradiction-revision query is routed to the authoritative recode
+        # path, not the generic self-disclosure ack.
+        _inversion_ans = self._route_own_stance_inversion(user_input)
+        if _inversion_ans is not None:
+            self._last_strategy = "own_stance_inversion"
+            self._last_responses.append(_inversion_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _inversion_ans.lower()
+        _revisit_ans = self._route_own_stance_revisit(user_input)
+        if _revisit_ans is not None:
+            self._last_strategy = "own_stance_revisit"
+            self._last_responses.append(_revisit_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            return _revisit_ans.lower()
         if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
@@ -9276,35 +9386,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
         self.user_model.mine_personal_facts(user_input)
-
-        # Round 2026-09-05: contradiction-revision / stance inversion.
-        # "argue the opposite", "flip your stance", "take the other
-        # side" — detect these BEFORE the revisit check so inversion
-        # takes precedence. The inversion method reads/writes
-        # _agent_stances and produces a genuinely inverted view
-        # from RAVANA's own recorded stance or its current valence.
-        _inversion_ans = self._route_own_stance_inversion(user_input)
-        if _inversion_ans is not None:
-            self._last_strategy = "own_stance_inversion"
-            self._last_responses.append(_inversion_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _inversion_ans.lower()
-
-        # Round 2026-08-19T0625Z limitation #2: a revisit query
-        # ("do you still feel that way about X?" / "have you changed
-        # your mind about X?" / "revisit your stance on X") must be
-        # answered from RAVANA's RECORDED own stance, not recomputed
-        # fresh nor echoed. Check this BEFORE the opinion/identity
-        # gates so a recorded stance takes precedence over a
-        # re-derived provisional one.
-        _revisit_ans = self._route_own_stance_revisit(user_input)
-        if _revisit_ans is not None:
-            self._last_strategy = "own_stance_revisit"
-            self._last_responses.append(_revisit_ans)
-            if len(self._last_responses) > 10:
-                self._last_responses = self._last_responses[-10:]
-            return _revisit_ans.lower()
 
         if is_identity_query or is_likes_query or is_interests_query or m_fav_q or m_agent_fav or m_agent_likes or m_agent_likes_yesno or m_agent_stance or m_agent_interests:
             response = ""

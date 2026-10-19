@@ -3967,6 +3967,14 @@ class UserModel:
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
+                    # Strip a leading indirect object ("me", "us") from
+                    # taught/showed/told/gave clauses — it carries no
+                    # content ("taught me astronomy" -> "taught astronomy").
+                    _obj_rtoks = _obj_rest.split()
+                    if _obj_rtoks and _obj_rtoks[0] in (
+                            "me", "us", "them", "him", "her", "you",
+                            "myself", "himself", "herself"):
+                        _obj_rest = " ".join(_obj_rtoks[1:])
                     if _v_is_rel:
                         # Relation-verb value: KEEP the enumeration + connective.
                         # The activity path splits the object on "and" (so "baskets
