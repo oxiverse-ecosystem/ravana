@@ -4901,9 +4901,16 @@ class UserModel:
                 if _vl in _ASPECTUAL_VERBS:
                     continue
                 if _activity_verb_ok(_vl):
+                    # Skip a word that immediately follows another activity-ok
+                    # word — it is the OBJECT of that verb, not a separate
+                    # activity. "practicing yoga for three years" — "yoga" is
+                    # the object of "practicing", not a separate activity, so
+                    # the duration attaches to "practicing".
+                    if _i > 0 and _av[_i - 1].lower() not in _ASPECTUAL_VERBS \
+                            and _activity_verb_ok(_av[_i - 1].lower()):
+                        continue
                     _verb = _vl
                     _vidx = _i
-                    break
             if _verb is None:
                 continue
             _act = self._verb_stem(_verb)
