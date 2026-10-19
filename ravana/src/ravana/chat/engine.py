@@ -9028,21 +9028,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
-        # CONTRADICTION-REVISION EARLY CHECK (round 2026-10-17): a natural
-        # contradiction signal ("changed my mind", "actually", "i was wrong")
-        # means the user is REVERSING a prior stance, not making a fresh
-        # disclosure. The self-disclosure path below would treat it as a new
-        # disclosure and return an affective ack ("it sounds open."), bypassing
-        # the stance inversion handler at ~9253. Check for contradiction signals
-        # BEFORE the self-disclosure gate so inversion takes precedence.
+        # CONTRADICTION-REVISION EARLY CHECK (round 2026-10-17, refined
+        # 2026-10-19): a genuine reversal signal means the user is REVERSING
+        # a prior stance, not making a fresh disclosure. The self-disclosure
+        # path below would treat it as a new disclosure and return an affective
+        # ack, bypassing the stance inversion handler at ~9253.
+        #
+        # REFINEMENT: the previous version matched any "i hate/dislike/can't
+        # stand X" as a contradiction, intercepting FRESH disclosures that
+        # should create a new stance, not reverse one. Now it only fires on
+        # explicit reversal markers: "changed my mind", "actually",
+        # "i was wrong", "i don't ... anymore", "i've changed/reversed my
+        # mind/position/stance". A bare emotion verb ("i hate X") is NOT a
+        # contradiction signal.
         if not _is_interrogative:
             _nc_signal = bool(re.search(
-                r"\b(actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
+                r"\b(actually|on\s+second\s+thought|"
                 r"(?:i\s+)?changed\s+my\s+mind|"
                 r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
                 r"i\s+don'?t\s+think\s+so\s+anymore|"
                 r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
-                r"i\s+(?:actually\s+)?(?:hate|dislike|loathe|detest|can'?t\s+stand)|"
                 r"i\s+was\s+(?:too\s+)?(?:hasty|quick|wrong)|"
                 r"i\s+think\s+differently\s+now|"
                 r"i'?ve\s+(?:changed|reversed)\s+(?:my\s+)?(?:mind|position|stance)|"
