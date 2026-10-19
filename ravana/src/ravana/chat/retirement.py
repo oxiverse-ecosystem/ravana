@@ -512,6 +512,17 @@ def looks_like_retraction(text: str, markers: Optional[set[str]] = None) -> bool
             continue
         cand = cl[0].lower().strip(".,!?;:'\"")
         if cand and cand.isalpha() and cand not in _EXCLUDE:
+            # GROWTH-PATH PREFILTER (round 2026-10-17): only treat the token
+            # as a potential contrast marker if it is NOT followed by a subject
+            # pronoun. A genuine contrast marker ("actually", "no", "wait")
+            # stands alone or is followed by a comma; a name ("franks") is
+            # followed by a subject pronoun ("franks he lives..."). This
+            # prevents false positives like "patna, franks he lives in delhi"
+            # where "franks" is a vocative name, not a contrast marker.
+            if len(cl) >= 2 and cl[1].lower().strip(".,!?;:'\"") in {
+                "he", "she", "they", "we", "i", "you", "it"
+            }:
+                continue
             return True
     return False
 

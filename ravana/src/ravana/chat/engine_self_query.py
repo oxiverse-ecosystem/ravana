@@ -1096,6 +1096,28 @@ class SelfQueryMixin:
             # logic, no hardcoded reply strings. Fail-closed: if below
             # threshold, return None so the caller falls through to honest
             # uncertainty rather than emitting a confabulated answer.
+            #
+            # EXEMPTION (round 2026-10-17): when the reply contains the
+            # extracted topic word, it IS topically relevant by construction.
+            # The Jaccard overlap threshold (0.15) is too strict for
+            # single-content-token queries ("what do you dream about" ->
+            # content words = {"dream"}): the reply "dream is a bit outside..."
+            # has Jaccard = 1/(1+N) which falls below 0.15 for long replies.
+            # Skip the gate when the topic word appears in the reply.
+            # Use the same topic extraction patterns as _topic_grounded_self_experience.
+            _topic_word = None
+            _tw_m = re.search(
+                r"\b(?:about|of|on)\s+([a-z][a-z\s]{2,40})\s*$", t)
+            if _tw_m and _tw_m.group(1).strip():
+                _topic_word = _tw_m.group(1).strip().split()[0]
+            if not _topic_word:
+                _tw_m = re.search(
+                    r"\b(dream|think|feel|wonder|curious|afraid|scared|"
+                    r"hope|wish|regret|love|like|enjoy)\s+about\s*$", t)
+                if _tw_m:
+                    _topic_word = _tw_m.group(1).strip()
+            if _topic_word and _topic_word in _topic_grounded.lower():
+                return _topic_grounded
             _gate = getattr(self, "_relevance_gate", None)
             if _gate is not None:
                 _gated = _gate(user_input, _topic_grounded)

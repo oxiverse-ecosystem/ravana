@@ -3712,7 +3712,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         r"do|does|did|has|have|had|can|could|would|will|tell|"
                         r"said|say|recall|remember|know|mention)\b", q.strip()))
                     _pet_in_q = (_pet_mentioned or any(t.startswith("pet") for t in _q_toks2))
-                    if _is_q2 and _ask_activity and _pet_in_q and not _distress:
+                    # ATTRIBUTE AGREEMENT GUARD (round 2026-10-17): a name
+                    # query ("what is my dog called") must NOT be answered with
+                    # the pet's ACTIVITY. The _ACT_CUES set contains the generic
+                    # interrogative "what", so every "what ..." pet question
+                    # counted as an activity ask — even one that only wants the
+                    # name. Reuse asks_name_only so the activity and name
+                    # branches agree by construction.
+                    _asks_name_old = attribute_gate.asks_name_only(q)
+                    if _is_q2 and _ask_activity and _pet_in_q and not _distress \
+                            and not _asks_name_old:
                         _pet_acts = {}
                         for _pk, _pf in pf.facts.items():
                             if not (isinstance(_pk, tuple) and len(_pk) == 3):
@@ -6512,13 +6521,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Guard: user-attribute recall ("can you recall my name?", "do you
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
-        # further down. Structural (1st-person possessive + user-attribute noun),
-        # but ONLY when the query is NOT already a first-person recall of the
-        # agent's own prior speech (RV-5: "what did i just tell you about my
-        # favorite food" must reach the agent-reply store, not be blocked here).
-        if (not _is_first_person_recall
-                and re.search(
-                    r"\b(my|mine|me|i|we|our|myself)\b", _q)
+        # further down. Structural (1st-person possessive + user-attribute noun).
+        #
+        # D3 FIX (round 2026-10-17): the guard was previously bypassed when
+        # _is_first_person_recall was True (RV-5 backfill). But a query can be
+        # BOTH a first-person recall AND a user-attribute query: "what did i
+        # just tell you about my dog" matches the first-person recall regex
+        # AND names a user attribute ("my dog"). The first-person flag should
+        # only bypass the agent-self gate above, NOT this attribute guard.
+        # The attribute guard must fire regardless of _is_first_person_recall.
+        if (re.search(
+                r"\b(my|mine|me|i|we|our|myself)\b", _q)
                 and re.search(
                     r"\b(name|named|called|age|live|lives|from|work|study|"
                     r"studied|grew up|sister|brother|mother|father|mom|dad|"
@@ -8981,6 +8994,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
+        # CONTRADICTION-REVISION EARLY CHECK (round 2026-10-17): a natural
+        # contradiction signal ("changed my mind", "actually", "i was wrong")
+        # means the user is REVERSING a prior stance, not making a fresh
+        # disclosure. The self-disclosure path below would treat it as a new
+        # disclosure and return an affective ack ("it sounds open."), bypassing
+        # the stance inversion handler at ~9253. Check for contradiction signals
+        # BEFORE the self-disclosure gate so inversion takes precedence.
+        if not _is_interrogative:
+            _nc_signal = bool(re.search(
+                r"\b(actually|on\s+second\s+thought|i\s+changed\s+my\s+mind|"
+                r"(?:i\s+)?changed\s+my\s+mind|"
+                r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
+                r"i\s+don'?t\s+think\s+so\s+anymore|"
+                r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
+                r"i\s+(?:actually\s+)?(?:hate|dislike|loathe|detest|can'?t\s+stand)|"
+                r"i\s+was\s+(?:too\s+)?(?:hasty|quick|wrong)|"
+                r"i\s+think\s+differently\s+now|"
+                r"i'?ve\s+(?:changed|reversed)\s+(?:my\s+)?(?:mind|position|stance)|"
+                r"i\s+(?:take|am\s+taking)\s+it\s+all\s+back|"
+                r"i\s+don'?t\s+feel\s+that\s+way\s+anymore)\b",
+                user_input.lower()))
+            if _nc_signal:
+                _inv_early = self._route_own_stance_inversion(user_input)
+                if _inv_early is not None:
+                    self._last_strategy = "own_stance_inversion"
+                    self._last_responses.append(_inv_early)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    return _inv_early.lower()
         if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
