@@ -2954,6 +2954,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the same recall path as "what is my dog called" (round 2026-10-03T2040Z).
         if _expand_contractions is not None:
             q = _expand_contractions(q)
+        # (0y2) EMOTIONAL-DISCLOSURE GUARD (round 2026-10-19). A first-person
+        # emotional expression ("i am feeling really anxious about my future
+        # career prospects") must NOT be hijacked by structured recall — it is
+        # not a biographical/stance query. The old code matched "i" + "feeling"
+        # as a recall cue and returned a stored activity fact ("you play five
+        # years"), a self/other boundary inversion. The guard below reuses the
+        # SAME suffering-word lexicon the empathy path uses (line ~8676), so
+        # the two paths agree on what counts as an emotional disclosure by
+        # construction. Structural (one shared regex), not a per-topic table.
+        # Fail-closed: returns None so the turn proceeds to the empathy path.
+        _emo_guard = re.search(
+            r"\b(i\s+(?:am|'m|feel|feeling|felt|get|got|was|were|been)\s+"
+            r"(?:so\s+|really\s+|very\s+|quite\s+|pretty\s+|a\s+little\s+|kind\s+of\s+)?"
+            r"(?:hurt|hurts|hollow|empt(?:y|iness)|numb|invisible|fading|ghost|phantom|shadow|shell|pain|ache|suffering|suffer|grief|grieving|"
+            r"lonely|alone|scared|afraid|terrified|anxious|panic|"
+            r"devastated|broken|dying|dead|miserable|hopeless|"
+            r"overwhelmed|exhausted|furious|angry|cry|cried|crying|"
+            r"anxious|worried|nervous|stressed|overwhelmed))\b",
+            q)
+        if _emo_guard:
+            return None
         # (0y) SOURCE-MONITORING BOUNDARY (round 2026-10-04T0827Z). A query
         # asking about RAVANA's OWN prior speech ("what did you just tell me
         # about pantographs?") must never be answered out of the USER's
@@ -6684,6 +6705,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return None
         # Render in FIRST person (it is RAVANA's own prior speech), with a
         # light source tag so the boundary is explicit and honest.
+        # Include the source topic tokens so the reply references the
+        # subject the user asked about (the reply text itself may focus
+        # on a different word from the same utterance).
+        _src = (_best.get("src_tokens") if isinstance(_best, dict) else None) or []
+        if _src:
+            _src_str = " ".join(_src[:4])
+            return f"i said: {_text} (we were talking about {_src_str})"
         return f"i said: {_text}"
 
     def _route_agent_own_recall_stances(self, user_input: str) -> Optional[str]:
