@@ -8987,6 +8987,33 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r"^\s*(who|what|when|where|which|why|how|did|do|does|is|are|was|"
             r"were|had|has|have|will|would|could|can)\b",
             user_input.strip().lower()))
+        # CONTRADICTION-REVISION EARLY CHECK (round 2026-10-19, refined):
+        # "changed my mind" WITHOUT a "but" clause is a genuine reversal
+        # signal that the self-disclosure path cannot handle correctly
+        # (it treats it as a fresh disclosure). Concessions with "but"
+        # ("but actually I prefer X") are handled correctly by the
+        # self-disclosure path via mine_personal_facts.
+        if not _is_interrogative:
+            _has_but = bool(re.search(r"\bbut\b", user_input.lower()))
+            _nc_signal = bool(re.search(
+                r"\b((?:i\s+)?changed\s+my\s+mind|"
+                r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
+                r"i\s+don'?t\s+think\s+so\s+anymore|"
+                r"i\s+don'?t\s+(?:really\s+)?(?:like|love|enjoy)\s+(?:it|that|this)\s+anymore|"
+                r"i\s+was\s+(?:too\s+)?(?:hasty|quick|wrong)|"
+                r"i\s+think\s+differently\s+now|"
+                r"i'?ve\s+(?:changed|reversed)\s+(?:my\s+)?(?:mind|position|stance)|"
+                r"i\s+(?:take|am\s+taking)\s+it\s+all\s+back|"
+                r"i\s+don'?t\s+feel\s+that\s+way\s+anymore)\b",
+                user_input.lower()))
+            if _nc_signal and not _has_but:
+                _inv_early = self._route_own_stance_inversion(user_input)
+                if _inv_early is not None:
+                    self._last_strategy = "own_stance_inversion"
+                    self._last_responses.append(_inv_early)
+                    if len(self._last_responses) > 10:
+                        self._last_responses = self._last_responses[-10:]
+                    return _inv_early.lower()
         if not _is_interrogative and self._is_self_disclosure_stmt(user_input):
             _ack = self._process_self_disclosure_stmt(user_input)
             self._last_strategy = "self_disclosure"
