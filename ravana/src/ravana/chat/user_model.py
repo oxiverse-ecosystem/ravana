@@ -8,6 +8,7 @@ from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 from .pet_slots import is_function_word
+from .topic_head import expand_contractions as _expand_contractions
 from . import possession_attrs as _poss
 from .constants import STOP_WORDS
 
@@ -6680,8 +6681,8 @@ class UserModel:
                 "really", "very", "just", "only", "also", "too", "quite", "more",
                 "most", "much", "many", "such", "own", "same", "other", "another",
         "is", "are", "was", "were", "be", "been", "being", "am",
-        "has", "have", "had", "not", "don't", "dont", "do", "does", "did", "can", "cannot", "cant",
-        "it", "they're", "im", "i'm", "you're", "we're", "there",
+        "has", "have", "had", "not", "do", "does", "did", "can", "cannot",
+        "it", "there",
         # Round 2026-10-12T0729Z feature t_407c0ff4: trailing temporal /
         # discourse adverbs leaked into stance keys ("actually i love board
         # games now" created 'board games now' alongside 'board games', so
@@ -6793,7 +6794,14 @@ class UserModel:
         if the phrase is all closed-class words (so we never seed a garbage
         stance on a function word like "the"/"how"/"small").
         """
-        toks = [t for t in re.findall(r"[a-z'][a-z']*", phrase.lower())]
+        # D1 fix (round 2026-10-16): expand contractions BEFORE tokenization so
+        # "you're" → "you are" and both tokens are caught by _OPINION_STOP. The
+        # old path kept contractions as single tokens ("you're"), which meant
+        # each one needed a manual _OPINION_STOP entry; missing one let the
+        # contraction leak into the topic ("you're turning" instead of "turning").
+        # Morphological, not a lookup table — handles any contraction.
+        _expanded = _expand_contractions(phrase.lower())
+        toks = [t for t in re.findall(r"[a-z']+", _expanded) if t]
         if not toks:
             return None
         # REJECT directional PARTICLE heads (round 2026-08-16). A disclosure
