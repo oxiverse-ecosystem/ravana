@@ -2237,6 +2237,13 @@ class ReasoningMixin:
                         r"[\.\!\?\,]*$",
                         "", _raw_obj, flags=re.IGNORECASE)
                     parsed = ("like", ml.group(1).lower(), _raw_obj)
+                else:
+                    mb = re.search(r"\bi\s+(?:have|'ve|had)\s+(?:always|long|never|often|sometimes|usually|really|truly|deeply|sincerely|honestly)?\s*(?:believed|believe|thought|think|felt|feel|held|hold|maintain|maintained|argued|argue|said|say|claimed|claim|sense)\s+(?:that\s+)?(.+?)(?:\s*(?:\.|!|\?|,|$)|\s+but\s+|\s+and\s+|\s+because\s+|\s+so\s+|\s+which\s+|\s+that\s+|\s+when\s+|\s+where\s+|\s+while\s+)", q, re.IGNORECASE)
+                    if mb:
+                        _bobj = mb.group(1).strip(" .!?")
+                        _bobj = re.sub(r"\s+(?:though|although|yet|however|nevertheless|nonetheless|still|anyway|besides|meanwhile|otherwise)[\.\!\?\,]*$", "", _bobj, flags=re.IGNORECASE)
+                        if _bobj:
+                            parsed = ("belief", None, _bobj)
 
         # Persist via the existing UserModel store (single source of truth).
         try:
@@ -2245,6 +2252,16 @@ class ReasoningMixin:
                 user_input, _subj,
                 float(getattr(self.emotion.state, "valence", 0.5))
                 if hasattr(self, "emotion") else 0.5)
+            # Store belief disclosures as personal facts so recall paths
+            # can answer "what do i believe about X". The content comes
+            # from the parsed utterance, not authored.
+            if parsed and parsed[0] == "belief":
+                try:
+                    self.user_model.personal_facts.assert_fact(
+                        "i", "belief", parsed[2],
+                        confidence=0.6, source="seed_regex")
+                except Exception:
+                    pass
         except Exception:
             # Fallback: write directly so storage is never lost even if
             # observe_user_query changes upstream.
@@ -2259,6 +2276,13 @@ class ReasoningMixin:
                     prefs["likes"].append(parsed[2])
             elif parsed and parsed[0] == "name":
                 self.user_model.user_name = parsed[2]
+            elif parsed and parsed[0] == "belief":
+                try:
+                    self.user_model.personal_facts.assert_fact(
+                        "i", "belief", parsed[2],
+                        confidence=0.6, source="seed_regex")
+                except Exception:
+                    pass
         # Mirror the salient self-facts into the hippocampal entity
         # index so the EXISTING recall path (_retrieve_episodic,
         # which reads self._episodic_index) can answer later
@@ -2376,6 +2400,8 @@ class ReasoningMixin:
                     ack = f"aw, i {_verb} you too."
                 else:
                     ack = f"good to know — you {_verb} {_obj}. i'll keep that in mind."
+            elif parsed[0] == "belief":
+                ack = f"noted — i'll remember you believe {parsed[2]}."
             else:
                 ack = "got it — thanks for telling me."
 
