@@ -388,12 +388,14 @@ class MemoryMixin:
         if retr.slot:
             subj, attr = retr.slot[0], retr.slot[1]
         try:
-            if attr and (retr.slot[0], attr) in {
-                    (str(k[0]), str(k[1])) for k in pf.keys()}:
-                for (s, a, _v), f in list(pf.items()):
-                    if str(s) == str(retr.slot[0]) and str(a) == str(attr) \
-                            and self.retirement_ledger.is_retired(
-                                getattr(f, "value", ""), f"{s}|{a}"):
+            # Check if the full slot key exists in the fact store.
+            # retr.slot is the full fact key (subject, attribute, value).
+            _slot_key = tuple(str(x) for x in retr.slot) if retr.slot else None
+            _pf_keys = {tuple(str(x) for x in k) if isinstance(k, tuple) else k
+                        for k in pf.keys()}
+            if _slot_key and _slot_key in _pf_keys:
+                for k, f in list(pf.items()):
+                    if tuple(str(x) for x in k) == _slot_key:
                         f.superseded = True
                 if retr.replaced_by:
                     self.user_model.personal_facts.assert_fact(

@@ -1143,7 +1143,11 @@ class SelfQueryMixin:
         # Opinion frames with a concrete topic object ("what do you think
         # about wegovy", "how do you feel about the war") are STANCE
         # questions — leave them to the vmPFC stance resolver below.
-        if re.search(r"\b(think|feel|opinion)\b.*\babout\s+\w", t):
+        # Only reject when "think/feel/opinion" is DIRECTLY followed by
+        # "about" (a stance question). Self-experience queries like
+        # "do you ever feel curious about X" have an adjective between
+        # "feel" and "about" — these are NOT stance questions.
+        if re.search(r"\b(think|feel|opinion)\b\s+about\s+\w", t):
             return None
         # Introspective frame: the agent's own mind / body / affect.
         _intro = re.search(
@@ -1182,6 +1186,43 @@ class SelfQueryMixin:
             # logic, no hardcoded reply strings. Fail-closed: if below
             # threshold, return None so the caller falls through to honest
             # uncertainty rather than emitting a confabulated answer.
+            # Exception: if the reply explicitly mentions the extracted topic,
+            # it is by construction topically relevant — skip the gate.
+            # Use the same topic extraction patterns as _topic_grounded_self_experience.
+            _topic_str = ""
+            if isinstance(t, tuple) and t:
+                _topic_str = str(t[0])
+            elif isinstance(t, str):
+                # Pattern 1: "about X" / "of X" / "on X" where X is at the end
+                _tm = re.search(
+                    r"\b(?:about|of|on)\s+([a-z][a-z\s]{2,40})\s*$", t)
+                if _tm:
+                    _topic_str = _tm.group(1).strip()
+                else:
+                    # Pattern 2: "what do you X about Y" / "do you X about Y"
+                    _tm = re.search(
+                        r"\b(?:what|do|did|are|can|could|would)\s+(?:you\s+)?"
+                        r"(?:\w+\s+){0,3}?about\s+([a-z][a-z\s]{2,40})", t)
+                    if _tm:
+                        _topic_str = _tm.group(1).strip()
+                    else:
+                        # Pattern 3: "what do you dream about" — topic is the noun
+                        # before "about" at the end
+                        _tm = re.search(
+                            r"\b(dream|think|feel|wonder|curious|afraid|scared|"
+                            r"hope|wish|regret|love|like|enjoy)\s+about\s*$", t)
+                        if _tm:
+                            _topic_str = _tm.group(1).strip()
+                        else:
+                            # Pattern 4: "what makes you feel X" / "how do you feel
+                            # when X" — topic is the adjective/noun at the end
+                            _tm = re.search(
+                                r"\b(?:what\s+makes\s+you|how\s+do\s+you\s+feel\s+"
+                                r"(?:when|if))\s+([a-z][a-z\s]{2,40})\s*$", t)
+                            if _tm:
+                                _topic_str = _tm.group(1).strip()
+            if _topic_str and _topic_str.lower() in _topic_grounded.lower():
+                return _topic_grounded
             _gate = getattr(self, "_relevance_gate", None)
             if _gate is not None:
                 _gated = _gate(user_input, _topic_grounded)

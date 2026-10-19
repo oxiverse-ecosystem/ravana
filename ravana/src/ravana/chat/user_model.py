@@ -3921,6 +3921,28 @@ class UserModel:
                             r"\s*(?:[.!?]+|where|that|which|when|but)\b",
                             _after)[0].strip(" ,.!?;:")
                         _after = re.sub(r"\s+", " ", _after).lower()
+                        # drop a leading indirect object ("me", "us") that
+                        # opens a taught/showed clause but carries no
+                        # content ("my mentor taught me astronomy" ->
+                        # "taught astronomy", not "taught me astronomy").
+                        # The _after slice starts after the name, so it
+                        # includes the verb. Strip the indirect object
+                        # from the object part (after the verb).
+                        _after_toks = _after.split()
+                        # Find the verb position and strip indirect object after it
+                        _verb_idx = None
+                        for _i, _tok in enumerate(_after_toks):
+                            if _tok in ("taught", "showed", "told", "gave",
+                                        "teach", "show", "tell", "give"):
+                                _verb_idx = _i
+                                break
+                        if _verb_idx is not None and _verb_idx + 1 < len(_after_toks):
+                            if _after_toks[_verb_idx + 1] in (
+                                    "me", "us", "them", "him", "her", "you",
+                                    "myself", "himself", "herself"):
+                                _after_toks = (_after_toks[:_verb_idx + 1]
+                                               + _after_toks[_verb_idx + 2:])
+                        _after = " ".join(_after_toks).strip()
                         # The comma-bound embedded-relative path (above) already
                         # captured the descriptor; don't overwrite it with the
                         # whole trailing clause.
@@ -3950,6 +3972,14 @@ class UserModel:
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
+                    # Strip a leading indirect object ("me", "us") from
+                    # taught/showed/told/gave clauses — it carries no
+                    # content ("taught me astronomy" -> "taught astronomy").
+                    _obj_rtoks = _obj_rest.split()
+                    if _obj_rtoks and _obj_rtoks[0] in (
+                            "me", "us", "them", "him", "her", "you",
+                            "myself", "himself", "herself"):
+                        _obj_rest = " ".join(_obj_rtoks[1:])
                     if _v_is_rel:
                         # Relation-verb value: KEEP the enumeration + connective.
                         # The activity path splits the object on "and" (so "baskets
