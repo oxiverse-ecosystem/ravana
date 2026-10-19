@@ -114,7 +114,10 @@ on this codebase:
   `since` fact — then answers date queries through the **same** resolver as
   explicit years: `when did i start brewing beer` → `you started brew in 2016.`
   No per-phrase code; the resolver already knows how to read a `since` fact.
-  See `docs/CAPABILITY_DURATION_MINING.md`.
+  In multi-clause sentences the duration attaches to the **nearest** preceding
+  activity verb (not the first verb in the clause). See
+  `docs/CAPABILITY_DURATION_MINING.md` and
+  `docs/CAPABILITY_DURATION_ATTACHES_TO_NEAREST.md`.
 - **Recalls the right dated fact even when you paraphrase.** A rotated query that
   shares no word with the stored activity still recalls it — *"what year did i
   start all this volcano stuff again"* → *"you started studying volcanoes back in
