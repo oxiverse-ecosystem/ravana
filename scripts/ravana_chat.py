@@ -102,6 +102,122 @@ DOMAIN_CONCEPTS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
+# CALIBRATION OBSERVABILITY (--calibration)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The ledger in chat/calibration.py is the one cognitive subsystem whose state was
+# reachable only from in-process code: `get_status()` existed, its persistence
+# was tested, but nothing on the CLI or any status surface read it. This is that
+# surface. It is a READER — it calls `EpistemicCalibrator.get_status()` and
+# renders the dict that method already returns. The calibrator is not modified,
+# and no number here is computed independently of it (a second implementation of
+# the bias would be a second source of truth that can drift from the gate the
+# engine actually uses).
+
+def _calibration_bias_word(bias):
+    """One word for the direction of the learned bias.
+
+    Vocabulary only — the magnitude is rendered from the ledger's own number.
+    """
+    if bias > 0.05:
+        return "overconfident"
+    if bias < -0.05:
+        return "underconfident"
+    return "balanced"
+
+
+def render_calibration_report(status):
+    """Render `EpistemicCalibrator.get_status()` as a terminal report.
+
+    Every number is taken from the status dict; the only things added are the
+    labels and the band rows, which are read from the calibrator's own
+    `reliability()` curve.
+    """
+    lines = []
+    lines.append("  " + "=" * 58)
+    lines.append("   EPISTEMIC CALIBRATION LEDGER  (chat/calibration.py)")
+    lines.append("  " + "=" * 58)
+    lines.append("")
+
+    n = status.get("n", 0)
+    total = status.get("total_observed", 0)
+    lines.append("  observations      : %d in window   %d lifetime" % (n, total))
+    lines.append("  bands visited     : %d / %d"
+                 % (status.get("bands_visited", 0), status.get("bands_total", 0)))
+    lines.append("")
+
+    bias = status.get("bias", 0.0)
+    lines.append("  signed bias       : %+.4f  (%s)"
+                 % (bias, _calibration_bias_word(bias)))
+    lines.append("  raw mean bias     : %+.4f" % status.get("mean_bias", 0.0))
+    lines.append("  brier score       : %.4f" % status.get("brier", 0.0))
+    lines.append("")
+
+    theta = status.get("theta_withhold", 0.0)
+    lines.append("  theta_withhold    : %.4f   (adaptive assert-gate)" % theta)
+    lines.append("  calibrated        : %s"
+                 % ("yes" if status.get("calibrated") else
+                    "no  (needs >= 5 observations and |bias| <= 0.10)"))
+    lines.append("")
+
+    lines.append("  RELIABILITY CURVE  (observed hit-rate per confidence band)")
+    lines.append("    band            n      observed   vs nominal")
+    curve = status.get("reliability") or []
+    for entry in curve:
+        if entry is None:
+            lines.append("    (unvisited band — absent knowledge, not zero)")
+            continue
+        lo, hi = entry["lo"], entry["hi"]
+        nominal = (lo + hi) / 2.0
+        obs = entry["observed"]
+        gap = obs - nominal
+        lines.append("    %.1f - %.1f      %-6d %.3f      %+.3f"
+                     % (lo, hi, entry["n"], obs, gap))
+    lines.append("")
+    lines.append("  " + "=" * 58)
+    return "\n".join(lines)
+
+
+def _read_calibration_status(engine):
+    """Read the ledger off a live engine. Returns (status, error_message).
+
+    Never raises: a missing or broken calibrator must degrade to a printed
+    limitation, not a traceback from a status command.
+    """
+    cal = getattr(engine, "calibrator", None)
+    if cal is None:
+        return None, "engine has no calibrator attribute"
+    if not hasattr(cal, "get_status"):
+        return None, "calibrator has no get_status() method"
+    try:
+        status = cal.get_status()
+    except Exception as e:
+        return None, "get_status() raised: %s" % e
+    if not isinstance(status, dict):
+        return None, "get_status() returned %s, not a dict" % type(status).__name__
+    # The curve is not part of get_status(); it is the per-band detail the
+    # report renders, read from the same object in the same call.
+    try:
+        status["reliability"] = cal.reliability()
+    except Exception:
+        status["reliability"] = []
+    return status, None
+
+
+def print_calibration_report(engine, as_json=False):
+    """The `--calibration` surface. Returns True if a report was printed."""
+    status, err = _read_calibration_status(engine)
+    if err is not None:
+        print("  [Calibration] unavailable: %s" % err)
+        return False
+    if as_json:
+        print(json.dumps(status, indent=2, default=str))
+    else:
+        print(render_calibration_report(status))
+    return True
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # MAIN — Pure natural language chat, no commands
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -187,6 +303,17 @@ def main():
                         help="Print graph statistics")
     parser.add_argument("--concept", type=str, default=None,
                         help="Show what RAVANA knows about a concept")
+    parser.add_argument("--calibration", action="store_true",
+                        help="Print the online epistemic calibration ledger — the "
+                             "observability surface for chat/calibration.py. Shows the "
+                             "signed bias, the learned per-band reliability curve and "
+                             "the adaptive theta_withhold assert-gate. Reads "
+                             "EpistemicCalibrator.get_status(); the calibrator itself is "
+                             "not modified. With --json the raw status dict is emitted "
+                             "instead of the human-readable report.")
+    parser.add_argument("--json", action="store_true",
+                        help="Emit machine-readable output for the reporting flags "
+                             "(--calibration) instead of the human-readable report.")
     args = parser.parse_args()
 
     # Handle --reset
@@ -360,6 +487,12 @@ def main():
                 print(f"  [Concept] '{args.concept}' found but no node data")
         else:
             print(f"  [Concept] '{args.concept}' not found in graph")
+        return
+    if args.calibration:
+        # Observability surface for the online epistemic calibration ledger.
+        # Read-only: the engine's calibrator is not modified, and the engine is
+        # not saved here (a status command must not write state).
+        print_calibration_report(engine, as_json=args.json)
         return
 
     if args.chat is not None:
