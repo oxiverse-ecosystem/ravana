@@ -213,6 +213,63 @@ def is_residence_verb(word: str) -> bool:
     return False
 
 
+# ── TEMPORAL / DISCOURSE ADVERBS (FIX: friend-today defect) ───────────────────
+# A temporal or discourse adverb (today, now, then, later, currently, often,
+# always, ...) can NEVER be a personal name, yet the lowercase-name fallback in
+# user_model.mine_personal_facts had no closed-class test for them. So a
+# disclosure like "i had a huge fight with my best friend today" (no verb, no
+# Capitalized name) let "today" be captured as the relationship's name and
+# stored ('i', 'friend today', 'today'), which then leaked into an unrelated
+# recall ("how are you doing today" -> "your friend is today").
+#
+# This is STRUCTURAL VOCABULARY (a closed class of grammatical adverbs), living
+# here in the shared slot-naming module so the miner and every recall site
+# agree on what may occupy a NAME slot by construction — not a per-topic
+# answer table. It is a SEED: learn_temporal_adverb grows it at runtime, so
+# an adverb RAVANA meets in the wild is rejected as a name without a code
+# change. Removing an entry degrades gracefully (the word is simply allowed
+# again, exactly the cold-start behaviour). No reply text, no retraining.
+_TEMPORAL_SEED: frozenset = frozenset({
+    # absolutes of time / discourse
+    "today", "tonight", "now", "nowadays", "nowhere",
+    "then", "later", "previously", "currently",
+    "recently", "lately", "yesterday", "tomorrow",
+    "thence", "whence", "once", "twice", "again", "ever", "nowhere",
+    # frequency / temporal scope
+    "always", "never", "often", "sometimes", "usually",
+    "rarely", "seldom", "anymore", "anywhere",
+    # manner / degree that are not names
+    "finally", "already", "still", "soon", "eventually",
+    "so", "very", "really", "quite",
+})
+_TEMPORAL_LEARNED: set = set()
+
+
+def learn_temporal_adverb(word: str) -> bool:
+    """Register a temporal/discourse adverb seen in a live disclosure.
+
+    Growth path for the seed class, mirroring :func:`learn_function_word`: an
+    adverb RAVANA has never had classified joins the class at runtime, so the
+    lowercase-name fallback stops accepting it as a personal name without any
+    code change. Returns True when the word is (now) a known temporal adverb.
+    """
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _TEMPORAL_SEED or w in _TEMPORAL_LEARNED:
+        return True
+    _TEMPORAL_LEARNED.add(w)
+    return True
+
+
+def is_temporal_adverb(word: str) -> bool:
+    """True when `word` is a temporal/discourse adverb that cannot be a name."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    return w in _TEMPORAL_SEED or w in _TEMPORAL_LEARNED
+
+
 def is_locative_preposition(word: str) -> bool:
     """True when `word` introduces a place ("lived IN mumbai")."""
     w = (word or "").strip().lower().strip(".,!?;:'\"")

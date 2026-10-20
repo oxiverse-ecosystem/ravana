@@ -8,6 +8,7 @@ from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
 from . import pet_slots as _pet_slots
 from .pet_slots import is_function_word
+from .pet_slots import is_temporal_adverb
 from .topic_head import expand_contractions as _expand_contractions
 from . import possession_attrs as _poss
 from .constants import STOP_WORDS
@@ -2517,9 +2518,23 @@ class UserModel:
         # seated a support word in the head slot and dropped the place entirely.
         # Structural: stems + a regular inflection suffix — no per-verb or
         # per-city enumeration, and adding a stem covers all its forms.
+        #
+        # ROUND 2026-10-20 T12 FIX: "grew up" is the IRREGULAR past tense of
+        # "grow up" — the optional suffix class (s|es|d|ed|ing) does not cover
+        # it (grew != grow+ed). So "i grew up in kodaikanal" matched NEITHER
+        # m_loc (no location fact stored) NOR the phrasal-verb guard on the
+        # activity miner (which skips "grew up" correctly) — it fell through to
+        # the EVENT verb miner, which had no phrasal guard and stored the
+        # garbage fact ('i', 'event:grow', 'grew kodaikanal'). The location
+        # path is supposed to own "grew up" (see the phrasal-verb guard comment
+        # below); the regex simply never recognized the irregular form. Add the
+        # full inflection set for "grow up" explicitly — stem + irregular past
+        # + past participle + progressive. No per-verbs beyond this closed
+        # inflection class; structural, not per-topic.
         m_loc = re.search(
             r"\bi\s+(?:live|stay|am|is|are|was|were|been|move|remain|"
-            r"reside|settle|relocate|born|grow\s+up)(?:s|es|d|ed|ing)?\s+"
+            r"reside|settle|relocate|born|grow\s+up|grew\s+up|"
+            r"grown\s+up|growing\s+up)(?:s|es|d|ed|ing)?\s+"
             r"(?:in|near|at|from|to|onto)\s+"
             r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*){0,7})",
             q_clean, re.IGNORECASE)
@@ -2575,6 +2590,19 @@ class UserModel:
         # "a converted mill in a valley called ashcombe" resolves to "ashcombe"
         # (previously "valley" was absent and the greedy capture grabbed
         # "a converted mill in a"). No per-toponym table.
+        # T12 FIX (round 2026-10-20): shared natural-feature lexicon used by both
+        # the _named_loc path and the m_loc branch to strip trailing geographic
+        # modifiers ("in the mountains", "in the hills") that are descriptors,
+        # not toponyms. Defined once here so both paths see it.
+        _NATURAL_FEATURES = {
+            "mountains", "mountain", "hills", "hill", "coast", "coastline",
+            "river", "rivers", "valley", "valleys", "range", "ranges",
+            "highlands", "lowlands", "plateau", "plateaus", "desert",
+            "deserts", "wilderness", "countryside", "outback", "steppe",
+            "steppes", "tundra", "badlands", "canyon", "canyons", "gorge",
+            "coves", "cape", "capes", "cliffs", "cliff", "ridges",
+            "ridge", "peaks", "peak", "summits", "summit",
+        }
         _named_loc = re.search(
             r"\b(?:in|near|at|from)\s+(?:a|an|the|my|our|their|his|her)?\s*"
             r"(?:small\s+)?(?:town|city|village|settlement|place|hamlet|"
@@ -2588,6 +2616,19 @@ class UserModel:
             m_loc = type("_Loc", (), {"group": lambda self, n: _named_loc.group(1)})()
             # store the named toponym directly (reuse m_loc handling below)
             _loc = _named_loc.group(1).strip().strip(" .,!")
+            # ROUND 2026-10-20 T12 FIX: strip a trailing natural-feature
+            # modifier from the named toponym too ("aldermoor in the hills"
+            # -> "aldermoor"), same logic as the m_loc branch below. The
+            # _NATURAL_FEATURES set is defined in the m_loc branch; define it
+            # here only if needed (it is, since this path may run first).
+            # Shared closed-class lexicon; no per-place list.
+            if _loc:
+                _nf_strip = re.search(
+                    r"\s+(?:in|at|on|near|from)\s+(?:the\s+)?(?:"
+                    + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
+                    _loc, re.IGNORECASE)
+                if _nf_strip:
+                    _loc = _loc[:_nf_strip.start()].strip()
             if _loc and len(_loc.split()) <= 4:
                 self.user_location = _loc
                 # Round 2026-10-19: preserve the location verb as the fact
@@ -2628,7 +2669,21 @@ class UserModel:
                 _put_fact("location", _loc, 0.6)
         elif m_loc:
             _loc = m_loc.group(1).strip().strip(" .,!")
-            _loc = re.split(r"\s+(?:and|but|,|\.)\s*", _loc)[0].strip()
+            _loc = re.split(r"\s+(?:and|but,\.|\.)\s*", _loc)[0].strip()
+            # ROUND 2026-10-20 T12 FIX: strip a trailing prepositional phrase that
+            # is a common-noun natural-feature descriptor, not a toponym.
+            # "i grew up in kodaikanal in the mountains" captures
+            # "kodaikanal in the mountains"; the trailing "in the mountains" is a
+            # geographic modifier, not the place name. Strip it BEFORE the
+            # initial store so the real toponym is persisted. _NATURAL_FEATURES
+            # is defined once above (before _named_loc), shared by all branches.
+            if _loc:
+                _nf_strip = re.search(
+                    r"\s+(?:in|at|on|near|from)\s+(?:the\s+)?(?:"
+                    + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
+                    _loc, re.IGNORECASE)
+                if _nf_strip:
+                    _loc = _loc[:_nf_strip.start()].strip()
             # Round 2026-10-19: preserve the location verb as the fact
             # attribute so recall renders the right phrasing. "i grew up in
             # X" was stored as "location" and recalled as "you live in X" —
@@ -2669,6 +2724,21 @@ class UserModel:
             # re-grabs the relative clause that follows the toponym ("...called
             # greyport where the fog comes in thick most mornings" -> "greyport
             # where the fog"), re-introducing the truncation we just cut.
+            #
+            # ROUND 2026-10-20 T12 FIX: the trailing scan must not let a common-
+            # noun descriptive fragment ("the mountains", "the hills", "the
+            # coast") override the REAL toponym that preceded it. For
+            # "i grew up in kodaikanal in the mountains" the m_loc capture is
+            # "kodaikanal in the mountains"; the old scan greedily matched
+            # "in the mountains" and stored "the mountains" as the location —
+            # discarding "kodaikanal" entirely. Guard: only accept the trailing
+            # preposition+phrase if its HEAD word is a proper noun (capitalized)
+            # OR a known natural feature used WITHOUT a leading determiner
+            # (e.g. "in himalayas" -> "himalayas", not "the himalayas"). A
+            # determiner-led phrase ("the mountains", "the coast") is a
+            # descriptor, not a place name — skip the override so the preceding
+            # toponym is kept. Structural (closed-class determiner set +
+            # capitalization check); no per-place list, no authored text.
             _trailing = re.search(
                 r"\b(?:in|near|at|from)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,2})\s*$",
                 _loc, re.IGNORECASE)
@@ -2677,7 +2747,20 @@ class UserModel:
                     r"\b(?:called|named|spelled)\s+([A-Za-z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,3})",
                     _loc, re.IGNORECASE)
             if _trailing:
-                _loc = _trailing.group(1).strip()
+                _t_loc = _trailing.group(1).strip()
+                _t_words = _t_loc.split()
+                # T12 FIX: reject a determiner-led common-noun fragment
+                # ("the mountains", "the hills", "the coast") — it is a
+                # descriptor, not a toponym, and must not override the real
+                # place name captured earlier in _loc. Accept only a
+                # capitalized proper noun, or a bare natural-feature word
+                # (no leading determiner, e.g. "in himalayas").
+                _is_desc = (
+                    len(_t_words) >= 2
+                    and _t_words[0].lower() in ("the", "a", "an", "this", "that")
+                    and _t_words[-1].lower() in _NATURAL_FEATURES)
+                if not _is_desc:
+                    _loc = _t_loc
             # Round 2026-08-08f: a long location clause with a trailing
             # measure/qualifier ("i live in a lighthouse on a rock about two
             # kilometers offshore") over-grabs the qualifier, pushing the
@@ -3753,6 +3836,16 @@ class UserModel:
                         if _rest_toks:
                             _vidx = _i
                             break
+                    # NOTE (round 2026-10-20, FIX: friend-today defect): a
+                    # temporal/discourse adverb (today, now, later, always,
+                    # ...) is NOT a verb and does not open a verb-value capture
+                    # here. It is rejected as a NAME token in the lowercase-
+                    # fallback _close gate below, where is_temporal_adverb()
+                    # (seed vocabulary in pet_slots, RAVANA-extensible) is
+                    # consulted. Without that gate, "my best friend today"
+                    # captured "today" as the name -> ('i','friend today',
+                    # 'today') -> recall contamination ("your friend is today").
+                    # The gate is a word-class test, not a per-topic table.
                 # GENERALIZE (round 2026-08-19T1026Z): a relationship disclosure
                 # establishes the RELATIONSHIP + NAME regardless of whether an
                 # activity verb is recognised. When NO activity/relation verb is
@@ -3909,6 +4002,7 @@ class UserModel:
                                     or is_activity_verb(_tc)
                                     or is_relation_verb(_tc)
                                     or is_aux_verb(_tc)
+                                    or is_temporal_adverb(_tc)
                                     or (_name_candidate_toks
                                         and _tc.endswith(("ed", "ing"))))
                                 if _close:
@@ -4681,6 +4775,16 @@ class UserModel:
             # retraction cue ("i took back ...") is not an event
             if _verb in ("take", "took", "taking") and "back" in _em.group(2).lower():
                 continue
+            # PHRASAL VERB GUARD (round 2026-10-20, T12 fix): "grow up" / "grew
+            # up" is a phrasal verb meaning maturation -- NOT an experience/event
+            # disclosure. The activity miner already skips it (round 2026-09-22),
+            # but the event miner had no guard, so "i grew up in kodaikanal"
+            # stored the garbage fact ("i", "event:grow", "grew kodaikanal").
+            # The location miner owns "grew up" as a location disclosure; the
+            # event miner must skip it too. Structural (verb + particle), not
+            # per-topic.
+            if _verb in ("grow", "grew") and _em.group(2).strip().lower().startswith("up"):
+                continue
             _obj = self._opinion_topic(_em.group(2).strip().lower())
             _obj = _strip_obj_framers(_obj)
             # also skip when the resolved object is itself a meta-reflection word
@@ -4820,6 +4924,17 @@ class UserModel:
             _obj_toks = _gm.group(2).strip().lower().split()
             if (_obj_toks and _is_residence_verb(_verb)
                     and _is_loc_prep(_obj_toks[0])):
+                continue
+            # T12 FIX (round 2026-10-20): "grow up" / "grew up" is a phrasal
+            # residence pattern owned by the location miner — the object begins
+            # with the particle "up" (not a locative preposition), so the guard
+            # above misses it and the open-class miner stores the garbage fact
+            # ('i', 'does:grow', 'grew kodaikanal'). Catch the residence verb
+            # + "up" particle here too. Structural (verb class + particle),
+            # not per-topic.
+            if (_obj_toks and _is_residence_verb(_verb)
+                    and _obj_toks[0] == "up"
+                    and _verb in ("grow", "grew", "grown", "growing")):
                 continue
             _obj = self._opinion_topic(_gm.group(2).strip().lower())
             if _obj and 1 <= len(_obj.split()) <= 5:
