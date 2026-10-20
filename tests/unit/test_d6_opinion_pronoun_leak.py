@@ -48,24 +48,26 @@ def engine():
     ("what's your take on my brother tomas's motorcycles?", "my"),
     ("how do you feel about us moving away?", "us"),
 ])
-def test_opinion_target_not_pronoun(engine, query, bad_tail):
+def test_opinion_target_not_pronoun(engine, monkeypatch, query, bad_tail):
+    targets = []
+    stance_on = engine._agent_stance_on
+
+    def capture_target(target):
+        targets.append(target)
+        return stance_on(target)
+
+    monkeypatch.setattr(engine, "_agent_stance_on", capture_target)
     r = engine.process_turn(query)
     assert r is not None, f"empty reply for {query!r}"
-    # Check each "view on" clause: the TOPIC (first content word after
-    # "view on") must not be the pronoun. For contrast replies
-    # ("view on X; i'm still forming a view on Y what about you?") the
-    # second clause's "i'm" prefix is part of the reply format, not a
-    # pronoun leak — so we check each clause's topic word individually
-    # rather than substring-matching the whole tail.
-    _parts = r.lower().split("view on")[1:]
-    assert _parts, f"no 'view on' found in reply for {query!r}: {r!r}"
-    for _slot in _parts:
-        _words = _slot.strip().split()
-        if _words:
-            _topic = _words[0].rstrip(".,;:!?'\"")
-            assert bad_tail != _topic, (
-                f"pronoun {bad_tail!r} leaked as opinion topic for "
-                f"{query!r}: {r!r}")
+    # Observe the topic at the resolver boundary so provisional stances and
+    # honest deflections exercise the same assertion, regardless of wording.
+    assert targets, f"opinion resolver not called for {query!r}: {r!r}"
+    for target in targets:
+        assert target.split()[0] != bad_tail, (
+            f"pronoun {bad_tail!r} leaked as opinion topic for "
+            f"{query!r}: {target!r}")
+        assert engine._normalize_stance_topic(target).lower() in r.lower(), (
+            f"resolved topic {target!r} missing from reply: {r!r}")
 
 
 def test_opinion_target_resolves_real_topic(engine):

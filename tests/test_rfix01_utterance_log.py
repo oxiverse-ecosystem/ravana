@@ -44,10 +44,10 @@ class TestSelfReferenceRecall:
     def test_remind_me_what_you_said(self):
         """'remind me what you said about X' must recall the real reply."""
         e = _eng()
-        e.process_turn("i think board games are a great way to bond with friends")
+        prior_reply = e.process_turn("i think board games are a great way to bond with friends")
+        assert prior_reply, "expected a reply to recall"
         out = e.process_turn("remind me what you said about board games")
-        assert out is not None
-        assert "board games" in out.lower() or "bond" in out.lower(), \
+        assert out in (f"i said: {prior_reply}", f"earlier i said: {prior_reply}"), \
             f"expected recall of the actual reply, got: {out!r}"
 
     def test_direct_gate_call_with_ring_buffer(self):
