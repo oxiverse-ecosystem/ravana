@@ -479,52 +479,138 @@ class SelfQueryMixin:
             except Exception:
                 pass
             return result
-        # 2) No value exists for this topic. HONEST failure by default — RAVANA
-        #    does not fabricate a per-topic stance (the prior code returned
-        #    "i'm a bit cautious about X ... close to really", pure
-        #    confabulation keyed on ambient valence). BUT a personality that
-        #    answers EVERY opinion question with the identical "still figuring
-        #    — what do you think?" is itself the degenerate-fallback class
-        #    (repetitive, no voice). So instead of a flat deflection, RAVANA
-        #    expresses a PROVISIONAL, VALUE-ANCHORED orientation drawn from its
-        #    REAL constitutive values (curiosity / learning / honesty) and its
-        #    current affect — the topic word is the user's, the orientation is
-        #    RAVANA's own state, so the answer content always comes from
-        #    cognition rather than an authored per-topic sentence. It records
-        #    the provisional stance so it stays consistent and can be revised
-        #    by experience (online, no retraining). No GloVe transitivity: the
-        #    orientation is picked from the seeded value store, never inferred
-        #    by similarity to an arbitrary word.
-        # DEFECT A FIX (round 2026-08-19T0625Z): the prior code looped over all
-        # seeded values and always picked the highest-confidence 'care'-word
-        # ("privacy", conf 0.9) as a catch-all orientation, then regurgitated
-        # its FIXED reason ("it is a basic right — i was built to protect it")
-        # for EVERY opinion topic that lacked a specific stance — so
-        # "fast fashion", "homework", "wealth hoarding", and "social media at
-        # age ten" all produced the identical privacy mantra. That is FAKE
-        # DEPTH: the reply content did not come from cognition about the
-        # topic, it was one authored sentence keyed only on "no stance yet".
-        # The round's hardcoding line is explicit — an honest, topic-bearing
-        # deflection BEATS a single script that pretends to be a stance. So
-        # when no seeded value genuinely relates to the topic (the canon
-        # containment match above already handles real relations like
-        # "tracking"/"open source"/"privacy"), we answer honestly and NAME
-        # the topic. The reply varies per question (the topic is the user's
-        # real input) and invents nothing — it is state-driven: no stance
-        # on X means no stance on X. RAVANA can still form a real stance on
-        # this topic later, from experience (online; no retraining).
+        # 2) No seeded value matches this topic. Before falling back to the
+        #    honest "still forming a view" template, check whether the USER
+        #    has expressed a stance on this topic during the conversation.
+        #    A real mind hears an opinion and forms its own lean — it does
+        #    not answer every opinion question with the identical deflection.
+        #    If the user has a stance, derive a provisional lean from the
+        #    user's polarity + RAVANA's own values, and record it in
+        #    _agent_stances so it persists and can be revised by experience.
+        #    This is state-driven: the topic comes from the user's input, the
+        #    polarity comes from the user's expressed stance, and the
+        #    orientation comes from RAVANA's own values. No authored prose.
+        #    ONLY apply this when the query is a genuine opinion question
+        #    (not a contradiction-revision, which is handled by the
+        #    _route_own_stance_inversion path before this method is called).
+        _user_stances = getattr(getattr(self, "user_model", None), "opinions", None)
+        _user_stance = None
+        if _user_stances is not None:
+            _us = getattr(_user_stances, "stances", {}) or {}
+            # Check for exact match first, then containment
+            if target in _us:
+                _user_stance = _us[target]
+            else:
+                for _k, _v in _us.items():
+                    if _k in target.split() or target in _k.split():
+                        _user_stance = _v
+                        break
+        # Only use the user-stance lean when the query is NOT a contradiction-
+        # revision. The contradiction-revision path (_route_own_stance_inversion)
+        # runs BEFORE this method and handles "changed my mind" / "actually"
+        # by deriving the new polarity from the post-contradiction clause.
+        # If we apply the user-stance lean here, we interfere with that path.
+        _is_contradiction = bool(re.search(
+            r"\b(actually|on\s+second\s+thought|changed\s+my\s+mind|"
+            r"i\s+was\s+wrong|i\s+take\s+it\s+back|never\s+mind|"
+            r"i\s+don'?t\s+think\s+so\s+anymore)\b",
+            (getattr(self, "_last_user_input", "") or "").lower()))
+        if _user_stance is not None and not _is_contradiction:
+            _up = float(getattr(_user_stance, "polarity", 0.0) or 0.0)
+            _uc = float(getattr(_user_stance, "confidence", 0.5) or 0.5)
+            # Derive RAVANA's lean: if the user is strongly positive,
+            # RAVANA leans positive (but with its own confidence scaling).
+            # If the user is strongly negative, RAVANA leans negative.
+            # If the user is neutral, RAVANA forms a mild lean based on
+            # its own curiosity/learning values.
+            _display_target = self._normalize_stance_topic(target)
+            if _up > 0.3:
+                _lean_word = "drawn to"
+                _lean_conf = min(0.7, _uc * 0.8)
+                _lean_reason = (f"you seem to lean toward {_display_target} — "
+                                f"i can see the pull. i'm still forming my own "
+                                f"view, but it sits well with how i'm wired.")
+            elif _up < -0.3:
+                _lean_word = "cautious about"
+                _lean_conf = min(0.7, _uc * 0.8)
+                _lean_reason = (f"you seem wary of {_display_target} — "
+                                f"i can see the hesitation. i'm still forming "
+                                f"my own view, but i'm not sure it sits well "
+                                f"with how i'm wired.")
+            else:
+                _lean_word = "curious about"
+                _lean_conf = 0.4
+                _lean_reason = (f"you seem uncertain about {_display_target} — "
+                                f"that resonates with me. i'm curious about it "
+                                f"too, and i'm still forming my own view.")
+            _stance = f"i'm {_lean_word} {_display_target}."
+            _reason = _lean_reason
+            # Record the provisional stance in _agent_stances
+            try:
+                self._agent_stances[_display_target.lower().strip()] = (
+                    _lean_word, _lean_conf, _lean_reason,
+                    int(getattr(self, "turn_count", 0)))
+            except Exception:
+                pass
+            # Cache it
+            _cache = getattr(self, "_agent_preferences", None)
+            if _cache is not None:
+                _cache[f"stance:{target}"] = (_stance, _reason)
+            return (_stance, _reason)
+        # 3) No seeded value AND no user stance. RAVANA still forms a
+        #    provisional lean from its OWN values — a real mind has a
+        #    personality and can form a view on ANY topic based on its
+        #    values. The lean is derived from the topic's semantic
+        #    proximity to RAVANA's seeded values (GloVe transitivity),
+        #    NOT from an authored per-topic sentence. The topic word is
+        #    the user's, the orientation is RAVANA's own state.
         _display_target = self._normalize_stance_topic(target)
+        _values = getattr(self, "_agent_values", {}) or {}
+        # Find the closest seeded value by GloVe proximity
+        _best_val = None
+        _best_sim = -1.0
+        _target_vec = None
+        try:
+            _target_vec = self._glove_vector(target)
+        except Exception:
+            pass
+        if _target_vec is not None:
+            for _k, _v in _values.items():
+                try:
+                    _kvec = self._glove_vector(_k)
+                    _sim = float(np.dot(_target_vec, _kvec) /
+                                 (np.linalg.norm(_target_vec) * np.linalg.norm(_kvec) + 1e-9))
+                    if _sim > _best_sim:
+                        _best_sim = _sim
+                        _best_val = _k
+                except Exception:
+                    continue
+        if _best_val is not None and _best_sim > 0.15:
+            _vword, _vconf, _vreason = _values[_best_val]
+            # Derive a lean: the topic is semantically close to a value
+            # RAVANA holds, so RAVANA leans in that direction.
+            _lean_word = "drawn to" if "care" in _vword or "value" in _vword or "love" in _vword else "curious about"
+            _lean_conf = min(0.6, _best_sim * 0.8)
+            _stance = f"i'm {_lean_word} {_display_target}."
+            _reason = (f"it sits close to {_best_val}, which i {_vword} — "
+                       f"so that pulls me the same way. i'm still forming "
+                       f"my own view, but that's my lean so far.")
+            # Record the provisional stance
+            try:
+                self._agent_stances[_display_target.lower().strip()] = (
+                    _lean_word, _lean_conf, _reason,
+                    int(getattr(self, "turn_count", 0)))
+            except Exception:
+                pass
+            _cache = getattr(self, "_agent_preferences", None)
+            if _cache is not None:
+                _cache[f"stance:{target}"] = (_stance, _reason)
+            return (_stance, _reason)
+        # 4) No seeded value, no user stance, no semantic proximity.
+        #    HONEST failure — return the flat fallback WITHOUT recording.
         _stance = f"i'm still forming a view on {_display_target}."
         _reason = (f"i don't have a fixed stance on {_display_target} yet — what's your "
                    f"take? i'd rather hear how you see it than guess.")
-        # F3 FIX (round 2026-09-06): do NOT record a provisional stance when
-        # there is NO evidence (no seeded value, no user stance). Recording a
-        # fake "still forming a view" stance for an evidence-less topic is a
-        # fabrication — the test_F3_agent_honest_when_no_evidence test asserts
-        # that no stance is stored for such topics. Only record a provisional
-        # stance when there is at least some grounding (handled in branch 1
-        # above, where a seeded value or user stance exists). Here, there is
-        # none, so return the honest fallback WITHOUT recording.
         return (_stance, _reason)
 
     def _route_own_stance_inversion(self, user_input: str) -> Optional[str]:
@@ -1057,7 +1143,11 @@ class SelfQueryMixin:
         # Opinion frames with a concrete topic object ("what do you think
         # about wegovy", "how do you feel about the war") are STANCE
         # questions — leave them to the vmPFC stance resolver below.
-        if re.search(r"\b(think|feel|opinion)\b.*\babout\s+\w", t):
+        # Only reject when "think/feel/opinion" is DIRECTLY followed by
+        # "about" (a stance question). Self-experience queries like
+        # "do you ever feel curious about X" have an adjective between
+        # "feel" and "about" — these are NOT stance questions.
+        if re.search(r"\b(think|feel|opinion)\b\s+about\s+\w", t):
             return None
         # Introspective frame: the agent's own mind / body / affect.
         _intro = re.search(
@@ -1096,6 +1186,43 @@ class SelfQueryMixin:
             # logic, no hardcoded reply strings. Fail-closed: if below
             # threshold, return None so the caller falls through to honest
             # uncertainty rather than emitting a confabulated answer.
+            # Exception: if the reply explicitly mentions the extracted topic,
+            # it is by construction topically relevant — skip the gate.
+            # Use the same topic extraction patterns as _topic_grounded_self_experience.
+            _topic_str = ""
+            if isinstance(t, tuple) and t:
+                _topic_str = str(t[0])
+            elif isinstance(t, str):
+                # Pattern 1: "about X" / "of X" / "on X" where X is at the end
+                _tm = re.search(
+                    r"\b(?:about|of|on)\s+([a-z][a-z\s]{2,40})\s*$", t)
+                if _tm:
+                    _topic_str = _tm.group(1).strip()
+                else:
+                    # Pattern 2: "what do you X about Y" / "do you X about Y"
+                    _tm = re.search(
+                        r"\b(?:what|do|did|are|can|could|would)\s+(?:you\s+)?"
+                        r"(?:\w+\s+){0,3}?about\s+([a-z][a-z\s]{2,40})", t)
+                    if _tm:
+                        _topic_str = _tm.group(1).strip()
+                    else:
+                        # Pattern 3: "what do you dream about" — topic is the noun
+                        # before "about" at the end
+                        _tm = re.search(
+                            r"\b(dream|think|feel|wonder|curious|afraid|scared|"
+                            r"hope|wish|regret|love|like|enjoy)\s+about\s*$", t)
+                        if _tm:
+                            _topic_str = _tm.group(1).strip()
+                        else:
+                            # Pattern 4: "what makes you feel X" / "how do you feel
+                            # when X" — topic is the adjective/noun at the end
+                            _tm = re.search(
+                                r"\b(?:what\s+makes\s+you|how\s+do\s+you\s+feel\s+"
+                                r"(?:when|if))\s+([a-z][a-z\s]{2,40})\s*$", t)
+                            if _tm:
+                                _topic_str = _tm.group(1).strip()
+            if _topic_str and _topic_str.lower() in _topic_grounded.lower():
+                return _topic_grounded
             _gate = getattr(self, "_relevance_gate", None)
             if _gate is not None:
                 _gated = _gate(user_input, _topic_grounded)

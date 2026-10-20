@@ -1158,6 +1158,27 @@ _OBJECT_SKIP = frozenset({
     "up", "out", "off", "down", "in", "on", "into", "back",
 })
 
+# Indirect-object pronouns that can open a ditransitive clause
+# ("taught ME astronomy", "showed US the river", "gave THEM a book"). They
+# carry no content of their own, so the relationship miner drops a LEADING one
+# before storing the value ("taught me astronomy" -> "taught astronomy").
+# SEED vocabulary (RAVANA-expandable): adding an entry only changes whether a
+# leading pronoun is treated as an indirect object, never the answer content.
+# Shared by every strip site in this module so miner + recall agree by
+# construction instead of via N hand-kept copies.
+_INDIRECT_OBJECTS = frozenset({
+    "me", "us", "them", "him", "her", "you",
+    "myself", "himself", "herself", "ourselves", "themselves", "yourself",
+})
+
+# Interrogative openers that signal a CLAUSE object rather than a noun phrase.
+# "taught me HOW to read the hive's mood" must keep its clause verbatim, so the
+# indirect-object strip above must NOT fire when one of these follows the
+# pronoun. SEED vocabulary, same status as _INDIRECT_OBJECTS.
+_CLAUSE_OPENERS = frozenset({
+    "how", "what", "why", "when", "where", "which", "who", "whom", "whose",
+})
+
 
 def _activity_object(clause_tokens, verb_idx) -> str:
     """Extract the activity object following the verb at verb_idx in a token
@@ -3960,6 +3981,28 @@ class UserModel:
                 if _vidx is not None:
                     _verb = _toks[_vidx].lower().strip(".,!?")
                     _obj_rest = " ".join(_toks[_vidx + 1:])
+                    # Strip a leading indirect object ("me", "us") from
+                    # taught/showed/told/gave clauses — it carries no
+                    # content ("taught me astronomy" -> "taught astronomy").
+                    #
+                    # This runs for EVERY verb class, NOT only relation verbs.
+                    # The verb scan above tests is_activity_verb FIRST and
+                    # breaks, so a verb present in BOTH lexicons ("taught",
+                    # "teach", "teaches", "works", "bakes", ...) leaves
+                    # _v_is_rel False even though is_relation_verb is also
+                    # True. Gating the strip on _v_is_rel therefore silently
+                    # disabled it for exactly the ditransitive verbs it was
+                    # written for (round 2026-10-20 regression, 5 red tests).
+                    #
+                    # Only strip when followed by a noun phrase (not a
+                    # question word like "how"/"what" — those open a CLAUSE
+                    # object that must be preserved verbatim, and the
+                    # _is_clause_obj path below keys on "me" + question word).
+                    _obj_rtoks = _obj_rest.split()
+                    if (_obj_rtoks and _obj_rtoks[0] in _INDIRECT_OBJECTS
+                            and len(_obj_rtoks) >= 2
+                            and _obj_rtoks[1] not in _CLAUSE_OPENERS):
+                        _obj_rest = " ".join(_obj_rtoks[1:])
                     if _v_is_rel:
                         # Relation-verb value: KEEP the enumeration + connective.
                         # The activity path splits the object on "and" (so "baskets
@@ -4012,15 +4055,11 @@ class UserModel:
                         # full clause is preserved verbatim. Structural: the
                         # question word is a closed-class marker that signals
                         # a clause object, not a noun-phrase object.
-                        _CLAUSE_Q = {"how", "what", "why", "when", "where",
-                                     "which", "who", "whom", "whose"}
                         _raw_toks_pre = _obj_raw.lower().split()
                         _is_clause_obj = (
                             len(_raw_toks_pre) >= 2
-                            and _raw_toks_pre[0] in (
-                                "me", "us", "them", "him", "her", "you",
-                                "myself", "himself", "herself")
-                            and _raw_toks_pre[1] in _CLAUSE_Q
+                            and _raw_toks_pre[0] in _INDIRECT_OBJECTS
+                            and _raw_toks_pre[1] in _CLAUSE_OPENERS
                         )
                         if _is_clause_obj:
                             _obj = ""

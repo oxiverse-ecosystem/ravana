@@ -94,3 +94,14 @@ def test_d3_first_person_recall_favorite_food_still_works():
         "RV-5 backfill: 'what did i just tell you about my favorite food' "
         "must still reach the agent-reply store"
     )
+
+
+def test_d3_reminder_of_agent_speech_about_user_attribute_still_works():
+    """The recall verb's speaker is the agent in an explicit reminder."""
+    eng = _new_engine("t_d3_dog_reminder")
+    prior_reply = eng.process_turn("my dog biscuit sleeps on the wedging table")
+    try:
+        r = eng._route_agent_own_recall("remind me what you said about my dog")
+        assert r in (f"i said: {prior_reply}", f"earlier i said: {prior_reply}")
+    finally:
+        eng.stop_background_learning()

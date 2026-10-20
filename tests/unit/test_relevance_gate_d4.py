@@ -6,9 +6,9 @@ by GloVe cosine and generates an analogical reply. Without a relevance gate,
 this reply can be completely off-topic (e.g., "dreams" -> "people who hoard
 every book ever read").
 
-The _relevance_gate method computes the max single-word GloVe cosine between
-the query's content words and the answer's content words. If the best
-similarity is below threshold, the answer is withheld (returns None).
+The _relevance_gate method uses the learned multi-signal relevance score and
+requires content overlap. Recency and GloVe proximity alone cannot establish
+that a generated answer addresses the query.
 
 This test verifies:
 1. The _relevance_gate method exists and is callable
@@ -99,12 +99,32 @@ def test_relevance_gate_returns_answer_string_when_relevant(engine):
 
 
 def test_relevance_gate_handles_empty_inputs(engine):
-    """Edge cases: empty answer returns None (fail-closed on empty answer)."""
-    assert engine._relevance_gate("some query", "") is None
-    assert engine._relevance_gate("", "") is None
+    """Empty answers pass through unchanged; None still means no answer."""
+    assert engine._relevance_gate("some query", "") == ""
+    assert engine._relevance_gate("", "") == ""
+    assert engine._relevance_gate("some query", None) is None
     # Non-empty query with relevant answer should pass through the gate
     result = engine._relevance_gate("what is sleep", "sleep is when the mind rests")
     assert result is not None, "gate should pass a relevant answer"
+
+
+def test_relevance_gate_passes_long_relevant_answer(engine):
+    """A low Jaccard ratio must not reject an answer naming the real topic."""
+    answer = (
+        "sleep is a natural state of rest for the mind and body, with changes "
+        "in awareness, breathing, muscle activity, and responses to surroundings"
+    )
+    assert engine._relevance_gate("what is sleep", answer) == answer
+
+
+def test_relevance_gate_preserves_answer_when_scoring_unavailable(engine, monkeypatch):
+    """The PR's fail-open behavior must survive the content-evidence check."""
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("scoring unavailable")
+
+    monkeypatch.setattr(engine._relevance_scorer, "score_with_signals", unavailable)
+    answer = "sleep is when the mind rests"
+    assert engine._relevance_gate("what is sleep", answer) == answer
 
 
 def test_relevance_gate_is_wired_into_consult_internal(engine):

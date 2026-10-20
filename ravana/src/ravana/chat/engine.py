@@ -3716,7 +3716,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         r"do|does|did|has|have|had|can|could|would|will|tell|"
                         r"said|say|recall|remember|know|mention)\b", q.strip()))
                     _pet_in_q = (_pet_mentioned or any(t.startswith("pet") for t in _q_toks2))
-                    if _is_q2 and _ask_activity and _pet_in_q and not _distress:
+                    if (_is_q2 and _ask_activity and _pet_in_q and not _distress
+                            and not attribute_gate.asks_name_only(q)):
                         _pet_acts = {}
                         for _pk, _pf in pf.facts.items():
                             if not (isinstance(_pk, tuple) and len(_pk) == 3):
@@ -6293,33 +6294,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         reply strings. The threshold adapts incrementally from conversation
         feedback (false positive/negative signals).
 
-        Requires BOTH a minimum overall score AND some content overlap.
-        The overall score alone is too permissive: recency and type signals
-        default to 1.0, so even a completely off-topic answer scores 0.35
-        (above the 0.15 threshold). Content overlap is the signal that
-        actually distinguishes on-topic from off-topic.
+        Require content evidence as well as the learned score: recency and
+        unknown-type signals alone already exceed the default threshold, and
+        GloVe proximity can connect unrelated topics. Any content overlap is
+        enough; a long, relevant answer must not fail just for having a low
+        Jaccard ratio.
         """
         if not answer:
-            return None
+            return answer
         try:
-            if not hasattr(self, '_relevance_scorer') or self._relevance_scorer is None:
-                from .relevance_store import RelevanceThreshold, RelevanceScorer
-                self._relevance_threshold = RelevanceThreshold()
-                self._relevance_scorer = RelevanceScorer(glove_fn=self._glove_vector)
-            _score = self._relevance_scorer.score(
+            _score, _signals = self._relevance_scorer.score_with_signals(
                 query, answer,
                 query_turn=self.turn_count,
                 threshold=self._relevance_threshold)
-            from .relevance_store import _content_words, _jaccard_overlap
-            _q_words = set(_content_words(query))
-            _a_words = set(_content_words(answer))
-            _overlap = _jaccard_overlap(_q_words, _a_words)
             if (_score >= self._relevance_threshold.base_threshold
-                    and _overlap >= 0.15):
+                    and _signals["content"] > 0.0):
                 return answer
             return None
         except Exception:
-            return None  # fail-closed on scorer error (honest uncertainty beats confabulation)
+            return answer  # fail-open on scorer error (never break recall)
 
     def _bind_user_model_dependencies(self):
         """Inject engine-owned structures into the user model.
@@ -6496,8 +6489,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # here by the first-person-recall heuristic, NOT by the attribute guard
         # below — the attribute guard is for USER-ATTRIBUTE queries ("can you
         # recall my name?") which must NOT be answered from the agent-reply
-        # store. So we only apply the attribute guard when the query is NOT a
-        # first-person recall of the agent's own speech. Computed BEFORE the
+        # store. The attribute guard still applies to user-speaker recalls
+        # naming a user attribute. Computed BEFORE the
         # gate so a first-person recall can bypass the agent-self gate (which
         # would otherwise reject it via _is_user_speaker_recall Rule 1).
         _is_first_person_recall = bool(re.search(
@@ -6519,10 +6512,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # remember my sister") must NOT be answered from the agent-reply store —
         # those ask about the USER's own facts, resolved by the user stores
         # further down. Structural (1st-person possessive + user-attribute noun),
-        # but ONLY when the query is NOT already a first-person recall of the
-        # agent's own prior speech (RV-5: "what did i just tell you about my
-        # favorite food" must reach the agent-reply store, not be blocked here).
-        if (not _is_first_person_recall
+        # including user-speaker recalls ("what did i just tell you about my
+        # dog"). Explicit reminders of the AGENT's speech retain the bypass;
+        # RV-5's "favorite food" is not an attribute in this guard either.
+        if ((not _is_first_person_recall or self._is_user_speaker_recall(_q))
                 and re.search(
                     r"\b(my|mine|me|i|we|our|myself)\b", _q)
                 and re.search(

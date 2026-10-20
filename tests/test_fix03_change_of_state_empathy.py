@@ -29,8 +29,12 @@ def test_fix03_infinitive_disclosure_routes_to_empathy():
     r2 = eng.process_turn("i've begun to fear the future")
     assert "noted" not in r2.lower(), f"Got bare ack: {r2}"
 
-    r3 = eng.process_turn("she's grown to love the quiet mornings")
+    r3 = eng.process_turn("i've grown to love the quiet mornings")
     assert "noted" not in r3.lower(), f"Got bare ack: {r3}"
+
+    # A third person's feelings are not a self-disclosure by the user.
+    assert eng._detect_emotional_disclosure(
+        text="she's grown to love the quiet mornings") is None
 
     # Verify it still works for simple disclosures too
     r4 = eng.process_turn("i hate the noise")
