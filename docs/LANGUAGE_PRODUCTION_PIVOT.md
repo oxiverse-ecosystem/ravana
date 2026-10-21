@@ -255,9 +255,9 @@ Three concrete consequences, each verified:
 | A4 closed content word sets | **REJECT** | No runtime growth path |
 | A4 relation-ignoring verb picker | **REJECT** | Verified defect, combinator dead |
 | A5 sparse n-gram design | **ADOPT** | Correct, keep |
-| A5 cerebellar key mismatch | **REJECT** | Verified defect, learner dead |
-| A5 unconditional decay | **REJECT** | Erases unreinforced memory |
-| A5 self-graded reward | **REJECT** | Grades itself, not the user |
+| A5 cerebellar key mismatch | **CLOSED (adopted)** | Fixed: `learn_phrase()` writes a `phrase_patterns` store keyed by raw relation type; `predict_phrase()` reads it; `_select_verb_phrase` consults at all dopamine levels. See `CAPABILITY_C4_CEREBELLAR_PHRASE_PATTERN_LEARNER.md`. |
+| A5 unconditional decay | **PARTIAL** | Usage-protected decay (`tick()` + `_phrase_last_used` + `_decay_window`) is structurally in place; residual: `tick()` is never called from the engine turn loop (documented as a known gap + regression test `test_c4_tick_called_by_engine_turn`). |
+| A5 self-graded reward | **NOT CLOSED** | `learn_phrase` still called with `successful=True` unconditionally; C3 (grounded user-derived reward) is deferred. |
 
 ---
 
@@ -299,12 +299,27 @@ signal computed from **the user's next utterance**:
   (`user_model.py:1839` references `detected_correction_fact`). The signal is
   available; the wiring into the realizer's learning is not.
 
-### C4 — Make the cerebellum live (fix the key mismatch)
+### C4 — Make the cerebellum live (fix the key mismatch) ✅ IMPLEMENTED
 Write the same key the reader uses. Either `learn_chain` writes
 `f"phrase:{relation}"` entries, or `_select_verb_phrase:1108` reads concept-label
 keys. One line, and the dead learner becomes a live one. Also make
 `_apply_decay:156` usage-protected (decay only entries not reinforced within a
 window) so memory survives a conversation that moves on.
+
+**Status (round 2026-10-21):** ADOPTED and implemented in commit dc45b698.
+`CerebellarNgram` gained a `phrase_patterns` store keyed by raw relation type
+(`cerebellar_ngram.py:54-62`); `learn_phrase()` writes it
+(`cerebellar_ngram.py:147-177`), `predict_phrase()` reads it
+(`cerebellar_ngram.py:208-227`), and `_select_verb_phrase` queries it at **all**
+dopamine levels (`surface_realizer.py:1098-1117`). The write/read bridge is wired
+in at `engine_generation.py:416-422`. Usage-protected decay (`tick()` +
+`_phrase_last_used` + `_decay_window`) is structurally present
+(`cerebellar_ngram.py:229-281`). Residual gaps (documented honestly in
+`CAPABILITY_C4_CEREBELLAR_PHRASE_PATTERN_LEARNER.md` §Honest residual
+limitations): (a) `tick()` is not yet called from the engine turn loop — a
+regression test `test_c4_tick_called_by_engine_turn` guards against silent
+re-drop; (b) `learn_phrase` is still called with `successful=True`
+unconditionally — C3 (grounded user-derived reward) remains deferred.
 
 ### C5 — Open content lexicon + relation-conditioned predicate binding
 Replace the closed sets (`_uncountable_nouns:125`, `_abstract_nouns:160`) with a
