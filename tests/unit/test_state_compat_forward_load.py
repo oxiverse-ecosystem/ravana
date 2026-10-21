@@ -52,6 +52,22 @@ assert len(REAL_MODULE) == len(FAKE_MODULE)
 assert FAKE_MODULE not in sys.modules
 
 
+@pytest.fixture(autouse=True)
+def _reset_state_compat():
+    """Reset module-level caches between tests.
+
+    ``LAST_DROPPED_CLASSES`` and ``_PLACEHOLDERS`` are process-global, so
+    under xdist they leak across tests in the same worker shard. A prior
+    test that intentionally degrades a load (e.g. test_missing_third_party_*)
+    leaves a non-empty report that makes a later clean-load assertion flake.
+    Serial runs pass; sharded runs fail intermittently. This fixture makes
+    each test start from a clean slate.
+    """
+    state_compat.reset_state()
+    yield
+    state_compat.reset_state()
+
+
 def _build_pickle_with_missing_class(extra, real_mod=REAL_MODULE,
                                      fake_mod=FAKE_MODULE):
     """Return pickle bytes in which `real_mod` is named as the absent `fake_mod`.
