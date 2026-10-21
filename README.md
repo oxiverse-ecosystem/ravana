@@ -40,6 +40,19 @@ on this codebase:
 - **Learns personal facts from conversation.** Told *"i live in berlin"* it
   stores a fact and confirms: `noted — i'll remember you live in berlin.`
   (persisted as `('i','location','berlin')`, confidence 0.7).
+- **Captures "i grew up in…" as a location, not a garbage event.** Told *\"i grew
+  up in kodaikanal in the mountains\"* it stores `('i','grew up','kodaikanal')`
+  (not a bogus `('i','event:grow','grew kodaikanal')`), strips the trailing
+  *\"in the mountains\"* descriptor via a natural-feature lexicon, and uses the
+  verb-preserved attribute so recall says *\"you grew up in kodaikanal\"* not
+  *\"you live in kodaikanal\"*. The miner also now refuses to let a temporal
+  adverb (*today, now, always*) land in a personal-name slot — *\"my best friend
+  today\"* no longer stores the defective `('i','friend today','today')` fact that
+  leaked into chitchat recall. No per-verb, per-place, or per-name rule: the
+  irregular *grew* form is a closed-class inflection addition, the descriptor
+  strip and the temporal-adverb gate both reuse the shared `pet_slots` seed
+  vocabularies (runtime-growable). See
+  `docs/CAPABILITY_GREW_UP_LOCATION_AND_TEMPORAL_NAME_GUARD.md`.
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`
