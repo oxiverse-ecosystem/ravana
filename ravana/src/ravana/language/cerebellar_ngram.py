@@ -29,6 +29,7 @@ class CerebellarState:
     total_bigram_entries: int = 0
     total_trigram_entries: int = 0
     total_function_word_entries: int = 0
+    total_phrase_pattern_entries: int = 0
     avg_confidence: float = 0.0
     most_learned_transitions: List[Tuple[str, str, float]] = field(default_factory=list)
 
@@ -50,6 +51,19 @@ class CerebellarNgram:
         # Function word predictions: (concept_from, concept_to) -> {func_word -> prob}
         # e.g., ("trust", "knowledge") -> {"is": 0.8, "are": 0.1, ...}
         self.function_word_probs: Dict[Tuple[str, str], Dict[str, float]] = {}
+
+        # Phrase-pattern predictions: relation_type -> {verb_phrase -> weight}
+        # e.g., 'semantic' -> {'relates to': 0.6, 'is': 0.3}
+        # Written by learn_phrase(); read by SurfaceRealizer._select_verb_phrase
+        # via predict_phrase(). This is the C4 fix (PIVOT §A5): the cerebellum's
+        # online sequential learner is connected to the output path.
+        self.phrase_patterns: Dict[str, Dict[str, float]] = {}
+
+        # Last-access timestamp for usage-protected decay (PIVOT §A5).
+        # Entries touched within _decay_window turns are shielded from decay.
+        self._phrase_last_used: Dict[str, float] = {}
+        self._turn_counter: float = 0.0
+        self._decay_window: float = 50.0  # ~50 turns of protection
 
         # Depth tracking: how many hops typically follow from a concept
         self.depth: Dict[str, float] = {}
@@ -153,9 +167,82 @@ class CerebellarNgram:
         current = self.function_word_probs[key].get(function_word.lower(), 0.0)
         self.function_word_probs[key][function_word.lower()] = min(1.0, current + increment)
 
+    def learn_phrase(self, relation: str, verb_phrase: str,
+                     successful: bool = True):
+        """Learn that a verb_phrase is appropriate for a given relation type.
+
+        This is the WRITE side of the key the reader
+        (`SurfaceRealizer._select_verb_phrase`) already queries:
+        `phrase:{relation}`. Before this method existed, no writer produced
+        those keys, so `predict_next("phrase:semantic")` always returned {}
+        and the cerebellum's contribution to the output path was dead code.
+
+        Hebbian update: successful utterances strengthen the association;
+        corrective feedback (successful=False) weakens it.
+
+        Args:
+            relation: Edge relation type (semantic, causal, contrastive, ...).
+            verb_phrase: The surface verb phrase RAVANA actually produced,
+                         e.g. "relates to", "is shaped by", "because".
+            successful: Whether the utterance was well-received.
+        """
+        rel = relation.lower() if relation else "semantic"
+        vp = verb_phrase.lower() if verb_phrase else ""
+        if not vp:
+            return
+
+        lr = self.learning_rate if successful else -self.learning_rate * 0.5
+
+        if rel not in self.phrase_patterns:
+            self.phrase_patterns[rel] = {}
+        current = self.phrase_patterns[rel].get(vp, 0.0)
+        self.phrase_patterns[rel][vp] = max(0.0, min(1.0, current + lr))
+
+        # Mark this phrase pattern as recently used (usage-protected decay,
+        # PIVOT §A5).
+        self._phrase_last_used[rel] = self._turn_counter
+
+    def predict_phrase(self, relation: str, top_k: int = 3) -> Dict[str, float]:
+        """Predict the next verb phrase for a relation type.
+
+        This is the READ side complementary to `learn_phrase`. Returns a dict
+        of {verb_phrase: score} sorted descending by learned weight. Returns
+        {} when no pattern has been learned for this relation (the caller
+        then falls through to VerbLexicon.select_verb).
+
+        Args:
+            relation: Edge relation type (semantic, causal, ...).
+            top_k: Maximum number of predictions.
+
+        Returns:
+            Dict of {verb_phrase: score} sorted descending.
+        """
+        rel = relation.lower() if relation else "semantic"
+        patterns = self.phrase_patterns.get(rel, {})
+        if not patterns:
+            return {}
+        sorted_scores = dict(
+            sorted(patterns.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        )
+        return sorted_scores
+
+    def tick(self):
+        """Advance the internal turn counter (call once per engine turn).
+
+        Enables usage-protected decay: phrase patterns accessed within the
+        last `_decay_window` ticks are shielded from `_apply_decay`.
+        """
+        self._turn_counter += 1.0
+
     def _apply_decay(self):
-        """Apply gentle decay to all weights (prevents unbounded growth)."""
+        """Apply gentle decay to all weights (prevents unbounded growth).
+
+        Phrase patterns are usage-protected: a pattern whose relation was
+        reinforced within the last `_decay_window` ticks is shielded from
+        decay, so memory survives when conversation moves on (PIVOT §A5).
+        """
         decay = self.decay_rate
+        now = self._turn_counter
 
         # Decay bigram
         for from_lbl in list(self.bigram.keys()):
@@ -174,6 +261,22 @@ class CerebellarNgram:
                     del self.trigram[tri_key][to_lbl]
             if not self.trigram[tri_key]:
                 del self.trigram[tri_key]
+
+        # Decay phrase patterns with usage protection (PIVOT §A5).
+        # A relation's phrase patterns are shielded from decay for
+        # _decay_window turns after the last reinforcement, so memory
+        # survives when the conversation moves on to other topics.
+        for rel in list(self.phrase_patterns.keys()):
+            last_used = self._phrase_last_used.get(rel, 0.0)
+            age = now - last_used
+            if age < self._decay_window:
+                continue  # recently reinforced — shield from decay
+            for vp in list(self.phrase_patterns[rel].keys()):
+                self.phrase_patterns[rel][vp] = max(0.0, self.phrase_patterns[rel][vp] - decay)
+                if self.phrase_patterns[rel][vp] <= 0:
+                    del self.phrase_patterns[rel][vp]
+            if not self.phrase_patterns[rel]:
+                del self.phrase_patterns[rel]
 
     # ─── Prediction ───
 
@@ -270,6 +373,9 @@ class CerebellarNgram:
             'bigram': self.bigram,
             'trigram': serialized_trigram,
             'function_word_probs': serialized_fw,
+            'phrase_patterns': self.phrase_patterns,
+            'phrase_last_used': self._phrase_last_used,
+            'turn_counter': self._turn_counter,
             'depth': self.depth,
         }
 
@@ -291,6 +397,9 @@ class CerebellarNgram:
             if len(parts) == 2:
                 self.function_word_probs[(parts[0], parts[1])] = probs
 
+        self.phrase_patterns = state.get('phrase_patterns', {})
+        self._phrase_last_used = state.get('phrase_last_used', {})
+        self._turn_counter = state.get('turn_counter', 0.0)
         self.depth = state.get('depth', {})
 
     def get_stats(self) -> CerebellarState:
@@ -298,6 +407,7 @@ class CerebellarNgram:
         total_bigram = sum(len(targets) for targets in self.bigram.values())
         total_trigram = sum(len(targets) for targets in self.trigram.values())
         total_fw = sum(len(probs) for probs in self.function_word_probs.values())
+        total_phrase = sum(len(vps) for vps in self.phrase_patterns.values())
 
         # Find top transitions
         all_transitions = []
@@ -312,6 +422,7 @@ class CerebellarNgram:
             total_bigram_entries=total_bigram,
             total_trigram_entries=total_trigram,
             total_function_word_entries=total_fw,
+            total_phrase_pattern_entries=total_phrase,
             avg_confidence=avg_conf,
             most_learned_transitions=top,
         )

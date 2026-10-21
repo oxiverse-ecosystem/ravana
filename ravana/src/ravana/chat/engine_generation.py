@@ -413,6 +413,13 @@ class GenerationMixin:
                 if len(utterances) > 0:
                     chain_labels = [frame.subject_concept or "it", frame.verb_phrase, frame.object_concept]
                     self.cerebellar_ngram.learn_chain(chain_labels, successful=True)
+                    # C4 fix: write the phrase:{relation} key that the reader
+                    # (SurfaceRealizer._select_verb_phrase) already queries.
+                    self.cerebellar_ngram.learn_phrase(
+                        relation=frame.relation_type,
+                        verb_phrase=frame.verb_phrase,
+                        successful=True,
+                    )
                     VerbLexicon.reinforce(relation, frame.verb_phrase, success=1.0)
 
             if utterances:

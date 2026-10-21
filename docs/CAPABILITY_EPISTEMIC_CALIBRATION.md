@@ -193,6 +193,9 @@ freeze the gate at a wrong value forever. Measured: `n` stays `0` after
 **Test coverage: 43 tests, green.** `pytest tests/unit/test_epistemic_calibration.py
 tests/test_epistemic_calibration_wiring.py` → **43 passed in 125.19s**.
 
+**Observability surface: 9 tests, green.** `pytest tests/test_calibration_surface.py`
+→ **9 passed**. Combined run of all three files: **52 passed in 80.54s**.
+
 **A coverage gap this docs round found and closed.** Grading
 `docs/ACCEPTANCE_LEDGER.md` surfaced that `chat/metacognition.py` — the module
 whose gate the calibrator moves — had **no dedicated test file**:
@@ -235,10 +238,22 @@ sabotage script, which keeps a `shutil.copy2` backup and cleans it up).
   actually produce?"* — a real and useful turn-level signal, and strictly
   narrower than per-claim truth calibration. The module docstring keeps that
   distinction explicit rather than letting the name overclaim.
-- **The ledger is not yet exposed on any CLI or status surface.** `grep` over
-  `scripts/` and `engine_status.py` finds no reader, so `get_status()` is
-  currently reachable only from in-process code. The wiring that persists it
-  is tested; the observability surface is not built. Filed, not bundled.
+- **The ledger is exposed on the CLI (`--calibration`).** `scripts/ravana_chat.py
+  --calibration` reads `EpistemicCalibrator.get_status()` and renders the signed
+  bias, raw mean bias, Brier, the adaptive `theta_withhold`, and the per-band
+  reliability curve (read from the same object's `reliability()`); `--json` emits
+  the raw status dict. It is a reader — the calibrator is not modified, and no
+  metric is recomputed independently of `get_status()`, so the surface cannot
+  drift from the gate the engine actually applies. Unvisited bands render as
+  *absent knowledge*, never as a `0.0` hit-rate. Pinned by
+  `tests/test_calibration_surface.py` (9 tests), sabotage-verified by corrupting
+  `get_status()` and watching the suite go red. **Measured on the live canonical
+  self** (`--calibration`, `RAVANA_OFFLINE=1`): `n=15`, `bias=+0.0425`,
+  `theta_withhold=0.3425`, `bands_visited=3/5`, `calibrated=true`.
+  *Prior state, kept for the record:* `grep` over `scripts/` and
+  `engine_status.py` found no reader, so `get_status()` was reachable only from
+  in-process code — the wiring that persisted it was tested, but the
+  observability surface was not built.
 - **`BIAS_GAIN = 1.0` is a modelling choice, not a fitted value.** 1.0 is the
   identity correction: shift the gate by exactly the miscalibration you
   measured. Any other value would apply a partial correction with no
@@ -260,6 +275,8 @@ sabotage script, which keeps a `shutil.copy2` backup and cleans it up).
 | the adaptive gate | `calibration.py:215` (`theta_withhold`) |
 | reliability curve | `calibration.py:228` (`reliability`) |
 | observability snapshot | `calibration.py:260` (`get_status`) |
+| CLI observability surface | `scripts/ravana_chat.py` (`--calibration`, `--calibration --json`) |
+| surface tests | `tests/test_calibration_surface.py` (9) |
 | persistence | `calibration.py:277` / `calibration.py:289` |
 | the ACC it moves | `ravana/src/ravana/chat/metacognition.py:29`, `:65`, `:85` |
 | engine construction | `engine.py:1818` |

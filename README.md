@@ -465,6 +465,7 @@ See [`docs/`](docs/README.md):
 - [Agent Self-Stance](docs/AGENT_SELF_STANCE.md) — RAVANA forms, records, and recalls its own stance on a discussed topic (grounded in your view, attenuated, persisted), and stays honestly silent otherwise.
 - [Acceptance Ledger](docs/ACCEPTANCE_LEDGER.md) — per-module test-coverage grade (GREEN/YELLOW/RED) with real numbers.
 - [Multi-Signal Recall Relevance Scorer](docs/CAPABILITY_RECALL_RELEVANCE_SCORER.md) — multi-signal candidate ranking with online threshold adaptation (MRS).
+- [C4 Cerebellar Phrase-Pattern Learner](docs/CAPABILITY_C4_CEREBELLAR_PHRASE_PATTERN_LEARNER.md) — how RAVANA's sole online sequential learner (no LLM, no retraining) is wired into the output path so a verb phrase learned from one conversation biases the verb picked for the same relation type on the next turn.
 - [Honest Reporting Standard](docs/HONEST_REPORTING_STANDARD.md) — four enforceable rules for every RAVANA claim.
 
 ## Benchmark results
