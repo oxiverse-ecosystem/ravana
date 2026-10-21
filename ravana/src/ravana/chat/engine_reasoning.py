@@ -2035,6 +2035,18 @@ class ReasoningMixin:
             return True
 
         q = (user_input or "").lower().strip()
+        # Belief-conviction statements ("i believe X", "i have always believed X",
+        # "i think we should Y") are handled by the assertion path + mine_user_belief,
+        # NOT the self-disclosure path — routing them here produced a degenerate
+        # "noted." ack and hid the belief behind the self-disclosure store. Detect
+        # the conviction cue (grammatical aspect/tense tolerant) and bail out so
+        # they fall through to the assertion path.
+        if re.search(
+            r"\bi\s+(?:'ve|'d|'m|'re|have|has|had|am|is|are)?\s*"
+            r"(?:always|long|never|often|still|now|come to|grown to|increasingly)?\s*"
+            r"(?:really|firmly)?\s*(?:believe(?:d)?|think|thought|feel|felt|hold|held|convinced)\b",
+            q, re.IGNORECASE):
+            return False
         if not q:
             return False
         # R3 (round v3): normalize spoken first-person contractions BEFORE the

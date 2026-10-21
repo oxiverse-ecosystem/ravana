@@ -3437,6 +3437,18 @@ class UserModel:
                     # prepositions/conjunctions ("of the", "before the") are
                     # kept so a genuine multi-word value stays whole.
                     _val = re.split(r"(?<=[.!?])\s+|\s*[.!?]\s*$", _val)[0].strip()
+                    # Bound the value at a CLAUSE boundary: a coordinating
+                    # conjunction that opens a new clause (conjunction followed
+                    # by a subject pronoun/determiner) ends the value, so
+                    # "my favourite instrument is the veena and i have been
+                    # playing it" stores "the veena", not the whole clause.
+                    # Structural (closed-class conjunction + subject), not a
+                    # per-utterance rule; multi-word values without a new
+                    # subject clause (e.g. "bacon and eggs") stay whole.
+                    _val = re.split(
+                        r"\s+(?:and|but|or|so|yet)\s+"
+                        r"(?:i|you|he|she|it|we|they|my|your|his|her|our|their)\b",
+                        _val, flags=re.IGNORECASE)[0].strip()
                     # NAME-BRIDGE route (round 2026-08-18T1340Z): patterns like
                     # "i keep a sourdough starter i named doris" capture the
                     # possessed NOUN as _attr and the NAME as _val. Store it as an
@@ -4594,7 +4606,7 @@ class UserModel:
                     # of a bare noun. The verb is part of the mined disclosure,
                     # not an authored label.
                     _put_fact(canonical_activity_attr("does", _verb),
-                              f"{_verb} {_obj}", 0.55)
+                              f"{self._verb_stem(_verb)} {_obj}", 0.55)
                     # NAME-BRIDGE (round 2026-08-18T1340Z): when the captured
                     # activity object contains "named/called <Name>" (e.g. "i
                     # keep a sourdough starter i named doris"), ALSO store the
@@ -4622,7 +4634,7 @@ class UserModel:
                 _obj = _strip_obj_framers(_obj)
                 if _obj and len(_obj.split()) <= 5:
                     _put_fact(canonical_activity_attr("does", _cverb),
-                              f"{_cverb} {_obj}", 0.55)
+                              f"{self._verb_stem(_cverb)} {_obj}", 0.55)
 
         # FIX (round 2026-08-09T1953Z): general first-person activity +
         # experience capture. The D3 activity loop above only matches BARE
@@ -4747,7 +4759,7 @@ class UserModel:
                 continue
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact(canonical_activity_attr("does", _verb),
-                          f"{_verb} {_obj}", 0.55)
+                          f"{self._verb_stem(_verb)} {_obj}", 0.55)
         # Experience / event capture: first-person "i <event-verb> <object>"
         # describing something that happened to the user's world. Captured
         # under attr "event" so it is recallable as a lived experience (not
@@ -4939,7 +4951,7 @@ class UserModel:
             _obj = self._opinion_topic(_gm.group(2).strip().lower())
             if _obj and 1 <= len(_obj.split()) <= 5:
                 _put_fact(canonical_activity_attr("does", _verb),
-                          f"{_verb} {_obj}", 0.5)
+                          f"{self._verb_stem(_verb)} {_obj}", 0.5)
 
         # Round 2026-08-14T0608Z: TEMPORAL / DATE-GROUNDED fact mining.
         # A first-person disclosure that anchors an activity to a POINT IN TIME

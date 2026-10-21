@@ -2766,15 +2766,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if not re.match(r"^(i|i'm|i am|we|we're|we are)\b", _tl):
             return
         # Conviction cue phrases -> capture the proposition that follows.
+        # Perfect-aspect tolerance: "i have always believed", "i have long
+        # thought", "i've always felt" carry an auxiliary + adverb between the
+        # subject and the verb. The span is grammatical (perfect /
+        # perfect-continuous aspect), not a phrase list. Tense tolerance
+        # (base + past/past-participle) covers "thought"/"felt"/"held"/
+        # "believed" without a per-verb table.
+        _AUXADV = (
+            r"\s*(?:'ve|'d|'m|'re|have|has|had|am|is|are)?"
+            r"\s*(?:always|long|never|often|still|now|come to|grown to|increasingly)?"
+            r"\s*"
+        )
         _CUES = (
-            r"\bi\s+(?:really\s+)?believe\s+(?:that\s+)?(.+)$",
-            r"\bi\s+think\s+(?:that\s+)?(.+)$",
-            r"\bi\s+(?:am|'m)\s+convinced\s+(?:that\s+)?(.+)$",
-            r"\bi\s+hold\s+(?:that\s+)?(.+)$",
-            r"\bi\s+(?:firmly\s+)?feel\s+(?:that\s+)?(.+)$",
-            r"\bwe\s+should\s+(.+)$",
-            r"\bwe\s+must\s+(.+)$",
-            r"\bwe\s+need\s+to\s+(.+)$",
+            r"\bi" + _AUXADV + r"(?:really\s+)?(?:believe|believed)\s+(?:that\s+)?(.+)$",
+            r"\bi" + _AUXADV + r"(?:think|thought)\s+(?:that\s+)?(.+)$",
+            r"\bi" + _AUXADV + r"(?:am|'m)\s+convinced\s+(?:that\s+)?(.+)$",
+            r"\bi" + _AUXADV + r"(?:hold|held)\s+(?:that\s+)?(.+)$",
+            r"\bi" + _AUXADV + r"(?:firmly\s+)?(?:feel|felt)\s+(?:that\s+)?(.+)$",
+            r"\bwe" + _AUXADV + r"should\s+(.+)$",
+            r"\bwe" + _AUXADV + r"must\s+(.+)$",
+            r"\bwe" + _AUXADV + r"need\s+to\s+(.+)$",
         )
         _prop = None
         for _c in _CUES:
@@ -4883,7 +4894,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # recall. Structural overlap scoring; generalizes across topics.
         _USERBEL = re.search(
             r"\b(?:what did i (?:tell|say) you|what do i|remind me what i|"
-            r"what (?:was|is) my)\b.{0,30}?\b(?:believe|belief|think|stance|position)\b"
+            r"what (?:was|is) my)\b.{0,30}?\b(?:believe|believed|belief|think|thought|stance|position)\b"
             r".{0,30}?\b(?:about|on|of)?\b\s*(?P<cue>[a-z][a-z \-]{1,40})", q)
         if _USERBEL and beliefs is not None:
             _cue = _USERBEL.group("cue").strip().strip("?.!").lower()
