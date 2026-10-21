@@ -301,6 +301,15 @@ def main():
                         help="Import graph from JSON file (merge into existing)")
     parser.add_argument("--stats", action="store_true",
                         help="Print graph statistics")
+    parser.add_argument("--calibration", action="store_true",
+                        help="Print the epistemic calibration ledger (P2-C) — "
+                             "signed bias, per-band reliability curve, and the "
+                             "adaptive theta_withhold used to gate on-demand "
+                             "withhold for confabulation. Read from "
+                             "EpistemicCalibrator.get_status(); the ledger is "
+                             "persisted with the engine weights, so this "
+                             "reflects real observed (confidence, outcome) "
+                             "pairs, not live estimates.")
     parser.add_argument("--concept", type=str, default=None,
                         help="Show what RAVANA knows about a concept")
     parser.add_argument("--calibration", action="store_true",
@@ -472,6 +481,38 @@ def main():
     if args.stats:
         print(f"  [Stats] Graph has {len(engine.graph.nodes)} nodes and {len(engine.graph.edges)} edges")
         print(f"  [Stats] Turn count: {engine.turn_count}")
+        return
+    if args.calibration:
+        # P2-C observability: expose the epistemic calibration ledger through the
+        # same CLI surface as --stats/--concept. The data source is the
+        # already-tested EpistemicCalibrator.get_status(); no new component is
+        # introduced and the calibrator itself is untouched.
+        cal = getattr(engine, "calibrator", None)
+        if cal is None:
+            print("  [Calibration] No epistemic calibrator registered on this engine.")
+            return
+        _st = cal.get_status()
+        print("  [Calibration] Epistemic calibration ledger (P2-C):")
+        print(f"    turns observed : { _st['n'] }")
+        print(f"    total pairs    : { _st['total_observed'] }")
+        print(f"    mean bias (+)  : { _st['mean_bias'] }")
+        print(f"    bias           : { _st['bias'] }")
+        print(f"    brier score    : { _st['brier'] }")
+        print(f"    theta withhold : { _st['theta_withhold'] }")
+        print(f"    bands visited  : { _st['bands_visited'] } / { _st['bands_total'] }")
+        print(f"    calibrated     : { _st['calibrated'] }")
+        # Per-band reliability curve, the raw accumulators behind the metric.
+        # reliability() returns one dict per band (or None for unvisited):
+        #   {"lo": float, "hi": float, "n": int, "observed": float}
+        curve = cal.reliability()
+        if curve:
+            print("    reliability curve (confidence band -> observed hit-rate, n):")
+            for c in curve:
+                if c is None:
+                    print("      no-obs band        : (no observations yet)")
+                else:
+                    print(f"      {c['lo']:.2f}-{c['hi']:.2f} band: "
+                          f"observed={c['observed']:.3f}  n={c['n']}")
         return
     if args.concept:
         nids = engine._concept_keywords.get(args.concept.lower(), [])

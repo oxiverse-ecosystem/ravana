@@ -60,6 +60,14 @@ _PLACEHOLDERS: dict[Tuple[str, str], type] = {}
 LAST_DROPPED_CLASSES: List[Tuple[str, str]] = []
 
 
+def reset_state() -> None:
+    """Clear module-level caches so a degraded-load report does not leak across
+    independent loads/tests. Safe to call at any time; a fresh load repopulates.
+    """
+    _PLACEHOLDERS.clear()
+    LAST_DROPPED_CLASSES.clear()
+
+
 def _placeholder_class(module: str, name: str) -> type:
     key = (module, name)
     existing = _PLACEHOLDERS.get(key)
