@@ -1104,11 +1104,17 @@ class SurfaceRealizer:
 
         vector_fn = getattr(self, '_vector_fn', None)
 
-        if cerebellar_ngram is not None and dopamine_tone < 0.4:
-            ngram_key = f"phrase:{relation}"
-            ngram_result = cerebellar_ngram.predict_next(ngram_key, top_k=3)
-            if ngram_result:
-                return list(ngram_result.keys())[0]
+        if cerebellar_ngram is not None:
+            # C4 fix: query the phrase-pattern store (relation -> {verb_phrase: weight})
+            # at ALL dopamine levels — the cerebellum's online sequential learner
+            # should bias verb-phrase selection regardless of uncertainty. The
+            # old `dopamine_tone < 0.4` gate defeated C4 by only consulting the
+            # cerebellum in low-confidence situations. predict_phrase returns {}
+            # when no pattern has been learned, falling through to VerbLexicon.
+            if hasattr(cerebellar_ngram, 'predict_phrase'):
+                ngram_result = cerebellar_ngram.predict_phrase(relation, top_k=3)
+                if ngram_result:
+                    return list(ngram_result.keys())[0]
 
         return VerbLexicon.select_verb(
             relation=relation,
