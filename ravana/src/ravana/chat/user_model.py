@@ -3054,7 +3054,7 @@ class UserModel:
             # "before the sun"). Raised to 8 words so a genuine multi-word
             # value is kept whole; a following sentence (".", "!", "?") is
             # still trimmed downstream so only THIS clause is stored.
-            r"\bmy\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:is|are)\s+([\w'-]+(?:\s+[\w'-]+){0,7})",
+            r"\bmy\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:is|are)\s+([\w'.-]+(?:\s+[\w'.-]+){0,7})",
             # FIX (round v-aug06d): "i work as a <role>" / "i work for
             # <org>" self-descriptions are identity facts, not throwaway
             # activities. The old activity miner only caught the verb "work"
