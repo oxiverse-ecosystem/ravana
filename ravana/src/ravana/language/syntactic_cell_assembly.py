@@ -106,6 +106,21 @@ class SyntacticCellAssembly:
         self.verb_role: Dict[str, float] = {}
         self.object_role: Dict[str, float] = {}
 
+        # Relation-conditioned verb weights: relation_type -> {verb_concept -> weight}.
+        # This is the combinator's job: the relation type determines the verb
+        # phrase. Previously _pick_verb_for_relation ignored `relation` and took
+        # the global argmax of verb_role, so the relation never influenced output.
+        # Seed: each relation maps to its default verb with weight 1.0. Growable
+        # online via learn_verb_for_relation() (Hebbian, usage-protected).
+        self.relation_verb_weights: Dict[str, Dict[str, float]] = {
+            'causal': {'cause': 1.0},
+            'semantic': {'shape': 1.0},
+            'contrastive': {'contrast': 1.0},
+            'analogical': {'resemble': 1.0},
+            'temporal': {'follow': 1.0},
+            'episodic': {'tie': 1.0},
+        }
+
         # Sequential binding patterns: (previous_role, relation_type) → {next_role → weight}
         self.sequence_patterns: Dict[Tuple[str, str], Dict[str, float]] = {}
         for (prev_role, rel_type), next_roles in self.SEQUENCE_PRIORS.items():
@@ -279,7 +294,23 @@ class SyntacticCellAssembly:
         - Prefer verbs that match the relation type
         - Fallback: the relation name itself ("leads to" for causal)
         """
-        # Find concepts with high verb_role weight that are verbs
+        # Relation-conditioned choice FIRST (the combinator's job).
+        rel_weights = self.relation_verb_weights.get(relation, {})
+        if rel_weights:
+            # argmax over relation-conditioned verbs
+            best_rel_verb = max(rel_weights, key=lambda v: rel_weights.get(v, 0.0))
+            if rel_weights.get(best_rel_verb, 0.0) > 0.0:
+                # Hebbian: also boost verbs with high global verb_role that match
+                # this relation's preference, so learning still shapes output.
+                candidates = dict(rel_weights)
+                for concept, w in self.verb_role.items():
+                    pos = pos_map.get(concept, '')
+                    if pos == 'v' and len(concept) >= 3:
+                        candidates[concept] = candidates.get(concept, 0.0) + w * 0.25
+                if candidates:
+                    return max(candidates, key=lambda v: candidates.get(v, 0.0))
+
+        # Find concepts with high verb_role weight that are verbs (global fallback)
         best_verb = ""
         best_weight = 0.0
         for concept, weight in self.verb_role.items():
@@ -298,6 +329,15 @@ class SyntacticCellAssembly:
             best_verb = rel_to_verb.get(relation, 'shape')
 
         return best_verb
+
+    def learn_verb_for_relation(self, relation: str, verb: str, reward: float = 1.0):
+        """Hebbian update: strengthen verb for this relation type (online, no retrain)."""
+        if not relation or not verb:
+            return
+        self.relation_verb_weights.setdefault(relation, {})
+        cur = self.relation_verb_weights[relation].get(verb, 0.0)
+        lr = self.learning_rate
+        self.relation_verb_weights[relation][verb] = max(0.0, min(2.0, cur + lr * reward))
 
     def _pick_verb_phrase(self, relation: str, subject: str = "", object: str = "") -> str:
         """Pick a verb phrase for this relation type.
@@ -612,6 +652,7 @@ class SyntacticCellAssembly:
             'object_role': self.object_role,
             'sequence_patterns': {str(k): v for k, v in self.sequence_patterns.items()},
             'verb_phrase_counts': self.verb_phrase_counts,
+            'relation_verb_weights': self.relation_verb_weights,
         }
 
     def set_state(self, state: Dict):
@@ -625,3 +666,4 @@ class SyntacticCellAssembly:
             if len(parts) == 2:
                 self.sequence_patterns[(parts[0].strip("'"), parts[1].strip("'"))] = v
         self.verb_phrase_counts = state.get('verb_phrase_counts', {})
+        self.relation_verb_weights = state.get('relation_verb_weights', self.relation_verb_weights)

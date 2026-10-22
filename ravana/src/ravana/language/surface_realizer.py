@@ -239,8 +239,9 @@ class SurfaceRealizer:
         At FE=0.0: p≈0, at FE=0.5: p≈0.45, at FE=1.0: p≈0.9
         """
         p_hedge = min(0.9, free_energy * 0.9)
-        if random.random() < p_hedge:
-            return random.choice(self.HEDGE_MORPHEMES)
+        if free_energy > 0.5:
+            idx = int(free_energy * len(self.HEDGE_MORPHEMES)) % len(self.HEDGE_MORPHEMES)
+            return self.HEDGE_MORPHEMES[idx]
         return ""
 
     def _generate_epistemic_frame(self, confidence_level: str,
@@ -277,7 +278,7 @@ class SurfaceRealizer:
         """
         if free_energy_drop < 0.1:
             return ""
-        if random.random() > free_energy_drop * 2.0:
+        if free_energy_drop < 0.3:  # deterministic (replaces random gate)
             return ""
 
         templates_by_magnitude = {
@@ -300,7 +301,8 @@ class SurfaceRealizer:
         else:
             pool = templates_by_magnitude["small"]
 
-        return ", " + random.choice(pool)
+        idx = int(free_energy_drop * 100) % max(1, len(pool))
+        return ", " + pool[idx]
 
     def _generate_question(self, subject: str, last_target: str,
                            concept_free_energy: Dict[str, float]) -> str:
@@ -343,7 +345,8 @@ class SurfaceRealizer:
                 "What do you think?",
             ]
 
-        return random.choice(pool)
+        idx = (hash(subject + str(last_target)) % len(pool)) if pool else 0
+        return pool[idx] if pool else ""
 
     def realize(self, frame, discourse_context: DiscourseState,
                 dopamine_tone: float = 0.5,
@@ -440,7 +443,8 @@ class SurfaceRealizer:
         
         # ~20% chance of inserting an adverbial modifier before the verb
         adverbs = self.ADVERBIAL_MODIFIERS.get(rel_key, ["", "", "", "", ""])
-        adverb = random.choice(adverbs) if discourse_context.sentence_index > 0 else ""
+        adverb = (adverbs[int(discourse_context.free_energy * len(adverbs)) % len(adverbs)]
+                  if (discourse_context.sentence_index > 0 and adverbs) else "")
         
         # Resolve hedge (kind of / sort of) from free energy
         hedge = self._compose_hedge(free_energy) if discourse_context.sentence_index > 0 else ""
@@ -551,7 +555,7 @@ class SurfaceRealizer:
         fe_drop = self._last_free_energy - free_energy
         reflective = self._generate_reflective_clause(fe_drop)
         if reflective and not has_punct and discourse_context.sentence_index > 0:
-            if random.random() < 0.25 and discourse_context.sentence_index == discourse_context.total_sentences - 1:
+            if (discourse_context.sentence_index % 2 == 1) and discourse_context.sentence_index == discourse_context.total_sentences - 1:
                 question = self._generate_question(subj, getattr(frame, 'target_concept', ''),
                                                    concept_fe)
                 if question:
@@ -569,7 +573,7 @@ class SurfaceRealizer:
                     discourse_context.sentence_index,
                     dopamine_tone
                 )
-                if marker and random.random() < 0.25:
+                if marker and (discourse_context.sentence_index % 2 == 1):
                     sentence = f"{marker}, {sentence}"
 
         if not has_punct:
@@ -719,7 +723,7 @@ class SurfaceRealizer:
         if si == 0 and not is_explain_mode:
             choices = ['svo', 'pseudo_cleft', 'cleft']
             weights = [0.85, 0.10, 0.05]
-            return random.choices(choices, weights=weights, k=1)[0]
+            return max(choices, key=lambda c: weights[choices.index(c)])
 
         # Rule 3: Pronoun subject -> only svo (other variants need full NP)
         if subject_is_pronoun:
@@ -728,7 +732,7 @@ class SurfaceRealizer:
         # Rule 4: Subsequent sentences in explain mode -> controlled diversity
         if is_explain_mode:
             # If we have an adverb and dopamine is high, front it
-            if has_adverb and dopamine_tone > 0.5 and random.random() < 0.3:
+            if has_adverb and dopamine_tone > 0.7:
                 return 'adverb_fronted'
             # Otherwise distribute across SVO variants with STN fatigue penalty.
             # NOTE: 'as_for_topic' and 'topic_fronting_for' are intentionally
@@ -741,7 +745,7 @@ class SurfaceRealizer:
                                                   dopamine_tone, free_energy)
 
         # Rule 5: Subsequent sentences, high dopamine -> full diversity
-        if has_adverb and dopamine_tone > 0.5 and random.random() < 0.3:
+        if has_adverb and dopamine_tone > 0.7:
             return 'adverb_fronted'
 
         choices = ['svo', 'left_dislocation', 'pseudo_cleft',
@@ -773,7 +777,7 @@ class SurfaceRealizer:
         if total <= 0:
             return 'svo'
         final_weights = [w / total for w in final_weights]
-        return random.choices(choices, weights=final_weights, k=1)[0]
+        return max(choices, key=lambda c: final_weights[choices.index(c)])
 
     def _apply_variant(self, variant: str, subject_phrase: str,
                         verb_phrase: str, object_phrase: str,
@@ -1236,9 +1240,12 @@ class SurfaceRealizer:
         if dopamine_tone > 0.6 and len(markers) > 2:
             weights = [0.5 + dopamine_tone * (idx / len(markers))
                        for idx in range(len(markers))]
-            return random.choices(markers, weights=weights, k=1)[0]
-
-        return random.choice(markers)
+            total = sum(weights)
+            if total > 0:
+                return max(markers, key=lambda m: weights[markers.index(m)])
+        # deterministic fallback: pick by dopamine_tone
+        idx = int(dopamine_tone * len(markers)) % len(markers)
+        return markers[idx]
 
     def reset_turn(self):
         self._used_subjects.clear()

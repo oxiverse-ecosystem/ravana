@@ -7313,6 +7313,34 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # carries the extracted event span ("lost half the colony"). Consumed
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
+        # C3 (OCG): user-derived reward signal, computed from the user's NEXT
+        # utterance (alignment + repair). We buffer the prior turn's reply and
+        # compare it to this input. Stored for the feedback block at end of turn.
+        try:
+            _prev = getattr(self, "_pending_reward_utterance", None)
+            if _prev:
+                _prev_toks = set(str(_prev).lower().split())
+                _cur_toks = set(str(user_input or "").lower().split())
+                # content-ish tokens only
+                _stop = {"i", "you", "the", "a", "an", "is", "are", "to", "of", "in", "and", "or", "it", "that", "this", "my", "your"}
+                _prev_c = _prev_toks - _stop
+                _cur_c = _cur_toks - _stop
+                if _prev_c or _cur_c:
+                    inter = len(_prev_c & _cur_c)
+                    union = len(_prev_c | _cur_c) or 1
+                    self._last_user_alignment = inter / union
+                else:
+                    self._last_user_alignment = 0.0
+                # repair detection: correction markers in the user's reply
+                _lower = str(user_input or "").lower()
+                self._last_user_repair = any(m in _lower for m in
+                    ("no,", "actually", "wrong", "not what", "incorrect", "i meant", "i said"))
+            else:
+                self._last_user_alignment = None
+                self._last_user_repair = False
+        except Exception:
+            self._last_user_alignment = None
+            self._last_user_repair = False
         # ── Spike log: record cognitive event at TOP of every turn ──
         # Recording here (before any early-return path) guarantees EVERY turn
         # is captured: meta_command, structured_recall, temporal_recall,
@@ -10697,7 +10725,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._last_strategy = strategy
 
         # Brain-inspired Syntactic & Construction Grammar Feedback Learning
-        user_understood = (quality_score >= 0.55)
+        # C3 (OCG): prefer the USER-derived reward signal (alignment + repair
+        # from the user's next utterance) over the self-graded quality_score.
+        # quality_score is kept as a fallback when no user signal is available.
+        _align = getattr(self, "_last_user_alignment", None)
+        _repair = getattr(self, "_last_user_repair", False)
+        if _align is not None:
+            user_understood = (not _repair) and (_align >= 0.12 or quality_score >= 0.55)
+        else:
+            user_understood = (quality_score >= 0.55)
         if hasattr(self.syntactic_assembly, '_last_frame') and self.syntactic_assembly._last_frame:
             self.syntactic_assembly.learn_from_feedback(self.syntactic_assembly._last_frame, user_understood=user_understood)
             self.syntactic_assembly._last_frame = None
@@ -10705,8 +10741,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.surface_realizer.learn_from_feedback(self.surface_realizer._last_variant_name, success=user_understood)
             self.surface_realizer._last_variant_name = None
 
+        # C3 (OCG): buffer this turn's reply for the user-derived reward next turn.
+        try:
+            self._pending_reward_utterance = response
+        except Exception:
+            pass
+
         if quality_score < 0.55 and ctx.subject and self.baby_mode:
-            # Weak response detected -- boost curiosity and queue immediate learning
 
             # 1. Boost curiosity weight 5x-10x via the impossible queries registry
             if not any(iq.subject == ctx.subject for iq in self._impossible_queries):
