@@ -2233,11 +2233,6 @@ class UserModel:
             _val = (val or "").strip().strip(" .,!?;:'\"").lower()
             if not _val or _val in _VALUE_STOP:
                 return
-            # Degenerate-fact guard: a value that restates its own attribute key
-            # carries no information (e.g. ('i','uncle bartholomew','bartholomew')).
-            if _val and (_val in (attr or "").lower()
-                         or (attr or "").lower() in _val):
-                return
             # C-value (round 2026-08-08c): trim a TRAILING prepositional phrase
             # from the value. The greedy value capture ("my X is Y", up to 8
             # words) over-grabbed trailing prepositions, storing nonsense like
@@ -2332,12 +2327,6 @@ class UserModel:
             """Entity-keyed variant of _put_fact (subject = entity, not 'i')."""
             _val = (val or "").strip().strip(" .,!?;:'\"").lower()
             if not _val or _val in _VALUE_STOP:
-                return
-            # Degenerate-fact guard: a value that restates its own attribute key
-            # carries no information (e.g. ('i','uncle bartholomew','bartholomew')).
-            # Reject when the value overlaps the key (substring either way).
-            if _val and (_val in (attr or "").lower()
-                         or (attr or "").lower() in _val):
                 return
             _PREP = ("up", "down", "from", "at", "in", "on", "with", "to",
                      "of", "by", "for", "about", "into", "onto", "over",
