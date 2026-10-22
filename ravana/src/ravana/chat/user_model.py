@@ -2431,6 +2431,38 @@ class UserModel:
             if _ref_toks and _ref_toks[0] in ("the", "a", "an"):
                 _ref_toks.pop(0)
             if not _ref_toks:
+                # Rotated phrasing: "<ref> is who/what <subj> is named after"
+                # — the referent sits before the attribution, not after it.
+                _rot_idx = None
+                for _j in range(1, len(_toks)):
+                    _w = _toks[_j].strip(".,!?").lower()
+                    _prev = _toks[_j - 1].strip(".,!?").lower()
+                    if _w in ("who", "what", "whom", "that") and _prev in ("is", "was", "were"):
+                        _rot_idx = _j
+                        break
+                if _rot_idx is not None and _rot_idx >= 2:
+                    _end = _rot_idx - 1  # drop the trailing copula
+                    _ref_toks = [t.strip(".,!?").lower() for t in _toks[:_end]]
+                    # Normalize like the forward referent: drop possessive/determiner.
+                    while _ref_toks and _ref_toks[0] in ("my", "our", "your", "his",
+                                                         "her", "their", "its"):
+                        _ref_toks.pop(0)
+                    if _ref_toks and _ref_toks[0] in ("the", "a", "an"):
+                        _ref_toks.pop(0)
+                    # Bound to a noun phrase.
+                    _ref_head = []
+                    for _t in _ref_toks:
+                        if _t in _pet_slots._PRONOUN_STOP or _t in _OBJECT_STOP \
+                                or _t in _REL_WORDS or _t in _KIN:
+                            if not _ref_head and (_t in _REL_WORDS or _t in _KIN):
+                                _ref_head.append(_t)
+                                continue
+                            break
+                        _ref_head.append(_t)
+                        if len(_ref_head) >= 4:
+                            break
+                    _ref_toks = _ref_head
+            if not _ref_toks:
                 return False
             # The referent is a bounded noun phrase: close it at a closed-class
             # token or a verb, mirroring the name-span bound in the kin miner.
@@ -2455,16 +2487,24 @@ class UserModel:
             # determiner/possessive. This is the step that makes the subject the
             # OWNED THING instead of the user.
             _subj_toks = [t.strip(".,!?").lower() for t in _toks[:_di]]
+            # Take only the noun phrase immediately before the naming verb
+            # (last up to 4 tokens) so a rotated phrasing still yields the
+            # owned thing, not the leading referent.
+            _subj_toks = _subj_toks[-4:]
             while _subj_toks and _subj_toks[0] in (
                     "the", "a", "an", "my", "our", "your", "his", "her",
                     "their", "its", "this", "that", "these", "those"):
                 _subj_toks.pop(0)
+            # Trim a trailing copula: the copula belongs to the relation phrase,
+            # not the subject ("sourdough starter is" -> "sourdough starter").
+            while _subj_toks and _subj_toks[-1] in ("is", "was", "were", "'s", "s"):
+                _subj_toks.pop()
             # The user themself is not a subject for a derivation ("i am named
             # after my grandmother" is about the USER's own name, which the
             # existing self-naming miner owns).
             if not _subj_toks or _subj_toks[0] == "i":
                 return False
-            _subj = " ".join(_subj_toks[-4:]).strip()
+            _subj = " ".join(_subj_toks).strip()
 
             # Register the predicate in the shared vocabulary so it is
             # addressable on the NEXT disclosure too (online growth, no rebuild).
@@ -3003,7 +3043,7 @@ class UserModel:
             # "before the sun"). Raised to 8 words so a genuine multi-word
             # value is kept whole; a following sentence (".", "!", "?") is
             # still trimmed downstream so only THIS clause is stored.
-            r"\bmy\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:is|are)\s+([\w'-]+(?:\s+[\w'-]+){0,7})",
+            r"\bmy\s+([\w'-]+(?:\s+[\w'-]+){0,3})\s+(?:is|are)\s+([\w'.-]+(?:\s+[\w'.-]+){0,7})",
             # FIX (round v-aug06d): "i work as a <role>" / "i work for
             # <org>" self-descriptions are identity facts, not throwaway
             # activities. The old activity miner only caught the verb "work"
