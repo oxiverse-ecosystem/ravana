@@ -1,1 +1,0 @@
-tests/unit/test_active_epistemology.py tests/unit/test_activity_object_noun_phrase.py tests/unit/test_adaptation.py tests/unit/test_agent_opinion_frame_coverage.py 

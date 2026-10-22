@@ -161,6 +161,30 @@ data/case_dist.json
 # ── Local QA scratch (per-round, gitignored) ──
 tmp/
 
+# ── Throwaway debug/probe artifacts (NEVER commit) ──
+# These 16 files reached `main` via commit-bot's `git add -- .` (which stages
+# everything not gitignored) on 2026-10-16/19. They are one-off worker probes:
+# syntax checkers, debug scripts, chunked unit-test dumps, and repro scripts.
+# None is referenced by any code, test, doc, or CI workflow (verified by grep).
+# Removed from the index 2026-10-21; ignored here so `git add -A` can never
+# re-introduce them.
+check_syntax.py
+debug_test.py
+debug_test2.py
+repro_rv12.py
+scratch_debug_d4c.py
+test_fix_probe2.py
+test_fix_probe3.py
+test_stance_inversion.py
+unit_chunk1.txt
+unit_chunk2.txt
+unit_chunk3.txt
+unit_chunk4.txt
+unit_files_first.txt
+unit_files_q1.txt
+unit_files_second.txt
+unit_result.txt
+
 # ── Tracked-generated artifacts removed (2026-08 round, Phase 4) ──
 # These were build/run output committed to the repo by mistake. They are
 # reproducible (the .bak is a vim/emacs swap-style backup; the .npz is a one-off

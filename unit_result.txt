@@ -1,6 +1,0 @@
-ERROR: usage: python -m pytest [options] [file_or_dir] [file_or_dir] [...]
-python -m pytest: error: unrecognized arguments: -n 2
-  inifile: C:\Users\Likhith\Documents\Projects\ravana\pyproject.toml
-  rootdir: C:\Users\Likhith\Documents\Projects\ravana
-
-EXIT_CODE=4

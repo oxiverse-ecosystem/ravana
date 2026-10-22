@@ -662,6 +662,31 @@ class SelfQueryMixin:
             t)
         if not _inversion and not _natural_contradiction:
             return None
+        # "but actually" / "but now" concession: the user retracts a topic
+        # BEFORE the connector and adopts a new one AFTER it.
+        #   "i thought the sea was good but actually i prefer mountains"
+        # The conceded topic (sea) is the one reversed — NOT the new
+        # preference (mountains). The generic path below resolves the topic
+        # from the text AFTER the signal, which is the new preference, so it
+        # reverses the wrong stance. Resolve from the pre-connector span.
+        if _natural_contradiction:
+            _but_match = re.search(
+                r"\b(?:but|although|though|yet)\b[^\n]{0,120}?"
+                r"(?:actually|on\s+second\s+thought|now|i\s+prefer|"
+                r"i\s+changed\s+my\s+mind|i\s+now\s+think|"
+                r"i\s+think\s+differently)\b",
+                t)
+            if _but_match is not None:
+                _pre_clause = t[:_but_match.start()]
+                _target = self._resolve_natural_contradiction_topic(
+                    _pre_clause, t)
+                if _target is not None:
+                    return self._execute_stance_inversion(_target, t)
+                # The "but actually" shape is present but the pre-connector
+                # clause holds no stance RAVANA knows. The topic AFTER the
+                # connector is the NEW preference, not the conceded one —
+                # reversing it would fabricate a stance. Stop here.
+                return None
         # When only the natural-contradiction signal matched, extract the
         # topic from the remainder of the utterance (after the signal word).
         if _natural_contradiction and not _inversion:
@@ -682,6 +707,23 @@ class SelfQueryMixin:
                 "", _nc_rest).strip()
             if not _nc_rest:
                 return None
+            # Negated base sentiment verb: "i don't actually love marathon
+            # running, it wrecks my knees, i prefer short sprints". The topic
+            # being retracted is the object of the negated verb RIGHT AFTER
+            # the signal (marathon running) — NOT the later "i prefer Y"
+            # clause, which is the NEW preference. Resolve the clause
+            # immediately following the negated verb.
+            _neg = re.match(
+                r"(?:i\s+)?(?:do|did|does|don'?t|didn'?t|doesn'?t)?\s*"
+                r"(?:really\s+|actually\s+|truly\s+)?"
+                r"(love|like|enjoy|adore|prefer|hate|dislike|loathe|detest)\s+"
+                r"([a-z][a-z\s'-]{1,40})",
+                _nc_rest)
+            if _neg is not None:
+                _clause = _neg.group(2).rstrip(" .!?,;:'\"")
+                _t = self._resolve_natural_contradiction_topic(_clause, t)
+                if _t is not None:
+                    return self._execute_stance_inversion(_t, t)
             _topic = self._resolve_natural_contradiction_topic(_nc_rest, t)
             if _topic is None:
                 return None
@@ -833,17 +875,45 @@ class SelfQueryMixin:
         hw = set(re.findall(r"[a-z']+", head)) - self._NC_STOP
         if not hw:
             return None
+        # Stem-normalize so inflectional variants ("marathon" vs
+        # "marathons", "run" vs "running") compare as the same content word.
+        # Without this, a plural mismatch alone drops the Jaccard below the
+        # threshold and a genuinely-held stance is reported as unknown.
+        _hw = frozenset(self._nc_stem(w) for w in hw)
         best, best_j = None, 0.0
         for k in store:
             kw = set(re.findall(r"[a-z']+", k)) - self._NC_STOP
             if not kw:
                 continue
-            j = len(hw & kw) / len(hw | kw)
+            _kw = frozenset(self._nc_stem(w) for w in kw)
+            j = len(_hw & _kw) / len(_hw | _kw)
             if j > best_j:
                 best, best_j = k, j
         if best is not None and best_j >= 0.4:
             return best
         return None
+
+    @staticmethod
+    def _nc_stem(word: str) -> str:
+        """Crude inflection stemmer for topic-word comparison.
+
+        Not a lemmatizer — just enough to collapse plural / gerund / past
+        forms so "marathon running" and "running marathons" compare equal.
+        Deterministic and dependency-free (no NLTK at runtime).
+        """
+        w = (word or "").lower()
+        if len(w) > 4 and w.endswith("ies"):
+            return w[:-3] + "y"
+        if len(w) > 4 and w.endswith("ing"):
+            base = w[:-3]
+            if len(base) > 2 and base[-1] == base[-2]:
+                base = base[:-1]
+            return base
+        if len(w) > 3 and w.endswith("es") and not w.endswith("ses"):
+            return w[:-2]
+        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            return w[:-1]
+        return w
 
     def _mine_new_opinion_polarity(
             self, full_query: str, topic: str) -> Optional[float]:

@@ -5635,8 +5635,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _n = _val.lower().strip()
             if _n in _seen_vals:
                 continue
-            if any((_n != _o and (_n in _o or _o in _n))
-                   for _oa, _o, _oc in _kept):
+            # A `since`/`since_age` fact carries the TEMPORAL ANCHOR
+            # ("build telescopes 2019") that its sibling activity fact
+            # ("build telescopes") lacks. The substring rule below would drop
+            # it, losing the year/age entirely from the self-profile. Temporal
+            # facts are never the redundant one — keep them.
+            _is_temporal = _attr in ("since", "since_age")
+            if not _is_temporal and any(
+                    (_n != _o and (_n in _o or _o in _n))
+                    for _oa, _o, _oc in _kept):
                 continue
             _seen_vals.add(_n)
             _kept.append((_attr, _val, _conf))
