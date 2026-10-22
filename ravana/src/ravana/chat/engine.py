@@ -12369,3 +12369,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
 # recovery-test edit
 # selftest edit
+
+# Guarded code-realizer integration (OCG modality) — optional, never breaks import.
+try:
+    from ravana.language.code_realizer import _patch_engine as _patch_code_realizer
+    _patch_code_realizer()
+except Exception:
+    pass
