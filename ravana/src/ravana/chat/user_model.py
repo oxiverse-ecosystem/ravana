@@ -1574,6 +1574,97 @@ _PET_REL_NAMED_PAT = (
     r"(?:[\w'-]+\s+){0,6}?(?:named|called)\s+([\w'-]+)"
 )
 
+# ── TITLE / ABBREVIATION HANDLING (FIX-RV-feature 2026-10-22) ────────────────
+# A value like "dr. rao, who studies marine ecosystems." contains a period that
+# is PART OF an abbreviation ("dr."), not a sentence boundary. The clause trim
+# below used to split on every ". " and truncated the value to "dr". This seed
+# set of title/abbreviation words (without the trailing period) + a runtime
+# growth path lets RAVANA keep titled names whole and learn new abbreviations
+# it meets in conversation. Seed structure, not answers; grows online; no
+# retraining.
+_ABBREVIATION_SEED: frozenset = frozenset({
+    "dr", "mr", "mrs", "ms", "miss", "mx", "prof", "sr", "jr", "st",
+    "rev", "hon", "fr", "br", "sr", "capt", "col", "gen", "maj", "lt",
+    "sgt", "cpl", "pvt", "cmdr", "adm", "pres", "gov", "sen", "rep",
+    "inc", "ltd", "co", "corp", "llc", "etc", "vs", "eg", "ie", "approx",
+    "dept", "est", "no", "vol", "fig", "eq", "ca", "cf", "al", "et",
+})
+_ABBREVIATION_LEARNED: set = set()
+
+
+def learn_abbreviation(word: str) -> bool:
+    """Register a title/abbreviation seen in a live disclosure.
+
+    Growth path for the seed class, mirroring learn_species / learn_function_word:
+    a title RAVANA has never classified joins the class at runtime, so the
+    value trim stops treating its trailing period as a sentence boundary
+    without any code change. Returns True when the word is (now) a known
+    abbreviation. Seed structure, not answers; no retraining.
+    """
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    if w in _ABBREVIATION_SEED or w in _ABBREVIATION_LEARNED:
+        return True
+    _ABBREVIATION_LEARNED.add(w)
+    return True
+
+
+def is_abbreviation(word: str) -> bool:
+    """True when `word` is a title/abbreviation whose trailing period is not
+    a sentence boundary."""
+    w = (word or "").strip().lower().strip(".,!?;:'\"")
+    if not w:
+        return False
+    return w in _ABBREVIATION_SEED or w in _ABBREVIATION_LEARNED
+
+
+def _first_value_clause(text: str) -> str:
+    """Return the first sentence/clause of `text`, honoring abbreviations.
+
+    The old trim split on every ". " and truncated titled names like
+    "dr. rao" to "dr". This helper skips a period that follows a known
+    abbreviation (seed + runtime-grown), and also cuts at a relative-clause
+    opener (", who/that/which") so a value like
+    "dr. rao, who studies marine ecosystems." yields "dr. rao". Growth:
+    short tokens (<=5 letters) immediately followed by ". <Capital>" are
+    learned as abbreviations at runtime.
+    """
+    text = (text or "").strip()
+    if not text:
+        return text
+    # Runtime growth: learn title-shaped tokens before trimming.
+    for _am in re.finditer(r"\b([A-Za-z]{1,5})\.\s+[A-Z]", text):
+        learn_abbreviation(_am.group(1))
+    # Relative-clause opener cuts the value (closed-class relative pronouns).
+    _rc = re.search(r",\s+(?:who|that|which|whom|whose)\b", text, re.IGNORECASE)
+    if _rc:
+        text = text[:_rc.start()].strip()
+    # Find the earliest real sentence boundary, skipping abbreviation periods.
+    best = None
+    for _m in re.finditer(r"[.!?]\s+", text):
+        _before = text[:_m.start()]
+        _toks = _before.split()
+        _last = _toks[-1] if _toks else ""
+        _last_clean = _last.rstrip(".!?").lower()
+        if is_abbreviation(_last_clean):
+            continue
+        best = _m.start()
+        break
+    if best is not None:
+        text = text[:best].strip()
+    # Trailing punctuation (sentence end) with abbreviation awareness.
+    _m2 = re.search(r"[.!?]\s*$", text)
+    if _m2:
+        _before = text[:_m2.start()]
+        _toks = _before.split()
+        _last = _toks[-1] if _toks else ""
+        _last_clean = _last.rstrip(".!?").lower()
+        if not is_abbreviation(_last_clean):
+            text = text[:_m2.start()].strip()
+    return text.strip()
+
+
 @dataclass
 class UserModel:
     edge_reactivations: Dict[Tuple[str, str], int] = field(default_factory=dict)
@@ -3487,7 +3578,7 @@ class UserModel:
                     # sentence break (., !, ?) ends the value; internal
                     # prepositions/conjunctions ("of the", "before the") are
                     # kept so a genuine multi-word value stays whole.
-                    _val = re.split(r"(?<=[.!?])\s+|\s*[.!?]\s*$", _val)[0].strip()
+                    _val = _first_value_clause(_val)
                     # Bound the value at a CLAUSE boundary: a coordinating
                     # conjunction that opens a new clause (conjunction followed
                     # by a subject pronoun/determiner) ends the value, so
