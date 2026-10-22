@@ -662,6 +662,31 @@ class SelfQueryMixin:
             t)
         if not _inversion and not _natural_contradiction:
             return None
+        # "but actually" / "but now" concession: the user retracts a topic
+        # BEFORE the connector and adopts a new one AFTER it.
+        #   "i thought the sea was good but actually i prefer mountains"
+        # The conceded topic (sea) is the one reversed — NOT the new
+        # preference (mountains). The generic path below resolves the topic
+        # from the text AFTER the signal, which is the new preference, so it
+        # reverses the wrong stance. Resolve from the pre-connector span.
+        if _natural_contradiction:
+            _but_match = re.search(
+                r"\b(?:but|although|though|yet)\b[^\n]{0,120}?"
+                r"(?:actually|on\s+second\s+thought|now|i\s+prefer|"
+                r"i\s+changed\s+my\s+mind|i\s+now\s+think|"
+                r"i\s+think\s+differently)\b",
+                t)
+            if _but_match is not None:
+                _pre_clause = t[:_but_match.start()]
+                _target = self._resolve_natural_contradiction_topic(
+                    _pre_clause, t)
+                if _target is not None:
+                    return self._execute_stance_inversion(_target, t)
+                # The "but actually" shape is present but the pre-connector
+                # clause holds no stance RAVANA knows. The topic AFTER the
+                # connector is the NEW preference, not the conceded one —
+                # reversing it would fabricate a stance. Stop here.
+                return None
         # When only the natural-contradiction signal matched, extract the
         # topic from the remainder of the utterance (after the signal word).
         if _natural_contradiction and not _inversion:
