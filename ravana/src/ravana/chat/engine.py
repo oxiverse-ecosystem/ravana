@@ -7723,7 +7723,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     # right" can confirm() it (B4 confirmation wiring above).
                     self._last_pf_recall = ("i", _attr, _val)
                     return _ans
-        # An opinion query may appear as a MATRIX-EMBEDDED clause ("what do you
+        # LEXICON RECALL (round 2026-10-22): answer "what is my word for X",
+        # "what did I call X", "what do I call X" from the learned lexicon.
+        _lx_q = re.search(
+            r"\b(?:what(?:'s| is| was)?\s+my\s+word\s+for\s+(.+?)"
+            r"|what\s+(?:did|do)\s+i\s+call\s+(.+?))\s*[\?\.!]*$",
+            user_input, re.IGNORECASE)
+        if _lx_q:
+            _lx_concept = (_lx_q.group(1) or _lx_q.group(2) or "").strip().strip("?.!,")
+            _lx_concept = re.sub(r"^(?:the|a|an|my|that|this)\s+", "", _lx_concept, flags=re.IGNORECASE).strip()
+            if _lx_concept:
+                _lx_word = self.user_model.lexicon.query_word(_lx_concept)
+                if _lx_word:
+                    _lx_entry = self.user_model.lexicon.get(_lx_concept)
+                    _conf = getattr(_lx_entry, "confidence", 0.7) if _lx_entry else 0.7
+                    self._last_strategy = "user_lexicon_recall"
+                    return (f"your word for {_lx_concept} is '{_lx_word}' "
+                            f"(i'm {_conf*100:.0f}% sure).")
+        # An opinion query may appear as a MATRIX-EMBEDDED clause
         # know about what i think of dogs?", "do you remember how i feel about
         # X?"). The attitude question is the SUBORDINATE clause; the matrix
         # verb (know/remember/recall) only asks whether the stance is held.
