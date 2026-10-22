@@ -53,6 +53,16 @@ on this codebase:
   strip and the temporal-adverb gate both reuse the shared `pet_slots` seed
   vocabularies (runtime-growable). See
   `docs/CAPABILITY_GREW_UP_LOCATION_AND_TEMPORAL_NAME_GUARD.md`.
+- **Keeps titled names whole.** Told *\"my thesis advisor is dr. rao, who studies
+  marine ecosystems.\"* it stores `('i','thesis advisor','dr. rao')` instead of
+  truncating to `('i','thesis advisor','dr')`. Two fixes: the equational miner's
+  value character class now includes `.` (so "dr." is captured at all), and the
+  clause trim is abbreviation-aware - a seed title set (`dr, mr, prof, st, ...`)
+  plus runtime growth via `learn_abbreviation` (a novel short title followed by
+  ". <Capital>" joins the class on contact), a relative-clause cut on
+  `, who/that/which`, and a sentence-boundary search that skips abbreviation
+  periods. Seed structure, not answers; no retraining, no LLM. See
+  `docs/CAPABILITY_TITLE_VALUE_CLAUSE_TRIM.md`.
 - **Forms and recalls stances.** Told *"i love coffee"* it records a stance
   (`coffee` polarity +1.0, confidence 0.65) and acknowledges:
   `good to know — you love coffee. i'll keep that in mind.`

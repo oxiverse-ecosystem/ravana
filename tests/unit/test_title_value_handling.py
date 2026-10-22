@@ -68,3 +68,11 @@ def test_engine_reply_titled_name():
     assert "dr. rao" in (r or "").lower(), r
     eng.stop_background_learning()
     eng.save()
+
+
+def test_first_value_clause_runtime_growth():
+    # A novel short title followed by a capital letter is auto-learned inside
+    # _first_value_clause (no explicit learn_abbreviation call), so the trim
+    # does not split at its period.
+    assert _first_value_clause("my advisor is zx. Patel, who studies X.") == "my advisor is zx. Patel"
+    assert is_abbreviation("zx")
