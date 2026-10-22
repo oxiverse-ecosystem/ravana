@@ -12376,3 +12376,10 @@ try:
     _patch_code_realizer()
 except Exception:
     pass
+
+# Guarded ability-composition integration — optional, never breaks import.
+try:
+    from ravana.agent.ability_composer import _patch_engine as _patch_ability_composer
+    _patch_ability_composer()
+except Exception:
+    pass
