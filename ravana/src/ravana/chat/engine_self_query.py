@@ -2142,12 +2142,12 @@ class SelfQueryMixin:
                                 pass
                             _phrases.append(_stance)
                         else:
-                            # Honest fallback: no user stance on this side, so
-                            # do NOT fabricate a lean from GloVe proximity (which
-                            # collapsed both sides to the same frame). State that
-                            # RAVANA has no preference yet on this side.
-                            _stt = (f"i'm still forming a view on {_st} — "
-                                    f"no preference yet.")
+                            # Delegate to the real value resolver so the stance
+                            # (including the honest "still forming a view" case)
+                            # comes from RAVANA's cognitive state, not a
+                            # fabricated template. This also keeps the resolver
+                            # boundary observable (D6 pronoun-leak guard).
+                            _stt, _st_r = self._agent_stance_on(_st)
                             _phrases.append(_stt)
                     stance = "; ".join(_phrases)
                     reason = ""
