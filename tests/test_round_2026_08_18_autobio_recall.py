@@ -129,9 +129,34 @@ def test_agent_self_question_still_falls_through():
     assert out is None, f"autobiographical gate wrongly intercepted agent-self query: {out!r}"
 
 
-def teardown_module(module):
+def test_colour_recall_when_topic_precedes_tell_verb():
+    """'what colour did i say i like' must recall a stored 'favourite
+    colour' fact even though the attribute head ('colour') precedes the
+    tell-verb — the entity head bridges to the stored attribute."""
+    _S = "test_colour_recall_20261023"
+    e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=_S)
+    e.process_turn("my favourite colour is indigo")
+    out = e._autobiographical_recall("what colour did i say i like")
+    assert out is not None, "expected a recall answer, got None"
+    assert "indigo" in (out or ""), f"colour fact not recalled: {out!r}"
+    assert "not that i recall" not in (out or "")
     try:
-        e = _eng()
         e.stop_background_learning()
     except Exception:
         pass
+
+
+def teardown_module(module):
+    for _s in ("test_autobio_20260818", "test_colour_recall_20261023"):
+        try:
+            e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=_s)
+            e.stop_background_learning()
+        except Exception:
+            pass
+    # remove leftover weight files for the colour-recall suffix
+    for _f in ("weights/ravana_weights" + "test_colour_recall_20261023" + ".pkl",
+               "weights/ravana_usermodel" + "test_colour_recall_20261023" + ".pkl"):
+        try:
+            os.remove(_f)
+        except FileNotFoundError:
+            pass

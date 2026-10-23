@@ -5460,6 +5460,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return (f"yes — you told me you're "
                         f"{self._polarity_word(_pol)} {_topic_d}. i've kept that.")
             _fact = self._match_fact(_topic)
+            # The disclosure topic may PRECEDE the tell-verb (e.g. "what
+            # colour did i say i like"), in which case the entity head lives
+            # in the full query rather than in the post-tell-clause residue
+            # (which collapses to a generic word like "like"). Generalize the
+            # resolver: try each content word of the query as a candidate topic
+            # so a stored attribute such as "favourite colour" can be reached
+            # from its head word "colour". Seed vocabulary for the stop set
+            # (question/tell scaffolds) — structural, not per-topic.
+            if _fact is None:
+                _CW_STOP = {"what", "did", "say", "said", "tell", "told",
+                            "mention", "mentioned", "like", "likes", "liked",
+                            "love", "loves", "loved", "hate", "hates", "hated",
+                            "about", "you", "your", "have", "had", "was",
+                            "were", "the", "and", "for", "with", "that",
+                            "this", "remember", "recall", "know", "knew",
+                            "think", "thought", "feel", "felt", "still",
+                            "ever", "when", "where", "how", "why", "which",
+                            "who", "whom", "whose", "can", "could", "would",
+                            "should", "did", "do", "does", "done", "is", "are",
+                            "am", "be", "been", "being", "to", "of", "in",
+                            "on", "at", "by", "from", "as", "an", "a", "i",
+                            "me", "my", "mine", "we", "our", "us"}
+                _cands = sorted(
+                    {w for w in re.findall(r"[a-z']+", q)
+                     if len(w) >= 3 and w not in _CW_STOP},
+                    key=len, reverse=True)
+                for _cw in _cands:
+                    _fact = self._match_fact(_cw)
+                    if _fact is not None:
+                        break
             if _fact is not None:
                 return ("yes — i remember: " +
                         self._render_fact_line(_fact[0], _fact[1]) + ".")
