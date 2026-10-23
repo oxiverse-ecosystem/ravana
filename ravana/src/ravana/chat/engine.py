@@ -12389,5 +12389,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if self._trace_enabled:
             print(f'  [bg] background learning stopped (performed {self._bg_search_count} searches)')
 
-# recovery-test edit
-# selftest edit
+# Guarded ability-composition integration — optional, never breaks import.
+try:
+    from ravana.agent.ability_composer import _patch_engine as _patch_ability_composer
+    _patch_ability_composer()
+except Exception:
+    pass
