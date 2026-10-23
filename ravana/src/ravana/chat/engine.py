@@ -2995,6 +2995,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         opinions = getattr(um, "opinions", None) if um else None
         beliefs = getattr(self, "belief_store", None)
 
+        # (0w) LEARNED-LEXICON RECALL (task 3, pivot). A word the user coined
+        # ("my word for that feeling is 'glimmer'") is stored as a personal
+        # fact whose attribute contains "word for ...". Any later question about
+        # that coined word must resolve to the ACTIVE (non-superseded) value
+        # cleanly, regardless of the exact question phrasing, so the word is
+        # actually USABLE in a later turn (not just stored). Store-driven: no
+        # per-topic table, no authored reply beyond the thin render frame; the
+        # content comes from the live PersonalFactStore, which is revisable.
+        if pf is not None and "word" in q:
+            _is_q = bool(
+                q.strip().endswith("?")
+                or re.match(
+                    r"^(what|who|which|where|when|why|how|is|are|was|were|"
+                    r"do|does|did|has|have|had|can|could|would|will|tell|"
+                    r"said|say|recall|remember|know|mention|remind)\b", q.strip()))
+            if _is_q:
+                _word_facts = []
+                for _k, _f in getattr(pf, "facts", {}).items():
+                    if not (isinstance(_k, tuple) and len(_k) == 3):
+                        continue
+                    if "word" in str(_k[1]).lower() and not getattr(_f, "superseded", False):
+                        _word_facts.append((_k, _f))
+                if _word_facts:
+                    _word_facts.sort(key=lambda x: getattr(x[1], "turn_number", 0), reverse=True)
+                    _k, _f = _word_facts[0]
+                    _attr = str(_k[1]).strip()
+                    _val = getattr(_f, "value", "").strip()
+                    if _val:
+                        return f"your {_attr} is {_val}."
         # (0a) R1 (2026-08-18T1340Z round): ENTITY-SCOPED NAME recall with
         # cross-lemma linking. A possession named by the user is stored under
         # the ENTITY key (e.g. ('sourdough starter','name','doris'),
