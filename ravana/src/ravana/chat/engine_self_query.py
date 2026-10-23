@@ -2098,6 +2098,20 @@ class SelfQueryMixin:
                         _opinions = getattr(_opinions, "opinions", None) if _opinions else None
                         if _opinions is not None:
                             _user_stance = _opinions.query_stance(_st)
+                            # Containment fallback so a side topic that is a
+                            # substring/overlap of a held stance still resolves
+                            # (mirrors _agent_stance_on resolution; store-driven).
+                            if _user_stance is None:
+                                _us_store = getattr(_opinions, "stances", {}) or {}
+                                if _st in _us_store:
+                                    _user_stance = _us_store[_st]
+                                else:
+                                    for _k, _v in _us_store.items():
+                                        if _k and (_k in _st.split()
+                                                   or _st in _k.split()
+                                                   or _k == _st):
+                                            _user_stance = _v
+                                            break
                         if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
                             _pol = float(_user_stance.polarity) * 0.7
                             _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
@@ -2128,7 +2142,12 @@ class SelfQueryMixin:
                                 pass
                             _phrases.append(_stance)
                         else:
-                            _stt, _st_r = self._agent_stance_on(_st)
+                            # Honest fallback: no user stance on this side, so
+                            # do NOT fabricate a lean from GloVe proximity (which
+                            # collapsed both sides to the same frame). State that
+                            # RAVANA has no preference yet on this side.
+                            _stt = (f"i'm still forming a view on {_st} — "
+                                    f"no preference yet.")
                             _phrases.append(_stt)
                     stance = "; ".join(_phrases)
                     reason = ""
