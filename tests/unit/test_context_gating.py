@@ -262,9 +262,12 @@ class TestContextGatedInference:
         """Context-inactive edges should not be traversed during inference."""
         g = ConceptGraph(dim=16, max_nodes=100, max_edges=1000,
                         rng=np.random.RandomState(42))
-        a = g.add_node(np.random.randn(16).astype(np.float32), label="a")
-        b = g.add_node(np.random.randn(16).astype(np.float32), label="b")
-        c = g.add_node(np.random.randn(16).astype(np.float32), label="c")
+        # Use vectors with positive mutual coherence so the infer_chain
+        # coherence gate (threshold -0.2) does not reject the path.
+        base = np.ones(16, dtype=np.float32)
+        a = g.add_node(base + 0.01 * g.rng.randn(16).astype(np.float32), label="a")
+        b = g.add_node(base + 0.01 * g.rng.randn(16).astype(np.float32), label="b")
+        c = g.add_node(base + 0.01 * g.rng.randn(16).astype(np.float32), label="c")
         # a -> b (always active)
         g.add_edge(a.id, b.id, weight=0.8, relation_type="semantic")
         # b -> c (only in "special" context)
