@@ -1057,7 +1057,7 @@ _ACTIVITY_DENY = frozenset({
     # "does:afraid afraid losing"). "afraid" is an adjective describing a state,
     # not an activity the user does. _activity_verb_ok already rejects emotion
     # words; "afraid" was missing.
-    "afraid", "scared", "terrified",
+    "afraid", "scared", "terrified", "proud",
     # ACHIEVERMENT / COMMUNICATION verbs (DEFECT: "i spent three years..."
     # stored as "does:spent spent years learning"). These describe resource
     # expenditure, NOT activities RAVANA can recall as "what do I do". They
@@ -5592,6 +5592,19 @@ class UserModel:
                 _topic = self._opinion_topic(_raw)
                 if not _topic:
                     continue
+                # FIX-RV-28: a preference hedged/negated in the utterance
+                # ("i'm not sure i like X", "i don't really like X") must not
+                # seed a stance with the bare verb's polarity. Flip the sign
+                # when a negation particle sits in the window before the
+                # matched verb, so the stored stance reflects the user's
+                # actual (uncertain/negative) disposition. General: negation
+                # particles only, no per-phrase table.
+                _pre_window = [t.strip(".,!?").lower()
+                               for t in q_clean[:_m.start()].split()[-6:]]
+                if any(t in ("not", "never", "no", "hardly", "barely",
+                             "scarcely", "unsure") or t.endswith("n't")
+                       for t in _pre_window):
+                    _pol = -float(_pol)
                 # Sign-PRESERVING affect blend (D3 fix, round v-aug06).
                 # Bug: the prior code used the RUNNING emotional buffer
                 # (_v = EMA of ALL prior turns) to modulate polarity via

@@ -2387,7 +2387,26 @@ class ReasoningMixin:
                     _verb = "love" if _verb == "love" else "like"
                     ack = f"aw, i {_verb} you too."
                 else:
-                    ack = f"good to know — you {_verb} {_obj}. i'll keep that in mind."
+                    # FIX-RV-28: render from stored polarity when the preference
+                    # was hedged/negated, so the ack does not echo a raw
+                    # "you like X" that contradicts the stance.
+                    _topic = None
+                    try:
+                        _topic = self.user_model._opinion_topic(_obj)
+                    except Exception:
+                        _topic = None
+                    _pol = None
+                    try:
+                        _st = (self.user_model.opinions.stances.get(_topic)
+                               if _topic else None)
+                        _pol = _st.polarity if _st is not None else None
+                    except Exception:
+                        _pol = None
+                    if _pol is not None and _pol < -0.25:
+                        ack = (f"good to know — you're against "
+                               f"{_topic or _obj}. i'll keep that in mind.")
+                    else:
+                        ack = f"good to know — you {_verb} {_obj}. i'll keep that in mind."
             else:
                 ack = "got it — thanks for telling me."
 
