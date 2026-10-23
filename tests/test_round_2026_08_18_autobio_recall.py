@@ -129,9 +129,53 @@ def test_agent_self_question_still_falls_through():
     assert out is None, f"autobiographical gate wrongly intercepted agent-self query: {out!r}"
 
 
-def teardown_module(module):
+def test_colour_recall_when_topic_precedes_tell_verb():
+    """'what colour did i say i like' must recall a stored 'favourite
+    colour' fact even though the attribute head ('colour') precedes the
+    tell-verb — the entity head bridges to the stored attribute."""
+    _S = "test_colour_recall_20261023"
+    e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=_S)
+    e.process_turn("my favourite colour is indigo")
+    out = e._autobiographical_recall("what colour did i say i like")
+    assert out is not None, "expected a recall answer, got None"
+    assert "indigo" in (out or ""), f"colour fact not recalled: {out!r}"
+    assert "not that i recall" not in (out or "")
     try:
-        e = _eng()
         e.stop_background_learning()
     except Exception:
         pass
+
+
+def test_entity_head_bridge_generalizes_to_other_head():
+    """The entity-head bridge is not colour-specific: any stored composite
+    attribute whose head word appears in the query can be reached when the
+    head precedes the tell-verb (e.g. 'favourite food' from 'what food ...')."""
+    _S = "test_head_bridge_food_20261023"
+    e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=_S)
+    e.process_turn("my favourite food is ramen")
+    out = e._autobiographical_recall("what food did i say i like")
+    assert out is not None, "expected a recall answer, got None"
+    assert "ramen" in (out or ""), f"food fact not recalled: {out!r}"
+    assert "not that i recall" not in (out or "")
+    try:
+        e.stop_background_learning()
+    except Exception:
+        pass
+
+
+def teardown_module(module):
+    for _s in ("test_autobio_20260818", "test_colour_recall_20261023",
+               "test_head_bridge_food_20261023"):
+        try:
+            e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=_s)
+            e.stop_background_learning()
+        except Exception:
+            pass
+    # remove leftover weight files for the recall suffixes
+    for _suf in ("test_colour_recall_20261023", "test_head_bridge_food_20261023"):
+        for _f in ("weights/ravana_weights" + _suf + ".pkl",
+                   "weights/ravana_usermodel" + _suf + ".pkl"):
+            try:
+                os.remove(_f)
+            except FileNotFoundError:
+                pass
