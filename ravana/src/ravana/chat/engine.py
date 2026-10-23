@@ -3326,15 +3326,48 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if _best:
                 return f"your call sign is {_best}."
             return None
-        if re.search(r"\bwhat(?:'s|\s+(?:is|was|are|were))\s+my\s+favorite\b", q):
-            # surface every favorite_* fact
+        _fav_all_q = re.search(r"\bwhat(?:'s|\s+(?:is|was|are|were))\s+my\s+favou?rite\b", q)
+        if _fav_all_q:
+            # surface favorite_* facts. When the query names a SPECIFIC
+            # favourite category (e.g. "what is my favourite season"), resolve
+            # to the single stored fact whose attribute HEAD matches that
+            # category (FIX-RV-24). Exact head-noun match preferred; semantic
+            # fallback only when no exact head matches.
             if pf is not None:
-                _bits = []
+                _fav_facts = []
                 for _k, _f in pf.facts.items():
                     if isinstance(_k, tuple) and len(_k) == 3 and \
-                            _k[1].startswith("favorite") and \
+                            re.match(r"favou?rite\b", (_k[1] or "").lower().strip()) and \
                             not getattr(_f, "superseded", False):
-                        _bits.append(f"your {_k[1].replace('favorite ', '')} is {_f.value}")
+                        _fav_facts.append((_k, _f))
+                _cat_m = re.search(r"\bfavou?rite\s+(\S+)", q)
+                _cat = _cat_m.group(1).strip(" .,!?").lower() if _cat_m else ""
+                if _cat and _fav_facts:
+                    _head_matches = [(_k, _f) for (_k, _f) in _fav_facts
+                                     if ((_k[1] or "").lower().split() or [""])[-1] == _cat]
+                    if not _head_matches:
+                        try:
+                            import difflib as _dl
+                            _best_score = -1.0
+                            _best_item = None
+                            for (_k, _f) in _fav_facts:
+                                _h = ((_k[1] or "").lower().split() or [""])[-1]
+                                _sc = _dl.SequenceMatcher(None, _h, _cat).ratio()
+                                if _sc > _best_score:
+                                    _best_score, _best_item = _sc, (_k, _f)
+                            if _best_item is not None and _best_score >= 0.5:
+                                _head_matches = [_best_item]
+                        except Exception:
+                            pass
+                    if _head_matches:
+                        _k, _f = _head_matches[0]
+                        return f"your {_k[1]} is {_f.value}."
+                    return None
+                _bits = []
+                for _k, _f in _fav_facts:
+                    _attr = _k[1]
+                    _stripped = re.sub(r"^favou?rite\s+", "", _attr, flags=re.IGNORECASE).strip()
+                    _bits.append(f"your {_stripped} is {_f.value}")
                 if _bits:
                     return "; ".join(_bits) + "."
             return None
