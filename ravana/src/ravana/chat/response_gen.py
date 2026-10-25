@@ -6406,6 +6406,9 @@ class ResponseGenMixin(ChainWalkerMixin):
             "but", "if", "than", "as", "is", "are", "was", "were", "be",
             "been", "being", "do", "does", "did", "have", "has", "had",
             "you", "your", "i", "my", "me", "we", "they", "he", "she",
+            "something", "anything", "everything", "nothing",
+            "someone", "anyone", "everyone", "noone", "nobody",
+            "somebody", "anybody", "everybody",
         }
         # R4 (round 2026-08-18T0937Z): subject extraction can also resolve to a
         # MULTI-TOKEN NOUN PHRASE scraped from the whole user utterance
