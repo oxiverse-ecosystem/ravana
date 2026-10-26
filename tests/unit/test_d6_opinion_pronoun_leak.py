@@ -76,3 +76,21 @@ def test_opinion_target_resolves_real_topic(engine):
     assert "lutefisk" in r.lower(), f"expected real topic 'lutefisk' in reply: {r!r}"
     _slot = r.lower().split("view on", 1)[-1]
     assert "my" not in _slot, f"topic resolved to pronoun: {r!r}"
+
+
+@pytest.mark.parametrize("query,topics", [
+    ("what's your take on my brass sculptures versus our glass mosaics?",
+     ("brass sculptures", "glass mosaics")),
+    ("do you think tea tastes better or cocoa tastes sweeter?",
+     ("whether tea tastes better", "whether cocoa tastes sweeter")),
+    ("what's your take on zebras or kangaroos or wallabies?",
+     ("zebras", "kangaroos", "wallabies")),
+])
+def test_contrastive_fallback_names_all_topics(engine, monkeypatch, query, topics):
+    # Exercise the no-grounding path regardless of earlier turns or embeddings.
+    monkeypatch.setattr(engine.user_model.opinions, "query_stance", lambda _: None)
+    reply = engine.process_turn(query).lower()
+    assert "i'm still figuring that out about" in reply, reply
+    for topic in topics:
+        assert topic in reply, f"topic {topic!r} missing from reply: {reply!r}"
+    assert "about my brass" not in reply, reply
