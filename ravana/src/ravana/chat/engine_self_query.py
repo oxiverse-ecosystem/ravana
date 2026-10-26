@@ -2133,7 +2133,7 @@ class SelfQueryMixin:
                             _stt, _st_r = self._agent_stance_on(_st)
                             _phrases.append(_stt)
                     if _grounded_count == 0:
-                        stance = "i'm still figuring that out"
+                        stance = "i'm still figuring that out about " + str(_contrast_sides[0] if _contrast_sides else "").strip()
                     else:
                         stance = "; ".join(_phrases)
                     reason = ""
