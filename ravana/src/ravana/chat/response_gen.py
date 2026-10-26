@@ -6428,10 +6428,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         }
         _mtoks = [w for w in re.findall(r"[a-z']+", subj_cap.lower())
                   if w not in _STOP_MULTI and len(w) >= 3]
-        if _mtoks:
+        if len(_mtoks) >= 3:
             # Prefer the longest remaining content word (most specific concept).
             subj_cap = max(_mtoks, key=len)
-        elif " " in (subject or ""):
+        elif not _mtoks and " " in (subject or ""):
             subj_cap = "that"
         if subj_cap.lower().strip(" .,!?") in _CLOSED:
             subj_cap = "that"

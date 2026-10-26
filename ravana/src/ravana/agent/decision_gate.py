@@ -91,7 +91,8 @@ def _extract_topic(query: str) -> str:
     q = re.sub(r"[?.,!]", " ", query.lower())
     toks = [t for t in q.split() if len(t) > 3 and t not in {
         "what", "when", "where", "which", "tell", "about", "think", "do", "you",
-        "your", "know", "believe", "feel", "like", "want", "should", "could"}]
+        "your", "know", "believe", "feel", "like", "want", "should", "could",
+        "don't", "doesn't", "didn't", "won't", "can't", "couldn't", "shouldn't"}]
     return " ".join(toks[:4])
 
 

@@ -9290,10 +9290,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "tell me what i like", "tell me what i love", "what i like", "what i love"
         ]
         interests_questions = [
-            "what am i interested in", "what do i want to learn", "what do i want to learn about",
-            "do you know what i want to learn", "tell me what i want to learn", "what i'm interested in",
-            "what i am interested in"
-        ]
+                    "what am i interested in", "what do i want to learn", "what do i want to learn about",
+                    "do you know what i want to learn", "tell me what i want to learn", "what i'm interested in",
+                    "what i am interested in", "what do you know about my preferences",
+                    "what are my preferences", "tell me my preferences"
+                ]
         
         is_likes_query = clean_input in likes_questions or clean_input.endswith("what do i like") or clean_input.endswith("what do i love")
         is_interests_query = clean_input in interests_questions or clean_input.endswith("what am i interested in") or clean_input.endswith("what do i want to learn")
@@ -9418,6 +9419,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             elif is_interests_query:
                 prefs = getattr(self.user_model, 'preferences', {})
                 interests = prefs.get("interests", [])
+                # Surface stored stances as interests too
+                stances = getattr(getattr(self.user_model, 'opinions', None), 'stances', {}) or {}
+                for topic, st in stances.items():
+                    if getattr(st, 'polarity', 0) > 0 and topic not in interests:
+                        interests = list(interests) + [topic]
                 if interests:
                     response = f"you want to learn about or are interested in {', '.join(interests)}!"
                 else:
@@ -9521,8 +9527,46 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # by "; " — do NOT re-prepend "i" or the topic.
                         _phrases = []
                         for _st in _side_topics:
-                            _stt, _st_r = self._agent_stance_on(_st)
-                            _phrases.append(_stt)
+                            _user_stance = None
+                            _opinions = getattr(self, "user_model", None)
+                            _opinions = getattr(_opinions, "opinions", None) if _opinions else None
+                            if _opinions is not None:
+                                try:
+                                    _user_stance = _opinions.query_stance(_st)
+                                except Exception:
+                                    _user_stance = None
+                            if _user_stance is not None and getattr(_user_stance, "confidence", 0.0) >= 0.35:
+                                _pol = float(_user_stance.polarity) * 0.7
+                                _conf = max(0.35, min(0.85, float(_user_stance.confidence) * 0.8))
+                                if _pol >= 0.6:
+                                    _w = "strongly for"
+                                elif _pol > 0.1:
+                                    _w = "for"
+                                elif _pol <= -0.6:
+                                    _w = "strongly against"
+                                elif _pol < -0.1:
+                                    _w = "against"
+                                elif _pol >= 0.15:
+                                    _w = "lean toward"
+                                elif _pol <= -0.15:
+                                    _w = "wary of"
+                                else:
+                                    _w = "uncertain about"
+                                _stance = f"i'm {_w} {_st}"
+                                try:
+                                    from ravana.chat.personal_fact_store import Stance
+                                    self._agent_stances[_st.lower().strip()] = Stance(
+                                        topic=_st.lower().strip(), polarity=_pol, confidence=_conf,
+                                        valence=getattr(_user_stance, "valence", 0.0),
+                                        arousal=getattr(_user_stance, "arousal", 0.0),
+                                        turn_number=getattr(self, "turn_count", 0) or 0,
+                                        rehearsal_count=1)
+                                except Exception:
+                                    pass
+                                _phrases.append(_stance)
+                            else:
+                                _stt, _st_r = self._agent_stance_on(_st)
+                                _phrases.append(_stt)
                         stance = "; ".join(_phrases)
                         back = " what about you?"
                         response = f"{stance}{back}".replace("  ", " ")

@@ -1792,6 +1792,7 @@ class UserModel:
         _REL_WORDS = {
             "name", "age", "breed", "job", "work", "is", "does", "location",
             "live", "color", "type", "kind", "favorite", "gender", "role",
+            "called",
         }
         # A leading qualifier that marks a SELF-FACT attribute (not an entity).
         # "my favorite color is ochre" must stay subject 'i' (attr 'favorite

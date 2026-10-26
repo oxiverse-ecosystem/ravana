@@ -2082,6 +2082,7 @@ class SelfQueryMixin:
                         _side_topics.append(" ".join(_side_toks))
                 if len(_side_topics) >= 2:
                     _phrases = []
+                    _grounded_count = 0
                     for _st in _side_topics:
                         # USER-STANCE GROUNDING (round 2026-09-06): if the
                         # user holds a real learned stance on this side topic,
@@ -2127,10 +2128,14 @@ class SelfQueryMixin:
                             except Exception:
                                 pass
                             _phrases.append(_stance)
+                            _grounded_count += 1
                         else:
                             _stt, _st_r = self._agent_stance_on(_st)
                             _phrases.append(_stt)
-                    stance = "; ".join(_phrases)
+                    if _grounded_count == 0:
+                        stance = "i'm still figuring that out"
+                    else:
+                        stance = "; ".join(_phrases)
                     reason = ""
                     _reason = reason.rstrip()
                     if _reason and not _reason.endswith((".", "!", "?")):
