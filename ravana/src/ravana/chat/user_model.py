@@ -4933,7 +4933,7 @@ class UserModel:
                 break
             _gen_seen += 1
             _gen_from = _gm.end() if _gm.end() > _gm.start() else _gm.start() + 1
-            _verb = _gm.group(1).lower().replace("'t", "")
+            _verb = _gm.group(1).lower()
             if _verb in _STATIVE_DENY:
                 continue
             # UNIFIED VERB GATE (round 2026-09-22): delegate to _activity_verb_ok
