@@ -37,6 +37,7 @@ class SyntacticFrame:
     is_causal: bool = False
     tense: str = "present"       # "present" or "past"
     depth: int = 0               # How many hops in the chain
+    weight: float = 0.1          # M16 usage-based construction weight (learned)
     embedded_frame: Optional['SyntacticFrame'] = None
     embedded_relation: str = "which"
     pattern_idx: Optional[int] = None
@@ -99,6 +100,12 @@ class SyntacticCellAssembly:
         self.learning_rate = learning_rate
         self._last_frame: Optional[SyntacticFrame] = None
         self.pattern_weights = [1.0] * 7
+
+        # M16 usage-based constructions: bounded inventory of frames learned
+        # from successful turns. Grows online, evicts lowest-weight. No LLM,
+        # no retrain — one successful use allocates a construction.
+        self.learned_frames: List[SyntacticFrame] = []
+        self._max_learned_frames: int = 512
 
         # Role activation matrices: concept → weight for each role
         # Seeded from POS priors when seed_from_pos is called
@@ -492,6 +499,54 @@ class SyntacticCellAssembly:
             if 0 <= pidx < len(self.pattern_weights):
                 self.pattern_weights[pidx] = max(0.1, min(2.0, self.pattern_weights[pidx] + lr))
 
+
+    # ─── M16 usage-based constructions ───
+
+    def _frame_key(self, frame: SyntacticFrame) -> Tuple[str, str, str, str]:
+        return (frame.subject_concept.lower(), frame.verb_concept.lower(),
+                frame.object_concept.lower(), frame.relation_type)
+
+    def find_construction(self, subject: str, relation: str, target: str) -> Optional[SyntacticFrame]:
+        """Return a previously learned construction matching the roles, or None."""
+        key = (subject.lower(), "", target.lower(), relation)
+        for f in self.learned_frames:
+            if (f.subject_concept.lower() == subject.lower()
+                    and f.object_concept.lower() == target.lower()
+                    and f.relation_type == relation):
+                return f
+        return None
+
+    def allocate_construction(self, frame: SyntacticFrame, weight: float = 0.1) -> bool:
+        """Register a new construction learned from a successful turn.
+
+        Returns True if a new (or reinforced) construction is in the inventory.
+        Bounded to _max_learned_frames; evicts the lowest-weight entry when full.
+        One successful use allocates — no retrain, no LLM.
+        """
+        frame.weight = max(0.0, min(2.0, float(weight)))
+        # Reinforce if identical construction already learned.
+        for existing in self.learned_frames:
+            if self._frame_key(existing) == self._frame_key(frame):
+                existing.weight = min(2.0, existing.weight + self.learning_rate)
+                self._last_frame = existing
+                return True
+        # Evict lowest-weight if at capacity.
+        if len(self.learned_frames) >= self._max_learned_frames:
+            if not self.learned_frames:
+                return False
+            idx = min(range(len(self.learned_frames)),
+                      key=lambda i: self.learned_frames[i].weight)
+            self.learned_frames.pop(idx)
+        self.learned_frames.append(frame)
+        self._last_frame = frame
+        return True
+
+    def reinforce_construction(self, frame: SyntacticFrame, success: bool) -> None:
+        """Hebbian update on a learned construction's weight."""
+        lr = self.learning_rate if success else -self.learning_rate * 0.5
+        for existing in self.learned_frames:
+            if self._frame_key(existing) == self._frame_key(frame):
+                existing.weight = max(0.0, min(2.0, existing.weight + lr))
 
     # ─── Surface Helpers ───
 
