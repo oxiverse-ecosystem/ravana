@@ -350,12 +350,12 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
     # not social chitchat ("how are you") or self/personal questions. Reuse the
     # engine's own recall-query detector + self-subject gate so we don't web-
     # search every casual message.
-    is_knowledge_query = True
+    is_knowledge_query = False
     try:
         if hasattr(engine, "_is_recall_query"):
             is_knowledge_query = bool(engine._is_recall_query(query))
     except Exception:
-        is_knowledge_query = True
+        is_knowledge_query = False
 
     # Suppress on self/personal/social questions (about RAVANA or the user) —
     # these are not world-knowledge gaps to ground via search.
@@ -391,7 +391,7 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
     except Exception:
         meta_uncertain = False
 
-    if is_knowledge_query and not is_personal and (uncertainty >= 0.5 or meta_uncertain):
+    if not is_personal and (uncertainty >= 0.7 or meta_uncertain):
         return ToolCall(tool="web_search", arg=q,
                         reason=f"knowledge_query={is_knowledge_query} personal={is_personal} "
                                f"curiosity_uncertainty={uncertainty:.2f} meta_uncertain={meta_uncertain}")
