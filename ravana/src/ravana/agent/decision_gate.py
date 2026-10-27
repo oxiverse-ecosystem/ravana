@@ -391,7 +391,23 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
     except Exception:
         meta_uncertain = False
 
-    if not is_personal and (uncertainty >= 0.7 or meta_uncertain):
+    # Self-reference gate: queries about RAVANA's own state/knowledge/learning are
+    # answered from internal state, NOT the web. Firing web_search here over-recalls
+    # off-topic results. Structural check over function words ("you" + a
+    # state/learning verb), not a topic list — seed-expandable at runtime.
+    _SELF_REFERENCE_VERBS = {"learn", "learned", "know", "knew", "think", "thought",
+                             "feel", "felt", "believe", "remember", "forgot", "forget",
+                             "been", "are", "were", "was", "have", "had"}
+    _is_self_reference = False
+    try:
+        if re.search(r"\byou\b", q.lower()):
+            _toks = re.findall(r"\b[a-z']+\b", q.lower())
+            if any(t in _SELF_REFERENCE_VERBS for t in _toks):
+                _is_self_reference = True
+    except Exception:
+        _is_self_reference = False
+
+    if not is_personal and not _is_self_reference and (uncertainty >= 0.7 or meta_uncertain):
         return ToolCall(tool="web_search", arg=q,
                         reason=f"knowledge_query={is_knowledge_query} personal={is_personal} "
                                f"curiosity_uncertainty={uncertainty:.2f} meta_uncertain={meta_uncertain}")
