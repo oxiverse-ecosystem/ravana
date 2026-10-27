@@ -1753,7 +1753,9 @@ class ChatInterface:
 
                 # Step 5: Surface Realization
                 discourse_context.sentence_index = i
-                discourse_context.previous_subject = utterances[-1].split()[0] if utterances else None
+                discourse_context.previous_subject = (frame.subject_concept if getattr(frame, 'subject_concept', None) else (utterances[-1].split()[0] if utterances else None))
+                discourse_context.previous_object = getattr(frame, 'object_concept', None) or None
+                discourse_context.previous_verb = getattr(frame, 'verb_concept', None) or getattr(frame, 'verb_phrase', None) or None
                 discourse_context.discourse_type = intent.type
 
                 sentence = self.surface_realizer.realize(
