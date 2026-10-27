@@ -229,8 +229,16 @@ class SyntacticCellAssembly:
             SyntacticFrame with roles assigned and verb phrase chosen
         """
         sl, tl = subject.lower(), target.lower()
-
-        # Determine roles using Hebbian-weighted assignment
+        # M16 reuse: if a construction was learned for this role triple,
+        # reuse it (its verb_phrase + frame) instead of recomputing.
+        try:
+            learned = self.find_construction(subject, relation, target)
+        except Exception:
+            learned = None
+        if learned is not None:
+            # return a shallow copy so callers can mutate
+            import copy
+            return copy.copy(learned)
         subj_role_weight = self.subject_role.get(sl, 0.5)
         obj_role_weight = self.object_role.get(tl, 0.5)
 
@@ -661,12 +669,15 @@ class SyntacticCellAssembly:
     # ─── State ───
 
     def get_state(self) -> Dict:
+        from dataclasses import asdict
         return {
             'subject_role': self.subject_role,
             'verb_role': self.verb_role,
             'object_role': self.object_role,
             'sequence_patterns': {str(k): v for k, v in self.sequence_patterns.items()},
             'verb_phrase_counts': self.verb_phrase_counts,
+            'learned_frames': [asdict(f) for f in self.learned_frames],
+            'max_learned_frames': self._max_learned_frames,
         }
 
     def set_state(self, state: Dict):
@@ -680,3 +691,14 @@ class SyntacticCellAssembly:
             if len(parts) == 2:
                 self.sequence_patterns[(parts[0].strip("'"), parts[1].strip("'"))] = v
         self.verb_phrase_counts = state.get('verb_phrase_counts', {})
+        # Restore M16 learned constructions (online-learned, must survive save/load).
+        self._max_learned_frames = int(state.get('max_learned_frames', self._max_learned_frames))
+        lf_raw = state.get('learned_frames', []) or []
+        restored = []
+        for d in lf_raw:
+            try:
+                restored.append(SyntacticFrame(**{k: v for k, v in d.items()
+                                                  if k in SyntacticFrame.__dataclass_fields__}))
+            except Exception:
+                continue
+        self.learned_frames = restored[-self._max_learned_frames:]
