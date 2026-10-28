@@ -1297,7 +1297,27 @@ class ChatInterface:
         return rnd.choice(coord_patterns)(subject, l1, v1, l2, v2)
 
 
+    def _build_message(self, ctx: CognitiveResponseContext):
+        """Conceptual preparation (Levelt stage 1): produce a non-linguistic
+        Message grounded in the typed concept graph. Online, no authored text."""
+        from ravana.chat.message import Message
+        subj = (ctx.subject or "").strip().lower()
+        node_subj = None
+        kws = getattr(self.graph_engine, "_concept_keywords", {}) if hasattr(self, "graph_engine") else {}
+        if subj in kws and kws[subj]:
+            node_subj = kws[subj][0]
+        mods = []
+        for assoc, _w in (ctx.associated_concepts or [])[:3]:
+            mods.append(("assoc", str(assoc)))
+        patient = None
+        if ctx.associated_concepts:
+            patient = str(ctx.associated_concepts[0][0])
+        pred_edge = ctx.relation if getattr(ctx, "relation", "") else None
+        return Message(predicate_edge=pred_edge, agent_node=node_subj,
+                      patient_node=patient, modifiers=mods, focus="agent")
+
     def _graph_fallback_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
+        ctx.message = self._build_message(ctx)
         subject = ctx.subject
         assocs = ctx.associated_concepts
         from random import Random

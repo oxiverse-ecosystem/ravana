@@ -101,3 +101,5 @@ class CognitiveResponseContext:
     # complexity. It is a register signal, not part of the referent.
     simplification_requested: bool = False
     cleaned_input: str = ""
+    # Pivot M1: structured non-linguistic intent for the emitter.
+    message: Any = None
