@@ -3087,16 +3087,44 @@ class ResponseGenMixin(ChainWalkerMixin):
         ]
         return random.choice(leads) + " " + random.choice(follows)
 
+    def _compose_greeting_generative(self):
+        try:
+            gen = self._get_settle_generator()
+            if gen is None:
+                return None
+            traj = self._grounded_anchor_trajectory("greeting")
+            if not traj:
+                return None
+            embs = []
+            d = getattr(self, "_decoder_word_to_embed", None)
+            for w in ("greeting", "hello", "hi"):
+                if d and w in d:
+                    embs.append(d[w].copy())
+            if not embs:
+                return None
+            import numpy as np
+            cond = np.stack(embs, axis=0).astype(np.float32)
+            bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
+            eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
+            generated = gen.generate(conditioning_embs=cond, trajectory=traj,
+                                     bos_idx=bos_idx, eos_idx=eos_idx)
+            if not generated or len(generated) < 2:
+                return None
+            words = []
+            for idx in generated:
+                w = self._decoder_idx_to_word.get(idx)
+                if w and w not in ("<bos>", "<eos>", "<pad>", "<unk>"):
+                    words.append(w)
+            if len(words) < 2:
+                return None
+            return " ".join(words)
+        except Exception:
+            return None
+
     def _compose_greeting(self, valence: float, arousal: float) -> str:
-        """Compose a greeting from primitives by valence + arousal.
-
-        Primitives (neural: TPJ social word selection + amygdala valence gating):
-        - greeting_word: selected from valence-gated pool
-        - energy_marker: '!' for high arousal, '.' for low
-        - topic_invite: invitation to engage, modulated by valence
-
-        Combinations: 5 x 4 x 5 = ~100 (vs 9 hardcoded strings)
-        """
+        _gen = self._compose_greeting_generative()
+        if _gen:
+            return _gen
         import random
         if valence > 0.6:
             greeting_word = random.choice(["hello", "hi", "hey", "greetings", "hey there"])
