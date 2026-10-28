@@ -1782,9 +1782,22 @@ class SelfQueryMixin:
                         _stab = "the shape of it mostly holds"
                     else:
                         _stab = "the shape of it is still shifting"
-                    return (f"that's about me, not you — {_coh}, and {_growth}. "
-                            f"i don't always keep the exact words of what i said "
-                            f"earlier, but {_stab}.")
+                    # D1 fix: add surface-form variety while staying state-driven.
+                    # Three variants read the SAME _strength/_momentum/_stability
+                    # (via _coh/_growth/_stab) but arrange them differently, so
+                    # repeated self-experience questions do not produce identical
+                    # replies. Selection is a pure function of the input (no
+                    # per-question lookup table) — a hash, not a authored reply.
+                    _variant = hash(str(user_input)) % 3
+                    if _variant == 0:
+                        return (f"that's about me, not you — {_coh}, and {_growth}. "
+                                f"i don't always keep the exact words of what i said "
+                                f"earlier, but {_stab}.")
+                    if _variant == 1:
+                        return (f"you're asking about me — {_growth}; {_coh}, and "
+                                f"{_stab}.")
+                    return (f"that's my side of things — {_coh}. {_growth}, and "
+                            f"{_stab}.")
                 except Exception:
                     return ("that's a question about me rather than you — i'm "
                             "still forming a sense of myself, and i'd rather be "
