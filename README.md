@@ -621,3 +621,5 @@ Quick summary:
 - Privacy-by-Design is a non-negotiable baseline for all use.
 
 This repository does not embed its own copy of the license to avoid drift.
+
+- **Produces a structured Message for conceptual preparation (Levelt stage 1).** The graph-fallback path now builds a non-linguistic `Message` (predicate_edge, agent_node, patient_node, modifiers, focus) grounded in the typed concept graph before emitting, instead of only a string. Added `message` field to `CognitiveResponseContext` and `_build_message` on the engine. No authored reply strings. See `docs/CAPABILITY_STRUCTURED_MESSAGE.md`.
