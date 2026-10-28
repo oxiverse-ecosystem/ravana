@@ -2675,7 +2675,7 @@ class UserModel:
                 # attribute (same fix as the m_loc branch below).
                 _loc_verb = "location"
                 if re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE):
-                    _loc_verb = "grew up"
+                    _loc_verb = "grew up in"
                 _put_fact(_loc_verb, _loc, 0.6)
         elif m_loc_on and not m_loc:
             # Round 2026-08-15T0326Z: "i keep the lighthouse on hollis rock"
@@ -2732,7 +2732,7 @@ class UserModel:
             # read from the matched text, not hardcoded per-place.
             _loc_verb = "location"
             if re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE):
-                _loc_verb = "grew up"
+                _loc_verb = "grew up in"
             if _loc and len(_loc.split()) <= 5:
                 self.user_location = _loc
                 _put_fact(_loc_verb, _loc, 0.6)
@@ -6962,6 +6962,13 @@ class UserModel:
         # in this construction is closed-class (like "is"/"was"/"been"
         # already above), generalizes to any "used to <verb>" disclosure.
         "used",
+        # Round FIX-RV-07: negation particles leaked as topic head
+        # ("tell me something you don't know much about" -> topic "don't").
+        # Add contractions + "not" (already present) so they terminate the
+        # topic phrase. Closed-class; generalizes to any negated disclosure.
+        "don't", "doesn't", "didn't", "won't", "can't", "couldn't",
+        "shouldn't", "wouldn't", "isn't", "aren't", "wasn't", "weren't",
+        "haven't", "hasn't", "hadn't",
     }
 
     def _opinion_provenance(self, phrase: str) -> List[str]:
