@@ -400,10 +400,12 @@ def decide_tool_use(engine, query: str, registry: Optional[ToolRegistry] = None)
                              "been", "are", "were", "was", "have", "had"}
     _is_self_reference = False
     try:
-        if re.search(r"\byou\b", q.lower()):
+        if re.search(r"\byou(?:r)?\b", q.lower()):
             _toks = re.findall(r"\b[a-z']+\b", q.lower())
             if any(t in _SELF_REFERENCE_VERBS for t in _toks):
                 _is_self_reference = True
+        if re.search(r"\btell me about\b", q.lower()) and re.search(r"\byou(?:r)?\b", q.lower()):
+            _is_self_reference = True
     except Exception:
         _is_self_reference = False
 

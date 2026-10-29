@@ -104,16 +104,18 @@ _RELATION_SEED: Dict[str, str] = {
 _RELATION_LEARNED: Dict[str, str] = {}
 
 
-def learn_relation(word: str) -> str:
-    """Register a relationship word seen in a live disclosure and return its canon.
+# Ordinal / modifier words that are never relationships. Prevents runtime
+# vocabulary extension from learning "first" as a relation when a disclosure
+# like "my first mentor was ..." is mined, which would otherwise promote the
+# leading modifier into the attribute key.
+_RELATION_MODIFIER_STOP = frozenset({
+    "first", "second", "third", "last", "next", "old", "dear", "late",
+    "new", "young", "best", "worst",
+})
 
-    Growth path for the seed vocabulary: a kin word RAVANA has never heard of
-    ("my bhabhi neha paints") becomes addressable for later recall/enumeration
-    without any code change. A trailing plural "s" is folded onto the singular so
-    the plural form of the same word resolves to one canonical relation.
-    """
+def learn_relation(word: str) -> str:
     w = (word or "").strip().lower()
-    if not w:
+    if not w or w in _RELATION_MODIFIER_STOP:
         return ""
     known = relation_of(w)
     if known:
@@ -140,7 +142,7 @@ def relation_of(word: str) -> Optional[str]:
     via learn_relation); it names NO person, only the modifier->head collapse.
     """
     w = (word or "").strip().lower()
-    if not w:
+    if not w or w in _RELATION_MODIFIER_STOP:
         return None
     # Normalize multi-word kin modifiers to a single canonical head.
     _norm = w.replace("-", " ").strip()

@@ -61,6 +61,8 @@ _PRONOUN_STOP = frozenset({
     "it", "its", "they", "them", "their", "he", "she", "his", "her",
     "this", "that", "these", "those", "what", "which", "who", "whom",
     "a", "an", "the", "some", "any", "one",
+    # ordinal / modifier words that are never animals
+    "first", "second", "third", "last", "next", "old", "dear", "late",
 })
 
 
