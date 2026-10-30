@@ -2219,7 +2219,9 @@ class ChainWalkerMixin:
                     
                     # Set discourse context for this sentence
                     disc_ctx.sentence_index = i
-                    disc_ctx.previous_subject = utterances[-1].split()[0] if utterances else None
+                    disc_ctx.previous_subject = (frame.subject_concept if getattr(frame, 'subject_concept', None) else (utterances[-1].split()[0] if utterances else None))
+                    disc_ctx.previous_object = getattr(frame, 'object_concept', None) or None
+                    disc_ctx.previous_verb = getattr(frame, 'verb_concept', None) or getattr(frame, 'verb_phrase', None) or None
                     if i == 0:
                         discourse_marker = ""
                     elif relation == "contrastive":

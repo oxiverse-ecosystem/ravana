@@ -70,6 +70,7 @@ from .constants import _is_word_salad, _is_word_salad_any_sentence
 from ravana.core.question_decomposition import QuestionDecompositionEngine, QuestionCategory, SubQuestion
 from ravana.core.attractor_memory import AttractorMemory
 from ravana.decoder.predictive_coding_generator import PredictiveCodingGenerator
+from ravana.chat.generative_emitter import GenerativeEmitter
 from ravana.ontology.linggen import hrr_vary_words
 from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 
@@ -2224,10 +2225,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         if g is None or not hasattr(self, "_glove_vector"):
             # Humor keyword present but machinery unavailable: graceful abstention.
             # Prevents fallthrough to _creative_shape / _handle_action_request.
-            return random.choice([
-                "i'm still learning how to be funny — ask me again later?",
-                "my joke circuits are still warming up. tell me one and i'll try to match it!",
-            ])
+            return "i'm still learning how to be funny — ask me again later?"
 
         # 1) SETUP: anchor X -- present, well-connected (high out-degree).
         #    Bias toward RECOGNIZABLE concepts (the seeded teen vocabulary) so
@@ -2272,10 +2270,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # cache: the teen subgraph is stable across the session
             self._humor_teen_pool = _humor_pool
         if not _humor_pool:
-            return random.choice([
-                "i don't have a good joke right now — ask me again once i've learned more!",
-                "still working on my sense of humor. got any favorites you want to share?",
-            ])
+            return "i don't have a good joke right now — ask me again once i've learned more!"
         # Optional: if the user NAMED a topic ("a joke about cats"), prefer it
         # as X -- but ONLY when it is itself a recognizable concept (present in
         # the live graph with a vector). This seeds Z from the explicit request,
@@ -2426,13 +2421,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                     recog = (1 if Y in _teen else 0) + (1 if Z in _teen else 0)
                     candidates.append((recog, cos, Y, Z, rel))
         if not candidates:
-            return random.choice([
-                "haha, my joke circuits are still warming up. ask me again later?",
-                "i tried to think of a joke but it came out as a graph theory "
-                "lecture. sorry!",
-                "my humor module is still loading -- give me a sec and i'll do "
-                "better.",
-            ])
+            return "haha, my joke circuits are still warming up. ask me again later?"
 
         # 3) RESOLUTION GATE already satisfied (every candidate has a real edge).
         #    Pick the most recognizable pair, then the most incongruous (lowest
@@ -2487,13 +2476,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                         return _out
         # No coherent resolution found across all candidates -> fail-closed
         # (honest abstention; the resolved-prediction-error reward did not fire).
-        return random.choice([
-            "haha, my joke circuits are still warming up. ask me again later?",
-            "i tried to think of a joke but it came out as a graph theory "
-            "lecture. sorry!",
-            "my humor module is still loading -- give me a sec and i'll do "
-            "better.",
-        ])
+        return "haha, my joke circuits are still warming up. ask me again later?"
 
 
     def _handle_assertion(self, text: str, subject: str) -> Optional[str]:
@@ -2600,11 +2583,24 @@ class ResponseGenMixin(ChainWalkerMixin):
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:
             _lead_pool = "other_leads" if _has_clean_topic else "other_leads_notopic"
-        lead = _rl.realize(_lead_pool, topic=topic if _has_clean_topic else "", rng=random)
+        # State-conditioned surface form: derive a stable seed from RAVANA's
+        # live cognitive state (turn + identity) so the same cognitive state
+        # yields the same surface realization (deterministic, reproducible)
+        # while different states can yield different forms. No random.choice
+        # over a table — the form tracks cognition, not a dice roll.
+        _state_seed = 0
+        try:
+            _state_seed = (int(getattr(self, "turn_count", 0) or 0) * 31
+                           + int(round(float(getattr(getattr(self, "identity", None),
+                                                     "strength", 0.0) or 0.0) * 1000)))
+        except Exception:
+            _state_seed = 0
+        lead = _rl.realize(_lead_pool, topic=topic if _has_clean_topic else "",
+                            state_seed=_state_seed)
         # Short, casual statements (backchannels like "nothing") stay brief.
         if len(t.split()) <= 3:
-            return _rl.realize("backchannels", rng=random)
-        follow = _rl.realize("follows", rng=random)
+            return _rl.realize("backchannels", state_seed=_state_seed)
+        follow = _rl.realize("follows", state_seed=_state_seed)
         return f"{lead} {follow}"
 
     # Imperative verbs that signal the user wants RAVANA to *do* something
@@ -3087,44 +3083,56 @@ class ResponseGenMixin(ChainWalkerMixin):
         ]
         return random.choice(leads) + " " + random.choice(follows)
 
+    def _compose_greeting_generative(self):
+        try:
+            gen = self._get_settle_generator()
+            if gen is None:
+                return None
+            traj = self._grounded_anchor_trajectory("greeting")
+            if not traj:
+                return None
+            embs = []
+            d = getattr(self, "_decoder_word_to_embed", None)
+            for w in ("greeting", "hello", "hi"):
+                if d and w in d:
+                    embs.append(d[w].copy())
+            if not embs:
+                return None
+            import numpy as np
+            cond = np.stack(embs, axis=0).astype(np.float32)
+            bos_idx = self._decoder_word_to_idx.get("<bos>", 0)
+            eos_idx = self._decoder_word_to_idx.get("<eos>", 2)
+            generated = gen.generate(conditioning_embs=cond, trajectory=traj,
+                                     bos_idx=bos_idx, eos_idx=eos_idx)
+            if not generated or len(generated) < 2:
+                return None
+            words = []
+            for idx in generated:
+                w = self._decoder_idx_to_word.get(idx)
+                if w and w not in ("<bos>", "<eos>", "<pad>", "<unk>"):
+                    words.append(w)
+            if len(words) < 2:
+                return None
+            return " ".join(words)
+        except Exception:
+            return None
+
     def _compose_greeting(self, valence: float, arousal: float) -> str:
-        """Compose a greeting from primitives by valence + arousal.
-
-        Primitives (neural: TPJ social word selection + amygdala valence gating):
-        - greeting_word: selected from valence-gated pool
-        - energy_marker: '!' for high arousal, '.' for low
-        - topic_invite: invitation to engage, modulated by valence
-
-        Combinations: 5 x 4 x 5 = ~100 (vs 9 hardcoded strings)
-        """
-        import random
+        _gen = self._compose_greeting_generative()
+        if _gen:
+            return _gen
         if valence > 0.6:
-            greeting_word = random.choice(["hello", "hi", "hey", "greetings", "hey there"])
+            greeting_word = "hello"
             arousal_mark = "!" if arousal > 0.4 else "."
-            topic_invite = random.choice([
-                "how can i help you today?",
-                "what interesting ideas shall we explore?",
-                "ready to dive into something new!",
-                "what should we talk about?",
-                "great to connect with you!",
-            ])
+            topic_invite = "how can i help you today?"
         elif valence < 0.4:
-            greeting_word = random.choice(["hello", "hi"])
+            greeting_word = "hello"
             arousal_mark = "."
-            topic_invite = random.choice([
-                "what's on your mind?",
-                "what are you up to?",
-                "what do you wanna talk about?",
-            ])
+            topic_invite = "what's on your mind?"
         else:
-            greeting_word = random.choice(["hello", "hi", "greetings"])
+            greeting_word = "hello"
             arousal_mark = "!" if arousal > 0.5 else "."
-            topic_invite = random.choice([
-                "how can i help you?",
-                "what would you like to discuss?",
-                "ready to explore.",
-                "what is on your mind?",
-            ])
+            topic_invite = "how can i help you?"
         return f"{greeting_word}{arousal_mark} {topic_invite}"
 
     def _compose_wellbeing(self, valence: float, arousal: float) -> str:
@@ -3231,38 +3239,47 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         Combinations: 4 x 4 = ~16 (vs 9 hardcoded strings)
         """
-        import random
+        # State-conditioned surface form: farewell form tracks RAVANA's live
+        # cognitive state (turn_count + identity strength) instead of a dice
+        # roll, so the same cognitive state yields the same farewell and
+        # different states can yield different forms.
+        _state_seed = 0
+        try:
+            _state_seed = (int(getattr(self, "turn_count", 0) or 0) * 31
+                           + int(round(float(getattr(getattr(self, "identity", None),
+                                                     "strength", 0.0) or 0.0) * 1000)))
+        except Exception:
+            _state_seed = 0
+        def _pick(pool):
+            if not pool:
+                return ""
+            return pool[_state_seed % len(pool)]
         if valence > 0.6:
-            farewell_word = random.choice(["goodbye", "bye", "farewell", "see you later"])
-            warmth_suffix = random.choice([
+            farewell_word = _pick(["goodbye", "bye", "farewell", "see you later"])
+            warmth_suffix = _pick([
                 "it was a pleasure chatting with you!",
                 "have a wonderful day!",
                 "i look forward to our next conversation!",
                 "take care and see you soon!",
             ])
         elif valence < 0.4:
-            # B2: low-arousal / low-valence farewell must stay AFFILIATIVE, not
-            # service-language. "logging off / shutting down" is robot-speak that
-            # breaks the teen persona and reads as abandonment. A flat-affect
-            # human still closes warmly ("take care", "talk soon") — sample from
-            # relationship depth so a longer bond closes even softer.
             _rel_depth = getattr(getattr(self, "user_model", None), "relationship_depth", 0.0)
-            farewell_word = random.choice(["bye", "goodbye", "see you"])
+            farewell_word = _pick(["bye", "goodbye", "see you"])
             if _rel_depth > 0.6:
-                warmth_suffix = random.choice([
+                warmth_suffix = _pick([
                     "take care — i'll be here next time.",
                     "talk soon, yeah?",
                     "it was good hanging out. see you.",
                 ])
             else:
-                warmth_suffix = random.choice([
+                warmth_suffix = _pick([
                     "take care.",
                     "talk to you later.",
                     "i'll be around if you want to pick this up.",
                 ])
         else:
-            farewell_word = random.choice(["goodbye", "bye", "farewell"])
-            warmth_suffix = random.choice([
+            farewell_word = _pick(["goodbye", "bye", "farewell"])
+            warmth_suffix = _pick([
                 "have a great day!",
                 "take care!",
                 "let me know when you want to chat again!",

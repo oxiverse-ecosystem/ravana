@@ -1228,6 +1228,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # When False, generation falls back to _build_conditioned_bos (Lancaster
         # tail) + realize_dim phrase lookup — never emits ungrounded gibberish.
         self.use_linggen = False
+        # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
+        try:
+            from ravana.chat.generative_emitter import GenerativeEmitter
+            self.generative_emitter = GenerativeEmitter(seed=seed)
+        except Exception:
+            self.generative_emitter = None
         self._linggen_genconf_seq = []  # history of grounded-run top1 acc
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
@@ -6672,6 +6678,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _q_set = set(_cands)
         _best = None
         _best_overlap = 0
+        _second_best_overlap = 0
         for _k, _entries in _store.items():
             if not _entries:
                 continue
@@ -6683,10 +6690,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 continue
             _ov = len(_q_set & _src)
             if _ov > _best_overlap:
+                _second_best_overlap = _best_overlap
                 _best_overlap = _ov
                 _best = _e
+            elif _ov > _second_best_overlap:
+                _second_best_overlap = _ov
         _min_overlap = 1 if len(_cands) <= 1 else 2
-        if _best is None or _best_overlap < _min_overlap:
+        # Disambiguation: if two stored replies tie on overlap, we cannot
+        # tell which topic the user meant — fail closed (honest uncertainty)
+        # instead of risking a wrong-topic echo.
+        if _best is None or _best_overlap < _min_overlap or _best_overlap == _second_best_overlap:
             # RFIX-01: fallback to the utterance log ring buffer. The topic-keyed
             # store missed because topic extraction didn't align (e.g. a query
             # about "season" when the reply was about "autumn season" and the
