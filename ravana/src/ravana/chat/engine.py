@@ -1228,6 +1228,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # When False, generation falls back to _build_conditioned_bos (Lancaster
         # tail) + realize_dim phrase lookup — never emits ungrounded gibberish.
         self.use_linggen = False
+        # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
+        try:
+            from ravana.chat.generative_emitter import GenerativeEmitter
+            self.generative_emitter = GenerativeEmitter(seed=seed)
+        except Exception:
+            self.generative_emitter = None
         self._linggen_genconf_seq = []  # history of grounded-run top1 acc
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
