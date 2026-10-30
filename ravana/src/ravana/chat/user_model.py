@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
 from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
+from .learned_lexicon import LearnedLexiconStore
 from . import pet_slots as _pet_slots
 from .pet_slots import is_function_word
 from .pet_slots import is_temporal_adverb
@@ -1599,6 +1600,8 @@ class UserModel:
     # NUMBER, decoupling it from the gist. Seed + online; durable via
     # get/set_state so it survives engine reload.
     quantity_memory: QuantityMemory = field(default_factory=QuantityMemory)
+    # Learned lexicon (living vocabulary): words RAVANA acquires at runtime.
+    lexicon: LearnedLexiconStore = field(default_factory=LearnedLexiconStore)
     # RUNTIME-EXPANDED activity object-category vocabulary (round 2026-08-29T0659Z
     # feature follow-up). Seed object vocabulary lives in the module-level
     # _ACTIVITY_ROLES map (consulted by the recall bridge); THIS set holds objects
@@ -7352,6 +7355,7 @@ class UserModel:
             'preferences': self.preferences,
             'personal_facts': self.personal_facts.get_state(),
             'quantity_memory': self.quantity_memory.get_state(),
+            'lexicon': self.lexicon.get_state(),
             'opinions': self.opinions.get_state(),
             'emotional_state': self.emotional_state,
             'belief_state': self.belief_state,
@@ -7418,6 +7422,9 @@ class UserModel:
         _op = state.get('opinions')
         if _op:
             self.opinions.set_state(_op)
+        _lx = state.get('lexicon')
+        if _lx:
+            self.lexicon.set_state(_lx)
         self.emotional_state = state.get('emotional_state',
             {'valence': 0.0, 'arousal': 0.3, 'dominance': 0.5})
         self.belief_state = state.get('belief_state', {})
@@ -7501,10 +7508,14 @@ def load_user_model(user_suffix: str = "") -> "UserModel":
     with open(path, "rb") as f:
         um = pickle.load(f)
     if not hasattr(um, "personal_facts"):
-        from .personal_fact_store import PersonalFactStore, UserStanceStore, QuantityMemory
+        from .personal_fact_store import PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int
+        from .learned_lexicon import LearnedLexiconStore
         um.personal_facts = PersonalFactStore()
         um.opinions = UserStanceStore()
     if not hasattr(um, "quantity_memory"):
         from .personal_fact_store import QuantityMemory
         um.quantity_memory = QuantityMemory()
+    if not hasattr(um, "lexicon"):
+        from .learned_lexicon import LearnedLexiconStore
+        um.lexicon = LearnedLexiconStore()
     return um
