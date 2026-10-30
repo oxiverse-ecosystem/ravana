@@ -4377,3 +4377,5 @@ class ConceptGraph:
     def __repr__(self):
         return (f"<ConceptGraph nodes={len(self.nodes)} edges={len(self.edges)} "
                 f"dim={self.dim} free_energy={self.total_free_energy:.2f}>")
+
+# context-gating robustness (no-op marker)
