@@ -1113,7 +1113,7 @@ class SelfQueryMixin:
         _conf = getattr(_prior, "confidence", 0.5)
         return (
             f"got it — you used to say you were {_old_word} {topic}, "
-            f"and now you're {_new_word}. i've updated my read "
+            f"and now you're {_new_word} {topic}. i've updated my read "
             f"(confidence {_conf:.2f})."
         )
 
@@ -2143,7 +2143,10 @@ class SelfQueryMixin:
                         else:
                             _stt, _st_r = self._agent_stance_on(_st)
                             _phrases.append(_stt)
-                    stance = "; ".join(_phrases)
+                    # Strip trailing punctuation from each phrase before joining
+                    # so we don't get "mountains.; sea." double-punctuation.
+                    _clean = [p.rstrip().rstrip(".") for p in _phrases]
+                    stance = "; ".join(_clean)
                     reason = ""
                     _reason = reason.rstrip()
                     if _reason and not _reason.endswith((".", "!", "?")):
