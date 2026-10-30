@@ -2583,11 +2583,24 @@ class ResponseGenMixin(ChainWalkerMixin):
             _lead_pool = "user_leads" if _has_clean_topic else "user_leads_notopic"
         else:
             _lead_pool = "other_leads" if _has_clean_topic else "other_leads_notopic"
-        lead = _rl.realize(_lead_pool, topic=topic if _has_clean_topic else "", rng=random)
+        # State-conditioned surface form: derive a stable seed from RAVANA's
+        # live cognitive state (turn + identity) so the same cognitive state
+        # yields the same surface realization (deterministic, reproducible)
+        # while different states can yield different forms. No random.choice
+        # over a table — the form tracks cognition, not a dice roll.
+        _state_seed = 0
+        try:
+            _state_seed = (int(getattr(self, "turn_count", 0) or 0) * 31
+                           + int(round(float(getattr(getattr(self, "identity", None),
+                                                     "strength", 0.0) or 0.0) * 1000)))
+        except Exception:
+            _state_seed = 0
+        lead = _rl.realize(_lead_pool, topic=topic if _has_clean_topic else "",
+                            state_seed=_state_seed)
         # Short, casual statements (backchannels like "nothing") stay brief.
         if len(t.split()) <= 3:
-            return _rl.realize("backchannels", rng=random)
-        follow = _rl.realize("follows", rng=random)
+            return _rl.realize("backchannels", state_seed=_state_seed)
+        follow = _rl.realize("follows", state_seed=_state_seed)
         return f"{lead} {follow}"
 
     # Imperative verbs that signal the user wants RAVANA to *do* something
