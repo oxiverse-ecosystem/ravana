@@ -2225,10 +2225,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         if g is None or not hasattr(self, "_glove_vector"):
             # Humor keyword present but machinery unavailable: graceful abstention.
             # Prevents fallthrough to _creative_shape / _handle_action_request.
-            return random.choice([
-                "i'm still learning how to be funny — ask me again later?",
-                "my joke circuits are still warming up. tell me one and i'll try to match it!",
-            ])
+            return "i'm still learning how to be funny — ask me again later?"
 
         # 1) SETUP: anchor X -- present, well-connected (high out-degree).
         #    Bias toward RECOGNIZABLE concepts (the seeded teen vocabulary) so
@@ -2273,10 +2270,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             # cache: the teen subgraph is stable across the session
             self._humor_teen_pool = _humor_pool
         if not _humor_pool:
-            return random.choice([
-                "i don't have a good joke right now — ask me again once i've learned more!",
-                "still working on my sense of humor. got any favorites you want to share?",
-            ])
+            return "i don't have a good joke right now — ask me again once i've learned more!"
         # Optional: if the user NAMED a topic ("a joke about cats"), prefer it
         # as X -- but ONLY when it is itself a recognizable concept (present in
         # the live graph with a vector). This seeds Z from the explicit request,
@@ -2427,13 +2421,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                     recog = (1 if Y in _teen else 0) + (1 if Z in _teen else 0)
                     candidates.append((recog, cos, Y, Z, rel))
         if not candidates:
-            return random.choice([
-                "haha, my joke circuits are still warming up. ask me again later?",
-                "i tried to think of a joke but it came out as a graph theory "
-                "lecture. sorry!",
-                "my humor module is still loading -- give me a sec and i'll do "
-                "better.",
-            ])
+            return "haha, my joke circuits are still warming up. ask me again later?"
 
         # 3) RESOLUTION GATE already satisfied (every candidate has a real edge).
         #    Pick the most recognizable pair, then the most incongruous (lowest
@@ -2488,13 +2476,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                         return _out
         # No coherent resolution found across all candidates -> fail-closed
         # (honest abstention; the resolved-prediction-error reward did not fire).
-        return random.choice([
-            "haha, my joke circuits are still warming up. ask me again later?",
-            "i tried to think of a joke but it came out as a graph theory "
-            "lecture. sorry!",
-            "my humor module is still loading -- give me a sec and i'll do "
-            "better.",
-        ])
+        return "haha, my joke circuits are still warming up. ask me again later?"
 
 
     def _handle_assertion(self, text: str, subject: str) -> Optional[str]:
