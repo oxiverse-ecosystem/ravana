@@ -164,7 +164,8 @@ class RealizerLexicon:
             json.dump({"pools": self._pools, "weights": self._weights}, f, indent=2)
 
     def realize(self, pool: str, topic: str = "",
-                scorer=None, rng: Optional[random.Random] = None) -> str:
+                scorer=None, rng: Optional[random.Random] = None,
+                state_seed: Optional[int] = None) -> str:
         """Draw a formatted candidate from ``pool``.
 
         ``scorer(candidate, topic, ctx) -> float`` ranks candidates; if None or
@@ -174,7 +175,10 @@ class RealizerLexicon:
         cands = self._pools.get(pool, _SEED_POOLS.get(pool, []))
         if not cands:
             return ""
-        rng = rng or random
+        if state_seed is not None:
+            rng = random.Random(state_seed)
+        else:
+            rng = rng or random
         scored = []
         for c in cands:
             s = scorer(c, topic) if callable(scorer) else 0.0
