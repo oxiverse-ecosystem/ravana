@@ -11401,6 +11401,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'concept_confidence': _cc_snapshot,
                 'cerebellar_ngram': _cerebellar_ngram,
                 'cerebellar_ngram_state': self.cerebellar_ngram.get_state() if hasattr(self, 'cerebellar_ngram') else {},
+                'syntactic_assembly_state': self.syntactic_assembly.get_state() if hasattr(self, 'syntactic_assembly') else {},
                 'cerebellar_depth': _cerebellar_depth,
                 'concept_pos': _concept_pos,
                 'concept_labels': list(_cl_snapshot),
@@ -12092,6 +12093,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             cng_state = state.get('cerebellar_ngram_state', {})
             if cng_state and hasattr(self, 'cerebellar_ngram'):
                 self.cerebellar_ngram.set_state(cng_state)
+
+            # Restore SyntacticCellAssembly learned constructions (M16 reuse).
+            sa_state = state.get('syntactic_assembly_state', {})
+            if sa_state and hasattr(self, 'syntactic_assembly'):
+                self.syntactic_assembly.set_state(sa_state)
 
             # Restore learned word-frequency models (Plan B). __init__ already
             # seeded each model from the class attribute; overlay the persisted
