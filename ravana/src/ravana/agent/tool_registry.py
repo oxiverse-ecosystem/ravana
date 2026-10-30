@@ -173,7 +173,19 @@ def _web_search_via_intentforge(query: str) -> str:
     try:
         with urllib.request.urlopen(url) as r:
             data = r.read().decode("utf-8", "replace")
-        return f"[web:intentforge] {data[:1200]}"
+        # Summarise rather than dumping raw JSON into the reply.
+        try:
+            obj = json.loads(data)
+            titles = []
+            for r_ in (obj.get("results") or obj.get("data", {}).get("web") or []):
+                t = r_.get("title") or r_.get("name")
+                if t:
+                    titles.append(str(t))
+            if titles:
+                return "[web:intentforge] " + "; ".join(titles[:5])
+        except (ValueError, AttributeError):
+            pass
+        return f"[web:intentforge] {data[:300]}"
     except Exception as e:
         # When offline, do NOT fall back to DuckDuckGo — it hangs.
         if os.environ.get("RAVANA_OFFLINE", "") == "1":
