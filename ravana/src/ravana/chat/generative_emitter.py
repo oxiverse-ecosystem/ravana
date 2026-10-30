@@ -93,10 +93,10 @@ class GenerativeEmitter:
             return str(txt) if txt is not None else None
         return None
 
-    _last_slot_cache: Dict[str, Any] = {}
-
     def _last_slot_value(self, slot, state):
-        return self._realize_slot(slot, state) if False else None
+        # realize the slot for real so downstream slots (e.g. stance_lean)
+        # can depend on the chosen topic instead of re-deriving it.
+        return self._realize_slot(slot, state)
 
     def compose(self, state: Dict[str, Any]) -> Optional[str]:
         pool = self.constructions + self.learned
