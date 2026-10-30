@@ -3239,38 +3239,47 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         Combinations: 4 x 4 = ~16 (vs 9 hardcoded strings)
         """
-        import random
+        # State-conditioned surface form: farewell form tracks RAVANA's live
+        # cognitive state (turn_count + identity strength) instead of a dice
+        # roll, so the same cognitive state yields the same farewell and
+        # different states can yield different forms.
+        _state_seed = 0
+        try:
+            _state_seed = (int(getattr(self, "turn_count", 0) or 0) * 31
+                           + int(round(float(getattr(getattr(self, "identity", None),
+                                                     "strength", 0.0) or 0.0) * 1000)))
+        except Exception:
+            _state_seed = 0
+        def _pick(pool):
+            if not pool:
+                return ""
+            return pool[_state_seed % len(pool)]
         if valence > 0.6:
-            farewell_word = random.choice(["goodbye", "bye", "farewell", "see you later"])
-            warmth_suffix = random.choice([
+            farewell_word = _pick(["goodbye", "bye", "farewell", "see you later"])
+            warmth_suffix = _pick([
                 "it was a pleasure chatting with you!",
                 "have a wonderful day!",
                 "i look forward to our next conversation!",
                 "take care and see you soon!",
             ])
         elif valence < 0.4:
-            # B2: low-arousal / low-valence farewell must stay AFFILIATIVE, not
-            # service-language. "logging off / shutting down" is robot-speak that
-            # breaks the teen persona and reads as abandonment. A flat-affect
-            # human still closes warmly ("take care", "talk soon") — sample from
-            # relationship depth so a longer bond closes even softer.
             _rel_depth = getattr(getattr(self, "user_model", None), "relationship_depth", 0.0)
-            farewell_word = random.choice(["bye", "goodbye", "see you"])
+            farewell_word = _pick(["bye", "goodbye", "see you"])
             if _rel_depth > 0.6:
-                warmth_suffix = random.choice([
+                warmth_suffix = _pick([
                     "take care — i'll be here next time.",
                     "talk soon, yeah?",
                     "it was good hanging out. see you.",
                 ])
             else:
-                warmth_suffix = random.choice([
+                warmth_suffix = _pick([
                     "take care.",
                     "talk to you later.",
                     "i'll be around if you want to pick this up.",
                 ])
         else:
-            farewell_word = random.choice(["goodbye", "bye", "farewell"])
-            warmth_suffix = random.choice([
+            farewell_word = _pick(["goodbye", "bye", "farewell"])
+            warmth_suffix = _pick([
                 "have a great day!",
                 "take care!",
                 "let me know when you want to chat again!",
