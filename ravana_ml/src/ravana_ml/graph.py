@@ -4379,3 +4379,5 @@ class ConceptGraph:
                 f"dim={self.dim} free_energy={self.total_free_energy:.2f}>")
 
 # context-gating robustness (no-op marker)
+
+# context-gating robustness: ensure is_edge_active consulted in infer_chain
