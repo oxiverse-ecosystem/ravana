@@ -3108,34 +3108,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         _gen = self._compose_greeting_generative()
         if _gen:
             return _gen
-        import random
         if valence > 0.6:
-            greeting_word = random.choice(["hello", "hi", "hey", "greetings", "hey there"])
+            greeting_word = "hello"
             arousal_mark = "!" if arousal > 0.4 else "."
-            topic_invite = random.choice([
-                "how can i help you today?",
-                "what interesting ideas shall we explore?",
-                "ready to dive into something new!",
-                "what should we talk about?",
-                "great to connect with you!",
-            ])
+            topic_invite = "how can i help you today?"
         elif valence < 0.4:
-            greeting_word = random.choice(["hello", "hi"])
+            greeting_word = "hello"
             arousal_mark = "."
-            topic_invite = random.choice([
-                "what's on your mind?",
-                "what are you up to?",
-                "what do you wanna talk about?",
-            ])
+            topic_invite = "what's on your mind?"
         else:
-            greeting_word = random.choice(["hello", "hi", "greetings"])
+            greeting_word = "hello"
             arousal_mark = "!" if arousal > 0.5 else "."
-            topic_invite = random.choice([
-                "how can i help you?",
-                "what would you like to discuss?",
-                "ready to explore.",
-                "what is on your mind?",
-            ])
+            topic_invite = "how can i help you?"
         return f"{greeting_word}{arousal_mark} {topic_invite}"
 
     def _compose_wellbeing(self, valence: float, arousal: float) -> str:
