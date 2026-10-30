@@ -176,9 +176,9 @@ class RealizerLexicon:
         if not cands:
             return ""
         if state_seed is not None:
-            rng = random.Random(state_seed)
+            rng = random.Random(state_seed)  # type: ignore[assignment]
         else:
-            rng = rng or random
+            rng = rng or random  # type: ignore[assignment]
         scored = []
         for c in cands:
             s = scorer(c, topic) if callable(scorer) else 0.0
