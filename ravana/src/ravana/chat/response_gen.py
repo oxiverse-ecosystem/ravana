@@ -70,6 +70,7 @@ from .constants import _is_word_salad, _is_word_salad_any_sentence
 from ravana.core.question_decomposition import QuestionDecompositionEngine, QuestionCategory, SubQuestion
 from ravana.core.attractor_memory import AttractorMemory
 from ravana.decoder.predictive_coding_generator import PredictiveCodingGenerator
+from ravana.chat.generative_emitter import GenerativeEmitter
 from ravana.ontology.linggen import hrr_vary_words
 from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 
