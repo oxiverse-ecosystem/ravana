@@ -88,7 +88,9 @@ def add_imperative_verbs(verbs: set) -> None:
 
 def _extract_topic(query: str) -> str:
     """Light noun-ish extraction for curiosity lookup (parsing, not matching)."""
-    q = re.sub(r"[?.,!]", " ", query.lower())
+    from ravana.chat.topic_head import expand_contractions as _expand_contractions
+    q = _expand_contractions(query)
+    q = re.sub(r"[?.,!]", " ", q.lower())
     toks = [t for t in q.split() if len(t) > 3 and t not in {
         "what", "when", "where", "which", "tell", "about", "think", "do", "you",
         "your", "know", "believe", "feel", "like", "want", "should", "could"}]
