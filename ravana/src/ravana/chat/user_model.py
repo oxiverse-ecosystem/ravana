@@ -2261,6 +2261,16 @@ class UserModel:
                 _val = " ".join(_vwords)
             if not _val or _val in _VALUE_STOP:
                 return
+# Duration trim (RV-02): drop trailing relative-duration phrase from value.
+            _DUR_WORDS = ("one","two","three","four","five","six","seven",
+                          "eight","nine","ten","eleven","twelve")
+            _vw = _val.split()
+            if (len(_vw) >= 2 and _vw[-1].lower() in ("year","years")
+                    and (_vw[-2].lower() in _DUR_WORDS or _vw[-2].isdigit())):
+                _vw = _vw[:-2]
+                _val = " ".join(_vw)
+                if not _val or _val in _VALUE_STOP:
+                    return
             existing = self.personal_facts.get("i", attr)
             if (_corrective and existing is not None
                     and existing.value.lower() != _val):
