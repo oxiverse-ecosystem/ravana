@@ -2918,8 +2918,8 @@ class ConceptGraph:
                     target_vec = self.nodes[target_id].core_vector
                     target_norm_vec = target_vec / (np.linalg.norm(target_vec) + 1e-15)
                     coherence = float(np.dot(start_norm, target_norm_vec))
-                    if coherence < -0.2:
-                        continue  # reject semantically opposed paths
+                    if coherence < -0.5:
+                                            continue  # reject semantically opposed paths
                     hop_score *= (1.0 + 0.3 * max(0.0, coherence))
 
                     if hop_conf < confidence_threshold:
