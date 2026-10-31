@@ -275,12 +275,33 @@ class GenerationMixin:
                 if transitive_results:
                     _relational_info = f" {ctx.subject} is {transitive_results[0][1]} than {transitive_results[0][0]}"
 
+            # Pivot M17: carry the previous turn's referents into the discourse
+            # state so the emitter can anaphorise / elide instead of emitting
+            # every turn as an independent sample. Populated from the prior turn's
+            # ctx and updated below after this turn's frame is built.
+            _prev_subject = getattr(self, "_discourse_prev_subject", None)
+            _prev_object = getattr(self, "_discourse_prev_object", None)
+            _prev_verb = getattr(self, "_discourse_prev_verb", None)
+
+            # Capability: cross-turn subject repetition. When this turn's
+            # subject repeats the previous turn's subject, mark the discourse
+            # state so the surface realizer pronounizes (anaphorizes) instead
+            # of re-emitting the full noun phrase. Generalizes to any subject;
+            # no authored reply, no retraining.
+            _cross_turn_repeat = 0
+            if _prev_subject and getattr(ctx, "subject", None):
+                if str(_prev_subject).lower().strip() == str(ctx.subject).lower().strip():
+                    _cross_turn_repeat = 1
             discourse_context = DiscourseState(
                 sentence_index=0,
                 discourse_type=discourse_plan.question_type,
                 total_sentences=len(discourse_plan.intents),
                 free_energy=self._free_energy,
-            )
+                previous_subject=_prev_subject,
+                previous_object=_prev_object,
+                previous_verb=_prev_verb,
+                subject_repetitions=_cross_turn_repeat,
+                )
 
             # Generate all frames first
             frames = []
@@ -339,6 +360,12 @@ class GenerationMixin:
                 merged_frames.append(frame)
 
             discourse_context.total_sentences = len(merged_frames)
+
+            # Pivot M17: persist this turn's referents for the next turn's
+            # discourse state (cross-sentence continuity).
+            self._discourse_prev_subject = ctx.subject or None
+            self._discourse_prev_object = ctx.object or None
+            self._discourse_prev_verb = ctx.relation or None
 
             for i, frame in enumerate(merged_frames):
                 intent = frame._discourse_intent
