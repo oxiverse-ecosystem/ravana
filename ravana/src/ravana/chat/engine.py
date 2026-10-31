@@ -1311,6 +1311,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # (needs GloVe) on first use.
         self.use_intent_router = True
         self._intent_router = None
+        # Code learning (pivot task #104): apply RAVANA's typed-concept-graph
+        # learning to programming languages. Online + incremental; generation is
+        # graph traversal over learned structure, no templates, no LLM.
+        # Engine-agnostic and fail-safe: a broken learner must never block the
+        # existing reply flow, so it is built in a try/except and only consulted
+        # by the dedicated code pre-pass below.
+        try:
+            from .code_learning import CodeLearner
+            self._code_learner = CodeLearner(self)
+        except Exception:
+            self._code_learner = None
         # Track B Phase 3 (M5): learned per-domain source-trust (replaces the
         # hardcoded _PREFERRED_SNIPPET_SOURCES allowlist). OFF by default — the
         # hardcoded allowlist stays the fallback until the learned trust
@@ -7381,6 +7392,80 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    def _maybe_code_learn_or_generate(self, user_input: str):
+        """Code pre-pass (pivot task #104). Returns a reply string when the turn
+        is genuinely about code, else None (normal path continues).
+
+        Two fail-safe behaviours, both grounded in the learned CodeConceptGraph:
+          1. The user SHARES code -> learn it online, ack with the real graph
+             delta (state, not an authored sentence).
+          2. The user asks to GENERATE a function/class we have already learned
+             -> compose the skeleton from the learned edges (no templates, no
+             LLM). Only fires for a target we actually know, so it never hijacks
+             ordinary chat.
+        """
+        learner = getattr(self, "_code_learner", None)
+        if learner is None:
+            return None
+        text = user_input.strip()
+        low = text.lower()
+        # ── detection: did the user share a code snippet? ─────────────────────
+        # Structural signals (def/class/return/indent/```) are generic Python
+        # markers, not phrases tuned to any probe.
+        looks_like_code = (
+            ("\n" in text and len(text) > 20)
+            and any(tok in low for tok in ("def ", "class ", "return ", "import ",
+                                           "```", "    ", "->"))
+        )
+        shared_code_intent = any(
+            p in low for p in ("here's my code", "here is my code", "this code",
+                               "my function", "this snippet", "my code",
+                               "here's the code", "here is the code")
+        )
+        if looks_like_code or shared_code_intent:
+            try:
+                r = learner.learn(text)
+                st = learner.graph.stats()
+                rels = ", ".join(f"{k}={v}" for k, v in sorted(st["relations"].items()))
+                # reply renders live state only — no authored prose
+                return (f"learned that — {r['delta_nodes']} new code symbols, "
+                        f"{r['delta_edges']} new relations this snippet "
+                        f"({st['nodes']} symbols, {st['edges']} edges total: {rels}).")
+            except Exception:
+                return None
+        # ── detection: generate a KNOWN function/class ────────────────────────
+        gen_intent = any(p in low for p in (
+            "generate a function", "generate function", "write a function",
+            "write me a function", "code for a function", "generate the function",
+            "generate a class", "write a class", "generate class",
+        ))
+        if not gen_intent:
+            return None
+        # extract the target name (first identifier-looking token after the verb)
+        import re as _re
+        m = _re.search(r"\b(?:function|class|for|of|named|called|to)\s+([A-Za-z_][A-Za-z0-9_]*)", low)
+        target = m.group(1) if m else None
+        want_class = ("write a class" in low or "generate class" in low
+                      or "generate a class" in low)
+        known = learner.known_classes() if want_class else learner.known_functions()
+        # case-insensitive target match (queries are lowercased, stored names are not)
+        known_lookup = {n.lower(): n for n in known}
+        resolved = known_lookup.get(target) if target else None
+        if target is None:
+            # no explicit target: offer the first learned one, or decline honestly
+            if not known:
+                return None
+            resolved = known[0]
+        if resolved is None:
+            return None  # not learned yet — fall through to normal path
+        try:
+            kind = "class" if want_class else "function"
+            code = learner.generate(resolved, kind=kind)
+            return ("here's what i built from what you taught me:\n\n```python\n"
+                    + code + "\n```")
+        except Exception:
+            return None
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
@@ -7406,6 +7491,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         self._last_subject = None  # set once grounded below
         subject = None  # ground _record_own_reply topic safely before extraction
+        # ── Code pre-pass (pivot task #104) ──────────────────────────────────
+        # If the turn is genuinely about code (the user shared a snippet, or
+        # asked to generate a function/class we have already learned), answer
+        # from the learned CodeConceptGraph and return here. Fail-safe: returns
+        # None for anything else, so ordinary chat is untouched.
+        _code_ans = self._maybe_code_learn_or_generate(user_input)
+        if _code_ans is not None:
+            self._last_strategy = "code_learning"
+            self._last_responses.append(_code_ans)
+            if len(self._last_responses) > 10:
+                self._last_responses = self._last_responses[-10:]
+            self.notify_user_idle()
+            return _code_ans
         # ── Agentic evidence is PER-TURN (round 2026-09-29T1239Z) ──
         # `_pending_web_evidence` is stashed by the agentic pre-check and
         # consumed by the end-of-turn block that appends it to the reply. Those
