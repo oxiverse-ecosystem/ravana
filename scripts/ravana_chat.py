@@ -301,15 +301,6 @@ def main():
                         help="Import graph from JSON file (merge into existing)")
     parser.add_argument("--stats", action="store_true",
                         help="Print graph statistics")
-    parser.add_argument("--calibration", action="store_true",
-                        help="Print the epistemic calibration ledger (P2-C) — "
-                             "signed bias, per-band reliability curve, and the "
-                             "adaptive theta_withhold used to gate on-demand "
-                             "withhold for confabulation. Read from "
-                             "EpistemicCalibrator.get_status(); the ledger is "
-                             "persisted with the engine weights, so this "
-                             "reflects real observed (confidence, outcome) "
-                             "pairs, not live estimates.")
     parser.add_argument("--concept", type=str, default=None,
                         help="Show what RAVANA knows about a concept")
     parser.add_argument("--calibration", action="store_true",

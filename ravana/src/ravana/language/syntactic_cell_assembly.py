@@ -37,6 +37,7 @@ class SyntacticFrame:
     is_causal: bool = False
     tense: str = "present"       # "present" or "past"
     depth: int = 0               # How many hops in the chain
+    weight: float = 0.1          # M16 usage-based construction weight (learned)
     embedded_frame: Optional['SyntacticFrame'] = None
     embedded_relation: str = "which"
     pattern_idx: Optional[int] = None
@@ -99,6 +100,12 @@ class SyntacticCellAssembly:
         self.learning_rate = learning_rate
         self._last_frame: Optional[SyntacticFrame] = None
         self.pattern_weights = [1.0] * 7
+
+        # M16 usage-based constructions: bounded inventory of frames learned
+        # from successful turns. Grows online, evicts lowest-weight. No LLM,
+        # no retrain — one successful use allocates a construction.
+        self.learned_frames: List[SyntacticFrame] = []
+        self._max_learned_frames: int = 512
 
         # Role activation matrices: concept → weight for each role
         # Seeded from POS priors when seed_from_pos is called
@@ -222,8 +229,16 @@ class SyntacticCellAssembly:
             SyntacticFrame with roles assigned and verb phrase chosen
         """
         sl, tl = subject.lower(), target.lower()
-
-        # Determine roles using Hebbian-weighted assignment
+        # M16 reuse: if a construction was learned for this role triple,
+        # reuse it (its verb_phrase + frame) instead of recomputing.
+        try:
+            learned = self.find_construction(subject, relation, target)
+        except Exception:
+            learned = None
+        if learned is not None:
+            # return a shallow copy so callers can mutate
+            import copy
+            return copy.copy(learned)
         subj_role_weight = self.subject_role.get(sl, 0.5)
         obj_role_weight = self.object_role.get(tl, 0.5)
 
@@ -493,6 +508,54 @@ class SyntacticCellAssembly:
                 self.pattern_weights[pidx] = max(0.1, min(2.0, self.pattern_weights[pidx] + lr))
 
 
+    # ─── M16 usage-based constructions ───
+
+    def _frame_key(self, frame: SyntacticFrame) -> Tuple[str, str, str, str]:
+        return (frame.subject_concept.lower(), frame.verb_concept.lower(),
+                frame.object_concept.lower(), frame.relation_type)
+
+    def find_construction(self, subject: str, relation: str, target: str) -> Optional[SyntacticFrame]:
+        """Return a previously learned construction matching the roles, or None."""
+        key = (subject.lower(), "", target.lower(), relation)
+        for f in self.learned_frames:
+            if (f.subject_concept.lower() == subject.lower()
+                    and f.object_concept.lower() == target.lower()
+                    and f.relation_type == relation):
+                return f
+        return None
+
+    def allocate_construction(self, frame: SyntacticFrame, weight: float = 0.1) -> bool:
+        """Register a new construction learned from a successful turn.
+
+        Returns True if a new (or reinforced) construction is in the inventory.
+        Bounded to _max_learned_frames; evicts the lowest-weight entry when full.
+        One successful use allocates — no retrain, no LLM.
+        """
+        frame.weight = max(0.0, min(2.0, float(weight)))
+        # Reinforce if identical construction already learned.
+        for existing in self.learned_frames:
+            if self._frame_key(existing) == self._frame_key(frame):
+                existing.weight = min(2.0, existing.weight + self.learning_rate)
+                self._last_frame = existing
+                return True
+        # Evict lowest-weight if at capacity.
+        if len(self.learned_frames) >= self._max_learned_frames:
+            if not self.learned_frames:
+                return False
+            idx = min(range(len(self.learned_frames)),
+                      key=lambda i: self.learned_frames[i].weight)
+            self.learned_frames.pop(idx)
+        self.learned_frames.append(frame)
+        self._last_frame = frame
+        return True
+
+    def reinforce_construction(self, frame: SyntacticFrame, success: bool) -> None:
+        """Hebbian update on a learned construction's weight."""
+        lr = self.learning_rate if success else -self.learning_rate * 0.5
+        for existing in self.learned_frames:
+            if self._frame_key(existing) == self._frame_key(frame):
+                existing.weight = max(0.0, min(2.0, existing.weight + lr))
+
     # ─── Surface Helpers ───
 
     def compose_sentence(self, frame: SyntacticFrame,
@@ -606,12 +669,15 @@ class SyntacticCellAssembly:
     # ─── State ───
 
     def get_state(self) -> Dict:
+        from dataclasses import asdict
         return {
             'subject_role': self.subject_role,
             'verb_role': self.verb_role,
             'object_role': self.object_role,
             'sequence_patterns': {str(k): v for k, v in self.sequence_patterns.items()},
             'verb_phrase_counts': self.verb_phrase_counts,
+            'learned_frames': [asdict(f) for f in self.learned_frames],
+            'max_learned_frames': self._max_learned_frames,
         }
 
     def set_state(self, state: Dict):
@@ -625,3 +691,14 @@ class SyntacticCellAssembly:
             if len(parts) == 2:
                 self.sequence_patterns[(parts[0].strip("'"), parts[1].strip("'"))] = v
         self.verb_phrase_counts = state.get('verb_phrase_counts', {})
+        # Restore M16 learned constructions (online-learned, must survive save/load).
+        self._max_learned_frames = int(state.get('max_learned_frames', self._max_learned_frames))
+        lf_raw = state.get('learned_frames', []) or []
+        restored = []
+        for d in lf_raw:
+            try:
+                restored.append(SyntacticFrame(**{k: v for k, v in d.items()
+                                                  if k in SyntacticFrame.__dataclass_fields__}))
+            except Exception:
+                continue
+        self.learned_frames = restored[-self._max_learned_frames:]
