@@ -1223,11 +1223,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self.use_rlm = True
         self.use_beliefs = True
         # LingGen P6: free-form sensorimotor-conditioned decoder generation.
-        # OFF until the grounded training pass proves decoder-CE <= template-CE
-        # on a held-out set (distribution-fit promotion, not a hand switch).
-        # When False, generation falls back to _build_conditioned_bos (Lancaster
-        # tail) + realize_dim phrase lookup — never emits ungrounded gibberish.
-        self.use_linggen = False
+        # Auto-enabled once the learned W_sm projection is trained from
+        # accumulated grounded pairs (online, no retrain) — fail-soft: stays
+        # False until LingGenConditioner.load().trained is True.
+        try:
+            from ravana.ontology.linggen import LingGenConditioner
+            self.use_linggen = bool(LingGenConditioner.load().trained)
+        except Exception:
+            self.use_linggen = False
         self._linggen_genconf_seq = []  # history of grounded-run top1 acc
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
         # Track B Phase 2 (M4): learned snippet-quality model (structural PE).
