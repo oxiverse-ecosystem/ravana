@@ -2179,7 +2179,19 @@ class ReasoningMixin:
         # favorite
         m = re.search(r"\bmy\s+favorite\s+(.+?)\s+is\s+(.+)", q, re.IGNORECASE)
         if m:
-            parsed = ("favorite", m.group(1).strip(" .!?"), m.group(2).strip(" .!?"))
+            # Strip leading/trailing modifier adverbs (seeded vocabulary,
+            # runtime-expandable via functional_lexicon) so "my favorite
+            # actually old books is X" keys on "old books"/"books" consistently
+            # with the stance/opinion slot naming (FIX-RV-12).
+            try:
+                from .slot_naming import strip_leading_modifiers, strip_trailing_modifiers
+                _fav_key = " ".join(strip_trailing_modifiers(
+                    strip_leading_modifiers(m.group(1).strip(" .!?").split())))
+                if not _fav_key:
+                    _fav_key = m.group(1).strip(" .!?")
+            except Exception:
+                _fav_key = m.group(1).strip(" .!?")
+            parsed = ("favorite", _fav_key, m.group(2).strip(" .!?"))
         else:
             # name — capture a proper-noun phrase, stop at a clause
             # boundary ("and"/"but"/comma/period) so "my name is
