@@ -283,6 +283,15 @@ class GenerationMixin:
             _prev_object = getattr(self, "_discourse_prev_object", None)
             _prev_verb = getattr(self, "_discourse_prev_verb", None)
 
+            # Capability: cross-turn subject repetition. When this turn's
+            # subject repeats the previous turn's subject, mark the discourse
+            # state so the surface realizer pronounizes (anaphorizes) instead
+            # of re-emitting the full noun phrase. Generalizes to any subject;
+            # no authored reply, no retraining.
+            _cross_turn_repeat = 0
+            if _prev_subject and getattr(ctx, "subject", None):
+                if str(_prev_subject).lower().strip() == str(ctx.subject).lower().strip():
+                    _cross_turn_repeat = 1
             discourse_context = DiscourseState(
                 sentence_index=0,
                 discourse_type=discourse_plan.question_type,
@@ -291,7 +300,8 @@ class GenerationMixin:
                 previous_subject=_prev_subject,
                 previous_object=_prev_object,
                 previous_verb=_prev_verb,
-            )
+                subject_repetitions=_cross_turn_repeat,
+                )
 
             # Generate all frames first
             frames = []
