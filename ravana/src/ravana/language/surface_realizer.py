@@ -244,7 +244,8 @@ class SurfaceRealizer:
         return ""
 
     def _generate_epistemic_frame(self, confidence_level: str,
-                                   subject: str) -> str:
+                                   subject: str,
+                                   free_energy: float = 0.5) -> str:
         """Generate epistemic stance frame from confidence, not templates.
 
         Replaces old PERSON_FRAMES hardcoded list AND its random.choice.
@@ -260,7 +261,9 @@ class SurfaceRealizer:
         # Deterministic pick: stable per (level, subject-content) so the same
         # concept yields the same frame every time -> reproducible realization,
         # no random variation. Variety across topics falls out of the hash.
-        idx = (len(subject) + sum(ord(c) for c in subject)) % len(frames)
+        fe = max(0.0, min(1.0, float(free_energy)))
+        idx = int(round(fe * (len(frames) - 1))) if len(frames) > 1 else 0
+        idx = max(0, min(len(frames) - 1, idx))
         frame = frames[idx]
         if frame:
             return frame + " "
@@ -503,7 +506,7 @@ class SurfaceRealizer:
             # later sentences only when confidence is genuinely low (high FE)
             # — deterministic, driven by the real uncertainty signal, not RNG.
             if si == 0 or free_energy >= 0.6:
-                epistemic_frame = self._generate_epistemic_frame(confidence_level, sl)
+                epistemic_frame = self._generate_epistemic_frame(confidence_level, sl, free_energy)
                 if epistemic_frame and variant_name == 'svo':
                     core = f"{epistemic_frame}{core[0].lower()}{core[1:]}"
                 elif epistemic_frame:
