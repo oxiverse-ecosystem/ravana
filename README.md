@@ -235,6 +235,16 @@ on this codebase:
   loop (`user_model.py:6683`) — no new code path, no per-topic rule. Stance
   keys land on the real object (`board games`) and recall reads the right one.
   See `docs/CAPABILITY_TRAILING_ADVERB_STANCE_KEY.md`.
+- **Strips trailing discourse modifiers from topic phrases via an online-growable
+  lexicon.** A topic phrase ending in a trailing modifier (e.g.
+  *\"defines person actually\"*) used to keep the modifier, producing garbled
+  stance topics and duplicate keys. Now `strip_trailing_modifiers` in
+  `ravana/src/ravana/chat/topic_trim.py` trims trailing modifier words from
+  the right while the last token is a known modifier, using a `ModifierLexicon`
+  that seeds a vocabulary of modifier forms and grows online via `learn()`
+  (state roundtrips through `to_state`/`load_state`). Single-token phrases are
+  never emptied. No per-topic rule, no retraining.
+  See `docs/CAPABILITY_TRAILING_MODIFIER_STRIPPING.md`.
 - **Does not confabulate a user-attribute recall as RAVANA's own speech.**
   Asked *"what did i just tell you about my dog"* or *"what did i just tell
   you about my sister"* — a first-person recall query that also names a user
