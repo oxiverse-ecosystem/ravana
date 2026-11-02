@@ -1,37 +1,43 @@
 # Autonomous Language Learning Experiment
 
-N_train=10 N_eval=10 pre=8/10 post=8/10 improvement=0.000
+N_train=10 N_eval=10 pre=9/10 post=8/10 improvement=-0.100
 
 ## Pre-training eval
 - Q: what is my favorite color?
-  R: i don't know your favorite color yet! what is it?
+  R: your favorite color is teal.
   hit=1
 - Q: do i like reading?
-  R: i'm curious about ing. it sits close to tracking, which i am against — so that p
-  hit=0
+  R: yes — you told me: i like reading in the morning.
+  hit=1
 - Q: where does the cat sleep?
-  R: honestly, sleep is a bit outside what i know right now. i'd love to hear your ta
+  R: hmm, i'm not totally sure about sleep yet, and that's okay.
+[agentic:web_search]
   hit=1
 - Q: what happens to water at zero degrees?
-  R: hmm, i'm not totally sure about degrees yet, and that's okay. what's your sense 
+  R: hmm, i'm not totally sure about degrees yet, and that's okay.
+[agentic:web_searc
   hit=1
 - Q: where do birds migrate?
-  R: honestly, migrate is a bit outside what i know right now. what made you wonder a
+  R: honestly, migrate is a bit outside what i know right now.
+[agentic:web_search] [
   hit=1
 - Q: what does she play?
-  R: hmm, i'm not totally sure about that yet, and that's okay. what do you think abo
+  R: i don't really have a solid grasp on that so far.
+[agentic:web_search] [web:inte
   hit=1
 - Q: when does the library open?
-  R: i don't have a clean line on library yet, but art keeps coming up nearby. the tw
+  R: library is like art — the same pattern shows up in both
   hit=1
 - Q: where did we walk?
-  R: i don't really have a solid grasp on that so far. i'd love to hear your take fir
+  R: hmm, i'm not totally sure about that yet, and that's okay.
+[agentic:web_search] 
   hit=1
 - Q: what did he fix?
   R: fix is like everything — the same pattern shows up in both
   hit=0
 - Q: what colors can apples be?
-  R: i don't really have a solid grasp on colors so far. let's dig into it — what's y
+  R: i don't really have a solid grasp on colors so far.
+[agentic:web_search] [web:in
   hit=1
 
 ## Post-training eval
@@ -58,13 +64,13 @@ N_train=10 N_eval=10 pre=8/10 post=8/10 improvement=0.000
   R: you mentioned: "the library opens at nine."
   hit=1
 - Q: where did we walk?
-  R: i don't really have a solid grasp on that so far.
-[agentic:web_search] [web:inte
+  R: hmm, i'm not totally sure about that yet, and that's okay.
+[agentic:web_search] 
   hit=1
 - Q: what did he fix?
   R: fix is like everything — the same pattern shows up in both
   hit=0
 - Q: what colors can apples be?
-  R: hmm, i'm not totally sure about colors yet, and that's okay.
-[agentic:web_search
+  R: honestly, colors is a bit outside what i know right now.
+[agentic:web_search] [w
   hit=1
