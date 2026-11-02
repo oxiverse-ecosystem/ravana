@@ -1685,7 +1685,25 @@ class SelfQueryMixin:
         # handler's is_identity_query shape exactly (no per-topic table).
         if _is_user_identity_query(t):
             return None
-        # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that
+        # BELIEF SURFACING (capability): when the user asks what RAVANA believes
+        # / what they said they believe, surface the stored conviction whose
+        # proposition best overlaps the query topic. Content comes from the
+        # belief_store (live state); no authored prose, no per-topic table.
+        if re.search(r"\\b(believe|belief|conviction)\\b", t) and re.search(
+                r"\\b(what|which|do you|did i|tell me|recall|remember)\\b", t):
+            _best = None
+            _best_ov = 0
+            _q_tokens = set(re.findall(r"[a-z]+", t))
+            for (_subj, _pred), (_val, _conf, _turn) in getattr(
+                    self.belief_store, "beliefs", {}).items():
+                _val_tokens = set(re.findall(r"[a-z]+", str(_val).lower()))
+                _ov = len(_q_tokens & _val_tokens)
+                if _ov > _best_ov:
+                    _best_ov = _ov
+                    _best = _val
+            if _best is not None and _best_ov >= 1:
+                return f"you told me {str(_best).strip()}."
+        # 0.0) SELF-INTROSPECTION gate (round 2026-08-09g). A question that"""
         #     asks RAVANA about ITS OWN prior statement / opinion / mind /
         #     thinking / line ("what was your read on whether you're really
         #     thinking, the line you gave me?", "what's the first thing that

@@ -49,19 +49,20 @@ class GenerativeEmitter:
             if topic is None or topic not in stances:
                 return None
             pol = stances[topic].get("polarity", 0.0) if isinstance(stances[topic], dict) else getattr(stances[topic], "polarity", 0.0)
+            # state-derived single token; no authored sentence
             if pol > 0.2:
-                return "i lean for it"
+                return "for"
             if pol < -0.2:
-                return "i lean against it"
-            return "i'm neutral on it"
+                return "against"
+            return "neutral"
         if slot == "identity_strength":
             ident = state.get("identity") or {}
             s = ident.get("strength", 0.0)
             if s >= 0.6:
-                return "i'm fairly settled"
+                return "settled"
             if s <= 0.3:
-                return "i'm still forming"
-            return "i'm in between"
+                return "forming"
+            return "between"
         if slot == "fact_value":
             facts = state.get("facts") or {}
             if not facts:
