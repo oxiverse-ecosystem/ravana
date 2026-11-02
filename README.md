@@ -245,6 +245,14 @@ on this codebase:
   (state roundtrips through `to_state`/`load_state`). Single-token phrases are
   never emptied. No per-topic rule, no retraining.
   See `docs/CAPABILITY_TRAILING_MODIFIER_STRIPPING.md`.
+- **Surfaces stored beliefs on belief-recall queries.** Asked *\"what do you
+  believe about X?\"* or *\"do you recall my belief that Y?\"*, RAVANA now
+  returns the stored conviction whose proposition best overlaps the query
+  topic (*\"you told me <proposition>.\"*) instead of a generic fallback.
+  The handler reads live state from `BeliefStore` (`engine_self_query.py:1688-
+  1702`); selection is by token overlap (>=1), no per-topic table, no
+  authored prose, no retraining. Genuine non-belief self-queries fall through
+  untouched. See `docs/CAPABILITY_BELIEF_SURFACING.md`.
 - **Does not confabulate a user-attribute recall as RAVANA's own speech.**
   Asked *"what did i just tell you about my dog"* or *"what did i just tell
   you about my sister"* — a first-person recall query that also names a user
