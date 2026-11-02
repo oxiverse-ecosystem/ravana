@@ -221,6 +221,14 @@ class BasalGangliaGate:
         if not candidates:
             return ("", "", 0.0)
 
+        # M7: bounded working memory — cap the active set to ACTIVE_SET_MAX
+        # content nodes so the gate never scores an unbounded candidate list.
+        # Biologically motivated (Cowan 2001 ~4 chunks); also the main energy
+        # lever for the emit path. Truncate to the top-scoring candidates.
+        ACTIVE_SET_MAX = 4
+        if len(candidates) > ACTIVE_SET_MAX:
+            candidates = sorted(candidates, key=lambda c: c[1], reverse=True)[:ACTIVE_SET_MAX]
+
         if len(candidates) < self.min_candidates_for_gating:
             # Too few candidates: just pick the best one directly
             best = max(candidates, key=lambda c: c[1])
