@@ -2035,8 +2035,24 @@ class MemoryMixin:
                 return f"your {_ent_hit} is {val}."
             return f"your {_ent_hit}'s {attr_hit} is {val}."
         # Generic: surface every stored attribute for the cued entity.
+        # Capability: drop superseded/stale facts so a whole-profile recall
+        # never echoes a retired value (e.g. an old pet name that was corrected).
+        # Consult the durable PersonalFactStore for the superseded set; fall
+        # back to keeping everything if the store is unavailable.
+        _superseded_vals = set()
+        try:
+            _pf = getattr(self, "user_model", None)
+            _pf = getattr(_pf, "personal_facts", None) if _pf is not None else None
+            if _pf is not None and hasattr(_pf, "facts"):
+                for _f in _pf.facts.values():
+                    if getattr(_f, "superseded", False):
+                        _superseded_vals.add(str(getattr(_f, "value", "")).lower().strip())
+        except Exception:
+            _superseded_vals = set()
         bits = []
         for attr, val in facts.items():
+            if str(val).lower().strip() in _superseded_vals:
+                continue
             if _ent_hit == "i":
                 if attr == "born":
                     bits.append(f"you were born in {val}")
