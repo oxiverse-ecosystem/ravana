@@ -1598,6 +1598,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self.curiosity_engine = CuriosityEngine(rng=self.rng)
         self.hippocampal_replay = HippocampalReplay(capacity=200)
         self.register_controller = RegisterController(default_register="casual")
+        # Self-directed learning: detect knowledge gaps, form hypotheses, seek
+        # examples, improve through experimentation. No LLM; runs online.
+        try:
+            from .self_directed_learning import SelfDirectedLearner
+            self.self_directed_learner = SelfDirectedLearner(engine=self)
+        except Exception:
+            self.self_directed_learner = None
 
         # Build reverse lookup from connector word → relation type.
         # Cold-start: built entirely from curated _EDGE_CONNECTORS
@@ -12494,6 +12501,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Must run BEFORE _bg_learning_active is set to False
         try:
             self._auto_select_curiosity_topics(max_topics=0)  # just sync state
+        except Exception:
+            pass
+        # Self-directed learning cycle (online, no LLM): detect gaps, form
+        # hypotheses, seek examples, run experiment to measure improvement.
+        try:
+            sdl = getattr(self, "self_directed_learner", None)
+            if sdl is not None:
+                out = sdl.run_cycle()
+                for g in (out.get("gaps") or [])[:3]:
+                    try:
+                        gap_obj = None
+                        for gg in sdl.gaps:
+                            if gg.topic == g.get("topic"):
+                                gap_obj = gg
+                                break
+                        if gap_obj is not None:
+                            sdl.experiment(gap_obj)
+                    except Exception:
+                        pass
         except Exception:
             pass
         
