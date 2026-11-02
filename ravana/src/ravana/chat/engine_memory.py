@@ -1170,6 +1170,11 @@ class MemoryMixin:
                 return e, a
             return slot, "is"
         _entity_idx = {e: dict(v) for e, v in self._episodic_index.items()}
+        # Recency-weighted fold (capability: stale-fact suppression). Track a
+        # per-(entity, attr) score so that when several facts compete for the
+        # same slot, the highest confidence x recency wins instead of the last
+        # one in dict iteration order (which could be a stale value).
+        _entity_score = {}
         for rec in store:
             for slot, val in rec.get("facts", {}).items():
                 ent, attr = _slot_to_ent_attr(slot)
@@ -1213,11 +1218,18 @@ class MemoryMixin:
                         _attr = _key[1] if isinstance(_key, (tuple, list)) and len(_key) > 1 else None
                         _ent = _key[0] if isinstance(_key, (tuple, list)) and len(_key) > 0 else None
                         _val = getattr(_fact, "value", _fact)
+                        _fact_score = float(getattr(_fact, "confidence", 0.6)) * (
+                            1.0 / (1.0 + max(0, getattr(self, "turn_num", 0) - getattr(_fact, "turn_number", 0)) * 0.1))
+                        def _fold_fact(_e, _a, _v):
+                            _k = (_e, _a)
+                            if _entity_score.get(_k, -1.0) < _fact_score:
+                                _entity_score[_k] = _fact_score
+                                _entity_idx.setdefault(_e, {})[_a] = _v
                         if _attr and _pet_slots.is_pet_attribute(_attr):
                             _sp = _pet_slots.base_species(_attr)
                             _m_idx = re.search(r"_(\d+)$", str(_attr))
                             _idxnum = _m_idx.group(1) if _m_idx else "1"
-                            _entity_idx.setdefault(_sp, {})[_idxnum] = _val
+                            _fold_fact(_sp, _idxnum, _val)
                         # Possession-NAME facts (round 2026-08-18T1340Z, R1 fix):
                         # a named possession like ('sourdough starter','name',
                         # 'doris') or ('best friend','name','tomas') is keyed
@@ -1229,7 +1241,7 @@ class MemoryMixin:
                         # which silently dropped these possession-name facts from
                         # the index and was the TRUE root cause of R1.
                         elif _ent and _ent != "i" and _attr == "name":
-                            _entity_idx.setdefault(_ent, {})[_attr] = _val
+                            _fold_fact(_ent, _attr, _val)
                         # Possession-attribute facts (round 2026-08-15T0830Z,
                         # Bug 4) are stored under the ENTITY key (cabin / sword)
                         # with attributes 'madeof' / a feature noun (roof/wall/..),
@@ -1245,7 +1257,7 @@ class MemoryMixin:
                         elif _ent and _ent != "i" and _attr and _attr not in (
                                 "location", "does", "event", "is", "favorite",
                                 "likes", "background"):
-                            _entity_idx.setdefault(_ent, {})[_attr] = _val
+                            _fold_fact(_ent, _attr, _val)
         except Exception:
             pass
 
