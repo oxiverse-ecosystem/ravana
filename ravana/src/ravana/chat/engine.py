@@ -308,6 +308,10 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
 _FUNCTION_WORDS = STOP_WORDS | set(FUNCTION_POS.keys())
 from .web_learning import WebLearningMixin
 try:
+    from .self_directed_learning import SelfDirectedLearner
+except Exception:
+    SelfDirectedLearner = None
+try:
     from .harm_intent_gate import HarmIntentGate
     _HAS_HARM_GATE = True
 except Exception:  # pragma: no cover - defensive
@@ -1596,6 +1600,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # Phase 3 Integrations
         self.curiosity_engine = CuriosityEngine(rng=self.rng)
+        # Self-directed learning: detect knowledge gaps, form hypotheses, seek examples
+        try:
+            if SelfDirectedLearner is not None:
+                self.self_directed_learner = SelfDirectedLearner(self)
+            else:
+                self.self_directed_learner = None
+        except Exception:
+            self.self_directed_learner = None
         self.hippocampal_replay = HippocampalReplay(capacity=200)
         self.register_controller = RegisterController(default_register="casual")
 
@@ -11033,6 +11045,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     pe = getattr(node, 'prediction_free_energy', 0.0)
                     self.curiosity_engine.update_prediction_error(node.label.lower(), pe)
                     self.curiosity_engine.record_visit(node.label.lower())
+        except Exception:
+            pass
+
+        # Self-directed learning: detect knowledge gaps + form hypotheses during normal operation
+        try:
+            _sdl = getattr(self, "self_directed_learner", None)
+            if _sdl is not None:
+                _sdl.run_cycle()
         except Exception:
             pass
 
