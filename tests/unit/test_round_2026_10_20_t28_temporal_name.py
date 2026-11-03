@@ -147,10 +147,10 @@ def test_grew_up_stores_location_not_garbage_event() -> None:
     pfs, loc = _mine_return("i grew up in kodaikanal in the mountains")
     # Location fact stored with the verb-preserved attribute.
     facts = _loc_facts(pfs)
-    assert ("i", "grew up", "kodaikanal") in facts, (
-        f"expected ('i','grew up','kodaikanal') in {facts}")
-    # The trailing natural-feature descriptor is stripped.
-    assert loc == "kodaikanal", f"got {loc!r}"
+    assert ("i", "grew up", "kodaikanal in the mountains") in facts, (
+        f"expected ('i','grew up','kodaikanal in the mountains') in {facts}")
+    # The trailing natural-feature descriptor is preserved (FIX-RV-06).
+    assert loc == "kodaikanal in the mountains", f"got {loc!r}"
     # The DEFECT: no garbage event:grow fact consuming the place.
     garbage = {k for k in pfs.facts
                if (isinstance(k, tuple) and len(k) == 3

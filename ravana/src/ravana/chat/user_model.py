@@ -2727,9 +2727,11 @@ class UserModel:
             # geographic modifier, not the place name. Strip it BEFORE the
             # initial store so the real toponym is persisted. _NATURAL_FEATURES
             # is defined once above (before _named_loc), shared by all branches.
-            if _loc:
+            # FIX-RV-06: preserve natural-feature phrase for "grew up in".
+            _is_grew_up = bool(re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE))
+            if _loc and not _is_grew_up:
                 _nf_strip = re.search(
-                    r"\s+(?:in|at|on|near|from)\s+(?:the\s+)?(?:"
+                    r"\s+(?:in|at|on|near|from)\s+(?:the\s)?(?:"
                     + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
                     _loc, re.IGNORECASE)
                 if _nf_strip:
