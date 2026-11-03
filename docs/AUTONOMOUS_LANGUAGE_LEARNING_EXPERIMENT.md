@@ -10,34 +10,34 @@ N_train=10 N_eval=10 pre=9/10 post=8/10 improvement=-0.100
   R: yes — you told me: i like reading in the morning.
   hit=1
 - Q: where does the cat sleep?
-  R: hmm, i'm not totally sure about sleep yet, and that's okay.
-[agentic:web_search]
+  R: honestly, sleep is a bit outside what i know right now.
+[agentic:web_search] [we
   hit=1
 - Q: what happens to water at zero degrees?
-  R: hmm, i'm not totally sure about degrees yet, and that's okay.
-[agentic:web_searc
+  R: i don't really have a solid grasp on degrees so far.
+[agentic:web_search] [web:i
   hit=1
 - Q: where do birds migrate?
-  R: honestly, migrate is a bit outside what i know right now.
-[agentic:web_search] [
+  R: i don't really have a solid grasp on migrate so far.
+[agentic:web_search] [web:i
   hit=1
 - Q: what does she play?
-  R: i don't really have a solid grasp on that so far.
-[agentic:web_search] [web:inte
+  R: honestly, that is a bit outside what i know right now.
+[agentic:web_search] [web
   hit=1
 - Q: when does the library open?
   R: library is like art — the same pattern shows up in both
   hit=1
 - Q: where did we walk?
-  R: hmm, i'm not totally sure about that yet, and that's okay.
-[agentic:web_search] 
+  R: i don't really have a solid grasp on that so far.
+[agentic:web_search] [web:inte
   hit=1
 - Q: what did he fix?
   R: fix is like everything — the same pattern shows up in both
   hit=0
 - Q: what colors can apples be?
-  R: i don't really have a solid grasp on colors so far.
-[agentic:web_search] [web:in
+  R: hmm, i'm not totally sure about colors yet, and that's okay.
+[agentic:web_search
   hit=1
 
 ## Post-training eval
@@ -71,6 +71,6 @@ N_train=10 N_eval=10 pre=9/10 post=8/10 improvement=-0.100
   R: fix is like everything — the same pattern shows up in both
   hit=0
 - Q: what colors can apples be?
-  R: honestly, colors is a bit outside what i know right now.
-[agentic:web_search] [w
+  R: i don't really have a solid grasp on colors so far.
+[agentic:web_search] [web:in
   hit=1
