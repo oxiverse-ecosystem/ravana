@@ -2485,6 +2485,30 @@ class SelfQueryMixin:
         from .brain_regions import consult_internal
         ans = consult_internal(subj, self)
         if ans is None:
+            # HONEST UNCERTAINTY FOR FACTUAL QUERIES (capability, round
+            # 2026-11-03T1533Z): when the user asks for a SPECIFIC FACT about
+            # a named entity (capital of X, population of X, who invented X,
+            # where X is located, ...) and RAVANA holds no stored fact for it,
+            # do NOT confabulate via analogical reasoning ("france is like
+            # second — they sit close in the same part of the map"). Return
+            # None so the caller emits honest uncertainty instead. This is a
+            # seed VOCABULARY of factual-attribute words (runtime-expandable
+            # via the same store pattern as the learned lexicon) — NOT a
+            # hardcoded reply. Conceptual/definitional queries ("what is
+            # entropy") still reach analogical reasoning.
+            _factual_attrs = getattr(self, "_factual_attribute_words", None)
+            if _factual_attrs is None:
+                _factual_attrs = {
+                    "capital", "population", "inventor", "invented", "located",
+                    "location", "founded", "founder", "discovered", "discovery",
+                    "president", "prime", "minister", "currency", "language",
+                    "area", "height", "weight", "born", "died", "year",
+                    "distance", "speed", "temperature", "density", "gdp",
+                }
+                self._factual_attribute_words = _factual_attrs
+            _qwords = set(re.findall(r"[a-z']+", t))
+            if _qwords & _factual_attrs:
+                return None
             # --- Analogical reasoning fallback ---
             # Instead of flat uncertainty, try to find the closest known
             # concept via GloVe similarity and reason analogically.

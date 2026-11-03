@@ -1682,6 +1682,39 @@ class UserModel:
                 self.knowledge_model[from_label.lower()] = min(1.0, self.knowledge_model.get(from_label.lower(), 0.0) + 0.1)
                 self.learning_goals[to_label.lower()] = self.learning_goals.get(to_label.lower(), 0) + 1
 
+    def mine_lexicon(self, text: str) -> None:
+        if not text:
+            return
+        try:
+            self.lexicon.advance_turn()
+        except Exception:
+            pass
+        q = re.sub(r"\s+", " ", text).strip()
+        corrective = bool(re.search(
+            r"^\s*no\b|\bactually\b|\bthat'?s\s+(?:wrong|not\s+right)\\b",
+            q, re.IGNORECASE))
+        for m in re.finditer(
+                r"\bmy\s+(?:word|term|name)\s+for\s+(.+?)\s+is\s+['\"]?([\w'-]+)['\"]?",
+                q, re.IGNORECASE):
+            concept = m.group(1).strip().strip("'\"").lower()
+            word = m.group(2).strip().strip("'\"").lower()
+            if not word:
+                continue
+            if corrective:
+                for w, e in list(self.lexicon.entries.items()):
+                    if (e.meaning or "").lower() == concept and w != word:
+                        e.superseded = True
+            if self.lexicon.known(word) and corrective:
+                self.lexicon.revise(word, concept)
+            else:
+                self.lexicon.learn(word, meaning=concept, context=q)
+        for m in re.finditer(
+                r"\bi\s+call\s+(?:that|it|this)\s+['\"]?([\w'-]+)['\"]?",
+                q, re.IGNORECASE):
+            word = m.group(1).strip().strip("'\"").lower()
+            if word:
+                self.lexicon.learn(word, meaning="", context=q)
+
     def mine_personal_facts(self, text: str,
                              run_correction: bool = True) -> None:
         """High-precision personal-fact miner (B3 / A5). Seeded from explicit
@@ -1693,8 +1726,8 @@ class UserModel:
         Facts seeded here are gradeable + correctable; they are NOT frozen
         regex buckets — the store learns the rest from confirm/contradict.
         """
+        self.mine_lexicon(text)
         q_clean = re.sub(r"\s+", " ", text).strip()
-        # First-person contraction expansion (round 2026-08-29T0659Z): the
         # activity/location/opinion miners key on `\bi\s+`, so "i'm"/"i've"
         # never match. Expand only those two (NOT "i'd") before mining.
         q_clean = _expand_fp_contractions(q_clean)
