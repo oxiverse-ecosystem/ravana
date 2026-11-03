@@ -81,6 +81,10 @@ def strip_trailing_modifiers(phrase: str, lexicon: ModifierLexicon = None) -> st
     if lexicon is None:
         lexicon = _DEFAULT
     toks = (phrase or "").split()
+    # Strip leading modifiers (e.g. "actually defines person" -> "defines person").
+    while len(toks) > 1 and lexicon.is_modifier(toks[0]):
+        toks.pop(0)
+    # Strip trailing modifiers.
     while len(toks) > 1 and lexicon.is_modifier(toks[-1]):
         toks.pop()
     return " ".join(toks)

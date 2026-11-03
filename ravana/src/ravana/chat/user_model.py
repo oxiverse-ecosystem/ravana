@@ -2727,15 +2727,16 @@ class UserModel:
             # geographic modifier, not the place name. Strip it BEFORE the
             # initial store so the real toponym is persisted. _NATURAL_FEATURES
             # is defined once above (before _named_loc), shared by all branches.
-            if _loc:
+            # FIX-RV-06: preserve natural-feature phrase for "grew up in".
+            _is_grew_up = bool(re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE))
+            if _loc and not _is_grew_up:
                 _nf_strip = re.search(
-                    r"\s+(?:in|at|on|near|from)\s+(?:the\s+)?(?:"
+                    r"\s+(?:in|at|on|near|from)\s+(?:the\s)?(?:"
                     + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
                     _loc, re.IGNORECASE)
                 if _nf_strip:
                     _loc = _loc[:_nf_strip.start()].strip()
-            # Round 2026-10-19: preserve the location verb as the fact
-            # attribute so recall renders the right phrasing. "i grew up in
+            # Round 2026-10-19: preserve the location verb
             # X" was stored as "location" and recalled as "you live in X" —
             # wrong verb. Store "grew up" as the attribute when the verb is
             # "grew up"; other verbs keep "location". Structural: the verb is
@@ -6621,12 +6622,36 @@ class UserModel:
                 if thing not in self.preferences["interests"]:
                     self.preferences["interests"].append(thing)
 
-        m_fav = re.search(r"\bmy\s+favorite\s+(.+?)\s+(?:is|has\s+been)\s+(.+)", q_clean, re.IGNORECASE)
+        m_fav = re.search(r"\bmy\s+favo(?:u)?rite\s+(.+?)\s+(?:is|has\s+been)\s+(.+)", q_clean, re.IGNORECASE)
         if m_fav:
             category = m_fav.group(1).strip(" .!?")
             val = m_fav.group(2).strip(" .!?")
             if category and val:
-                # Strip trailing temporal modifiers from the category so
+                # Truncate value span at a clause/conjunction boundary so a
+                # compound disclosure ("...is the veena and i have been playing
+                # it for five years") stores only the value ("the veena"), not
+                # the trailing clause. Mirrors the general clause-bound rule used
+                # in the copula miner above.
+                val = re.split(r"(?<=[.!?])\s+|\s*[.!?]\s*$", val)[0].strip()
+                val = re.split(
+                    r"\s+(?:and|but|or|so|yet)\s+"
+                    r"(?:i|you|he|she|it|we|they|my|your|his|her|our|their)\b",
+                    val, flags=re.IGNORECASE)[0].strip()
+                # Extract a trailing duration ("for five years") into a separate
+                # fact so it is not dropped. Search the original tail.
+                _dur_m = re.search(
+                    r"\b(?:for|about|over|nearly|almost)\s+"
+                    r"((?:one|two|three|four|five|six|seven|eight|nine|ten|"
+                    r"eleven|twelve|\d+)\s+years?)\b",
+                    m_fav.group(2), re.IGNORECASE)
+                if _dur_m:
+                    try:
+                        self.personal_facts.assert_fact(
+                            "i", f"{category} duration", _dur_m.group(1).strip(),
+                            confidence=0.6, source="seed_regex")
+                    except Exception:
+                        pass
+                # Strip trailing temporal modifiers from the category so"""
                 # "book since childhood" -> "book" (the user's real category).
                 # Structural: a small closed-class set of trailing modifiers
                 # (seed vocabulary, expandable) that narrow the noun phrase

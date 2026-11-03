@@ -88,9 +88,10 @@ class PersonalFactStore:
                 existing.source = source
             existing.superseded = False
             return
-        # New value. Check for a conflicting prior value on this (subj, attr).
+# New value. Check for a conflicting prior value on this (subj, attr).
+        _norm_attr = lambda _a: re.sub(r"favou?rite", "favorite", (_a or "").lower().strip())
         for (s, a, v), f in self.facts.items():
-            if s == subject.lower().strip() and a == attribute.lower().strip() \
+            if s == subject.lower().strip() and _norm_attr(a) == _norm_attr(attribute) \
                     and v != val.lower().strip() and not f.superseded:
                 self.contradictions.append(
                     ((s, a, v), (s, a, val.lower().strip()), self.turn_num))
@@ -137,9 +138,10 @@ class PersonalFactStore:
         queries)."""
         subj, attr = subject.lower().strip(), attribute.lower().strip()
         new_val = (new_value or "").strip().lower()
+        _norm_attr = lambda _a: re.sub(r"favou?rite", "favorite", (_a or "").lower().strip())
         # Retire any active prior value for this (subject, attribute).
         for (s, a, v), f in self.facts.items():
-            if s == subj and a == attr and not f.superseded and v != new_val:
+            if s == subj and _norm_attr(a) == _norm_attr(attr) and not f.superseded and v != new_val:
                 f.superseded = True
         self.assert_fact(subject, attribute, new_value,
                          confidence=0.7, source="correction")

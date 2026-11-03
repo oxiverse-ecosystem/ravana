@@ -2815,6 +2815,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         )
         _CUES = (
             r"\bi" + _AUXADV + r"(?:really\s+)?(?:believe|believed)\s+(?:that\s+)?(.+)$",
+            r"\bi\s+(?:have|has|had|'ve|'d)\s+(?:always|long|never|often|still|now|come to|grown to|increasingly)?\s*(?:really\s+)?(?:believed|thought|felt|held|been\s+convinced)\s+(?:that\s+)?(.+)$",
             r"\bi" + _AUXADV + r"(?:think|thought)\s+(?:that\s+)?(.+)$",
             r"\bi" + _AUXADV + r"(?:am|'m)\s+convinced\s+(?:that\s+)?(.+)$",
             r"\bi" + _AUXADV + r"(?:hold|held)\s+(?:that\s+)?(.+)$",
@@ -3381,21 +3382,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 if _cat and _fav_facts:
                     _head_matches = [(_k, _f) for (_k, _f) in _fav_facts
                                      if ((_k[1] or "").lower().split() or [""])[-1] == _cat]
-                    if not _head_matches:
-                        try:
-                            import difflib as _dl
-                            _best_score = -1.0
-                            _best_item = None
-                            for (_k, _f) in _fav_facts:
-                                _h = ((_k[1] or "").lower().split() or [""])[-1]
-                                _sc = _dl.SequenceMatcher(None, _h, _cat).ratio()
-                                if _sc > _best_score:
-                                    _best_score, _best_item = _sc, (_k, _f)
-                            if _best_item is not None and _best_score >= 0.5:
-                                _head_matches = [_best_item]
-                        except Exception:
-                            pass
                     if _head_matches:
+                        _head_matches.sort(key=lambda _x: getattr(_x[1], "turn_number", 0), reverse=True)
                         _k, _f = _head_matches[0]
                         return f"your {_k[1]} is {_f.value}."
                     return None
@@ -9651,8 +9639,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # by "; " — do NOT re-prepend "i" or the topic.
                         _phrases = []
                         for _st in _side_topics:
-                            _stt, _st_r = self._agent_stance_on(_st)
-                            _phrases.append(_stt)
+                            # Only derive a grounded lean when the USER has
+                            # expressed a stance on this side; otherwise be
+                            # honestly uncertain so the two sides do not
+                            # collapse to an identical fabricated lean.
+                            _us = getattr(getattr(self, "user_model", None),
+                                          "opinions", None)
+                            _user_stance = None
+                            if _us is not None:
+                                try:
+                                    _user_stance = _us.query_stance(_st)
+                                except Exception:
+                                    _user_stance = None
+                            if (_user_stance is not None and
+                                    getattr(_user_stance, "confidence", 0.0) >= 0.35):
+                                _pol = float(_user_stance.polarity) * 0.7
+                                _conf = max(0.35, min(0.85,
+                                    float(_user_stance.confidence) * 0.8))
+                                if _pol >= 0.6:
+                                    _w = "strongly for"
+                                elif _pol > 0.1:
+                                    _w = "for"
+                                elif _pol <= -0.6:
+                                    _w = "strongly against"
+                                elif _pol < -0.1:
+                                    _w = "against"
+                                elif _pol >= 0.15:
+                                    _w = "lean toward"
+                                elif _pol <= -0.15:
+                                    _w = "wary of"
+                                else:
+                                    _w = "uncertain about"
+                                _phrases.append(f"i'm {_w} {_st}.")
+                            else:
+                                _phrases.append(f"i'm still figuring out {_st}.")
                         stance = "; ".join(_phrases)
                         back = " what about you?"
                         response = f"{stance}{back}".replace("  ", " ")

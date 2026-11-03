@@ -2159,8 +2159,7 @@ class SelfQueryMixin:
                                 pass
                             _phrases.append(_stance)
                         else:
-                            _stt, _st_r = self._agent_stance_on(_st)
-                            _phrases.append(_stt)
+                            _phrases.append(f"i'm still figuring out {_st}.")
                     # Strip trailing punctuation from each phrase before joining
                     # so we don't get "mountains.; sea." double-punctuation.
                     _clean = [p.rstrip().rstrip(".") for p in _phrases]

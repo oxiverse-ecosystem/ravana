@@ -2471,6 +2471,7 @@ class ReasoningMixin:
                 _phrase = {
                     "name": f"your name is {val}",
                     "location": f"you live in {val}",
+                    "grew up": f"you grew up in {val}",
                     "background": f"{val}",
                     "favorite": f"your favorite {val}",
                     "likes": f"you like {val}",

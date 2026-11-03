@@ -172,7 +172,7 @@ somebody anybody everybody nobody one ones
 am is are was were be been being
 do does did done doing have has had having
 will would shall should can could may might must
-not n't never no none nothing nobody nowhere neither nor
+not n't never no none nothing nobody nowhere neither nor dont don't doesn't didn't
 and or but so because although though while whereas if then than
 of in on at by for with from to into onto about across after before
 during through over under between among against within without
