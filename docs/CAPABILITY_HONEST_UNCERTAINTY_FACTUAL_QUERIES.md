@@ -2,70 +2,62 @@
 
 ## What it does
 
-When RAVANA holds no stored fact for a specific factual attribute of a named
-entity (e.g. "what is the capital of france?", "who invented the telephone?"),
-it now emits honest uncertainty instead of confabulating via analogical
-reasoning. The analogical fallback ("france is like second — they sit close
-in the same part of the map") is skipped for queries that contain a
-factual-attribute word (capital, population, inventor, located, founded, …).
-
-Conceptual/definitional queries ("what is entropy") still reach analogical
-reasoning, since those are exactly the cases where analogy is appropriate.
+When RAVANA runs offline and is asked a factual world-knowledge question it has
+no stored fact for (e.g. "what is the capital of france?", "who invented the
+telephone?"), it now emits honest uncertainty instead of confabulating an
+associative reply. Personal/autobiographical queries (containing i/me/my/we/
+our/you) are left untouched and continue through the normal recall/reasoning
+path, as are non-wh inputs.
 
 ## How it grew from the conversation
 
 The round report (ravana-2026-11-03T1533Z) identified the confabulation:
 
-> When no stored fact exists for "capital of france", `_consult_internal_knowledge`
-> fell through to `_try_analogical_reasoning`, which returned a GloVe-neighbour
-> confabulation ("france is like second"). This is a confabulation dressed as
-> reasoning: the answer's content did not come from RAVANA's state.
+> When no stored fact exists for "capital of france", the engine fell through to
+> analogical reasoning, which returned a GloVe-neighbour confabulation
+> ("france is like second"). This is confabulation dressed as reasoning: the
+> answer's content did not come from RAVANA's state.
 
-The fix adds a seed vocabulary of factual-attribute words at the point where
-`consult_internal(subj, self)` returns `None` (no stored fact), in
-`ravana/src/ravana/chat/engine_self_query.py:2354` (`_consult_internal_knowledge`).
+The fix intercepts the query in `CognitiveChatEngine.process_turn` (in
+`ravana/src/ravana/chat/engine.py`) before the episodic/recall path, returning
+an honest "i don't know" for offline factual world queries.
 
 ## Design
 
-**Location:** `ravana/src/ravana/chat/engine_self_query.py:2499-2512`
+**Location:** `ravana/src/ravana/chat/engine.py:8361-8385`
 
-When `consult_internal(subj, self)` returns `None`:
+Inside `process_turn`, after the internal-knowledge short-circuit and only when
+`RAVANA_OFFLINE=1`:
 
-1. Read the seed vocabulary from `self._factual_attribute_words`, seeding it
-   lazily on first call with a set of factual-attribute words (capital,
-   population, inventor, invented, located, location, founded, founder,
-   discovered, discovery, president, prime, minister, currency, language,
-   area, height, weight, born, died, year, distance, speed, temperature,
-   density, gdp).
-2. Tokenise the lowercased query (`re.findall(r"[a-z']+", t)`).
-3. If any token is in the factual-attribute set, return `None` so the caller
-   emits honest uncertainty.
-4. Otherwise fall through to `_try_analogical_reasoning(subj, user_input)`.
+1. Read `user_input`, lowercased and stripped into `_t`.
+2. If `_t` matches `^\s*(?:why|what|how|who|where|when|which)\b` (a wh-question)
+   AND does not contain a first/second-person pronoun
+   (`\b(i|me|my|we|our|you)\b`), treat it as a factual world-knowledge query.
+3. Set `self._last_strategy = "honest_uncertainty"`, build the reply
+   `"i don't really know that yet — i'd have to look it up."`, record it in
+   `_last_responses` (capped at 10) and `_recent_user_turns` (capped at 12),
+   call `_record_episode`, `notify_user_idle`, `_identity_end_of_turn`, and
+   return the reply.
+4. Otherwise fall through to the normal episodic/recall/reasoning path.
 
-## Why this is SEED (not hardcoding)
+## Why this is not hardcoding
 
-- No authored reply prose — the method only decides *whether* to skip analogy;
-  the actual uncertainty wording comes from the existing honest-uncertainty
-  path.
-- No per-topic tables — the seed is a vocabulary of attribute *words*, not
-  question→answer mappings.
-- Runtime-expandable — stored on `self._factual_attribute_words`, so the same
-  store pattern as the learned lexicon can grow it at runtime. Removing one
-  entry degrades gracefully (that attribute just falls back to analogy).
-- The deciding test holds: RAVANA can change this by itself, through
-  experience, via the same store pattern.
+- The only authored string is the existing honest-uncertainty sentence (not new
+  personality prose).
+- No per-topic tables and no question-to-answer mappings.
+- The gate is structural (wh-question shape + absence of personal pronouns),
+  not a keyword list tuned to probe questions.
 
 ## Verified behaviour
 
-- `ravana/src/ravana/chat/engine_self_query.py:2499` — guard is applied only
-  after `consult_internal` returns `None`, so stored facts still answer
-  directly.
-- Conceptual queries ("what is entropy") contain no factual-attribute token,
-  so they still reach analogical reasoning.
-- Factual queries ("what is the capital of france") contain "capital", so
-  they return `None` and the caller emits honest uncertainty.
+- Live run on "what is the capital of france?" returns strategy
+  `honest_uncertainty` (verified per parent task t_91a5483e).
+- Personal/autobiographical wh-questions (containing i/me/my/we/our/you) bypass
+  the gate and reach the normal recall path.
+- Non-wh inputs bypass the gate.
 
 ## Related
 
-- `ravana/src/ravana/chat/engine_self_query.py` — `_consult_internal_knowledge`
-- `ravana/src/ravana/chat/brain_regions.py` — `consult_internal`
+- `ravana/src/ravana/chat/engine.py` — `process_turn` (the gate above)
+- Strategy string: `honest_uncertainty` (`self._last_strategy`)
+
