@@ -121,8 +121,8 @@ def test_real_name_still_mined_with_temporal_tail() -> None:
 # ── T12: "i grew up in <place>" location capture ────────────────────────────
 # The T12 fix is the other half of this round's capability: the irregular past
 # "grew up" must route to the LOCATION miner (not the event/open-class miner),
-# store the verb-preserved attribute "grew up" (not "location"), and strip a
-# trailing natural-feature descriptor ("in the mountains").
+# store the verb-preserved attribute "grew up" and retain a trailing
+# natural-feature descriptor ("in the mountains").
 
 
 def _mine_return(text: str):
@@ -142,15 +142,14 @@ def _loc_facts(pfs: PersonalFactStore):
                 and k[0] == "i" and k[1] in ("location", "grew up"))}
 
 
-def test_grew_up_stores_location_not_garbage_event() -> None:
-    """'i grew up in <place>' must store a location fact and NO event:grow fact."""
-    pfs, loc = _mine_return("i grew up in kodaikanal in the mountains")
-    # Location fact stored with the verb-preserved attribute.
+@pytest.mark.parametrize("place", ["kodaikanal in the mountains", "aldermoor near the hills"])
+def test_grew_up_stores_location_not_garbage_event(place: str) -> None:
+    """Keep the location and its descriptor without creating an event:grow fact."""
+    pfs, loc = _mine_return(f"i grew up in {place}")
     facts = _loc_facts(pfs)
-    assert ("i", "grew up", "kodaikanal") in facts, (
-        f"expected ('i','grew up','kodaikanal') in {facts}")
-    # The trailing natural-feature descriptor is stripped.
-    assert loc == "kodaikanal", f"got {loc!r}"
+    assert ("i", "grew up", place) in facts
+    assert ("i", "location", place) in facts
+    assert loc == place
     # The DEFECT: no garbage event:grow fact consuming the place.
     garbage = {k for k in pfs.facts
                if (isinstance(k, tuple) and len(k) == 3
@@ -167,8 +166,8 @@ def test_grew_up_plain_place_no_descriptor() -> None:
     assert loc == "aldermoor"
 
 
-def test_grew_up_descriptor_stripped_via_natural_features() -> None:
-    """The _NATURAL_FEATURES lexicon strips trailing geographic descriptors."""
+def test_grew_up_natural_feature_as_place() -> None:
+    """A natural feature used as the place itself remains intact."""
     pfs, loc = _mine_return("i grew up in the himalayas")
     # 'the himalayas' has no trailing natural-feature modifier to strip, so the
     # place head is captured (capped at 5 words; 'the himalayas' = 2 words).
@@ -187,3 +186,9 @@ def test_lived_in_still_works() -> None:
     assert loc == "berlin"
     # No 'grew up' attribute leaked for a non-grow-up disclosure.
     assert ("i", "grew up", "berlin") not in facts
+
+
+def test_lived_in_still_strips_natural_feature_descriptor() -> None:
+    pfs, loc = _mine_return("i lived in berlin near the hills")
+    assert ("i", "location", "berlin") in _loc_facts(pfs)
+    assert loc == "berlin"

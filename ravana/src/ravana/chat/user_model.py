@@ -2727,15 +2727,16 @@ class UserModel:
             # geographic modifier, not the place name. Strip it BEFORE the
             # initial store so the real toponym is persisted. _NATURAL_FEATURES
             # is defined once above (before _named_loc), shared by all branches.
-            if _loc:
+            # FIX-RV-06: preserve natural-feature phrase for "grew up in".
+            _is_grew_up = bool(re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE))
+            if _loc and not _is_grew_up:
                 _nf_strip = re.search(
-                    r"\s+(?:in|at|on|near|from)\s+(?:the\s+)?(?:"
+                    r"\s+(?:in|at|on|near|from)\s+(?:the\s)?(?:"
                     + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
                     _loc, re.IGNORECASE)
                 if _nf_strip:
                     _loc = _loc[:_nf_strip.start()].strip()
-            # Round 2026-10-19: preserve the location verb as the fact
-            # attribute so recall renders the right phrasing. "i grew up in
+            # Round 2026-10-19: preserve the location verb
             # X" was stored as "location" and recalled as "you live in X" —
             # wrong verb. Store "grew up" as the attribute when the verb is
             # "grew up"; other verbs keep "location". Structural: the verb is
