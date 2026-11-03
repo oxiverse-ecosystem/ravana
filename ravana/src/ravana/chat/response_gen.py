@@ -2396,6 +2396,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         if g is None:
             return None
         topic_l = topic.lower()
+        # D3 grounding guard: an open-ended creative prompt about a subject RAVANA
+        # has no durable knowledge of must NOT produce free-decode word salad.
+        # Reuse the SAME concept-graph membership test as the Situation-Model
+        # unknown-subject guard (docs/CAPABILITY_SM_UNKNOWN_SUBJECT_GROUNDING.md):
+        # only a concept actually present in the live concept graph may ground a
+        # creative verse. Unknown subjects fall through to honest uncertainty.
+        # Online growth re-admits a concept: if RAVANA later learns it, it joins
+        # _concept_keywords/_concept_labels and creative generation resumes.
+        _known_topic = (topic_l in getattr(self, "_concept_keywords", {})
+                        or topic_l in getattr(self, "_concept_labels", {}))
+        if not _known_topic:
+            return None
         # Gather associated concepts from the topic's typed edges + the graph's
         # own stored node vectors (neighbours by cosine). Using stored node
         # vectors (not the lazy GloVe projection, which can be None before the

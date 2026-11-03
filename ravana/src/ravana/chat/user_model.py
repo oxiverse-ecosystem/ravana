@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional, Tuple, Set
 from .models import CorrectionType
 from .personal_fact_store import (
     PersonalFactStore, UserStanceStore, QuantityMemory, number_to_int)
+from .learned_lexicon import LearnedLexiconStore
 from . import pet_slots as _pet_slots
 from .pet_slots import is_function_word
 from .pet_slots import is_temporal_adverb
@@ -1599,6 +1600,7 @@ class UserModel:
     # NUMBER, decoupling it from the gist. Seed + online; durable via
     # get/set_state so it survives engine reload.
     quantity_memory: QuantityMemory = field(default_factory=QuantityMemory)
+    lexicon: LearnedLexiconStore = field(default_factory=LearnedLexiconStore)
     # RUNTIME-EXPANDED activity object-category vocabulary (round 2026-08-29T0659Z
     # feature follow-up). Seed object vocabulary lives in the module-level
     # _ACTIVITY_ROLES map (consulted by the recall bridge); THIS set holds objects
@@ -7386,6 +7388,7 @@ class UserModel:
             'user_background': self.user_background,
             'preferences': self.preferences,
             'personal_facts': self.personal_facts.get_state(),
+            'lexicon': self.lexicon.get_state(),
             'quantity_memory': self.quantity_memory.get_state(),
             'opinions': self.opinions.get_state(),
             'emotional_state': self.emotional_state,
@@ -7444,9 +7447,12 @@ class UserModel:
         if _ev:
             self._evaluative_polarity = self._ensure_evaluative_polarity()
             self._evaluative_polarity.set_state(_ev)
-        _pf = state.get('personal_facts')
-        if _pf:
-            self.personal_facts.set_state(_pf)
+        _pm = state.get('personal_facts')
+        if _pm:
+            self.personal_facts.set_state(_pm)
+        _lx = state.get('lexicon')
+        if _lx:
+            self.lexicon.set_state(_lx)
         _qm = state.get('quantity_memory')
         if _qm:
             self.quantity_memory.set_state(_qm)
@@ -7542,4 +7548,7 @@ def load_user_model(user_suffix: str = "") -> "UserModel":
     if not hasattr(um, "quantity_memory"):
         from .personal_fact_store import QuantityMemory
         um.quantity_memory = QuantityMemory()
+    if not hasattr(um, "lexicon"):
+        from .learned_lexicon import LearnedLexiconStore
+        um.lexicon = LearnedLexiconStore()
     return um
