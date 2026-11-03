@@ -298,7 +298,14 @@ on this codebase:
   classifier (explicit recall markers + a personal-possessive reference), not a
   frozen topic list, so it generalizes across every subject and needs no
   retraining. Fail-open: a general knowledge question can never be answered by an
-  autobiographical echo. See `docs/CAPABILITY_QUERY_INTENT_GATE.md`.
+    autobiographical echo. See `docs/CAPABILITY_QUERY_INTENT_GATE.md`.
+  - **Returns honest uncertainty for offline factual world-knowledge questions.**
+    Asked offline *\"what is the capital of france?\"* (no stored fact), RAVANA
+    now says *\"i don't really know that yet — i'd have to look it up.\"* instead
+    of confabulating an associative reply. Personal/autobiographical wh-questions
+    (containing i/me/my/we/our/you) and non-wh inputs bypass the gate. No LLM,
+    no per-topic reply table, no retraining. See
+    `docs/CAPABILITY_HONEST_UNCERTAINTY_FACTUAL_QUERIES.md`.
 - **Withholds word salad about a subject it has never learned (D4).** The
   Situation-Model free-decode path used to restate a query's own near-neighbours
   as a "fact" about a subject RAVANA has *no* durable knowledge of (e.g. *"tired"*
