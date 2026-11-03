@@ -8609,6 +8609,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.notify_user_idle()
             return resp
 
+        # Honest uncertainty for world-knowledge gaps (offline): RAVANA must
+        # not confabulate an associative reply for a factual question it has
+        # no grounded knowledge for. Return an honest "i don't know" instead.
+        # Personal/autobiographical queries are left to the recall path below.
+        # Placed AFTER self-model/abstract-meaning/grounding handlers so those
+        # can still answer their queries.
+        try:
+            import os as _os
+            _offline = _os.environ.get("RAVANA_OFFLINE", "") == "1"
+        except Exception:
+            _offline = False
+        if _offline:
+            _t = (user_input or "").lower().strip()
+            if re.search(r"^\s*(?:why|what|how|who|where|when|which)\b", _t):
+                if not re.search(r"\b(i|me|my|we|our|you|your)\b", _t):
+                        try:
+                            _qtype, _ = self.pfc_workspace.detect_question_type(_t, getattr(self, "_concept_pos", None))
+                        except Exception:
+                            _qtype = "general"
+                        if _qtype not in ("hypothetical", "opinion", "compare", "why", "how", "abstract") and not (getattr(self, "_seeded_domain_concepts", set()) | getattr(self, "_PROTECTED_CONCEPTS", set()) | set(getattr(self, "_definitions", {}).keys())) & set(_t.split()):
+                            self._last_strategy = "honest_uncertainty"
+                            _resp = "i don't really know that yet \u2014 i'd have to look it up."
+                            self._last_responses.append(_resp)
+                            if len(self._last_responses) > 10:
+                                self._last_responses = self._last_responses[-10:]
+                            self._recent_user_turns.append(user_input)
+                            if len(self._recent_user_turns) > 12:
+                                self._recent_user_turns = self._recent_user_turns[-12:]
+                            self._record_episode(user_input)
+                            self.notify_user_idle()
+                            self._identity_end_of_turn(user_input, quality_score=None)
+                            return _resp
+                        # else: fall through to normal pipeline
+
         # ── Human-Likeness Plan (A2): classic counterfactual pre-pass ──────
         # "if a tree falls in a forest and no one hears it, does it make a
         # sound" is a CONDITIONAL query, but the frontopolar category-error gate
