@@ -7581,7 +7581,7 @@ def load_user_model(user_suffix: str = "") -> "UserModel":
     if not hasattr(um, "quantity_memory"):
         from .personal_fact_store import QuantityMemory
         um.quantity_memory = QuantityMemory()
-    if not hasattr(um, "lexicon"):
+    if not hasattr(um, "lexicon") or not callable(getattr(um.lexicon, "known", None)):
         from .learned_lexicon import LearnedLexiconStore
         um.lexicon = LearnedLexiconStore()
     return um

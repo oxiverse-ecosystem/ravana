@@ -12131,6 +12131,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 loaded_user_model.personal_facts = PersonalFactStore()
             if not hasattr(loaded_user_model, 'opinions'):
                 loaded_user_model.opinions = UserStanceStore()
+            # Lexicon must be a real LearnedLexiconStore, not a degraded
+            # placeholder from an old/unpicklable snapshot.
+            if not (hasattr(loaded_user_model, 'lexicon') and callable(getattr(loaded_user_model.lexicon, 'known', None))):
+                from .learned_lexicon import LearnedLexiconStore
+                loaded_user_model.lexicon = LearnedLexiconStore()
             self.user_model = loaded_user_model
             # Prefer the dedicated user_models/ store ONLY when it actually
             # exists — it is the continuously-updated, authoritative profile
