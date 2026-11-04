@@ -160,7 +160,14 @@ on this codebase:
   (fail-closed, no echo). The material/kind vocabulary is seed data that grows
   at runtime (`learn_material`) — no code change, no retraining, no LLM. See
   `docs/CAPABILITY_POSSESSION_ATTRIBUTE_MINING.md`.
-- **Abstains when it has no settled view.** Asked *"what do you think about
+- **Grows its factual-attribute vocabulary.** The set of words treated as factual
+  attributes (`capital`, `population`, `inventor`, ...) used to be frozen; it
+  is now a growing seed — `learn_factual_attribute(word)` extends it at runtime
+  and persists to `data/factual_attribute_words.json` (loaded on init), so a
+  new kind of factual query becomes addressable with no code change, no retrain,
+  no LLM. Duplicates/empty/None return `False`. See
+  `docs/CAPABILITY_FACTUAL_ATTRIBUTE_VOCABULARY_GROWTH.md`.
+- **Abstains when it has no settled view.** Asked *"what do you think about"
   coffee?*" before forming its own position, it returns an honest non-answer
   rather than fabricating one:
   `i'm still figuring that out. i don't have a settled view on that yet — what do you think?`
