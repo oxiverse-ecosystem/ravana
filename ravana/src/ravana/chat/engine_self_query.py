@@ -2351,6 +2351,43 @@ class SelfQueryMixin:
             pass
         return _answer
 
+    def learn_factual_attribute(self, word: str) -> bool:
+        """Grow the factual-attribute vocabulary at runtime (online, no retrain).
+
+        A seed that GROWS: RAVANA can extend the set of words it treats as
+        factual attributes (capital, population, ...) from experience, and the
+        change persists across sessions via the durable store. Returns True if
+        a new word was added.
+        """
+        if not isinstance(word, str) or not word.strip():
+            return False
+        w = word.strip().lower()
+        attrs = getattr(self, "_factual_attribute_words", None)
+        if attrs is None:
+            attrs = set()
+            self._factual_attribute_words = attrs
+        if w in attrs:
+            return False
+        attrs.add(w)
+        try:
+            import json, os
+            _p = os.path.join(getattr(self, "_data_dir", "data"),
+                              "factual_attribute_words.json")
+            os.makedirs(os.path.dirname(_p), exist_ok=True)
+            _existing = set()
+            if os.path.exists(_p):
+                try:
+                    with open(_p) as _f:
+                        _existing = set(json.load(_f))
+                except Exception:
+                    _existing = set()
+            _existing.add(w)
+            with open(_p, "w") as _f:
+                json.dump(sorted(_existing), _f)
+        except Exception:
+            pass
+        return True
+
     def _consult_internal_knowledge(self, user_input: str) -> Optional[str]:
         """Before web, consult RAVANA's consolidated internal memory.
 
@@ -2505,6 +2542,20 @@ class SelfQueryMixin:
                     "area", "height", "weight", "born", "died", "year",
                     "distance", "speed", "temperature", "density", "gdp",
                 }
+                # SEED that GROWS: load any runtime-learned factual attribute
+                # words from the durable store so the vocabulary expands across
+                # sessions (online, no retrain). Missing file is fine (seed only).
+                try:
+                    import json, os
+                    _p = os.path.join(getattr(self, "_data_dir", "data"),
+                                      "factual_attribute_words.json")
+                    if os.path.exists(_p):
+                        with open(_p) as _f:
+                            for _w in json.load(_f):
+                                if isinstance(_w, str) and _w.strip():
+                                    _factual_attrs.add(_w.strip().lower())
+                except Exception:
+                    pass
                 self._factual_attribute_words = _factual_attrs
             _qwords = set(re.findall(r"[a-z']+", t))
             if _qwords & _factual_attrs:
