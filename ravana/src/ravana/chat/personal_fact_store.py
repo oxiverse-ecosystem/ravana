@@ -423,6 +423,12 @@ class UserStanceStore:
         input and can revise it. No per-topic table, no retraining.
         """
         key = topic.lower().strip()
+        # Normalize garbled meta-topics from "changed my mind - X is Y"
+        # disclosures (topic becomes "mind - X" or "changed"). If the topic
+        # contains " - ", keep the part after it.
+        if " - " in key:
+            topic = topic.split(" - ", 1)[-1].strip()
+            key = topic.lower().strip()
         _prov = [w.lower() for w in (provenance or []) if w]
         existing = self.stances.get(key)
         if existing is None:

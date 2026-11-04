@@ -3465,6 +3465,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     continue
                 _v = _f.value.lower()
                 _attr = _k[1].lower()
+                # Normalize garbled meta-attributes produced by a miner that
+                # mis-parsed a "changed my mind - X is Y" disclosure: the
+                # attribute becomes "mind - X" instead of "X". Strip the
+                # "mind - " (or any " - " lead-in) so the rendered reply reads
+                # "your X is Y" instead of "your mind - X is Y". Structural
+                # normalization, not a per-topic table.
+                if " - " in _attr:
+                    _attr = _attr.split(" - ", 1)[-1].strip()
                 # strong match: the whole cue phrase appears verbatim in the
                 # stored value, or the attribute itself is the cue topic.
                 if _cue in _v or _attr == _cue:
@@ -12131,6 +12139,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 loaded_user_model.personal_facts = PersonalFactStore()
             if not hasattr(loaded_user_model, 'opinions'):
                 loaded_user_model.opinions = UserStanceStore()
+            # Lexicon must be a real LearnedLexiconStore, not a degraded
+            # placeholder from an old/unpicklable snapshot.
+            if not (hasattr(loaded_user_model, 'lexicon') and callable(getattr(loaded_user_model.lexicon, 'known', None))):
+                from .learned_lexicon import LearnedLexiconStore
+                loaded_user_model.lexicon = LearnedLexiconStore()
             self.user_model = loaded_user_model
             # Prefer the dedicated user_models/ store ONLY when it actually
             # exists — it is the continuously-updated, authoritative profile
