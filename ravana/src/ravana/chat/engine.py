@@ -3465,6 +3465,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     continue
                 _v = _f.value.lower()
                 _attr = _k[1].lower()
+                # Normalize garbled meta-attributes produced by a miner that
+                # mis-parsed a "changed my mind - X is Y" disclosure: the
+                # attribute becomes "mind - X" instead of "X". Strip the
+                # "mind - " (or any " - " lead-in) so the rendered reply reads
+                # "your X is Y" instead of "your mind - X is Y". Structural
+                # normalization, not a per-topic table.
+                if " - " in _attr:
+                    _attr = _attr.split(" - ", 1)[-1].strip()
                 # strong match: the whole cue phrase appears verbatim in the
                 # stored value, or the attribute itself is the cue topic.
                 if _cue in _v or _attr == _cue:

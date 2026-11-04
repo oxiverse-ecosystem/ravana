@@ -2259,6 +2259,11 @@ class UserModel:
                             max(self.correction_severity, 0.7)
 
         def _put_fact(attr: str, val: str, conf: float) -> None:
+            # Normalize garbled meta-attributes from "changed my mind - X is Y"
+            # disclosures: the miner sometimes stores attr="mind - X" instead
+            # of "X". Strip any " - " lead-in so recalls render cleanly.
+            if isinstance(attr, str) and " - " in attr:
+                attr = attr.split(" - ", 1)[-1].strip()
             # D3 (round v3): never store a closed-class / negation token as a
             # fact value. The old miner matched "my sister's name is not meena,
             # it's priya" and stored value="not" (the word after "is"). Values
@@ -7131,6 +7136,10 @@ class UserModel:
         # each one needed a manual _OPINION_STOP entry; missing one let the
         # contraction leak into the topic ("you're turning" instead of "turning").
         # Morphological, not a lookup table — handles any contraction.
+        # Normalize "changed my mind - X is Y" disclosures: the part before " - "
+        # is a meta-disclosure marker; the topic is X.
+        if isinstance(phrase, str) and " - " in phrase:
+            phrase = phrase.split(" - ", 1)[-1].strip()
         _expanded = _expand_contractions(phrase.lower())
         toks = [t for t in re.findall(r"[a-z']+", _expanded) if t]
         if not toks:
