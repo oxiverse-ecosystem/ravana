@@ -2718,7 +2718,8 @@ class UserModel:
                     r"\s+(?:in|at|on|near|from)\s+(?:the\s+)?(?:"
                     + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
                     _loc, re.IGNORECASE)
-                if _nf_strip:
+                _is_grew_up_named = bool(re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE))
+                if _nf_strip and not _is_grew_up_named:
                     _loc = _loc[:_nf_strip.start()].strip()
             if _loc and len(_loc.split()) <= 4:
                 self.user_location = _loc
@@ -2775,7 +2776,7 @@ class UserModel:
                     r"\s+(?:in|at|on|near|from)\s+(?:the\s)?(?:"
                     + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
                     _loc, re.IGNORECASE)
-                if _nf_strip:
+                if _nf_strip and not _is_grew_up:
                     _loc = _loc[:_nf_strip.start()].strip()
             # Round 2026-10-19: preserve the location verb
             # X" was stored as "location" and recalled as "you live in X" —
