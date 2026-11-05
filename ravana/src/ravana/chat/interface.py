@@ -90,7 +90,7 @@ TOPIC_SKIP_WORDS = {"i", "you", "we", "they", "he", "she", "it", "me", "my",
                     "suggest", "recommend",
                     "good", "bad", "big", "small", "always", "never", "maybe",
                     "if", "but", "in", "out", "up", "down",
-                    "point", "way", "thing", "stuff", "and", "so"}
+                    "point", "way", "thing", "stuff", "and", "so", "not", "no", "never", "don't", "dont", "doesn't", "didn't", "won't", "can't", "couldn't"}
 
 
 from .constants import _is_word_salad

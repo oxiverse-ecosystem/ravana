@@ -8069,7 +8069,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # value/stance store (grounded) or honestly abstain. Fail-open: if
             # _route_self_query returns None the normal pipeline runs.
             _selfopinion = re.search(
-                r"\b(do\s+you\s+(think|feel|believe|have|care)\b"
+                r"\b(do\s+you\s+(think|feel|believe|have|care|prefer)\b"
                 r"|what\s+do\s+you\s+(think|feel|believe)\s+about\b"
                 r"|how\s+do\s+you\s+(feel|think)\s+about\b"
                 r"|your\s+(opinion|thoughts|take|view|stance)\s+on\b"
@@ -9674,47 +9674,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         # by "; " — do NOT re-prepend "i" or the topic.
                         _phrases = []
                         for _st in _side_topics:
-                            # Only derive a grounded lean when the USER has
-                            # expressed a stance on this side; otherwise be
-                            # honestly uncertain so the two sides do not
-                            # collapse to an identical fabricated lean.
-                            _us = getattr(getattr(self, "user_model", None),
-                                          "opinions", None)
-                            _user_stance = None
-                            if _us is not None:
-                                try:
-                                    _user_stance = _us.query_stance(_st)
-                                except Exception:
-                                    _user_stance = None
-                            if (_user_stance is not None and
-                                    getattr(_user_stance, "confidence", 0.0) >= 0.35):
-                                _pol = float(_user_stance.polarity) * 0.7
-                                _conf = max(0.35, min(0.85,
-                                    float(_user_stance.confidence) * 0.8))
-                                if _pol >= 0.6:
-                                    _w = "strongly for"
-                                elif _pol > 0.1:
-                                    _w = "for"
-                                elif _pol <= -0.6:
-                                    _w = "strongly against"
-                                elif _pol < -0.1:
-                                    _w = "against"
-                                elif _pol >= 0.15:
-                                    _w = "lean toward"
-                                elif _pol <= -0.15:
-                                    _w = "wary of"
-                                else:
-                                    _w = "uncertain about"
-                                _phrases.append(f"i'm {_w} {_st}.")
+                            try:
+                                _as = self._agent_stance_on(_st)
+                                _as = _as[0] if isinstance(_as, tuple) else _as
+                            except Exception:
+                                _as = ""
+                            if _as:
+                                _phrases.append(str(_as).rstrip(".") + ".")
                             else:
                                 _phrases.append(f"i'm still figuring out {_st}.")
-                        stance = "; ".join(_phrases)
-                        back = " what about you?"
-                        response = f"{stance}{back}".replace("  ", " ")
-                    else:
-                        _st, _rs = self._agent_stance_on(target)
-                        back = " what about you?"
-                        response = f"{self._join_stance_clauses(_st, _rs)}{back}"
                 else:
                     _st, _rs = self._agent_stance_on(target)
                     back = " what about you?"

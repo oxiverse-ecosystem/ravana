@@ -6199,6 +6199,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         }
         _mtoks = [w for w in re.findall(r"[a-z']+", subj_cap.lower())
                   if w not in _STOP_MULTI and len(w) >= 3]
+        # FIX-RV-08: a coherent two-word noun phrase (e.g. "thesis
+        # advisor") must not be collapsed to its longest token, which
+        # drops the modifier and leaves a bare, wrong subject. Only reduce
+        # when there are 3+ content tokens (the garbled-multiword case).
+        if _mtoks and len(_mtoks) <= 2:
+            _mtoks = []
         if _mtoks:
             # Prefer the longest remaining content word (most specific concept).
             subj_cap = max(_mtoks, key=len)

@@ -2547,10 +2547,11 @@ class UserModel:
                 _subj_toks.pop(0)
             # Trim a trailing copula: the copula belongs to the relation phrase,
             # not the subject ("sourdough starter is" -> "sourdough starter").
-            while _subj_toks and _subj_toks[-1] in ("is", "was", "were", "'s", "s"):
+            while _subj_toks and _subj_toks[-1] in ("is", "was", "were", "are", "am",
+                                                    "be", "been", "being", "has", "have",
+                                                    "had", "do", "does", "did", "'s", "s"):
                 _subj_toks.pop()
-            # The user themself is not a subject for a derivation ("i am named
-            # after my grandmother" is about the USER's own name, which the
+            # The user themself is not a subject for a derivation ("i am named"
             # existing self-naming miner owns).
             if not _subj_toks or _subj_toks[0] == "i":
                 return False
@@ -2717,7 +2718,8 @@ class UserModel:
                     r"\s+(?:in|at|on|near|from)\s+(?:the\s+)?(?:"
                     + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
                     _loc, re.IGNORECASE)
-                if _nf_strip:
+                _is_grew_up_named = bool(re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE))
+                if _nf_strip and not _is_grew_up_named:
                     _loc = _loc[:_nf_strip.start()].strip()
             if _loc and len(_loc.split()) <= 4:
                 self.user_location = _loc
@@ -2769,12 +2771,12 @@ class UserModel:
             # is defined once above (before _named_loc), shared by all branches.
             # FIX-RV-06: preserve natural-feature phrase for "grew up in".
             _is_grew_up = bool(re.search(r"\bi\s+(?:grew|grow)\s+up\b", q_clean, re.IGNORECASE))
-            if _loc and not _is_grew_up:
+            if _loc:
                 _nf_strip = re.search(
                     r"\s+(?:in|at|on|near|from)\s+(?:the\s)?(?:"
                     + "|".join(sorted(_NATURAL_FEATURES)) + r")\b\s*$",
                     _loc, re.IGNORECASE)
-                if _nf_strip:
+                if _nf_strip and not _is_grew_up:
                     _loc = _loc[:_nf_strip.start()].strip()
             # Round 2026-10-19: preserve the location verb
             # X" was stored as "location" and recalled as "you live in X" —
@@ -6687,7 +6689,7 @@ class UserModel:
                 if _dur_m:
                     try:
                         self.personal_facts.assert_fact(
-                            "i", f"{category} duration", _dur_m.group(1).strip(),
+                            "i", f"favorite {category} duration", _dur_m.group(1).strip(),
                             confidence=0.6, source="seed_regex")
                     except Exception:
                         pass
