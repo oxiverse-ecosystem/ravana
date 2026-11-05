@@ -2159,7 +2159,15 @@ class SelfQueryMixin:
                                 pass
                             _phrases.append(_stance)
                         else:
-                            _phrases.append(f"i'm still figuring out {_st}.")
+                            try:
+                                _as = self._agent_stance_on(_st)
+                                _as = _as[0] if isinstance(_as, tuple) else _as
+                            except Exception:
+                                _as = ""
+                            if _as:
+                                _phrases.append(str(_as).rstrip(".") + ".")
+                            else:
+                                _phrases.append(f"i'm still figuring out {_st}.")
                     # Strip trailing punctuation from each phrase before joining
                     # so we don't get "mountains.; sea." double-punctuation.
                     _clean = [p.rstrip().rstrip(".") for p in _phrases]
