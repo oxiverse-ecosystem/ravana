@@ -451,17 +451,32 @@ tree, with nothing else competing for the machine:
 |---|---|---|---|
 | clean (`git stash -u`) | 2757 | 1 | 23 |
 | this branch | 2810 | 1 | 23 |
+| this branch, after §5.5 | 2823 | 2 | 23 |
 
-The delta is exactly +53 = the 33 intake tests + the 20 plasticity tests. Both
-single failures are different, load-dependent tests
+The first delta is exactly +53 = the 33 intake tests + the 20 plasticity tests;
+the second is +13 net (14 new retrieval-practice tests, one of which replaced a
+counted case). Both single failures are different, load-dependent tests
 (`test_scaling::test_large_graph_construction` on the clean tree,
 `test_d3_affective_echo::test_engine_still_reasons_legit_causal` on this one);
 both pass in isolation. **No regression.**
 
-An earlier sweep that reported 102 failures was run **concurrently with other
-pytest processes**; that signature (SQLite lock contention plus xdist
-`ModuleNotFoundError`s) is an artifact of parallel execution, not of the code.
-Do not run the suite concurrently with other test processes on this repo.
+**One pre-existing flake worth knowing about.**
+`test_d3_affective_echo.py::test_engine_does_not_echo_affective_clause` fails
+intermittently on `main` with and without this branch. Verified: it fails
+*identically* on a clean `main` checkout (same response, same assertion), and
+three consecutive runs on identical code gave fail / fail / pass — the passing
+run took 24 s against 9 s for the failing ones, i.e. it waited out a network
+timeout. The reply that trips the assertion carries live IntentForge results
+(`[web:intentforge] … "It makes my blood boil! (The language of anger)"`), and
+`SearchEngine` consults `http://localhost:4000` first, so the outcome depends on
+whether a local IntentForge is running and what it returns. This is an
+environment dependency in the test, not a behaviour change; it predates this
+branch.
+
+> An earlier sweep reported 102 failures — that run was executing concurrently
+> with other pytest processes (SQLite lock contention plus xdist
+> `ModuleNotFoundError`s). Don't run this suite concurrently with other test
+> processes on this repo.
 
 ---
 
