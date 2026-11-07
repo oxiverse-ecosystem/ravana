@@ -386,6 +386,26 @@ Two handoffs close loops that were previously open:
 Both paths are exception-guarded and add zero cost when there is nothing to
 do.
 
+### 5.5 Retrieval practice driven from the engine
+
+The schedule and the review logic already existed; nothing advanced the clock,
+so nothing ever came due. Now `process_turn` calls `_run_retrieval_practice()`
+at the **top** of every turn — deliberately not at the end-of-turn hook, which
+the ~55 early-return paths (meta, temporal recall, greetings, arithmetic, …)
+never reach. When a fact comes due, `_recall_from_own_memory` attempts the
+retrieval from the graph plus the hippocampal buffer — the source text is
+deliberately **not** consulted, because a false positive would reinforce
+nothing — and `record_review` expands the interval on success and resets it to
+the shortest on failure.
+
+The engine also constructs its `KnowledgeIntake` over the existing
+`_EngineGraphShim` and its own hippocampal buffer, and hands it to
+`WebToGraph`, so web ingestion is gated by schema-consistency in normal
+operation. A host without the getter (`ChatInterface`) keeps the legacy
+unconditional write unchanged.
+
+Both halves are needed: §5.1 builds the schedule, this section makes it run.
+
 ### 5.4 Verification
 
 `tests/unit/test_intake.py` — 33 tests against the **real** `ConceptGraph`:
@@ -415,6 +435,14 @@ of critical edges, the disabled flag, state round-trip, and the
 `tests/unit/test_ravana_cognitive_graph.py`, `test_self_reference_guard.py`,
 `test_language_production_mapping.py`, `tests/integration/test_sleep_episodic_replay.py`,
 `tests/test_same_turn_profile.py` — 79 passed, 1 skipped.
+
+`tests/unit/test_retrieval_practice.py` — 14 tests: the engine builds and
+caches the intake, `_recall_from_own_memory` returns true only for a real
+relation-typed match (wrong object, wrong relation type, and unknown subject
+all return false), the episodic-buffer fallback, the schedule clock advancing
+on every `process_turn` including early-return greeting paths, due facts being
+reviewed, success expanding / failure resetting the interval, the no-due case,
+trace output, and `WebToGraph` receiving the engine's intake.
 
 **Full-suite regression check.** The suite was run on a clean tree and on this
 tree, with nothing else competing for the machine:
@@ -455,15 +483,15 @@ Ranked by leverage:
    run now. The one primitive still not driven from the chat path is
    `adjust_vector` (the per-node fast→slow vector update); `consolidate_vectors`
    covers it at sleep, but nothing moves a single node's vector online yet.
-4. **Make provenance durable.** `storage/db.py:save_edge`/`load_edge` have no
+5. **Make provenance durable.** `storage/db.py:save_edge`/`load_edge` have no
    `source_metadata` column; `_definitions` has no source field. Until this is
    fixed, provenance survives only because the whole graph is pickled.
-5. **Drive the retrieval-practice schedule from the engine.** `due_for_review()`
-   exists; nothing calls it yet. The engine should attempt to answer from the
-   graph alone and consult the source only on failure.
-6. **Metaplasticity.** `ConceptNode.stability` is incremented but never gates
+6. ~~**Drive the retrieval-practice schedule from the engine.**~~ — **done**,
+   see §5.5. `due_for_review()` is now called every turn and the review
+   result feeds back into the interval.
+7. **Metaplasticity.** `ConceptNode.stability` is incremented but never gates
    anything; `ravana_ml/graph.py:regulate()` and `plasticity_boost` are uncalled.
-7. **Collapse the duplicate `_graph_fallback_response`** (`chain_walker.py:2011`,
+8. **Collapse the duplicate `_graph_fallback_response`** (`chain_walker.py:2011`,
    `interface.py:1327`) — the pivot risk table flags this exact hazard.
 
 ---

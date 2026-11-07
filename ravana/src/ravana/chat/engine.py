@@ -7489,6 +7489,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # carries the extracted event span ("lost half the colony"). Consumed
         # by _appraised_affective_reply's copula scan as the authoritative text.
         self._last_user_input = user_input
+        # ── Retrieval practice (Karpicke & Roediger 2008) ──────────────────
+        # Runs at the TOP of the turn so the schedule clock advances on every
+        # call -- including the ~55 early-return paths that never reach the
+        # end-of-turn hook. The review is attempted against the memory as it
+        # stood at the END of the previous turn, which is exactly the spacing
+        # the effect requires.
+        self._run_retrieval_practice()
         # ── Spike log: record cognitive event at TOP of every turn ──
         # Recording here (before any early-return path) guarantees EVERY turn
         # is captured: meta_command, structured_recall, temporal_recall,
@@ -11298,6 +11305,82 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.identity.apply_update(_delta)
         except Exception:
             pass
+
+    # ── Retrieval practice (Karpicke & Roediger 2008) ───────────────────────
+    # Retrieval, not re-reading, is the learning event. Facts accepted by the
+    # intake gate are scheduled at an expanding interval; when one comes due
+    # the engine attempts to answer it from its OWN memory (graph + episodic
+    # buffer, source text never consulted) and records whether it succeeded.
+    # Success expands the interval, failure resets it to the shortest.
+
+    def _get_knowledge_intake(self):
+        """Lazily construct the schema-consistency-gated intake.
+
+        Reuses the engine's hippocampal buffer as the fast episodic store, and
+        the existing _EngineGraphShim to present the engine's ConceptGraph in
+        the GraphEngine shape the gate expects. Returns None if unavailable.
+        """
+        if getattr(self, "_knowledge_intake_ready", False):
+            return getattr(self, "_knowledge_intake", None)
+        self._knowledge_intake_ready = True
+        try:
+            from ravana.learn.intake import KnowledgeIntake
+            from ravana.chat.web_learning import _EngineGraphShim
+            self._knowledge_intake = KnowledgeIntake(
+                ge=_EngineGraphShim(self),
+                buffer=getattr(self, "hippocampal_buffer", None))
+        except Exception:
+            self._knowledge_intake = None
+        return self._knowledge_intake
+
+    def _recall_from_own_memory(self, subject: str, predicate: str,
+                                obj: str) -> bool:
+        """Can the graph + episodic buffer answer (subject, predicate, obj)?
+
+        The source text is deliberately NOT consulted: the point of retrieval
+        practice is that a successful retrieval is what strengthens the trace.
+        A false positive would reinforce nothing, so the match is exact on
+        relation type, plus either a node-id match or a label match on the
+        object.
+        """
+        try:
+            from ravana.learn.intake import edge_type_for_relation
+            subj_ids = self._concept_keywords.get((subject or "").lower(), []) or []
+            obj_ids = self._concept_keywords.get((obj or "").lower(), []) or []
+            edge_type = edge_type_for_relation(predicate)
+            for sid in subj_ids:
+                for tgt, edge in self.graph.get_outgoing(sid):
+                    if obj_ids:
+                        if tgt not in obj_ids:
+                            continue
+                    else:
+                        node = self.graph.get_node(tgt)
+                        if not node or (obj or "").lower() not in (node.label or "").lower():
+                            continue
+                    if (getattr(edge, "relation_type", "") or "") == edge_type:
+                        return True
+            got = self.hippocampal_buffer.query(subject, predicate)
+            if got and (obj or "").lower() in got.lower():
+                return True
+        except Exception:
+            return False
+        return False
+
+    def _run_retrieval_practice(self) -> None:
+        """Advance the schedule and run whatever retrievals have come due."""
+        ki = self._get_knowledge_intake()
+        if ki is None:
+            return
+        try:
+            ki.advance_turn()
+            for key in ki.due_for_review(limit=3):
+                recalled = self._recall_from_own_memory(*key)
+                ki.record_review(key, recalled=recalled)
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [review] {key[0]} {key[1]} {key[2]} -> recalled={recalled}")
+        except Exception as e:
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [trace] retrieval practice error: {e}")
 
     def _norm_word(w: str) -> str:
         """Reduce a word to a comparable base: irregular-verb map, then strip

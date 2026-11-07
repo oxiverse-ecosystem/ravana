@@ -246,6 +246,18 @@ def review_interval_for(prior_retention: float, reviews_done: int = 0) -> int:
     return max(1, int(round(scaled)))
 
 
+def edge_type_for_relation(relation: str) -> str:
+    """Map an OpenIE relation onto the graph's relation_type vocabulary."""
+    return {
+        "is_a": "is_a",
+        "has_property": "has_property",
+        "located_in": "located_in",
+        "part_of": "part_of",
+        "causes": "causes",
+        "related_to": "semantic",
+    }.get(relation, "semantic")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # The gate
 # ─────────────────────────────────────────────────────────────────────────────
@@ -569,14 +581,7 @@ class SchemaConsistencyGate:
     @staticmethod
     def _edge_type_for(fact: Fact) -> str:
         """Map an OpenIE relation onto the graph's relation_type vocabulary."""
-        return {
-            "is_a": "is_a",
-            "has_property": "has_property",
-            "located_in": "located_in",
-            "part_of": "part_of",
-            "causes": "causes",
-            "related_to": "semantic",
-        }.get(fact.relation, "semantic")
+        return edge_type_for_relation(fact.relation)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

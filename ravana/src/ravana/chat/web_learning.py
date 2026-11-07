@@ -2526,8 +2526,16 @@ class WebLearningMixin(ResponseGenMixin):
             return self._web_to_graph
         try:
             from ravana.web.web_to_graph import WebToGraph
+            from ravana.learn.intake import KnowledgeIntake
             shim = _EngineGraphShim(self)
-            self._web_to_graph = WebToGraph(shim, source="engine")
+            # Route ingestion through the schema-consistency gate when the
+            # host exposes one (CognitiveChatEngine does; ChatInterface does
+            # not, and simply keeps the legacy unconditional write).
+            _getter = getattr(self, "_get_knowledge_intake", None)
+            _intake = _getter() if callable(_getter) else None
+            self._web_to_graph = WebToGraph(
+                shim, source="engine",
+                intake=_intake if isinstance(_intake, KnowledgeIntake) else None)
         except Exception:
             self._web_to_graph = None
         return self._web_to_graph
