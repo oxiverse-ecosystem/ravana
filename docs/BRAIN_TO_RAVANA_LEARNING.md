@@ -449,6 +449,72 @@ unconditional write unchanged.
 
 Both halves are needed: §5.1 builds the schedule, this section makes it run.
 
+### 5.6 Bridging the answer path and the learning path
+
+**The failure.** `WebToGraph` writes what it learns as typed edges in the
+concept graph. `consult_internal` — the read side, which runs *before* the web
+and answers from what the system already holds — could not see any of them.
+
+Its third branch called `engine._typed_edges_bootstrap(s)`, but that method
+takes no subject argument: the call always raised `TypeError`, the bare
+`except Exception: pass` swallowed it, and the ConceptNet lookup had been dead
+code for as long as it existed. So `consult_internal` read only
+`_definitions` and the hippocampal buffer.
+
+The consequence was not a crash but a **confabulation**. Learn a fact, ask
+about it, and the engine answered with analogical hedging about a fact it was
+actively holding:
+
+```
+learned:  photosynthesis -[is_a]-> process used plants convert light energy…
+before:   "i don't have a clean line on photosynthesis yet, but chloroplasts
+           keeps coming up nearby. the two feel like they point in the same
+           direction — i'd have to think longer to say how."
+after:    "photosynthesis leads to plants; photosynthesis is a kind of
+           process used plants convert light energy into chemical energy."
+```
+
+**The fix.** `_answer_from_graph_typed_edges()` reads the subject's outgoing
+typed edges and assembles an answer, reusing the production-side
+`ResponseGenMixin._RELATION_PREDICATE` table so the read and write sides of an
+edge cannot drift into phrasing the graph never asserted. Three properties:
+
+- **Fail-closed.** Returns `None` unless a contentful typed edge exists, so an
+  unknown subject still falls through to the web / honest-uncertainty path.
+- **Provenance-gated.** Only edges that record where they came from are
+  answerable. This matters because the graph holds two very different
+  populations: a few hundred curated/learned edges, and a few thousand
+  bootstrap artifacts (`edge_kind: 'unknown'`, `source: None`, 147 `temporal`
+  edges on a fresh boot at ~0.2–0.4 confidence). The artifacts are
+  spreading-activation structure, not assertions — answering from them is how
+  a generic word like "things" acquires "things comes before time". Source
+  monitoring (Johnson et al. 1993): an assertion is only as good as its source.
+- **Confidence-modulated.** A first-sighting novel trace (confidence < 0.45) is
+  reported as "i picked up that …" rather than asserted as settled knowledge.
+
+`tests/unit/test_answer_learning_bridge.py` — 15 tests: the confabulation
+regression, the artifact filter that keeps it fixed, the predicate-phrasing
+reuse, the case-insensitive lookup, and the end-to-end learn-then-answer turn.
+
+**The BeliefStore half.** `_web_direct_answer` answers a factual query straight
+from a live snippet and records the accepted snippet in `BeliefStore` — but
+nothing on the read side ever looked there, so a fact the system answered last
+turn was invisible and the next question about it re-searched the web for
+something already said. `consult_internal` now consults it (after the
+consolidated stores, so curated knowledge still outranks a snippet), and hedges
+it when its confidence is below 0.6 because a single unverified snippet is not
+settled knowledge.
+
+**And the write side.** The same accepted snippet is now fed to `WebToGraph`
+through the same schema-consistency gate as every other ingestion. Before
+that, the fact lived only in `BeliefStore`: the concept graph never acquired
+it, so chain-walking could not reason about the subject, curiosity never saw
+it, and the next question re-searched the web. The call is best-effort — a
+learning failure must never cost the user their answer.
+
+The loop is now closed in both directions: what is read can be answered, and
+what is answered is learned.
+
 ### 5.4 Verification
 
 `tests/unit/test_intake.py` — 33 tests against the **real** `ConceptGraph`:
@@ -531,10 +597,13 @@ Ranked by leverage:
    held-out turns. Nothing can retire a pool safely without it, and
    `docs/LINGGEN_CE_COMPARISON.md` already names it as the blocker. Still the
    first task.
-2. **Bridge the answer path and the learning path.** `_web_direct_answer`
-   stores a snippet in `BeliefStore` and never calls `WebToGraph`; the learning
-   path never reads `BeliefStore`. A fact answered from the web and a fact
-   learned from the web are still different objects.
+2. ~~**Bridge the answer path and the learning path.**~~ — **done**, see §5.6.
+   Both directions now close: `consult_internal` reads the typed edges
+   `WebToGraph` writes (provenance-gated, so bootstrap artifacts cannot be
+   answered as facts) and consults `BeliefStore`; `_web_direct_answer` feeds
+   its accepted snippet back into `WebToGraph` through the same
+   schema-consistency gate. A fact *answered* from the web and a fact
+   *learned* from the web are the same object.
 3. ~~**Wire the existing graph plasticity into the chat path.**~~ — **done**,
    see §5.3. Per-turn surprise-gated correction, the sleep structural pass,
    SHY homeostatic downscale and the structural-importance → EWC handoff all

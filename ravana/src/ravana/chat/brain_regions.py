@@ -349,7 +349,123 @@ class EpisodicIndex:
 @dataclass
 class InternalAnswer:
     text: str
-    source: str  # 'definition' | 'hippocampus' | 'conceptnet' | 'graph'
+    source: str  # 'definition' | 'hippocampus' | 'graph' | 'belief'
+
+
+# Relations that assert nothing beyond distributional proximity. Surfacing one
+# of these as a "fact" is the semantic-dementia failure: fluent but empty.
+_VACUOUS_RELATIONS = frozenset({
+    "semantic", "related", "analogical", "association", "associative",
+    "", "none", "unknown", "untyped",
+})
+
+# `edge_kind` values that mean "no recorded origin". The bootstrap's
+# PMI/co-occurrence wiring produces a few thousand of these (`temporal`,
+# `semantic`, `analogical`, ...) at low confidence; they encode spreading-
+# activation structure, not assertions.
+_UNPROVENANCED_KINDS = frozenset({"unknown", "none", "untyped", ""})
+
+
+def _edge_has_provenance(edge) -> bool:
+    """True when the edge records where it came from.
+
+    Source monitoring (Johnson et al. 1993): an assertion is only as good as
+    its source. The graph holds two very different populations -- a few
+    hundred curated/learned edges that carry one, and a few thousand
+    bootstrap artifacts (`edge_kind: 'unknown'`, `source: None`). Only the
+    former may be answered from; the latter are activation structure.
+    """
+    meta = getattr(edge, "source_metadata", None)
+    if not isinstance(meta, dict):
+        return False
+    kind = meta.get("edge_kind")
+    if isinstance(kind, str) and kind.strip().lower() not in _UNPROVENANCED_KINDS:
+        return True
+    src = meta.get("source") or meta.get("source_url") or meta.get("url")
+    return bool(src)
+
+
+def _relation_predicate(relation: str) -> str:
+    """Map a graph relation_type to a real surface predicate phrase.
+
+    Reuses the production-side table (ResponseGenMixin._RELATION_PREDICATE) so
+    the read and write sides of the same edge cannot drift into phrasing the
+    graph never asserted. Lazy import: response_gen pulls in the whole
+    generation stack, and brain_regions is imported early and often.
+    """
+    try:
+        from ravana.chat.response_gen import ResponseGenMixin
+        table = ResponseGenMixin._RELATION_PREDICATE
+    except Exception:
+        table = {}
+    return table.get((relation or "").strip().lower(), "relates to")
+
+
+def _answer_from_graph_typed_edges(subject: str, engine):
+    """Assemble an answer from the subject's TYPED edges in the concept graph.
+
+    This is the read side of the learning path. `WebToGraph` — optionally via
+    the schema-consistency gate — writes what it learns as typed edges here,
+    and without this branch `consult_internal` cannot see any of it: the
+    caller then falls through to analogical reasoning and confabulates ("i
+    don't have a clean line on X yet, but Y keeps coming up nearby") about a
+    fact the system is actively holding.
+
+    Fail-closed: returns None unless at least one *contentful* typed edge
+    exists. Confidence modulates assertion strength, because a first-sighting
+    trace is not settled knowledge and should not be worded as if it were.
+    """
+    graph = getattr(engine, "graph", None)
+    if graph is None:
+        return None
+    try:
+        kw = getattr(engine, "_concept_keywords", {}) or {}
+        nids = list(kw.get(subject) or ())
+        if not nids:
+            # Most writers key by normalized label, but not all ("H2O").
+            # Fall back to a case-insensitive scan rather than miss a real
+            # node the subject plainly refers to.
+            for lab, ids in kw.items():
+                if lab.lower() == subject:
+                    nids.extend(ids)
+    except Exception:
+        nids = []
+    if not nids:
+        return None
+
+    rows = []                       # (confidence, surface clause)
+    for nid in nids:
+        try:
+            outgoing = list(graph.get_outgoing(nid))
+        except Exception:
+            continue
+        for tid, edge in outgoing:
+            rel = (getattr(edge, "relation_type", "") or "").strip().lower()
+            if rel in _VACUOUS_RELATIONS:
+                continue
+            if not _edge_has_provenance(edge):
+                continue
+            tgt = graph.get_node(tid)
+            if tgt is None:
+                continue
+            label = (getattr(tgt, "label", "") or "").strip()
+            if not label:
+                continue
+            conf = getattr(edge, "confidence", None)
+            conf = float(conf) if isinstance(conf, (int, float)) else 0.5
+            rows.append((conf,
+                         f"{subject} {_relation_predicate(rel)} {label}"))
+    if not rows:
+        return None
+
+    rows.sort(key=lambda r: r[0], reverse=True)
+    best_conf = rows[0][0]
+    text = "; ".join(r[1] for r in rows[:2]) + "."
+    if best_conf < 0.45:
+        # A weakly-established trace: report it as something picked up, not as
+        # settled knowledge. Same fact, honest strength.
+        text = "i picked up that " + text[0].lower() + text[1:]
+    return InternalAnswer(text, "graph")
 
 
 def consult_internal(subject: str, engine) -> Optional[InternalAnswer]:
@@ -378,17 +494,47 @@ def consult_internal(subject: str, engine) -> Optional[InternalAnswer]:
                 return _ans
         except Exception:
             pass
+    # Graph typed edges -- the learning path's own output. This branch is what
+    # makes facts learned from the web answerable; without it a just-learned
+    # fact is invisible here and the caller confabulates around it.
+    #
+    # (The previous branch called engine._typed_edges_bootstrap(s), but that
+    # method takes no subject argument -- the call always raised TypeError and
+    # the bare `except Exception: pass` swallowed it, so the ConceptNet lookup
+    # had been dead code for as long as it existed.)
     try:
-        typed = engine._typed_edges_bootstrap(s) if hasattr(engine, "_typed_edges_bootstrap") else None
-        if typed:
-            rels = list(typed)[:2]
-            if rels:
-                bits = [f"{s} is related to {r[1]}" for r in rels]
-                _ans = InternalAnswer("; ".join(bits) + ".", "conceptnet")
-                print(f"  [consult_internal] HIT conceptnet preview={_ans.text[:120]!r}")
-                return _ans
+        _ans = _answer_from_graph_typed_edges(s, engine)
     except Exception:
-        pass
+        _ans = None
+    if _ans is not None:
+        print(f"  [consult_internal] HIT graph preview={_ans.text[:120]!r}")
+        return _ans
+    # BeliefStore -- what we have already told the user about this subject.
+    # `_web_direct_answer` records an accepted web snippet here after it clears
+    # the plausibility / coherence / prediction-error gates. Without this
+    # branch a fact the system answered last turn is invisible, so it
+    # re-searches the web for something it already said.
+    bs = getattr(engine, "belief_store", None)
+    if bs is not None and hasattr(bs, "query_belief"):
+        try:
+            bel = bs.query_belief(s, "def")
+        except Exception:
+            bel = None
+        if bel:
+            value = bel[0] if isinstance(bel, (tuple, list)) else bel
+            conf = 0.5
+            if isinstance(bel, (tuple, list)) and len(bel) > 1:
+                try:
+                    conf = float(bel[1])
+                except (TypeError, ValueError):
+                    conf = 0.5
+            if value:
+                text = str(value).strip()
+                if conf < 0.6:
+                    # A single unverified web snippet is not settled knowledge.
+                    text = "i picked up that " + text[0].lower() + text[1:]
+                print(f"  [consult_internal] HIT belief preview={text[:120]!r}")
+                return InternalAnswer(text, "belief")
     print(f"  [consult_internal] MISS subject={s!r}")
     return None
 

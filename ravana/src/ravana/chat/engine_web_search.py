@@ -657,6 +657,24 @@ class WebSearchMixin:
                                             confidence=confidence)
         except Exception:
             pass
+        # ── Learn from what we just answered (close the loop) ──────────────
+        # The snippet cleared the plausibility / coherence / prediction-error
+        # gates in order to be spoken, so it is exactly the text worth learning
+        # from. Without this the fact lived only in BeliefStore: the concept
+        # graph never acquired it, so chain-walking could not reason about the
+        # subject, curiosity never saw it, and the next question about it
+        # re-searched the web for something already answered.
+        #
+        # Routed through the SAME WebToGraph + schema-consistency gate as every
+        # other ingestion, so a junk extraction still cannot write. Best-effort:
+        # a learning failure must never cost the user their answer.
+        try:
+            _w2g = self._get_web_to_graph()
+            if _w2g is not None and best:
+                _w2g.learn_text(best, source_url=(
+                    getattr(self, "_last_web_source", "") or "web:direct_answer"))
+        except Exception:
+            pass
         # B2 (Round 3) #3: route the final assembled answer through the shared
         # CoherenceGate used by every other generator (engine.py:3793). This
         # enforces the learned SnippetStructureModel hard-reject (Defect F) and
