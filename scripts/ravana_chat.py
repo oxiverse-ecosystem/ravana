@@ -301,6 +301,8 @@ def main():
                         help="Import graph from JSON file (merge into existing)")
     parser.add_argument("--stats", action="store_true",
                         help="Print graph statistics")
+    parser.add_argument("--identity", action="store_true",
+                        help="Print RAVANA's identity, stances, facts, and beliefs (read-only)")
     parser.add_argument("--concept", type=str, default=None,
                         help="Show what RAVANA knows about a concept")
     parser.add_argument("--calibration", action="store_true",
@@ -472,6 +474,21 @@ def main():
     if args.stats:
         print(f"  [Stats] Graph has {len(engine.graph.nodes)} nodes and {len(engine.graph.edges)} edges")
         print(f"  [Stats] Turn count: {engine.turn_count}")
+        return
+    if args.identity:
+        ident = engine.identity.get_status()
+        print("  [Identity] " + ", ".join(f"{k}={v}" for k, v in ident.items()))
+        print(f"  [Stances] {len(engine.user_model.opinions.stances)}")
+        for t, s in list(engine.user_model.opinions.stances.items())[:20]:
+            print(f"    {t}: polarity={s.polarity:+.2f} conf={s.confidence:.2f}")
+        facts = engine.user_model.personal_facts.facts
+        print(f"  [Facts] {len(facts)}")
+        for k, f in list(facts.items())[:20]:
+            print(f"    {k}: {getattr(f, 'value', f)}")
+        beliefs = engine.belief_store.get_state()["beliefs"]
+        print(f"  [Beliefs] {len(beliefs)}")
+        for b in list(beliefs.values())[:20]:
+            print(f"    {b}")
         return
     if args.calibration:
         # P2-C observability: expose the epistemic calibration ledger through the
