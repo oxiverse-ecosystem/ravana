@@ -147,17 +147,37 @@ def test_route_fast_merge_when_consistent():
     assert ki.stats["fast_merge"] == 1
 
 
-def test_route_buffer_when_inconsistent():
+def test_novel_fact_is_written_weakly():
+    """A fact about a concept the graph does not know is written immediately
+    but WEAKLY: there is nothing for it to interfere with, so the episodic
+    buffer is not needed -- but a first sighting with no supporting structure
+    is exactly the trace that should be pruned if never reinforced."""
     ge = _engine(["water", "liquid"])
     ki = KnowledgeIntake(ge=ge)
     v = ki.intake(_fact("water", "is_a", "liquid"))
-    assert v.route == "episodic_buffer"
+    assert v.route == "novel_write"
     assert v.consistency < ki.gate.fast_merge_threshold
-    # No buffer attached -> retained at LOW confidence, never dropped.
-    assert ki.stats["fallback_merge"] == 1
+    assert ki.stats["novel_write"] == 1
     edge = ge.graph.get_edge(ge._all_labels["water"], ge._all_labels["liquid"])
     assert edge is not None
-    assert edge.confidence <= 0.2       # 0.25 * retention_prior
+    assert edge.confidence < 0.5           # a first sighting is a weak trace
+
+
+def test_novel_fact_is_weaker_than_a_consistent_one():
+    ge = _engine(["water", "liquid", "sky"])
+    _link(ge, "water", "liquid", rel="is_a", conf=0.5)
+    ki = KnowledgeIntake(ge=ge)
+
+    v_consistent = ki.intake(_fact("water", "is_a", "liquid"))
+    v_novel = ki.intake(_fact("sky", "is_a", "liquid"))
+    assert v_consistent.route == "fast_merge"
+    assert v_novel.route == "novel_write"
+
+    c_consistent = ge.graph.get_edge(
+        ge._all_labels["water"], ge._all_labels["liquid"]).confidence
+    c_novel = ge.graph.get_edge(
+        ge._all_labels["sky"], ge._all_labels["liquid"]).confidence
+    assert c_novel < c_consistent
 
 
 def test_no_fact_is_silently_dropped():
@@ -168,7 +188,8 @@ def test_no_fact_is_silently_dropped():
     for s, r, o in [("water", "is_a", "liquid"), ("sky", "has_property", "blue"),
                     ("fire", "causes", "smoke")]:
         ki.intake(_fact(s, r, o))
-    handled = (ki.stats["fast_merge"] + ki.stats["episodic_buffer"]
+    handled = (ki.stats["fast_merge"] + ki.stats["novel_write"]
+               + ki.stats["episodic_buffer"]
                + ki.stats["revise"] + ki.stats["fallback_merge"]
                + ki.stats["rejected"])
     assert handled == 3
@@ -425,23 +446,31 @@ class _FakeBuffer:
         self.stored.append((subject, predicate, object, confidence))
 
 
-def test_inconsistent_fact_goes_to_episodic_buffer():
-    ge = _engine()
+def test_unresolved_contradiction_goes_to_episodic_buffer():
+    """The buffer is for CONTRADICTIONS -- the case that actually causes
+    catastrophic interference -- not for mere novelty."""
+    ge = _engine(["water", "liquid", "gas"])
+    _link(ge, "water", "liquid", rel="is_a", conf=0.9)
     buf = _FakeBuffer()
     ki = KnowledgeIntake(ge=ge, buffer=buf)
-    v = ki.intake(_fact("water", "is_a", "liquid"))
+
+    v = ki.intake(_fact("water", "is_a", "gas"), Provenance(source_type="web"))
     assert v.route == "episodic_buffer"
     assert len(buf.stored) == 1
     assert buf.stored[0][0] == "water"
     assert ki.stats["episodic_buffer"] == 1
+    # the incumbent is untouched
+    assert ki.gate._edge_confidence(
+        ge.graph.get_edge(ge._all_labels["water"],
+                          ge._all_labels["liquid"])) == 0.9
 
 
 def test_buffer_confidence_tracks_retention_prior():
-    ge = _engine()
+    ge = _engine(["water", "liquid", "gas"])
+    _link(ge, "water", "liquid", rel="is_a", conf=0.9)
     buf = _FakeBuffer()
     ki = KnowledgeIntake(ge=ge, buffer=buf)
-    ki.intake(_fact("water", "is_a", "liquid"),
-              Provenance(source_type="user"))
+    ki.intake(_fact("water", "is_a", "gas"), Provenance(source_type="web"))
     conf = buf.stored[0][3]
     assert 0.4 <= conf <= 1.0
 
@@ -474,18 +503,38 @@ def test_web_to_graph_without_intake_keeps_legacy_write():
     assert edge.source_metadata["edge_kind"] == "web_fact"
 
 
-def test_web_to_graph_buffers_inconsistent_fact():
-    """A fact about a concept the graph knows nothing about must NOT be
-    written straight into the semantic graph -- it buffers for replay."""
+def test_web_to_graph_buffers_a_contradiction():
+    """An unresolved contradiction must NOT be written into the semantic
+    graph -- it buffers for replay. (A merely novel fact IS written, weakly;
+    see test_web_to_graph_routes_through_intake.)"""
     from ravana.web.web_to_graph import WebToGraph
-    ge = _engine()
+    ge = _engine(["water", "liquid", "gas"])
+    _link(ge, "water", "liquid", rel="is_a", conf=0.9)
     buf = _FakeBuffer()
     ki = KnowledgeIntake(ge=ge, buffer=buf)
     w2g = WebToGraph(ge, intake=ki)
 
-    w2g.learn_text("Water is liquid.", source_url="http://x.test")
+    w2g.learn_text("Water is gas.", source_url="http://x.test")
     assert ki.stats["episodic_buffer"] == 1
-    assert buf.stored, "inconsistent fact should have been buffered"
-    # nothing written to the semantic graph yet
+    assert buf.stored, "contradiction should have been buffered"
     assert ge.graph.get_edge(ge._all_labels["water"],
-                             ge._all_labels["liquid"]) is None
+                             ge._all_labels["gas"]) is None
+
+
+def test_web_to_graph_writes_a_novel_fact_weakly():
+    """A fact about a concept the graph knows nothing about still reaches the
+    graph -- the system must keep learning from reading -- but weakly."""
+    from ravana.web.web_to_graph import WebToGraph
+    ge = _engine()
+    ki = KnowledgeIntake(ge=ge)
+    w2g = WebToGraph(ge, intake=ki)
+
+    assert w2g.learn_text("Water is liquid.", source_url="http://x.test") == 1
+    assert ki.stats["novel_write"] == 1
+    edge = ge.graph.get_edge(ge._all_labels["water"],
+                             ge._all_labels["liquid"])
+    assert edge is not None
+    assert edge.confidence < 0.5
+    # and the ingestion is accounted for, so the EFE gap can close
+    assert w2g.fact_count() == 1
+    assert w2g._topic_edges.get("water", 0) >= 1

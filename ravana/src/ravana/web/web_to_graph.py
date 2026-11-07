@@ -89,6 +89,32 @@ class WebToGraph:
             operations=("openie-triple",),
         )
 
+    def _register_label(self, label: str, nid: int) -> None:
+        """Record label -> nid in whichever index the host exposes.
+
+        A real GraphEngine keeps a plain `_all_labels` dict. The chat engine
+        keeps `_concept_keywords` (label -> [nids]) and exposes `_all_labels`
+        as a DERIVED read-only view, so writing to that view silently loses
+        the mapping -- and anything downstream that resolves a label (the
+        intake gate does) cannot find the node that was just minted.
+        Prefer the authoritative index when the host has one.
+        """
+        kw = getattr(self.ge, "_concept_keywords", None)
+        if isinstance(kw, dict):
+            nids = kw.setdefault(label, [])
+            if nid not in nids:
+                nids.append(nid)
+        # Also keep a plain _all_labels mapping when the host has one: other
+        # subsystems (retrieval, realizer) resolve labels through it. For the
+        # engine shim this is a derived read-only view, so the write is a
+        # harmless no-op there -- _concept_keywords above is what persists.
+        labels = getattr(self.ge, "_all_labels", None)
+        if isinstance(labels, dict):
+            try:
+                labels[label] = nid
+            except Exception:
+                pass
+
     def _ensure_node(self, label: str, source_url: str = "") -> Optional[int]:
         """Round 4 (C1): write-time consolidation gate (hippocampal filter).
 
@@ -140,7 +166,7 @@ class WebToGraph:
         if _sid is None or _k <= 1:
             node = self.ge.graph.add_node(vector=_vec, label=label_l)
             if node is not None:
-                self.ge._all_labels[label_l] = node.id
+                self._register_label(label_l, node.id)
             return node.id if node is not None else None
         if label_l in _prov:
             if _sid is not None:
@@ -149,7 +175,7 @@ class WebToGraph:
             if _sid is None or len(_prov[label_l]) >= _k:
                 node = self.ge.graph.add_node(vector=_vec, label=label_l)
                 if node is not None:
-                    self.ge._all_labels[label_l] = node.id
+                    self._register_label(label_l, node.id)
                     _prov.pop(label_l, None)
                     # Round 5 (D1): self-label as promoted (consolidated).
                     try:
@@ -196,6 +222,19 @@ class WebToGraph:
             obj_id = self._ensure_node(f.obj, source_url)
             if subj_id is None or obj_id is None or subj_id == obj_id:
                 continue
+            # Accounting runs for EVERY accepted fact, whichever route it
+            # takes. The EFE gap and the fact counter describe what was
+            # INGESTED, not which store it landed in -- skipping them for
+            # gated facts made reading silently stop closing the knowledge
+            # gap (regression caught by test_unified_semantic_loop).
+            # Keys MUST be normalized: knowledge_gap() looks up by lowercased
+            # topic, so storing the raw-case surface form ("Water") made every
+            # learned topic invisible to the EFE gap and left curiosity blind.
+            for t in (f.subject, f.obj):
+                tk = (t or "").lower().strip()
+                if tk:
+                    self._topic_edges[tk] = self._topic_edges.get(tk, 0) + 1
+            self._fact_count += 1
             edge_type = self.RELATION_TO_EDGE.get(f.relation, "semantic")
             existing = self.ge.graph.get_edge(subj_id, obj_id)
             if existing is not None:
@@ -222,7 +261,7 @@ class WebToGraph:
                     # scheduling all apply.
                     v = self.intake.intake(f, self._provenance(source_url),
                                            salience=salience)
-                    if v.route in ("fast_merge", "revise"):
+                    if v.route in ("fast_merge", "novel_write", "revise"):
                         written += 1
                     continue
                 # same-context (or XdG off): Hebbian confidence bump.
@@ -232,7 +271,7 @@ class WebToGraph:
             if self.intake is not None:
                 v = self.intake.intake(f, self._provenance(source_url),
                                        salience=salience)
-                if v.route in ("fast_merge", "revise"):
+                if v.route in ("fast_merge", "novel_write", "revise"):
                     written += 1
                 continue
             edge = self.ge.graph.add_edge(
@@ -247,16 +286,6 @@ class WebToGraph:
                     "context": ctx_id,
                     "contexts": [ctx_id],
                 })
-            # gap tracking (both endpoints are now a bit more known).
-            # Keys MUST be normalized: knowledge_gap() looks up by lowercased
-            # topic, so storing the raw-case surface form ("Water") made every
-            # learned topic invisible to the EFE gap and left curiosity blind.
-            for t in (f.subject, f.obj):
-                tk = (t or "").lower().strip()
-                if not tk:
-                    continue
-                self._topic_edges[tk] = self._topic_edges.get(tk, 0) + 1
-            self._fact_count += 1
             written += 1
         return written
 

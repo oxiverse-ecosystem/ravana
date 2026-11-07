@@ -2639,4 +2639,24 @@ class _EngineGraphShim:
         kw = getattr(self._engine, "_concept_keywords", {}) or {}
         return {lab: nids[0] for lab, nids in kw.items() if nids}
 
+    @_all_labels.setter
+    def _all_labels(self, value):
+        # WebToGraph's _ensure_node assigns into this mapping. The engine's
+        # authoritative index is _concept_keywords (label -> [nids]); without
+        # this setter the assignment lands on a temporary dict and is lost,
+        # so every label minted through this shim was invisible to anything
+        # that later resolves it by name.
+        if isinstance(value, dict):
+            kw = getattr(self._engine, "_concept_keywords", None)
+            if isinstance(kw, dict):
+                for lab, nid in value.items():
+                    nids = kw.setdefault(lab, [])
+                    if nid not in nids:
+                        nids.append(nid)
+
+    @property
+    def _concept_keywords(self):
+        """Proxy the engine's authoritative label index."""
+        return getattr(self._engine, "_concept_keywords", {})
+
 

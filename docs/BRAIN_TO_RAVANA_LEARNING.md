@@ -26,7 +26,8 @@ what made the earlier pivot hard.
    the page. It builds a **situation model** (propositions integrated with
    prior knowledge), and the write is **gated by schema-consistency**:
    schema-consistent facts merge in one trial; schema-inconsistent facts are
-   buffered and interleaved during replay; contradictions are resolved by an
+   buffered when they contradict an incumbent and written weakly when they are
+   merely novel; contradictions are resolved by an
    entrenchment ordering. Retrieval practice — not re-reading — is what makes
    it durable.
 
@@ -294,15 +295,23 @@ salience):
 - `challenger_entrenchment()` — extractor confidence × source trust × whether
   the value is already a connected concept
 - `detect_contradiction()` — same (subject, predicate) slot, different value
-- `route()` — `fast_merge` / `episodic_buffer` / `revise`, guarded by three
-  independent checks (below)
+- `route()` — `fast_merge` / `novel_write` / `episodic_buffer` / `revise`,
+  guarded by three independent checks (below)
 - `retention_prior()` — elaboration-driven durability prior
 
 **`KnowledgeIntake`** — applies verdicts:
 - `fast_merge` → typed edge, bounded update, durable provenance
+- `novel_write` → typed edge at a **deliberately low** confidence
+  (`0.15 + 0.35·retention_prior`). A fact about a concept the graph knows
+  nothing about has nothing to interfere *with*, so it is written immediately —
+  but a first sighting with no supporting structure is exactly the trace that
+  should be pruned if it is never reinforced. (This route replaced an earlier
+  design that buffered novel facts; that made reading silently stop enriching
+  the graph and broke the EFE loop.)
 - `episodic_buffer` → `HippocampalBuffer` with a retention-weighted confidence;
   with no buffer attached, retained at **low** confidence rather than dropped
-  (the brain-faithful hippocampal-damage fallback)
+  (the brain-faithful hippocampal-damage fallback). Reserved for
+  **contradictions**, the case that actually causes catastrophic interference.
 - `revise` → demote the incumbent, record `superseded_by`, write the challenger
 - schedules retrieval practice at an expanding interval; `due_for_review()`
   returns what is due; `record_review(recalled=...)` expands on success and
@@ -332,6 +341,40 @@ junk. Improving extraction is a prerequisite for the gate to show its value.
 through the gate when one is attached. XdG context protection is preserved
 unchanged. With no gate attached, the legacy unconditional write still runs,
 so nothing else changes.
+
+#### 5.2.1 Three defects the wiring exposed
+
+All three were found by the integration suite, and none is visible from the
+unit tests.
+
+**(a) Gated facts bypassed the ingestion accounting.** The first version
+`continue`d immediately after `intake(...)`, which sits *below* the EFE
+gap-tracking and the `_fact_count` increment in `learn_text`. The consequence
+was silent: reading about a topic no longer closed its knowledge gap, so the
+EFE loop that drives curiosity stopped seeing what it had just learned.
+`test_unified_semantic_loop` caught it as `C-lite must write facts into the
+graph`. Accounting now runs for every accepted fact, before routing — the gap
+describes what was *ingested*, not which store it landed in.
+
+**(b) The engine shim's label index could not be written.** `_EngineGraphShim`
+exposed `_all_labels` as a **read-only property** derived from the engine's
+`_concept_keywords`. `WebToGraph._ensure_node` did
+`self.ge._all_labels[label] = node.id`, which assigns into the temporary dict
+the getter returns — the write is silently discarded. The legacy path never
+noticed, because it used the node id returned by `_ensure_node` directly; but
+anything that later resolves a *label* (the intake gate does) could not find
+nodes minted through the shim. Fixed by `_register_label()`, which writes to
+the authoritative index, plus a setter on the shim so direct assignment works
+too.
+
+**(c) Novel facts were buffered, which stopped the graph growing.** The first
+routing sent every schema-inconsistent fact to the episodic buffer, treating a
+fact about a *brand-new concept* the same as a *contradiction*. Those are
+different problems: a contradiction can catastrophically interfere with an
+existing trace, but a novel fact has nothing to interfere with. Buffering the
+latter meant the system stopped accumulating knowledge from reading — the
+opposite of the goal. `novel_write` (§5.1) now writes novel facts at a low
+confidence and reserves the buffer for contradictions.
 
 ### 5.3 Graph plasticity wiring — `ravana/src/ravana/learn/plasticity.py`
 

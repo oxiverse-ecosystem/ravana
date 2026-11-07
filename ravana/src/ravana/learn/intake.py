@@ -554,9 +554,15 @@ class SchemaConsistencyGate:
             return "fast_merge", (
                 f"schema-consistent ({consistency:.2f} >= "
                 f"{self.fast_merge_threshold:.2f}); one-trial merge")
-        return "episodic_buffer", (
-            f"schema-inconsistent ({consistency:.2f} < "
-            f"{self.fast_merge_threshold:.2f}); buffer for interleaved replay")
+        # No contradiction, but the concept is not yet part of the structure.
+        # There is nothing for this fact to interfere WITH, so it is written
+        # immediately -- but WEAKLY, because it is poorly elaborated. The
+        # buffer is reserved for contradictions, which is the case that
+        # actually causes catastrophic interference.
+        return "novel_write", (
+            f"novel concept ({consistency:.2f} < "
+            f"{self.fast_merge_threshold:.2f}); written weakly -- nothing to "
+            f"interfere with, but poorly elaborated")
 
     def evaluate(self, fact: Fact, ge, provenance: Optional[Provenance] = None,
                  salience: float = 1.0) -> IntakeVerdict:
@@ -615,8 +621,8 @@ class KnowledgeIntake:
         self._review_queue: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
         self._turn = 0
         self.stats: Dict[str, int] = {
-            "fast_merge": 0, "episodic_buffer": 0, "revise": 0,
-            "fallback_merge": 0, "rejected": 0, "reviewed": 0,
+            "fast_merge": 0, "novel_write": 0, "episodic_buffer": 0,
+            "revise": 0, "fallback_merge": 0, "rejected": 0, "reviewed": 0,
         }
 
     # ── turn bookkeeping ─────────────────────────────────────────────────────
@@ -635,7 +641,10 @@ class KnowledgeIntake:
         if self.ge is None:
             raise RuntimeError("KnowledgeIntake requires a graph engine")
         v = self.gate.evaluate(fact, self.ge, provenance, salience)
-        if v.route == "fast_merge":
+        if v.route in ("fast_merge", "novel_write"):
+            # Same write path; the difference is only the confidence target,
+            # which retention_prior already encodes (novel facts sit far lower
+            # than schema-consistent ones).
             self._fast_merge(v)
         elif v.route == "revise":
             self._revise(v)
@@ -681,20 +690,30 @@ class KnowledgeIntake:
         return edge is not None
 
     def _fast_merge(self, v: IntakeVerdict) -> None:
-        # Retention prior (elaboration) sets the initial confidence; salience
-        # scales how far toward it we move on this turn.
-        target = v.retention_prior
-        current = 0.5
-        subj_id = self.gate._node_id(self.ge, v.fact.subject)
-        obj_id = self.gate._node_id(self.ge, v.fact.obj)
-        graph = getattr(self.ge, "graph", None)
-        if graph is not None and subj_id is not None and obj_id is not None:
-            e = graph.get_edge(subj_id, obj_id)
-            if e is not None:
-                current = self.gate._edge_confidence(e)
-        confidence = clamp01(current + (target - current) * v.effective_write)
+        """Write the fact as a typed edge.
+
+        A schema-consistent fact moves toward its retention prior (elaboration
+        drives durability). A NOVEL fact is written immediately -- there is
+        nothing for it to interfere with -- but at a deliberately LOW
+        confidence: a first sighting with no supporting structure is exactly
+        the trace that should be pruned if it is never reinforced.
+        """
+        if v.route == "novel_write":
+            confidence = clamp01(0.15 + 0.35 * v.retention_prior)
+        else:
+            target = v.retention_prior
+            current = 0.5
+            subj_id = self.gate._node_id(self.ge, v.fact.subject)
+            obj_id = self.gate._node_id(self.ge, v.fact.obj)
+            graph = getattr(self.ge, "graph", None)
+            if graph is not None and subj_id is not None and obj_id is not None:
+                e = graph.get_edge(subj_id, obj_id)
+                if e is not None:
+                    current = self.gate._edge_confidence(e)
+            confidence = clamp01(current + (target - current) * v.effective_write)
         if self._write_edge(v, confidence):
-            self.stats["fast_merge"] += 1
+            self.stats["fast_merge" if v.route == "fast_merge"
+                       else "novel_write"] += 1
         else:
             self.stats["rejected"] += 1
 
