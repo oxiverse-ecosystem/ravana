@@ -2592,7 +2592,7 @@ class UserModel:
                 r"\b(?:i'?m|i\s+am)\s+"
                 r"([A-Za-z][A-Za-z']*(?:\s+[A-Za-z][A-Za-z']*){0,2})"
                 r"(?=[\s.,!?]|$)",
-                q_clean)
+                q_clean, re.IGNORECASE)
             # NOTE: names are typed lowercase in chat ("i'm noor"), so we do
             # NOT require capitalization here — instead we rely on the
             # downstream guards (lines ~319-321 reject determiner-led phrases
