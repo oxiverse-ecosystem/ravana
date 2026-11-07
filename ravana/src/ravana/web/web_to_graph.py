@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from ravana.web.openie import Fact, OpenIEExtractor
 from ravana.chat.constants import junk_score  # Round 4 (C1) node-admission gate
+from ravana.learn.intake import KnowledgeIntake, Provenance
 
 
 @dataclass
@@ -58,7 +59,8 @@ class WebToGraph:
     }
 
     def __init__(self, graph_engine, openie: Optional[OpenIEExtractor] = None,
-                 source: str = "web", xdg: bool = True):
+                 source: str = "web", xdg: bool = True,
+                 intake: Optional[KnowledgeIntake] = None):
         self.ge = graph_engine
         self.openie = openie or OpenIEExtractor()
         self.source = source
@@ -66,9 +68,26 @@ class WebToGraph:
         # protect synapses established in ONE context from being overwritten
         # when a DIFFERENT context is ingested. Cheap complement to EWC/SI
         # for the multi-task web-ingest regime.
+        # Schema-consistency-gated intake (Tse 2011; McClelland 2013; Kumaran
+        # et al. 2016; Craik & Lockhart 1972; Karpicke & Roediger 2008). When
+        # present, every extracted fact is routed by fit-to-existing-structure
+        # instead of being written unconditionally: consistent facts merge in
+        # one trial, inconsistent ones buffer for interleaved replay, and a
+        # challenger that out-entrenches the incumbent revises it in place.
+        # None keeps the legacy unconditional write (backward compatible).
+        self.intake = intake
         # provenance + gap tracking
         self._topic_edges: Dict[str, int] = {}
         self._fact_count = 0
+
+    def _provenance(self, source_url: str) -> Provenance:
+        return Provenance(
+            source=source_url or self.source,
+            source_type="web",
+            url=source_url,
+            extractor="openie",
+            operations=("openie-triple",),
+        )
 
     def _ensure_node(self, label: str, source_url: str = "") -> Optional[int]:
         """Round 4 (C1): write-time consolidation gate (hippocampal filter).
@@ -151,7 +170,8 @@ class WebToGraph:
             return None
 
     def learn_text(self, text: str, source_url: str = "",
-                 context: Optional[str] = None) -> int:
+                 context: Optional[str] = None,
+                 salience: float = 1.0) -> int:
         """Extract facts from text and write them as typed edges.
 
         Returns number of NEW facts written (dedup by existing edge).
@@ -162,6 +182,10 @@ class WebToGraph:
         a DIFFERENT context B is ingested (Mas se et al. 2018 context-
         dependent gating — a cheap complement to EWC/SI for the
         multi-task web-ingest regime).
+
+        When a `KnowledgeIntake` gate is attached, each fact is routed by its
+        fit to existing structure (fast merge / episodic buffer / revise)
+        rather than written unconditionally.
         """
         ctx = (context or source_url or self.source or "web").lower().strip()
         ctx_id = "ctx_" + str(abs(hash(ctx)) % 100000)
@@ -192,9 +216,24 @@ class WebToGraph:
                         continue
                     ctxs.add(ctx_id)
                     meta["contexts"] = sorted(ctxs)
+                if self.intake is not None:
+                    # Same-context re-sighting: route through the gate so the
+                    # bounded update, provenance and retrieval-practice
+                    # scheduling all apply.
+                    v = self.intake.intake(f, self._provenance(source_url),
+                                           salience=salience)
+                    if v.route in ("fast_merge", "revise"):
+                        written += 1
+                    continue
                 # same-context (or XdG off): Hebbian confidence bump.
                 if existing.confidence is not None:
                     existing.confidence = min(1.0, existing.confidence + 0.05)
+                continue
+            if self.intake is not None:
+                v = self.intake.intake(f, self._provenance(source_url),
+                                       salience=salience)
+                if v.route in ("fast_merge", "revise"):
+                    written += 1
                 continue
             edge = self.ge.graph.add_edge(
                 source=subj_id, target=obj_id, weight=0.5,
