@@ -99,11 +99,21 @@ def test_reconciliation_fires_on_a_hotspot():
     g = eng.graph
     gp = GraphPlasticity()
     ctx = _random_ctx(2)
-    nid = next(iter(g.nodes))
+    # Drive a node that has INCOMING edges: reconcile_contradictions skips a
+    # hotspot with no neighbours (`if not neighbors: continue`), so a leaf node
+    # can be flagged but never reconciled.
+    nid = None
+    for cand, n in g.nodes.items():
+        if g.get_incoming(cand):
+            nid = cand
+            break
+    assert nid is not None, "no node with incoming edges to drive"
     node = g.get_node(nid)
     for _ in range(6):
         eng.predictive_coding_learner.learn_node(nid, ctx, node.vector)
-    assert nid in g.contradiction_hotspots
+    assert nid in g.contradiction_hotspots, (
+        f"node {nid} was driven 6 times but not flagged; "
+        f"hotspots={sorted(g.contradiction_hotspots)}")
 
     res = gp.sleep_cycle(g)
     assert res["contradictions_reconciled"] >= 1, res
