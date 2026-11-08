@@ -221,23 +221,27 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
         print("  [LingGen] attr encoder/glove unavailable — skip")
         return False, False
 
-    # Option C data source (brain-faithful): prefer CLEAN curated KB
-    # definitions (engine._definitions: concept -> Wikipedia/ConceptNet text)
-    # as the (concept, description) pairs. These are coherent definitions, so
-    # the decoder is trained to PARAPHRASE coherent text (the easiest Option-C
-    # regime) and the gate anchors on them. Fall back to the harvested novel
-    # corpus only if clean defs are insufficient.
+    # Option C data source (brain-faithful): CLEAN curated KB definitions
+    # (engine._definitions: concept -> Wikipedia/ConceptNet text) are coherent
+    # prose, so the decoder learns to PARAPHRASE coherent text. The harvested
+    # Gutenberg sentences are grounded USAGE -- a real sentence containing the
+    # concept -- which is the harder and more valuable regime.
+    #
+    # Both are used. The previous version short-circuited on
+    # `len(defs) >= _MIN_PAIRS`, so with any KB present the harvested file was
+    # never read: 78 definitions were used and the 233 book pairs were ignored,
+    # capping the conditioner at 63 fittable pairs no matter how much grounded
+    # data was harvested.
     defs = getattr(engine, "_definitions", None)
-    use_clean = isinstance(defs, dict) and len(defs) >= _MIN_PAIRS
-    if use_clean:
-        src_pairs = [(c, d) for c, d in defs.items()
-                     if isinstance(d, str) and d.strip()]
-        print(f"  [LingGen] using {len(src_pairs)} clean KB definitions as pairs")
-    else:
-        if not os.path.exists(desc_path):
-            print("  [LingGen] no grounded_descriptions.txt — skip (run harvest first)")
-            return False, False
-        src_pairs = []
+    src_pairs = []
+    if isinstance(defs, dict):
+        src_pairs.extend((c, d) for c, d in defs.items()
+                         if isinstance(d, str) and d.strip())
+        if src_pairs:
+            print(f"  [LingGen] {len(src_pairs)} clean KB definitions")
+    if os.path.exists(desc_path):
+        n_before = len(src_pairs)
+        seen = {c for c, _ in src_pairs}
         with open(desc_path, "r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.rstrip("\n")
@@ -246,9 +250,16 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
                 concept, desc = line.split("\t", 1)
                 concept = concept.strip().lower()
                 desc = desc.strip()
-                if concept and desc:
+                # Prefer the definition when a concept appears in both.
+                if concept and desc and concept not in seen:
                     src_pairs.append((concept, desc))
-        print(f"  [LingGen] using {len(src_pairs)} harvested novel-sentence pairs")
+                    seen.add(concept)
+        print(f"  [LingGen] +{len(src_pairs) - n_before} harvested pairs "
+              f"from {os.path.basename(desc_path)}")
+    if not src_pairs:
+        print("  [LingGen] no grounded pairs available — skip "
+              "(run harvest first)")
+        return False, False
 
     pairs = []  # (binder65, embed75)
     sentences = []  # (concept, description_text)
