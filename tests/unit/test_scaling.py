@@ -268,26 +268,54 @@ class TestRealWorldScaleInput:
     """Test that RAVANA can process real-world-scale input."""
 
     def test_large_graph_construction(self):
-        """Building a 10k node graph should complete in reasonable time."""
-        rng = np.random.RandomState(42)
-        start = time.time()
-        g = ConceptGraph(dim=64, max_nodes=20000, max_edges=100000, rng=rng)
-        for i in range(10000):
-            vec = rng.randn(64).astype(np.float32)
-            vec /= (np.linalg.norm(vec) + 1e-15)
-            g.add_node(vec, label=f"concept_{i}")
-        # Add ~50k edges
-        for _ in range(50000):
-            i = rng.randint(0, 10000)
-            j = rng.randint(0, 10000)
-            if i != j:
-                g.add_edge(i, j, weight=rng.uniform(0.1, 0.9),
-                           relation_type="semantic")
-        elapsed = time.time() - start
-        # Should complete in under 30 seconds
-        assert elapsed < 30.0
-        assert len(g.nodes) == 10000
-        assert len(g.edges) > 0
+        """Building a 10k node graph should complete in reasonable time.
+
+        This is a SMOKE TEST, not a performance gate, and it must not be a
+        wall-clock assertion on shared hardware. The previous form was
+        `assert elapsed < 30.0`, which failed 4/4 under 4-way concurrency on
+        main (34.3s) and passed 4/4 on a quieter tree (24.4s) -- the same code,
+        different load. A threshold that flips with machine load measures the
+        machine.
+
+        Instead: assert the build completes, and that it is not pathologically
+        slower than a small build in the SAME process. The ratio is
+        load-independent -- a 10k-node build should be roughly 100x a 100-node
+        build, and that relationship holds whether the box is idle or saturated.
+        Absolute time is still reported so a real regression is visible in the
+        test output.
+        """
+        def build(n_nodes, n_edges):
+            rng = np.random.RandomState(42)
+            start = time.time()
+            g = ConceptGraph(dim=64, max_nodes=20000, max_edges=100000, rng=rng)
+            for i in range(n_nodes):
+                vec = rng.randn(64).astype(np.float32)
+                vec /= (np.linalg.norm(vec) + 1e-15)
+                g.add_node(vec, label=f"concept_{i}")
+            for _ in range(n_edges):
+                i = rng.randint(0, n_nodes)
+                j = rng.randint(0, n_nodes)
+                if i != j:
+                    g.add_edge(i, j, weight=rng.uniform(0.1, 0.9),
+                               relation_type="semantic")
+            return g, time.time() - start
+
+        small, t_small = build(100, 500)
+        large, t_large = build(10000, 50000)
+
+        # Absolute time is informational only -- never assert on it.
+        print(f"\n  [scale] 100 nodes/500 edges: {t_small:.3f}s   "
+              f"10k nodes/50k edges: {t_large:.3f}s   "
+              f"ratio: {t_large / max(t_small, 1e-6):.1f}x")
+
+        assert len(large.nodes) == 10000
+        assert len(large.edges) > 0
+        # 100x the nodes and 100x the edges should cost far less than 1000x.
+        # A superlinear blowup (quadratic edge insertion, say) shows up here
+        # regardless of how fast or slow the machine is.
+        assert t_large < max(t_small * 1000.0, 5.0), (
+            f"10k-node build is superlinear: {t_large:.2f}s vs "
+            f"{t_small:.4f}s for 100 nodes")
 
     def test_large_graph_spreading_does_not_explode(self):
         """Spreading activation on 10k nodes should not activate all nodes."""
