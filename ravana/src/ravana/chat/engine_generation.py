@@ -1722,6 +1722,21 @@ class GenerationMixin:
                                         sources.append("graph_corrected")
                                         graph_conf.append(float(_gs))
                                 cur_id = gchain[-1][0]  # advance to last graph node
+                                # Knowledge compilation (ACT-R 1993; Kumaran et al.
+                                # 2016): a multi-hop chain that was actually USED
+                                # is recorded by its ENDPOINTS, so sleep can
+                                # collapse it into a direct shortcut edge.
+                                # chain_walker records only the edges it
+                                # traversed, and an edge that already exists can
+                                # never be compressed into a shortcut -- so the
+                                # chain-level record has to happen here, where the
+                                # path is still in hand.
+                                _path = gchain[-1][2]
+                                if len(_path) >= 2:
+                                    _gp = getattr(self, "graph_plasticity", None)
+                                    if _gp is not None:
+                                        _gp.record_successful_path(
+                                            self.graph, _path[0], _path[-1])
                                 # Record calibration against graph truth (the graph
                                 # IS ground truth here): HRR's predicted conf vs the
                                 # fact that the graph-corrected hop is correct.
@@ -1771,6 +1786,15 @@ class GenerationMixin:
                     graph_support = [1.0] * len(sel_chain)
                     sources = ["graph_corrected"] * len(sel_chain)
                     graph_conf = [float(_s) for (_t, _s, _p) in gchain]
+                    # Knowledge compilation: record the USED chain by its
+                    # endpoints so sleep can collapse it into a shortcut edge.
+                    # See the note at the graph_override call site above.
+                    _path = gchain[-1][2]
+                    if len(_path) >= 2:
+                        _gp = getattr(self, "graph_plasticity", None)
+                        if _gp is not None:
+                            _gp.record_successful_path(
+                                self.graph, _path[0], _path[-1])
                 except Exception:
                     sel_chain, sel_confs, graph_support, topks_out = [], [], [], []
                     sources, graph_conf = [], []
