@@ -2307,7 +2307,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _fl = getattr(self, "_func_lex", None)
         if _fl is not None:
             try:
-                return getattr(_fl, name)()
+                # Most FunctionalLexicon accessors are @property (they return
+                # the set); a few are plain methods. Calling a property's value
+                # raises `TypeError: 'set' object is not callable`, which the
+                # bare except below used to swallow -- so this branch NEVER
+                # returned anything and every lexicon-backed filter in the
+                # engine was silently empty. Handle both shapes.
+                _attr = getattr(_fl, name)
+                return _attr() if callable(_attr) else _attr
             except Exception:
                 pass
         # Fall back: class attribute (set in __init__), then a direct
@@ -2317,6 +2324,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         _ca = getattr(type(self), name.upper(), None)
         if _ca:
             return _ca
+        # Instance-level fallback. Several engines hold these sets as INSTANCE
+        # attributes (self._GRAMMATICAL_CONCEPTS, set in __init__), not class
+        # attributes -- and `_is_function_word`'s documented safety net is
+        # exactly that set. Without this branch the lookup silently returned an
+        # empty set, so with use_learned_pos=True the function-word filter was
+        # inert and filler words ("only", "really") leaked into hedged answers
+        # as if they were content concepts. Both spellings are checked because
+        # the attribute convention is not consistent across engines.
+        for _attr in ("_" + name, "_" + name.upper()):
+            _ia = getattr(self, _attr, None)
+            if _ia:
+                return _ia
         try:
             from ravana.chat.functional_lexicon import default_lexicon
             _fl2 = default_lexicon()
@@ -7743,19 +7762,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # spawn N2); we keep the pipeline intact and surface the evidence downstream.
         try:
             from ..agent.decision_gate import decide_tool_use
-            from ..agent.tool_registry import ToolRegistry
+            from ..agent.tool_registry import NETWORK_TOOLS, ToolRegistry
             _registry = getattr(self, "_tool_registry", None) or ToolRegistry()
             self._tool_registry = _registry
             _call = decide_tool_use(self, user_input, _registry)
             if _call is not None:
-                _tool_out = _registry.execute(_call)
-                try:
-                    self._record_agent_action(_call.tool, _call.arg, _tool_out)
-                except Exception:
-                    pass
-                # Stash evidence; appended to the reply at the end-of-turn block.
-                self._pending_web_evidence = f"[agentic:{_call.tool}] {_tool_out}"
-                self._last_strategy = f"agentic_{_call.tool}"
+                # RAVANA_OFFLINE is the documented reproducible contract: no
+                # live network path may fire. Every other web path consults
+                # _web_blocked(); this one did not, so an "offline" run still
+                # emitted an [agentic:web_search] block built from real results
+                # -- which is exactly what made test_d3_affective_echo depend
+                # on whether a local IntentForge happened to be running.
+                # Network tools are suppressed; local ones still run.
+                if self._web_blocked() and _call.tool in NETWORK_TOOLS:
+                    if getattr(self, "_trace_enabled", False):
+                        print(f"  [agentic pre-check] offline: skipped "
+                              f"{_call.tool}")
+                else:
+                    _tool_out = _registry.execute(_call)
+                    try:
+                        self._record_agent_action(_call.tool, _call.arg, _tool_out)
+                    except Exception:
+                        pass
+                    # Stash evidence; appended to the reply at the end-of-turn block.
+                    self._pending_web_evidence = f"[agentic:{_call.tool}] {_tool_out}"
+                    self._last_strategy = f"agentic_{_call.tool}"
         except Exception as _e:
             if getattr(self, "_trace_enabled", False):
                 print(f"  [agentic pre-check] skipped: {_e}")

@@ -318,6 +318,12 @@ def build_registry() -> Dict[str, Tool]:
     }
 
 
+# Tools that reach the public network. RAVANA_OFFLINE=1 must suppress these
+# (the documented reproducible/CI contract) while leaving the local ones
+# (run_script, github_cli) usable.
+NETWORK_TOOLS = frozenset({"web_search", "read_website"})
+
+
 class ToolRegistry:
     """Holds the seed tools and executes guarded calls."""
 

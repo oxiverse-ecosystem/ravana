@@ -486,6 +486,100 @@ class NeuralDecoder(Module):
 
         return generated[1:]
 
+    # ── Scoring (read-only; used by the LingGen promotion harness) ────────────
+
+    def score_sequence(self, word_indices: List[int],
+                       conditioning_embs: Optional[np.ndarray] = None,
+                       bos_idx: int = 0, eos_idx: int = 2,
+                       n_neg: int = 50, seed: int = 1234) -> Optional[float]:
+        """Teacher-forced cross-entropy of a token sequence under this decoder.
+
+        A READ of the model: no weight updates, no RNG state touched. The LingGen
+        promotion harness uses it to score surface forms produced by EITHER
+        generation path, which is what makes the comparison a real
+        distribution-fit test instead of two unrelated numbers.
+
+        The negative sample is DETERMINISTIC (seeded) rather than resampled per
+        call as in `train_on_sentence`: two replies of different length, or the
+        same reply scored twice, must be comparable, and a fresh sample per call
+        would put measurement noise inside the quantity being measured.
+
+        Returns mean NLL per token, or None when the sequence cannot be scored.
+        """
+        if not word_indices:
+            return None
+        seq = list(word_indices)
+        if seq[0] != bos_idx:
+            seq = [bos_idx] + seq
+        if seq[-1] != eos_idx:
+            seq = seq + [eos_idx]
+        if len(seq) < 2:
+            return None
+
+        if conditioning_embs is None:
+            conditioning_embs = np.zeros((1, self.embed_dim), dtype=np.float32)
+        # Project FIRST, then attend: the attention head reads hidden_dim space,
+        # so an unprojected embed_dim vector is a shape error, not a zero context.
+        cond_proj = self.condition_proj.forward_raw(
+            np.asarray(conditioning_embs, dtype=np.float32))
+        cached_attn = self.attention(StateTensor(cond_proj)).data[0]
+
+        out_weight = self.output_proj.weight.data
+        out_bias = (self.output_proj.bias.data
+                    if self.output_proj.bias is not None else None)
+        vocab_size_actual = out_weight.shape[0]
+
+        special_set = frozenset({0, 1, 2, 3})
+        non_special_idx = np.array(
+            [i for i in range(vocab_size_actual) if i not in special_set],
+            dtype=np.intp)
+        if len(non_special_idx) == 0:
+            return None
+
+        # Focused negative sampling, same idea as training (the model's
+        # most-confidently-predicted words make the hardest negatives), but
+        # drawn from a fixed seed so scores are comparable.
+        rng = np.random.RandomState(seed)
+        norms = np.linalg.norm(out_weight[non_special_idx], axis=1) + 1e-8
+        neg_probs = norms / norms.sum()
+        k = min(n_neg, len(non_special_idx))
+        shared_negatives = rng.choice(non_special_idx, k, replace=False,
+                                      p=neg_probs)
+
+        embs = self.word_embedding.embed_batch_raw(
+            np.array(seq[:-1], dtype=np.intp))
+
+        h = np.zeros(self.hidden_dim, dtype=np.float32)
+        total_ce = 0.0
+        scored = 0
+        for pos in range(len(seq) - 1):
+            target_idx = seq[pos + 1]
+            proj_emb = self.condition_proj.forward_raw(
+                embs[pos][np.newaxis, :])[0]
+            h = self.gru(proj_emb, h)
+            combined = h * 0.5 + cached_attn * 0.5
+
+            if target_idx >= vocab_size_actual:
+                total_ce += 9.0          # same penalty training uses for OOV
+                scored += 1
+                continue
+            neg_idx = shared_negatives
+            if target_idx in shared_negatives:
+                neg_idx = shared_negatives[shared_negatives != target_idx]
+            all_idx = np.concatenate([[target_idx], neg_idx])
+            logit_t = combined @ out_weight[all_idx].T
+            if out_bias is not None:
+                logit_t = logit_t + out_bias[all_idx]
+            logit_stable = logit_t - np.max(logit_t)
+            exp_logits = np.exp(np.clip(logit_stable, -50, 50))
+            probs_k = exp_logits / (np.sum(exp_logits) + 1e-10)
+            total_ce += -np.log(max(float(probs_k[0]), 1e-10))
+            scored += 1
+
+        if scored == 0:
+            return None
+        return float(total_ce / scored)
+
     def train_on_sentence(self, sentence_words: List[str],
                           word_to_embed: Dict[str, np.ndarray],
                           word_to_idx: Dict[str, int],

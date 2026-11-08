@@ -168,3 +168,56 @@ class TestNeuralDecoder:
         word_to_idx = {w: i for i, w in enumerate(words)}
         nd.train_on_sentence(words, word_to_embed, word_to_idx)
         assert nd._total_training_examples > 0
+
+
+class TestScoreSequence:
+    """Read-only CE scoring, used by the LingGen promotion harness to compare
+    the decoder path against the template path on the same surface forms."""
+
+    def test_returns_positive_nll(self):
+        nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
+        ce = nd.score_sequence([0, 5, 40, 12, 2])
+        assert ce is not None
+        assert ce > 0.0
+
+    def test_deterministic(self):
+        """The same sequence must score the same every time: the negative
+        sample is seeded, not resampled per call, or two replies of different
+        length would not be comparable."""
+        nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
+        seq = [0, 5, 40, 12, 2]
+        assert nd.score_sequence(seq) == nd.score_sequence(seq)
+
+    def test_does_not_mutate_weights(self):
+        nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
+        before = nd.output_proj.weight.data.copy()
+        nd.score_sequence([0, 5, 40, 12, 2])
+        assert np.array_equal(before, nd.output_proj.weight.data)
+        assert nd._total_training_examples == 0
+
+    def test_empty_sequence_is_none(self):
+        nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
+        assert nd.score_sequence([]) is None
+
+    def test_bos_and_eos_are_added(self):
+        """A bare token list is teacher-forced with <bos>/<eos> around it."""
+        nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
+        bare = nd.score_sequence([5, 40, 12])
+        framed = nd.score_sequence([0, 5, 40, 12, 2])
+        assert bare is not None and framed is not None
+        assert bare == framed
+
+    def test_conditioning_is_accepted(self):
+        nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
+        cond = np.random.RandomState(0).randn(3, 16).astype(np.float32)
+        ce = nd.score_sequence([0, 5, 40, 2], conditioning_embs=cond)
+        assert ce is not None and ce > 0.0
+
+    def test_conditioning_changes_the_score(self):
+        """Conditioning must actually reach the scoring pass, not be ignored."""
+        nd = NeuralDecoder(vocab_size=100, embed_dim=16, hidden_dim=32)
+        rng = np.random.RandomState(0)
+        a = rng.randn(3, 16).astype(np.float32)
+        b = rng.randn(3, 16).astype(np.float32)
+        assert (nd.score_sequence([0, 5, 40, 2], conditioning_embs=a)
+                != nd.score_sequence([0, 5, 40, 2], conditioning_embs=b))
