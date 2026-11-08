@@ -96,10 +96,12 @@ class PlasticityConfig:
     # retention was not a variable -- every fact ever written was retained
     # forever and "desirable difficulty" had nothing to act on.
     decay_edges: bool = True
-    # Fraction of confidence lost per elapsed turn before the rehearsal
-    # halflife. Deliberately small: the point is graded forgetting, not
-    # amnesia, and the rehearsal rescue is what does the real work.
-    decay_base_rate: float = 0.02
+    # Fraction of confidence a TYPICAL edge loses per elapsed turn (before the
+    # per-edge lability/interference/importance modulation). Deliberately small:
+    # the point is graded forgetting over many cycles, not amnesia in one. The
+    # per-edge rate is normalised so this is the rate for an edge with no
+    # competitors, no rehearsals and no structural importance.
+    decay_base_rate: float = 0.004
     # Hours a freshly-rehearsed edge is protected for. Retrieval practice
     # stamps last_rehearsal, so a fact just reviewed is not decayed.
     decay_rehearsal_halflife: float = 6.0
@@ -310,14 +312,25 @@ class GraphPlasticity:
 
         Runs after the retention measurement so it cannot confound it, and
         after every rehearsal stamp this cycle produced.
+
+        Structural importance is computed here (not reused from the
+        downscale) because the decay needs it per edge and the cache may be
+        stale by this point in the cycle.
         """
         cfg = self.config
         try:
+            si = {}
+            if cfg.homeostatic_structural_protection > 0:
+                try:
+                    si = graph.compute_edge_structural_importance()
+                except Exception:
+                    si = {}
             return int(graph.decay_edges(
                 turns_elapsed=max(1, int(getattr(self, "_turns_since_sleep", 1) or 1)),
                 base_rate=cfg.decay_base_rate,
                 rehearsal_halflife=cfg.decay_rehearsal_halflife,
-                min_confidence=cfg.decay_min_confidence))
+                min_confidence=cfg.decay_min_confidence,
+                structural_importance=si))
         except Exception:
             return 0
 

@@ -151,6 +151,88 @@ def test_mark_rehearsed_on_missing_edge_is_a_noop():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 2b. The rate is dynamic, not flat.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_rate_is_higher_for_a_labile_edge():
+    """Fusi's bounded-synapse result: signal decays as q*exp(-q*t), so a
+    highly labile synapse forgets faster."""
+    g, (a, b, _) = _graph()
+    e1 = _link(g, a, b, conf=0.8)
+    g._forgetting_base_rate = 0.02
+    cold = g._edge_forgetting_rate(e1, competitors=0, structural_importance=0.0)
+    for _ in range(6):
+        g.mark_rehearsed(a, b)
+    warm = g._edge_forgetting_rate(e1, competitors=0, structural_importance=0.0)
+    assert cold > warm, "a rehearsed edge must be more rigid (slower decay)"
+
+
+def test_rate_is_higher_with_more_competitors():
+    """Forgetting is driven by competitors sharing a cue, not by time passing
+    (Anderson, Bjork & Bjork 1994; Fusi: memories decay because other memories
+    overwrite them)."""
+    g, ids = _graph(5)
+    e = _link(g, ids[0], ids[1], conf=0.8)
+    g._forgetting_base_rate = 0.02
+    few = g._edge_forgetting_rate(e, competitors=0, structural_importance=0.0)
+    many = g._edge_forgetting_rate(e, competitors=9, structural_importance=0.0)
+    assert many > few, "more siblings sharing the cue must mean faster decay"
+
+
+def test_rate_is_lower_for_a_structurally_important_edge():
+    """SHY ultrastructure: the largest synapses are the ones spared from
+    downscaling."""
+    g, (a, b, _) = _graph()
+    e = _link(g, a, b, conf=0.8)
+    g._forgetting_base_rate = 0.02
+    plain = g._edge_forgetting_rate(e, competitors=0, structural_importance=0.0)
+    critical = g._edge_forgetting_rate(e, competitors=0, structural_importance=0.9)
+    assert critical < plain, "a structurally critical edge must decay slower"
+
+
+def test_rates_differ_between_edges_in_one_graph():
+    """The whole point: a flat rate cannot distinguish two edges that differ in
+    lability, competition and importance."""
+    g, ids = _graph(5)
+    hub = _link(g, ids[0], ids[1], conf=0.8)
+    lonely = _link(g, ids[2], ids[3], conf=0.8)
+    # Give the hub many siblings; leave the lonely edge alone.
+    for i in range(4):
+        _link(g, ids[0], ids[1], conf=0.4) if g.get_edge(ids[0], ids[1]) else None
+    g._forgetting_base_rate = 0.02
+    r_hub = g._edge_forgetting_rate(hub, competitors=10, structural_importance=0.0)
+    r_lonely = g._edge_forgetting_rate(lonely, competitors=0, structural_importance=0.0)
+    assert r_hub > r_lonely
+
+
+def test_interference_actually_changes_outcomes():
+    """End-to-end: two identical edges, one under competition and one not,
+    must end up at different confidence after the same decay pass."""
+    g, ids = _graph(6)
+    crowded = _link(g, ids[0], ids[1], conf=0.8)
+    quiet = _link(g, ids[2], ids[3], conf=0.8)
+    # Add siblings to the crowded edge's source only.
+    for tgt in (ids[4], ids[5]):
+        g.add_edge(ids[0], tgt, weight=0.5, relation_type="is_a", confidence=0.6)
+
+    g.decay_edges(turns_elapsed=10)
+
+    assert float(crowded.confidence) < float(quiet.confidence), (
+        "the edge under retrieval competition must forget faster")
+
+
+def test_importance_actually_changes_outcomes():
+    g, ids = _graph(4)
+    important = _link(g, ids[0], ids[1], conf=0.8)
+    ordinary = _link(g, ids[2], ids[3], conf=0.8)
+    si = {(ids[0], ids[1]): 0.95}
+
+    g.decay_edges(turns_elapsed=10, structural_importance=si)
+
+    assert float(important.confidence) > float(ordinary.confidence)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 3. Wiring: the sleep pass actually forgets.
 # ─────────────────────────────────────────────────────────────────────────────
 

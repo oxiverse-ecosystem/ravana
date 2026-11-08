@@ -2637,10 +2637,58 @@ class ConceptGraph:
 
     # ── forgetting: SHY-style down-selection with rehearsal rescue ──────────
 
+    def _edge_forgetting_rate(self, edge, competitors: int,
+                              structural_importance: float) -> float:
+        """Per-edge forgetting rate: how labile is THIS synapse?
+
+        A flat rate is the wrong shape. Three literature-grounded factors:
+
+        1. LABIALITY (plasticity-stability tradeoff, Fusi's bounded-synapse
+           analysis). For a bistable synapse with lability q, the memory
+           signal decays as q*exp(-q*t): the time constant is 1/q. A highly
+           labile synapse gives a vivid trace that fades fast; a rigid one
+           retains for longer. Here lability is read off the edge's own
+           rehearsal history -- an edge that has been overwritten/revised
+           often is demonstrably labile.
+
+        2. INTERFERENCE (Anderson, Bjork & Bjork 1994; SAM-REM competitor
+           interference). Forgetting is driven by COMPETITORS SHARING A CUE,
+           not by time passing: "memories decay because other new memories
+           overwrite them, not because time is passing" (Fusi). An edge with
+           many siblings leaving the same source node is under constant
+           retrieval competition and forgets faster.
+
+        3. IMPORTANCE (structural importance / EWC). A synapse that is
+           structurally critical to the graph's connectivity is spared --
+           the SHY ultrastructure shows the largest synapses are the ones
+           that do not scale down.
+
+        Returns a rate in 1/turns, bounded so no edge is ever immortal and
+        none is destroyed in a single cycle.
+        """
+        rehearsals = int(getattr(edge, "rehearsals", 0) or 0)
+        # Lability: an edge never rehearsed is at its most labile; each
+        # rehearsal makes it more rigid (metaplasticity, Abraham 2008).
+        lability = 1.0 / (1.0 + 0.5 * min(rehearsals, 8))
+        # Interference: more siblings -> more competition. Saturates so a hub
+        # node does not erase all its edges at once.
+        interference = 1.0 + math.log1p(max(0, competitors))
+        # Importance: structurally critical edges decay slower.
+        importance = 1.0 / (1.0 + 2.0 * max(0.0, float(structural_importance)))
+        # Normalise so the BASE rate is the per-cycle decay of a typical edge
+        # (no competitors, no rehearsals, no importance), not the slowest one.
+        # Without this the interference term alone inflates every rate and a
+        # single sleep cycle can erase a trace outright.
+        typical = 1.0 + math.log1p(3.0)      # a node with ~4 outgoing edges
+        return (self._forgetting_base_rate * lability * interference * importance
+                / typical)
+
     def decay_edges(self, turns_elapsed: int, base_rate: float = 0.02,
                     rehearsal_halflife: float = 6.0,
                     min_confidence: float = 0.05,
-                    now: Optional[float] = None) -> int:
+                    now: Optional[float] = None,
+                    structural_importance: Optional[Dict[Tuple[int, int], float]] = None
+                    ) -> int:
         """Weaken edges that have not been reactivated; spare the rehearsed.
 
         The synaptic homeostasis hypothesis (Tononi & Cirelli): wake produces
@@ -2649,18 +2697,14 @@ class ConceptGraph:
         potentiated. The behavioural consequence is that forgetting is real
         but graded, and rehearsal is what rescues a trace.
 
-        Implemented as multiplicative decay on an exponential forgetting
-        curve (Ebbinghaus; the "stochastic consolidation of lifelong memory"
-        model, which shows memory lifetimes can far exceed the synaptic decay
-        time precisely because rehearsal rescues traces):
-
-            factor = exp(-base_rate * turns / halflife(rehearsals))
-
-        where `halflife` grows with the number of times the edge has been
-        rehearsed. This is deliberately multiplicative rather than subtractive
-        so relative differences between edges are preserved, which is what the
-        SHY ultrastructural data shows (de Vivo et al.: ~80% of synapses shrink
+        The decay is multiplicative rather than subtractive so relative
+        differences between edges are preserved, which is what the SHY
+        ultrastructural data shows (de Vivo et al.: ~80% of synapses shrink
         proportionally to their size; the largest are spared).
+
+        The RATE is per-edge and computed by `_edge_forgetting_rate` from
+        lability, interference and structural importance -- not a flat
+        constant. See that method for the grounding.
 
         An edge is SPAREd outright when it was rehearsed very recently -- the
         trace is still in its labile window and must not be decayed mid-flight.
@@ -2670,8 +2714,10 @@ class ConceptGraph:
         if turns_elapsed <= 0:
             return 0
         now = time.time() if now is None else now
+        si = structural_importance or {}
+        self._forgetting_base_rate = base_rate
         changed = 0
-        for edge in self.edges.values():
+        for (src, tgt), edge in self.edges.items():
             # Recently reactivated: inside the consolidation window, do not
             # decay. This is the "rehearsal rescue" that makes spacing work.
             last = getattr(edge, "last_rehearsal", None)
@@ -2679,11 +2725,9 @@ class ConceptGraph:
                 age_s = max(0.0, now - float(last))
                 if age_s <= rehearsal_halflife * 3600.0:
                     continue
-            rehearsals = int(getattr(edge, "rehearsals", 0) or 0)
-            # Each rescue slows the decay: halflife grows ~50% per rehearsal,
-            # saturating so a well-rehearsed trace is durable but not immortal.
-            halflife = rehearsal_halflife * (1.0 + 0.5 * min(rehearsals, 6))
-            factor = math.exp(-base_rate * float(turns_elapsed) / max(halflife, 1e-9))
+            competitors = max(0, len(self._outgoing.get(src, [])) - 1)
+            rate = self._edge_forgetting_rate(edge, competitors, si.get((src, tgt), 0.0))
+            factor = math.exp(-rate * float(turns_elapsed))
             factor = max(0.05, min(1.0, factor))
             old = float(getattr(edge, "confidence", 0.5) or 0.5)
             new = max(min_confidence, old * factor)
