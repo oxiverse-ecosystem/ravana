@@ -1242,6 +1242,13 @@ class ChainWalkerMixin:
                     _gp.on_edge_traversed(self.graph, _e, _na.vector,
                                           _nb.vector, _sal)
                     _gp.record_successful_path(self.graph, _a, _b)
+                    # A traversed edge was just reactivated: stamp it so the
+                    # sleep down-selection spares it. This is the "rehearsal
+                    # rescue" half of SHY -- use is what protects a trace.
+                    try:
+                        self.graph.mark_rehearsed(_a, _b)
+                    except Exception:
+                        pass
         return collected[:12]
 
 

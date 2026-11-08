@@ -974,6 +974,10 @@ class KnowledgeIntake:
                 target.confidence = new_conf
             except Exception:
                 return
+            # Rehearsal rescue: a successful retrieval stamps the trace as
+            # reactivated, which both spares it from this cycle's decay and
+            # slows future decay (mark_rehearsed increments `rehearsals`).
+            graph.mark_rehearsed(subj_id, obj_id)
             meta = getattr(target, "source_metadata", None)
             if isinstance(meta, dict):
                 meta["retrievals"] = int(meta.get("retrievals", 0)) + 1

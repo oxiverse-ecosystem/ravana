@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import time
 from typing import Any, Optional, List, Tuple, Dict, Set
@@ -187,6 +188,16 @@ class ConceptEdge:
         self.prediction_free_energy = 0.0
         self.stability = 0.3
         self.timestamp = time.time()
+        # ── Forgetting substrate (SHY / synaptic turnover) ──────────────────
+        # The brain's synapses spontaneously degrade; a trace that is not
+        # reactivated decays, and rehearsal is what rescues it. Without this
+        # the graph could only ever strengthen, so "retention" was not a
+        # variable at all -- every fact ever written was retained forever.
+        # `last_rehearsal` is the turn the edge was last used or successfully
+        # recalled; `rehearsals` counts rescues, which raise the floor the
+        # decay can bottom out at (a well-rehearsed trace forgets slower).
+        self.last_rehearsal: Optional[float] = None
+        self.rehearsals: int = 0
         self.prediction_count = 0
         self.forward_pred_count = 0   # A→B successful predictions
         self.backward_pred_count = 0  # B→A successful predictions
@@ -2623,6 +2634,83 @@ class ConceptGraph:
 
     def clear_hotspots(self):
         self.contradiction_hotspots.clear()
+
+    # ── forgetting: SHY-style down-selection with rehearsal rescue ──────────
+
+    def decay_edges(self, turns_elapsed: int, base_rate: float = 0.02,
+                    rehearsal_halflife: float = 6.0,
+                    min_confidence: float = 0.05,
+                    now: Optional[float] = None) -> int:
+        """Weaken edges that have not been reactivated; spare the rehearsed.
+
+        The synaptic homeostasis hypothesis (Tononi & Cirelli): wake produces
+        net potentiation, sleep performs a *selective* down-selection -- most
+        synapses weaken, the ones that were reactivated are spared or
+        potentiated. The behavioural consequence is that forgetting is real
+        but graded, and rehearsal is what rescues a trace.
+
+        Implemented as multiplicative decay on an exponential forgetting
+        curve (Ebbinghaus; the "stochastic consolidation of lifelong memory"
+        model, which shows memory lifetimes can far exceed the synaptic decay
+        time precisely because rehearsal rescues traces):
+
+            factor = exp(-base_rate * turns / halflife(rehearsals))
+
+        where `halflife` grows with the number of times the edge has been
+        rehearsed. This is deliberately multiplicative rather than subtractive
+        so relative differences between edges are preserved, which is what the
+        SHY ultrastructural data shows (de Vivo et al.: ~80% of synapses shrink
+        proportionally to their size; the largest are spared).
+
+        An edge is SPAREd outright when it was rehearsed very recently -- the
+        trace is still in its labile window and must not be decayed mid-flight.
+
+        Returns the number of edges whose confidence actually changed.
+        """
+        if turns_elapsed <= 0:
+            return 0
+        now = time.time() if now is None else now
+        changed = 0
+        for edge in self.edges.values():
+            # Recently reactivated: inside the consolidation window, do not
+            # decay. This is the "rehearsal rescue" that makes spacing work.
+            last = getattr(edge, "last_rehearsal", None)
+            if last is not None:
+                age_s = max(0.0, now - float(last))
+                if age_s <= rehearsal_halflife * 3600.0:
+                    continue
+            rehearsals = int(getattr(edge, "rehearsals", 0) or 0)
+            # Each rescue slows the decay: halflife grows ~50% per rehearsal,
+            # saturating so a well-rehearsed trace is durable but not immortal.
+            halflife = rehearsal_halflife * (1.0 + 0.5 * min(rehearsals, 6))
+            factor = math.exp(-base_rate * float(turns_elapsed) / max(halflife, 1e-9))
+            factor = max(0.05, min(1.0, factor))
+            old = float(getattr(edge, "confidence", 0.5) or 0.5)
+            new = max(min_confidence, old * factor)
+            if abs(new - old) > 1e-9:
+                try:
+                    edge.confidence = new
+                    changed += 1
+                except Exception:
+                    continue
+        return changed
+
+    def mark_rehearsed(self, source_id: int, target_id: int,
+                       now: Optional[float] = None) -> bool:
+        """Record that an edge was reactivated, rescuing it from decay.
+
+        Called on successful traversal and on successful retrieval practice.
+        """
+        edge = self.get_edge(source_id, target_id)
+        if edge is None:
+            return False
+        now = time.time() if now is None else now
+        try:
+            edge.last_rehearsal = float(now)
+            edge.rehearsals = int(getattr(edge, "rehearsals", 0) or 0) + 1
+        except Exception:
+            return False
+        return True
 
     def reconcile_contradictions(self):
         # Clear diagnostics cache — graph state has changed
