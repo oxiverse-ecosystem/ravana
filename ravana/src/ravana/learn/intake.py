@@ -636,6 +636,8 @@ class KnowledgeIntake:
         self.stats: Dict[str, int] = {
             "fast_merge": 0, "novel_write": 0, "episodic_buffer": 0,
             "revise": 0, "fallback_merge": 0, "rejected": 0, "reviewed": 0,
+            # retrieval practice is a write, not just a measurement
+            "review_writes": 0, "review_failed_no_write": 0,
         }
 
     # ── turn bookkeeping ─────────────────────────────────────────────────────
@@ -838,6 +840,16 @@ class KnowledgeIntake:
         Success expands the interval (spacing effect); failure resets it to
         the shortest interval, because a fact that could not be recalled is
         exactly the one that needs the next attempt soonest.
+
+        The trial is also a WRITE. Karpicke & Roediger (2008): retrieval is
+        itself the learning event, and the benefit is greatest when retrieval
+        was effortful -- a fact recalled after a long interval is strengthened
+        more than one recalled immediately. So the trace is moved toward its
+        retention prior by an amount that grows with the interval just served
+        (desirable difficulty, Bjork & Bjork 1994), and a failed retrieval
+        leaves the trace untouched rather than strengthening it: reactivating
+        a trace that could not be recovered is not evidence the trace is
+        correct, and writing on failure would reinforce a possibly-wrong value.
         """
         rec = self._review_queue.get(key)
         if rec is None:
@@ -846,13 +858,68 @@ class KnowledgeIntake:
             rec["reviews"] = int(rec.get("reviews", 0)) + 1
             rec["retention"] = clamp01(rec.get("retention", 0.5) + 0.1)
             nxt = review_interval_for(rec["retention"], rec["reviews"])
+            self._strengthen_from_retrieval(key, rec)
         else:
             rec["reviews"] = 0
             rec["retention"] = clamp01(rec.get("retention", 0.5) * 0.6)
             nxt = REVIEW_SCHEDULE[0]
+            self.stats["review_failed_no_write"] += 1
         rec["interval"] = nxt
         rec["due"] = self._turn + nxt
         self.stats["reviewed"] += 1
+
+    def _strengthen_from_retrieval(self, key: Tuple[str, str, str],
+                                   rec: Dict[str, Any]) -> None:
+        """Move a successfully-recalled edge toward its retention prior.
+
+        The write magnitude scales with the interval just served: a retrieval
+        that came easily (short interval) confirms an already-strong trace and
+        adds little, while an effortful retrieval after a long interval is the
+        condition that produces the largest durable gain (Bjork & Bjork 1994).
+        Bounded and capped so repeated review converges instead of pinning the
+        edge at 1.0.
+        """
+        if self.ge is None:
+            return
+        subject, predicate, obj = key
+        try:
+            subj_id = self.gate._node_id(self.ge, subject)
+            obj_id = self.gate._node_id(self.ge, obj)
+            if subj_id is None or obj_id is None:
+                return
+            graph = getattr(self.ge, "graph", None)
+            if graph is None:
+                return
+            edge_type = self.gate._edge_type_for(
+                Fact(subject=subject, relation=predicate, obj=obj,
+                     confidence=0.5))
+            target = None
+            for e in self.gate._out_edges(self.ge, subj_id):
+                if self.gate._edge_relation(e) != edge_type:
+                    continue
+                if self.gate._target_label(self.ge, e) != _norm_label(obj):
+                    continue
+                target = e
+                break
+            if target is None:
+                return
+            interval = max(1, int(rec.get("interval", 1)))
+            effort = clamp01(math.log(interval + 1.0) / math.log(9.0))
+            prior = clamp01(float(rec.get("retention", 0.5)))
+            current = self.gate._edge_confidence(target)
+            delta = 0.05 + 0.20 * effort
+            new_conf = clamp01(current + (prior - current) * delta)
+            try:
+                target.confidence = new_conf
+            except Exception:
+                return
+            meta = getattr(target, "source_metadata", None)
+            if isinstance(meta, dict):
+                meta["retrievals"] = int(meta.get("retrievals", 0)) + 1
+                meta["last_recalled"] = self._now()
+            self.stats["review_writes"] += 1
+        except Exception:
+            return
 
     def drop_review(self, key: Tuple[str, str, str]) -> None:
         self._review_queue.pop(key, None)
