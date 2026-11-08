@@ -719,6 +719,36 @@ class ChainWalkerMixin:
     # from the edge weight, prediction error drives learning — not additive increments.
 
 
+    def _get_graph_plasticity(self):
+        """Lazily construct the graph-plasticity wiring.
+
+        The ConceptGraph's own structural rules (inhibitory edges, splitting,
+        vector consolidation, path compression) lived unreachable from the
+        chat engine. This is the handle the per-turn path uses.
+        """
+        gp = getattr(self, 'graph_plasticity', None)
+        if gp is None:
+            try:
+                from ravana.learn.plasticity import GraphPlasticity
+                gp = self.graph_plasticity = GraphPlasticity()
+            except Exception:
+                return None
+        return gp
+
+    def _plasticity_salience(self) -> float:
+        """Neuromodulatory gain for the current turn (VAD arousal).
+
+        Gating plasticity by arousal is the cheap online version of the
+        LC-NE / dopamine modulatory signal (Aston-Jones & Cohen 2005;
+        Schultz, Dayan & Montague 1997): a low-arousal turn should barely move
+        a weight, a high-arousal one may.
+        """
+        try:
+            a = float(getattr(self.emotion.state, 'arousal', 0.5))
+        except Exception:
+            a = 0.5
+        return 0.0 if a < 0.0 else (1.0 if a > 1.0 else a)
+
     def _prediction_error(self, src_vec: np.ndarray, tgt_vec: np.ndarray,
                            current_weight: float) -> Tuple[float, float]:
         """Compute prediction error and gradient for an edge weight.
@@ -1060,6 +1090,14 @@ class ChainWalkerMixin:
         for nid in seed_ids:
             self.graph.activate(nid, 1.0 if nid in spread_set else 0.3)
 
+        # Edges that actually carried signal this turn. Collected so the
+        # graph's own prediction-error rule can correct them afterwards: the
+        # edge's weight is its prediction of how related its endpoints are,
+        # the endpoint cosine is the observation, and the residual drives a
+        # bounded, salience-gated correction. Edges that carry no signal are
+        # not learned from -- plasticity is gated by use and by surprise.
+        _traversed = []
+
         for hop in range(3):
             new_acts: Dict[int, float] = {}
             decay = 0.7 ** (hop + 1)
@@ -1131,6 +1169,7 @@ class ChainWalkerMixin:
                     
                     if signal > 0.01:
                         new_acts[tid] = new_acts.get(tid, 0.0) + signal
+                        _traversed.append((nid, tid, edge))
                 # Follow incoming edges (semantic network is effectively undirected)
                 for src, edge in self.graph.get_incoming(nid):
                     if src in block_set:
@@ -1159,6 +1198,7 @@ class ChainWalkerMixin:
                     
                     if signal > 0.01:
                         new_acts[src] = new_acts.get(src, 0.0) + signal
+                        _traversed.append((src, nid, edge))
             for nid, sig in new_acts.items():
                 if nid in self.graph.nodes:
                     self.graph.activate(nid, sig)
@@ -1180,6 +1220,28 @@ class ChainWalkerMixin:
         collected.sort(key=lambda x: x[1], reverse=True)
         for node in list(self.graph.nodes.values()):
             node.activation = 0.0
+
+        # Surprise-gated Hebbian correction on the edges that carried signal.
+        # Only edges whose weight poorly predicts the observed endpoint
+        # similarity are corrected, and only up to the per-pass budget;
+        # predictable edges are untouched. This is the graph's own
+        # prediction-error rule, reached from the live retrieval path for the
+        # first time.
+        if _traversed:
+            _gp = self._get_graph_plasticity()
+            if _gp is not None:
+                _gp.reset_budget()
+                _sal = self._plasticity_salience()
+                for _a, _b, _e in _traversed:
+                    _na = self.graph.get_node(_a)
+                    _nb = self.graph.get_node(_b)
+                    if _na is None or _nb is None:
+                        continue
+                    if _na.vector is None or _nb.vector is None:
+                        continue
+                    _gp.on_edge_traversed(self.graph, _e, _na.vector,
+                                          _nb.vector, _sal)
+                    _gp.record_successful_path(self.graph, _a, _b)
         return collected[:12]
 
 

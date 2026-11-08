@@ -1520,6 +1520,28 @@ class GenerationMixin:
             result["important_facts_drifted"] = drifted
             result["important_facts_blackout"] = blackout
             result["retention_rate"] = retained / total_g if total_g else 0.0
+        # ── Graph-level structural plasticity (the ConceptGraph's own rules) ──
+        # The graph already implements inhibitory contradiction edges, concept
+        # splitting, two-timescale vector consolidation (fast active -> slow
+        # core), contradiction reconciliation and path compression. Every one
+        # was reachable only from ravana_ml/nn/rlm.py -- none was called from
+        # the chat engine, so none of it ran in normal operation.
+        #
+        # Runs AFTER the retention measurement above, so the structural pass
+        # cannot confound the golden-fact drift metric.
+        try:
+            _gp = getattr(self, 'graph_plasticity', None)
+            if _gp is None:
+                from ravana.learn.plasticity import GraphPlasticity
+                _gp = self.graph_plasticity = GraphPlasticity()
+            _plast = _gp.sleep_cycle(self.graph)
+            for _k, _v in _plast.items():
+                result[_k] = result.get(_k, 0) + int(_v)
+            if getattr(self, '_trace_enabled', False) and any(_plast.values()):
+                print(f"  [sleep] plasticity: {_plast}")
+        except Exception as e:
+            if getattr(self, '_trace_enabled', False):
+                print(f"  [trace] graph plasticity error: {e}")
         return result
 
     def hrr_query_chain(self, head: str, verb: str, max_hops: int = 2,

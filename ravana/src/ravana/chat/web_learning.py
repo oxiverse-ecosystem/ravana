@@ -2526,8 +2526,16 @@ class WebLearningMixin(ResponseGenMixin):
             return self._web_to_graph
         try:
             from ravana.web.web_to_graph import WebToGraph
+            from ravana.learn.intake import KnowledgeIntake
             shim = _EngineGraphShim(self)
-            self._web_to_graph = WebToGraph(shim, source="engine")
+            # Route ingestion through the schema-consistency gate when the
+            # host exposes one (CognitiveChatEngine does; ChatInterface does
+            # not, and simply keeps the legacy unconditional write).
+            _getter = getattr(self, "_get_knowledge_intake", None)
+            _intake = _getter() if callable(_getter) else None
+            self._web_to_graph = WebToGraph(
+                shim, source="engine",
+                intake=_intake if isinstance(_intake, KnowledgeIntake) else None)
         except Exception:
             self._web_to_graph = None
         return self._web_to_graph
@@ -2630,5 +2638,25 @@ class _EngineGraphShim:
         # engine maps label -> list of nids; WebToGraph wants label -> first nid
         kw = getattr(self._engine, "_concept_keywords", {}) or {}
         return {lab: nids[0] for lab, nids in kw.items() if nids}
+
+    @_all_labels.setter
+    def _all_labels(self, value):
+        # WebToGraph's _ensure_node assigns into this mapping. The engine's
+        # authoritative index is _concept_keywords (label -> [nids]); without
+        # this setter the assignment lands on a temporary dict and is lost,
+        # so every label minted through this shim was invisible to anything
+        # that later resolves it by name.
+        if isinstance(value, dict):
+            kw = getattr(self._engine, "_concept_keywords", None)
+            if isinstance(kw, dict):
+                for lab, nid in value.items():
+                    nids = kw.setdefault(lab, [])
+                    if nid not in nids:
+                        nids.append(nid)
+
+    @property
+    def _concept_keywords(self):
+        """Proxy the engine's authoritative label index."""
+        return getattr(self._engine, "_concept_keywords", {})
 
 
