@@ -188,16 +188,6 @@ class ConceptEdge:
         self.prediction_free_energy = 0.0
         self.stability = 0.3
         self.timestamp = time.time()
-        # ── Forgetting substrate (SHY / synaptic turnover) ──────────────────
-        # The brain's synapses spontaneously degrade; a trace that is not
-        # reactivated decays, and rehearsal is what rescues it. Without this
-        # the graph could only ever strengthen, so "retention" was not a
-        # variable at all -- every fact ever written was retained forever.
-        # `last_rehearsal` is the turn the edge was last used or successfully
-        # recalled; `rehearsals` counts rescues, which raise the floor the
-        # decay can bottom out at (a well-rehearsed trace forgets slower).
-        self.last_rehearsal: Optional[float] = None
-        self.rehearsals: int = 0
         self.prediction_count = 0
         self.forward_pred_count = 0   # A→B successful predictions
         self.backward_pred_count = 0  # B→A successful predictions
@@ -251,6 +241,29 @@ class ConceptEdge:
             'timestamp': None,
             'converging_sources': 0,
         }
+
+    # ── Forgetting substrate (SHY / synaptic turnover) ──────────────────────
+    # The brain's synapses spontaneously degrade; a trace that is not
+    # reactivated decays, and rehearsal is what rescues it. Without this the
+    # graph could only ever strengthen, so "retention" was not a variable at
+    # all -- every fact ever written was retained forever.
+    #
+    # These two fields are LAZY (resolved by __getattr__ on first access)
+    # rather than set in __init__. Most edges are never rehearsed, and
+    # __init__ runs on every add_edge -- a 50k-edge build was measurably
+    # slower with them eager (~13.0s vs ~12.1s on main). An edge that is
+    # never touched by the forgetting machinery should cost nothing.
+    _LAZY_DEFAULTS = {"last_rehearsal": None, "rehearsals": 0}
+
+    def __getattr__(self, name):
+        # Only called when normal lookup fails, so existing attributes are
+        # unaffected. Returns the default without storing it, keeping the
+        # common "never rehearsed" edge at zero per-instance cost.
+        try:
+            return self._LAZY_DEFAULTS[name]
+        except KeyError:
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}") from None
 
     def __getstate__(self):
         """Lightweight pickle: exclude heavy unused fields (agent_weights, source_metadata)."""
