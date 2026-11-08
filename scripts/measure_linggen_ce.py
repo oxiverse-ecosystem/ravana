@@ -39,6 +39,20 @@ PROBES = [
     "what is identity?",
 ]
 
+# Queries that BYPASS generation entirely. `_consult_internal_knowledge`
+# (engine.py) answers a plain "what is X" definition from the KB and returns
+# before the response generator ever runs, so both paths produce the identical
+# string and the comparison carries no information about the decoder. The
+# promotion probe must measure the decoder where the decoder actually runs.
+GENERATION_PROBES = [
+    "tell me about love",
+    "how do you process the world?",
+    "what makes you happy?",
+    "how do you learn?",
+    "what is identity?",
+    "describe the ocean",
+]
+
 
 def _to_ids(eng, text):
     """Map a surface form onto decoder token ids, OOV -> <unk>."""
@@ -95,11 +109,19 @@ def main():
         eng.process_turn(q)
 
     rows = []
+    skipped_identical = 0
     for q in PROBES:
         eng.use_linggen = False
         template_reply = eng.process_turn(q) or ""
         eng.use_linggen = True
         decoder_reply = eng.process_turn(q) or ""
+
+        # If both paths emitted the SAME string, the decoder never ran --
+        # `_consult_internal_knowledge` answered from the KB first. Scoring
+        # that pair measures nothing, so exclude it and say so.
+        if template_reply.strip() and template_reply.strip() == decoder_reply.strip():
+            skipped_identical += 1
+            continue
 
         t_ids, d_ids = _to_ids(eng, template_reply), _to_ids(eng, decoder_reply)
         rows.append({
@@ -142,6 +164,8 @@ def main():
 
     result = {
         "N": len(PROBES),
+        "N_scored": len(rows),
+        "N_skipped_identical": skipped_identical,
         "method": ("per-path surface forms scored by the same decoder "
                    "(read-only sampled-softmax NLL); coherence is a "
                    "path-independent check"),
