@@ -71,6 +71,19 @@ SOURCE_RELIABILITY: Dict[str, float] = {
     "retrieved": 0.45,    # recalled from an earlier read
 }
 
+# Map a provenance source_type onto the graph's edge_kind vocabulary
+# (provenance.provenance_class reads this field to decide how much an edge
+# may be trusted). "retrieved" is a replayed record, not a fresh read, so it
+# maps to "inferred" -- the class provenance_class already treats as
+# internally-generated and discounts.
+_EDGE_KIND_FOR_SOURCE: Dict[str, str] = {
+    "user": "curated",
+    "seed": "curated",
+    "web": "web_fact",
+    "inference": "inferred",
+    "retrieved": "inferred",
+}
+
 
 @dataclass
 class Provenance:
@@ -680,6 +693,8 @@ class KnowledgeIntake:
                 meta.update(v.provenance.as_metadata())
                 meta["last_revised"] = self._now()
                 meta["revisions"] = int(meta.get("revisions", 0)) + 1
+                meta["edge_kind"] = _EDGE_KIND_FOR_SOURCE.get(
+                    v.provenance.source_type, "learned")
             return True
         edge = graph.add_edge(
             source=subj_id, target=obj_id, weight=0.5,
@@ -687,6 +702,15 @@ class KnowledgeIntake:
         if edge is not None and hasattr(edge, "source_metadata"):
             edge.source_metadata.update(v.provenance.as_metadata())
             edge.source_metadata["revisions"] = 0
+            # edge_kind is the discriminator every downstream reader uses
+            # (provenance.provenance_class, the answer path's
+            # _edge_has_provenance, the offline pruner). Leaving it at the
+            # ConceptEdge default "unknown" means this edge -- which DID clear
+            # the schema-consistency gate and carries a real source record --
+            # is indistinguishable from a bootstrap artifact and is refused by
+            # the answer path. Tag it by where it came from.
+            edge.source_metadata["edge_kind"] = _EDGE_KIND_FOR_SOURCE.get(
+                v.provenance.source_type, "learned")
         return edge is not None
 
     def _fast_merge(self, v: IntakeVerdict) -> None:

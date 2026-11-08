@@ -1299,6 +1299,29 @@ class GenerationMixin:
             _cands = self.hippocampal_buffer.get_consolidation_candidates()
             _graduated = 0
             _user_skipped = 0
+            _held = 0
+            # The drain must go through the SAME schema-consistency gate as
+            # live ingestion, carrying the fact's real provenance. It used to
+            # call _ensure_relation() directly, which writes confidence=0.9 and
+            # tags the edge "curated"/"common_facts" -- so a fact the gate had
+            # deliberately BUFFERED (an unresolved contradiction, or a
+            # challenger that could not overturn an incumbent) was being
+            # promoted into the graph as settled common knowledge, with forged
+            # provenance and no junk or provisional check. The gate's decision
+            # was being silently overridden every sleep cycle.
+            #
+            # Re-evaluating at drain time is also the brain-faithful move:
+            # replay reactivates the trace (Nader, Schafe & LeDoux 2000) and the
+            # write is gated by prediction error / schema-consistency
+            # (Kumaran, Hassabis & McClelland 2016), so the decision is allowed
+            # to change as the neocortical structure changes. A replayed record
+            # is internally reconstructed rather than directly perceived, so it
+            # is discounted as "retrieved" (Johnson, Hashtroudi & Lindsay
+            # 1993): SOURCE_RELIABILITY gives that 0.45 and is_inferred applies
+            # a further 0.85 factor, which is exactly right for a memory we are
+            # re-playing rather than one we are reading now.
+            _intake_getter = getattr(self, '_get_knowledge_intake', None)
+            _intake = _intake_getter() if callable(_intake_getter) else None
             for _ft in _cands:
                 try:
                     # Source monitoring (investigation Gap 2): user self-
@@ -1310,17 +1333,39 @@ class GenerationMixin:
                         self.hippocampal_buffer.mark_consolidated(_ft)
                         _user_skipped += 1
                         continue
-                    self._ensure_relation(_ft.subject, _ft.object,
-                                          _ft.predicate,
-                                          weight=float(getattr(_ft, 'confidence', 0.8)))
+                    if _intake is not None:
+                        from ravana.web.openie import Fact as _Fact
+                        from ravana.learn.intake import Provenance as _Prov
+                        _fact = _Fact(
+                            subject=_ft.subject, relation=_ft.predicate,
+                            obj=_ft.object,
+                            confidence=float(getattr(_ft, 'confidence', 0.8) or 0.8))
+                        _verdict = _intake.intake(
+                            _fact, _Prov(source_type="retrieved"))
+                        if _verdict.route == 'episodic_buffer':
+                            # Still unresolved at replay: keep it in the buffer
+                            # rather than promoting a contradiction the gate
+                            # refused. NOT marked consolidated, so a later
+                            # sleep can reconsider it once the structure has
+                            # changed (e.g. the incumbent was superseded).
+                            _held += 1
+                            continue
+                    else:
+                        # Host without a gate (no _get_knowledge_intake): keep
+                        # the legacy write. There is no gate to override here.
+                        self._ensure_relation(_ft.subject, _ft.object,
+                                              _ft.predicate,
+                                              weight=float(getattr(_ft, 'confidence', 0.8)))
                     self.hippocampal_buffer.mark_consolidated(_ft)
                     _graduated += 1
                 except Exception:
                     continue
             result['buffer_facts_graduated'] = _graduated
             result['user_facts_withheld'] = _user_skipped
-            if getattr(self, '_trace_enabled', False) and _graduated:
-                print(f"  [sleep] graduated {_graduated} hippocampal facts to graph")
+            result['buffer_facts_held'] = _held
+            if getattr(self, '_trace_enabled', False) and (_graduated or _held):
+                print(f"  [sleep] graduated {_graduated} hippocampal facts to graph "
+                      f"({_held} held back by the consistency gate)")
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] buffer->graph consolidation error: {e}")
