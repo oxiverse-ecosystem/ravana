@@ -625,11 +625,17 @@ class KnowledgeIntake:
     """
 
     def __init__(self, gate: Optional[SchemaConsistencyGate] = None,
-                 ge=None, buffer=None, clock: Optional[Any] = None):
+                 ge=None, buffer=None, clock: Optional[Any] = None,
+                 min_success_rate: float = 0.75):
         self.gate = gate or SchemaConsistencyGate()
         self.ge = ge
         self.buffer = buffer
         self._now = clock or (lambda: time.time())
+        # Retrieval-effort only pays off above this recent success rate
+        # (Karpicke 2025 §4.21.2.2, after Rowland 2014: effects become robust
+        # when initial retrieval success exceeds ~75%). Below it, a fact is
+        # held at the shortest interval instead of being pushed further out.
+        self.min_success_rate = clamp01(min_success_rate)
         # (subject, predicate, object) -> {"due": turn, "reviews": n, ...}
         self._review_queue: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
         self._turn = 0
@@ -858,15 +864,62 @@ class KnowledgeIntake:
             rec["reviews"] = int(rec.get("reviews", 0)) + 1
             rec["retention"] = clamp01(rec.get("retention", 0.5) + 0.1)
             nxt = review_interval_for(rec["retention"], rec["reviews"])
+            # Success-rate gate (Karpicke 2025 §4.21.2.2): retrieval effort only
+            # helps WHEN RETRIEVAL SUCCEEDS. Across studies the testing effect
+            # becomes robust once initial retrieval success exceeds ~75%; below
+            # that, extra effort stops paying and the fact needs massed practice
+            # first (Landauer & Bjork 1978: mass poorly-learned items so they
+            # are actually retrieved). So a fact with a poor recent success rate
+            # is NOT pushed to a longer interval, however many times it has
+            # been reviewed -- otherwise the schedule keeps expanding a fact
+            # that is mostly failing to be recalled.
+            if self._success_rate(rec) < self.min_success_rate:
+                nxt = min(nxt, REVIEW_SCHEDULE[0])
+            self._record_outcome(rec, recalled=True)
             self._strengthen_from_retrieval(key, rec)
         else:
             rec["reviews"] = 0
             rec["retention"] = clamp01(rec.get("retention", 0.5) * 0.6)
             nxt = REVIEW_SCHEDULE[0]
+            self._record_outcome(rec, recalled=False)
             self.stats["review_failed_no_write"] += 1
         rec["interval"] = nxt
         rec["due"] = self._turn + nxt
         self.stats["reviewed"] += 1
+
+    # ── retrieval-practice calibration ───────────────────────────────────────
+
+    def _max_schedule_interval(self) -> int:
+        """Largest interval the expanding schedule can produce (pre-scaling)."""
+        try:
+            return max(1, int(max(REVIEW_SCHEDULE)))
+        except Exception:
+            return 32
+
+    @staticmethod
+    def _success_rate(rec: Dict[str, Any]) -> float:
+        """Recent retrieval success rate for one fact, in 0..1.
+
+        Uses a bounded window of the most recent outcomes so a fact that was
+        once hopeless but is now reliable is not permanently penalised, and
+        vice versa. Defaults to 1.0 for an unseen record: absence of evidence
+        of failure must not hold a fact back.
+        """
+        window = rec.get("outcomes")
+        if not isinstance(window, list) or not window:
+            return 1.0
+        recent = [bool(x) for x in window[-8:]]
+        return sum(recent) / float(len(recent))
+
+    def _record_outcome(self, rec: Dict[str, Any], recalled: bool) -> None:
+        """Append to the bounded outcome window used by the success-rate gate."""
+        window = rec.get("outcomes")
+        if not isinstance(window, list):
+            window = []
+            rec["outcomes"] = window
+        window.append(bool(recalled))
+        if len(window) > 8:
+            del window[:-8]
 
     def _strengthen_from_retrieval(self, key: Tuple[str, str, str],
                                    rec: Dict[str, Any]) -> None:
@@ -904,7 +957,15 @@ class KnowledgeIntake:
             if target is None:
                 return
             interval = max(1, int(rec.get("interval", 1)))
-            effort = clamp01(math.log(interval + 1.0) / math.log(9.0))
+            # Effort is scaled over the ACTUAL schedule range, not a fixed
+            # constant. The previous form, log(interval+1)/log(9), saturated at
+            # interval 8 and was nearly flat from 8 -> 32, so the top of the
+            # expanding schedule was worth only ~1.7x the bottom. The spacing
+            # literature (Landauer & Bjork 1978; Karpicke 2025 §4.21.4.5) puts
+            # substantially more value on the long-interval retrieval, so the
+            # normaliser is the schedule maximum.
+            effort = clamp01(math.log(interval + 1.0)
+                             / math.log(self._max_schedule_interval() + 1.0))
             prior = clamp01(float(rec.get("retention", 0.5)))
             current = self.gate._edge_confidence(target)
             delta = 0.05 + 0.20 * effort

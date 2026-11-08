@@ -1336,12 +1336,29 @@ class GenerationMixin:
                     if _intake is not None:
                         from ravana.web.openie import Fact as _Fact
                         from ravana.learn.intake import Provenance as _Prov
+                        from ravana.learn.intake import clamp01 as _clamp01
                         _fact = _Fact(
                             subject=_ft.subject, relation=_ft.predicate,
                             obj=_ft.object,
                             confidence=float(getattr(_ft, 'confidence', 0.8) or 0.8))
+                        # Sleep resolution policy. A replayed challenger is not
+                        # a fresh web sighting: it is a memory the system itself
+                        # stored, and replaying it to the SAME value repeatedly
+                        # is evidence that the value is stable -- Gershman et
+                        # al. (eLife 2017) predict that accumulated prediction
+                        # error over repeated reactivations is what moves even
+                        # a strong memory, and that a strong memory can be
+                        # updated when reactivation is accompanied by novelty.
+                        # The previous code re-presented each replay as a
+                        # 0.45-reliability event, so a buffered challenger
+                        # could never overturn an incumbent no matter how many
+                        # sleep cycles it survived. Rehearsal now accumulates
+                        # toward the corroboration threshold.
+                        _reh = int(getattr(_ft, 'rehearsal_count', 0) or 0)
+                        _corr = _clamp01(_reh / 4.0)
                         _verdict = _intake.intake(
-                            _fact, _Prov(source_type="retrieved"))
+                            _fact, _Prov(source_type="retrieved",
+                                         corroboration=_corr))
                         if _verdict.route == 'episodic_buffer':
                             # Still unresolved at replay: keep it in the buffer
                             # rather than promoting a contradiction the gate
