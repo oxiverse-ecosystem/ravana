@@ -2102,7 +2102,13 @@ class ConceptGraph:
             edge.weight = min(1.0, edge.weight + delta)
         else:
             edge.weight = max(0.0, min(1.0, edge.weight + delta))
-        edge.confidence = min(1.0, edge.confidence + abs(delta) * 0.1)
+        # Confidence tracks the WEIGHT CHANGE, not its magnitude. The previous
+        # form, `confidence + abs(delta)*0.1`, could only ever increase, so any
+        # Hebbian update during sleep silently undid the forgetting pass -- a
+        # decayed edge was restored by the replay that was supposed to leave it
+        # alone. A negative delta (the weight moved down) must now lower
+        # confidence too, which is what "this synapse was weakened" means.
+        edge.confidence = max(0.0, min(1.0, edge.confidence + delta * 0.1))
         edge.prediction_count += 1
         edge.stability = min(1.0, edge.stability + 0.001)
 
