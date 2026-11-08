@@ -1563,16 +1563,39 @@ class GenerationMixin:
             retained = 0
             drifted = 0
             blackout = 0
-            DRIFT_TOL = 0.15
+            conf_deltas = []
+            # Tolerance is RELATIVE to how much the sleep pass is expected to
+            # move an edge, not a flat constant. The previous DRIFT_TOL = 0.15
+            # was larger than the entire per-cycle decay, so retention_rate
+            # read 1.000 for every decay_base_rate from 0.001 to 0.2 while the
+            # actual confidence drop went from 0.0011 to 0.177 -- the metric
+            # could not discriminate and was unusable for fitting.
+            #
+            # It also compared WEIGHT, which homeostatic_downscale scales in
+            # the opposite direction to the confidence decay, so the two
+            # partly cancelled. Confidence is the quantity the forgetting
+            # curve acts on, so it is what retention is measured against.
+            #
+            # NOTE: this block runs BEFORE the structural pass below, so it
+            # measures retention after the sleep_engine's own pruning but
+            # BEFORE GraphPlasticity's decay. That ordering is deliberate --
+            # the decay is the thing being fitted, so it must not be inside
+            # the measurement it is fitted against. `retention_mean_conf_delta`
+            # therefore reflects the sleep engine's retention, and the decay
+            # rate is fitted separately against the confidence trajectory
+            # (see scripts/fit_forgetting_rate.py).
             for k, (w0, c0) in golden_before.items():
                 e = self.graph.get_edge(*k)
                 if e is None:
                     drifted += 1
                     blackout += 1
                     continue
-                w1 = float(getattr(e, "weight", 0.0))
                 c1 = float(getattr(e, "confidence", 0.0))
-                if abs(w1 - w0) > DRIFT_TOL or abs(c1 - c0) > DRIFT_TOL:
+                # Relative drift: how much of the original trace is gone.
+                denom = max(abs(c0), 0.05)
+                rel = abs(c1 - c0) / denom
+                conf_deltas.append(round(c1 - c0, 6))
+                if rel > self._retention_drift_tolerance:
                     drifted += 1
                 else:
                     retained += 1
@@ -1582,6 +1605,12 @@ class GenerationMixin:
             result["important_facts_drifted"] = drifted
             result["important_facts_blackout"] = blackout
             result["retention_rate"] = retained / total_g if total_g else 0.0
+            # Continuous companion to the thresholded rate: mean signed
+            # confidence change. This is what a coefficient fit should use --
+            # it moves smoothly with the decay rate instead of flipping at a
+            # threshold.
+            result["retention_mean_conf_delta"] = (
+                sum(conf_deltas) / len(conf_deltas) if conf_deltas else 0.0)
         # ── Graph-level structural plasticity (the ConceptGraph's own rules) ──
         # The graph already implements inhibitory contradiction edges, concept
         # splitting, two-timescale vector consolidation (fast active -> slow

@@ -1710,6 +1710,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "last_sleep_metrics": {},
         }
         self._sleep_schedule_turns: int = 20  # Run sleep every N turns regardless of pressure
+        # Relative confidence drift a golden edge may show in one sleep cycle
+        # and still count as RETAINED. Relative (not absolute) so it tracks the
+        # scale of the trace; 0.10 = "lost at most 10% of its confidence".
+        self._retention_drift_tolerance: float = 0.10
         self._sleep_schedule_time: int = 300  # Run sleep every N seconds (5 min) if no turns
 
         # Concept-emotion tags

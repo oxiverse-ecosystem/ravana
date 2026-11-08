@@ -180,6 +180,8 @@ def run_once(base_rate=0.004, cycles=4, verbose=False):
         traj.append({
             "cycle": i + 1,
             "retention_rate": round(metrics.get("retention_rate", 0.0), 4),
+            "retention_mean_conf_delta": round(
+                metrics.get("retention_mean_conf_delta", 0.0), 6),
             "retained": metrics.get("important_facts_retained", 0),
             "total": metrics.get("important_facts_total", 0),
             "edges_decayed": metrics.get("edges_decayed", 0),
@@ -196,6 +198,17 @@ def run_once(base_rate=0.004, cycles=4, verbose=False):
         "golden_before": before,
         "golden_after": after,
         "competitors_after": comp_after,
+        # The quantity a coefficient fit actually needs: how far the golden
+        # traces moved. `_sleep_consolidate`'s own retention metric runs BEFORE
+        # the structural pass (deliberately -- the decay must not be inside the
+        # measurement it is fitted against), so it cannot see the decay. This
+        # before/after pair is the honest signal.
+        "golden_mean_conf_delta": round(
+            sum(after[k] - before[k] for k in before
+                if after.get(k) is not None and before.get(k) is not None)
+            / max(1, sum(1 for k in before
+                         if after.get(k) is not None and before.get(k) is not None)),
+            6),
     }
     if verbose:
         print(f"base_rate={base_rate}")
