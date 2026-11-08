@@ -11348,6 +11348,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     # buffer, source text never consulted) and records whether it succeeded.
     # Success expands the interval, failure resets it to the shortest.
 
+    def _restore_linggen_conditioner(self) -> bool:
+        """Load a previously-fit LingGen conditioner onto the decoder.
+
+        `train.py --mode linggen` fits W_sm and saves it to
+        data/linggen_wsm.npz, but nothing ever loaded it back: the file was
+        written and then ignored, so every later boot ran unconditioned. That
+        is why the promotion probe scored the decoder identically before and
+        after conditioner training (3.8014 both times).
+
+        Returns True if a trained projection is now attached.
+        """
+        nd = getattr(self, "neural_decoder", None)
+        if nd is None or not hasattr(nd, "set_linggen_projection"):
+            return False
+        # Already attached in this session.
+        if getattr(nd, "_linggen_W_sm", None) is not None:
+            return True
+        try:
+            from ravana.ontology.linggen import LingGenConditioner
+            cond = LingGenConditioner.load()
+        except Exception:
+            return False
+        if cond is None or not getattr(cond, "trained", False):
+            return False
+        try:
+            nd.set_linggen_projection(cond._W)
+        except Exception:
+            return False
+        return True
+
     def _get_knowledge_intake(self):
         """Lazily construct the schema-consistency-gated intake.
 

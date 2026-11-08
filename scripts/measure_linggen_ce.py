@@ -82,6 +82,14 @@ def main():
         print(json.dumps({"error": "no neural decoder"}, indent=2))
         return
 
+    # Attach a previously-fit conditioner. Without this the probe scores an
+    # UNCONDITIONED decoder, which is why decoder_ce was byte-identical before
+    # and after conditioner training (3.8014 both times).
+    restored = eng._restore_linggen_conditioner()
+    print(f"  [probe] linggen conditioner restored: {restored}")
+    print(f"  [probe] decoder _linggen_W_sm: "
+          f"{getattr(dec, '_linggen_W_sm', None) is not None}")
+
     # Warm up (both paths) so cached state does not skew the first probe.
     for q in PROBES:
         eng.process_turn(q)
