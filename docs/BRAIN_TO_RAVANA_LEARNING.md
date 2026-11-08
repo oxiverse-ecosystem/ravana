@@ -515,6 +515,46 @@ learning failure must never cost the user their answer.
 The loop is now closed in both directions: what is read can be answered, and
 what is answered is learned.
 
+### 5.7 Closed-class filters were silently inert
+
+Found while chasing garbled hedge output — the user's original "templates seem
+to be there here and there" complaint, in its most visible form:
+
+```
+explain time  ->  "the closest i get to time is only and world what's your take on it?"
+```
+
+`only` and `world` were being spliced into a hedge frame as if they were the
+gist of the subject. Three independent defects compounded:
+
+1. **`_closed_class` called properties as methods.** Every `FunctionalLexicon`
+   accessor is a `@property`, but the lookup did `getattr(_fl, name)()` — calling
+   the returned set. That raises `TypeError: 'set' object is not callable`, and
+   the bare `except Exception: pass` swallowed it. **The entire lexicon path
+   had never worked**; only class attributes (`COMMON_WORDS`) ever resolved.
+   Now handles both shapes (`_attr() if callable(_attr) else _attr`).
+2. **The seed table was missing four keys.** `_SEED` had 8 keys; the accessors
+   for `subject_context`, `conditional_frame`, `attr_words` and
+   `grammatical_concepts` referenced keys that did not exist, so they raised
+   `KeyError` — also swallowed. The seeds were recovered from the
+   pre-externalization engine (`3425bd2^`), where all four inline sets still
+   lived: 232 / 59 / 25 / 200 words.
+3. **`_GRAMMATICAL_CONCEPTS` is an instance attribute**, but the fallback only
+   checked class attributes. Added an instance-level fallback (both spellings).
+
+With all three fixed the lookups resolve: `grammatical_concepts` 205,
+`subject_context` 234, `common_words` 235, `conditional_frame` 59,
+`attr_words` 25, `leading_modifiers` 11, `trailing_modifiers` 48.
+
+The output is now `"the closest i get to time is friends and enjoy what's your
+take on it?"` — real content words, no filler. (The related-concept POS check
+still defaults an unknown word to `'noun'`; that default is load-bearing — 59 of
+116 graph labels are absent from `_concept_pos`, so failing closed would drop
+half the graph's concepts.)
+
+`tests/unit/test_function_word_filter.py` — 8 tests, including the
+property-vs-method regression and the instance-attribute fallback.
+
 ### 5.4 Verification
 
 `tests/unit/test_intake.py` — 33 tests against the **real** `ConceptGraph`:
@@ -593,10 +633,32 @@ branch.
 
 Ranked by leverage:
 
-1. **Instrument the promotion gate.** Per-route decoder CE vs template CE on
-   held-out turns. Nothing can retire a pool safely without it, and
-   `docs/LINGGEN_CE_COMPARISON.md` already names it as the blocker. Still the
-   first task.
+1. ~~**Instrument the promotion gate.**~~ — **done**, and the answer is no.
+   `scripts/measure_linggen_ce.py` now produces a real measurement: both
+   generation paths reply to every probe, and each reply is scored by the same
+   decoder (`NeuralDecoder.score_sequence`, a read-only teacher-forced
+   sampled-softmax NLL with a *seeded* negative sample so two replies are
+   comparable). A path-independent coherence check runs alongside, because a
+   model always scores its own samples higher.
+
+   The measurement is decisive: decoder-CE 3.9278 vs template-CE 3.9239, with
+   the uniform baseline at ln 51 = 3.9318. **Both paths sit on the baseline** —
+   the decoder has 0 training examples, so there is no distribution to fit and
+   the comparison carries no evidence either way. The coherence check
+   independently vetoes (0.678 vs 0.716). `use_linggen` correctly stays False.
+
+   Two defects found on the way, both worth recording:
+   - **`use_linggen` was never read.** It was set by `scripts/train.py`,
+     persisted, and nothing consumed it — so the decoder path ran ungated.
+     With an untrained decoder that is exactly the "ungrounded gibberish" the
+     flag exists to prevent. It now gates `_generate_with_situation_model`.
+   - **The old harness compared a number to itself.** `template_ce = decoder_ce`
+     was a literal placeholder, so the doc's "decoder-CE <= template-CE: true"
+     was vacuous. It also reported `0.0` because `_mean_prediction_error` is
+     only populated by decoder *training*, which had never run.
+
+   **The real blocker is decoder training, not the gate.** `scripts/train.py`
+   exists; nothing in the default boot path trains the decoder.
 2. ~~**Bridge the answer path and the learning path.**~~ — **done**, see §5.6.
    Both directions now close: `consult_internal` reads the typed edges
    `WebToGraph` writes (provenance-gated, so bootstrap artifacts cannot be

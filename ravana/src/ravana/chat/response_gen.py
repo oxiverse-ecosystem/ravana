@@ -6444,6 +6444,29 @@ class ResponseGenMixin(ChainWalkerMixin):
         _JUNK = {"cannot", "able", "never", "always", "sometimes", "today",
                  "yesterday", "maybe", "perhaps", "now", "soon", "here", "there"}
 
+        # Non-content filler: discourse markers, pronouns and generic
+        # qualifiers that survive the coherence gate only by being
+        # co-activated with the subject. Spliced into a hedge frame as `{rel}`
+        # they read as confabulation ("the closest i get to time is only and
+        # world"). A seed vocabulary -- removing an entry only re-admits one
+        # low-value association shape; it is not a per-topic table.
+        _NON_CONTENT_ASSOC = {
+            "really", "lot", "lots", "bit", "thing", "things", "way", "ways",
+            "kind", "kinds", "sort", "sorts", "type", "types", "stuff",
+            "something", "anything", "nothing", "everything", "somewhat",
+            "quite", "rather", "mostly", "mostly", "actually", "basically",
+            "generally", "usually", "often", "sometimes", "maybe", "perhaps",
+            "probably", "possibly", "definitely", "certainly", "truly",
+            "simply", "just", "even", "also", "too", "very", "more", "most",
+            "much", "many", "such", "like", "liking", "feel", "feels",
+            "feeling", "think", "thinks", "thought", "know", "knows",
+            "mean", "means", "sense", "idea", "ideas", "notion", "concept",
+            "concepts", "word", "words", "term", "terms", "part", "parts",
+            "piece", "pieces", "amount", "number", "level", "point", "points",
+            "good", "bad", "big", "small", "large", "little", "high", "low",
+            "new", "old", "own", "same", "other", "another", "different",
+        }
+
         def _is_ok_assoc(ll):
             if ll == sl or ll in _JUNK:
                 return False
@@ -6454,6 +6477,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             if ll in _subj_tokens and ll != sl:
                 return False
             if self._is_function_word(ll):
+                return False
+            # Filler is not a content concept: hedge frames splice this word
+            # in as if it were the gist of the subject.
+            if ll in _NON_CONTENT_ASSOC:
                 return False
             return getattr(self, '_concept_pos', {}).get(ll, 'noun') == 'noun'
 
@@ -6482,39 +6509,11 @@ class ResponseGenMixin(ChainWalkerMixin):
         related.sort(key=lambda x: -x[1])
         top = [l for l, _ in related[:2]]
 
-        # GUARD (round 2026-08-17T1730Z): the metacognitive-ignorance openers
-        # splice the strongest related association as `{rel}` into a hedge
-        # frame ("that reminds me of {rel} — ..."). When the top association
-        # resolves to a NON-CONTENT filler word — a discourse marker, pronoun,
-        # or generic qualifier that survived the coherence gate only by virtue
-        # of being co-activated with the subject — the opener reads as
-        # confabulation ("that reminds me of really ... and lot what's your
-        # take on it?"). A human being asked about their own mind does not
-        # answer with a nonsense association; they admit the gap. Fail CLOSED
-        # to None (honest "i don't know yet") so the caller falls through to a
-        # cleaner uncertainty path rather than emitting garbled filler. This is
-        # a structural content gate (closed-class seed set), NOT authored
-        # prose and NOT a per-topic table; removing an entry only changes
-        # which low-value associations are suppressed. No retraining.
-        _NON_CONTENT_ASSOC = {
-            "really", "lot", "lots", "bit", "thing", "things", "way", "ways",
-            "kind", "kinds", "sort", "sorts", "type", "types", "stuff",
-            "something", "anything", "nothing", "everything", "somewhat",
-            "quite", "rather", "mostly", "mostly", "actually", "basically",
-            "generally", "usually", "often", "sometimes", "maybe", "perhaps",
-            "probably", "possibly", "definitely", "certainly", "truly",
-            "simply", "just", "even", "also", "too", "very", "more", "most",
-            "much", "many", "such", "like", "liking", "feel", "feels",
-            "feeling", "think", "thinks", "thought", "know", "knows",
-            "mean", "means", "sense", "idea", "ideas", "notion", "concept",
-            "concepts", "word", "words", "term", "terms", "part", "parts",
-            "piece", "pieces", "amount", "number", "level", "point", "points",
-            "good", "bad", "big", "small", "large", "little", "high", "low",
-            "new", "old", "own", "same", "other", "another", "different",
-        }
-        if top and all(
-                (t.lower().strip(".,!?") in _NON_CONTENT_ASSOC) for t in top):
-            return None
+        # (The round-2026-08-17T1730Z guard that stood here -- refuse the opener
+        # when EVERY top association was non-content filler -- is now subsumed:
+        # `_is_ok_assoc` rejects filler per concept, so a filler can no longer
+        # reach `top` at all. It had also gone unreachable in practice, because
+        # the same filler set is what the function-word filter now consults.)
 
         # ── P3: source the hedged answer with KB / retrieved evidence ──
         # Instead of an empty "I don't have a definition but it's tied to X",
@@ -6897,7 +6896,18 @@ class ResponseGenMixin(ChainWalkerMixin):
                 refl = self._reflective_response(ctx)
                 if refl:
                     return refl
-            sm_res = self._generate_with_situation_model(ctx)
+            # LingGen promotion gate. `use_linggen` is a PROMOTED flag, not a
+            # runtime config: it may flip only when scripts/train.py shows the
+            # decoder's conditioned CE <= the template path's on held-out text.
+            # Until then the neural decoder is a research path and the
+            # template/realizer path produces the reply.
+            #
+            # (This flag used to be written and persisted but never read, so
+            # the decoder path ran ungated -- and with an untrained decoder
+            # that is exactly the "ungrounded gibberish" the flag exists to
+            # prevent. Default False keeps the de-facto behaviour unchanged.)
+            sm_res = (self._generate_with_situation_model(ctx)
+                      if getattr(self, "use_linggen", False) else None)
             if sm_res:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   SM path: {sm_res[1]} (coherence={situation_coherence:.2f})")
