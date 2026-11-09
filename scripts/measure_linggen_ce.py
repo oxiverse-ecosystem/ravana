@@ -170,6 +170,23 @@ def _cond_for(eng, dec, reply_ids):
         return None
 
 
+def _strategy_of(eng, reply):
+    """Which generation strategy produced this reply, per the engine's own record.
+
+    `process_turn` returns (text, strategy); the probe discards the strategy and
+    keeps only the text, which is why a template fallback and a decoder reply
+    were indistinguishable in the report. Read the engine's last-strategy
+    attribute rather than re-deriving it from the text.
+    """
+    if not reply:
+        return None
+    for attr in ("_last_strategy", "last_strategy", "_last_response_strategy"):
+        v = getattr(eng, attr, None)
+        if isinstance(v, str) and v:
+            return v
+    return None
+
+
 def _force_decoder_reply(eng, query):
     """Run the decoder path DIRECTLY, bypassing the upstream generation paths.
 
@@ -190,12 +207,19 @@ def _force_decoder_reply(eng, query):
         ctx = None
     if ctx is None:
         return None
-    owner = None
-    for name in dir(eng):
-        o = getattr(eng, name, None)
-        if o is not None and hasattr(o, "_generate_with_situation_model"):
-            owner = o
-            break
+    # Patch the ENGINE INSTANCE. `dir(eng)` also yields class objects, and the
+    # first one carrying this method is the class -- calling that gives an
+    # unbound function with no decoder and no situation model, so it can only
+    # return None. Prefer the engine itself.
+    owner = eng if hasattr(eng, "_generate_with_situation_model") else None
+    if owner is None:
+        for name in dir(eng):
+            o = getattr(eng, name, None)
+            if o is None or type(o).__name__ == "type":
+                continue
+            if hasattr(o, "_generate_with_situation_model"):
+                owner = o
+                break
     if owner is None:
         return None
     try:
@@ -257,11 +281,23 @@ def main():
     # point, not by guessing from the replies.
     reach = {"calls": 0, "returned": 0}
     owner = None
-    for _name in dir(eng):
-        _o = getattr(eng, _name, None)
-        if _o is not None and hasattr(_o, "_generate_with_situation_model"):
-            owner = _o
-            break
+    # Patch the ENGINE INSTANCE, not a class. `dir(eng)` yields class objects
+    # too, and the first attribute carrying `_generate_with_situation_model` is
+    # the class -- patching that installs an unbound function with no instance
+    # state (no neural_decoder, no situation_model, no vocab), which can only
+    # ever return None. Every reachability number produced before this fix was
+    # measured on that dead path.
+    #
+    # The method lives on the engine itself, so patch it there.
+    owner = eng if hasattr(eng, "_generate_with_situation_model") else None
+    if owner is None:
+        for _name in dir(eng):
+            _o = getattr(eng, _name, None)
+            if _o is None or type(_o).__name__ == "type":
+                continue
+            if hasattr(_o, "_generate_with_situation_model"):
+                owner = _o
+                break
     if owner is not None:
         _orig_sm = owner._generate_with_situation_model
 
@@ -326,6 +362,11 @@ def main():
             "decoder_coherence": _coherence(eng, q, decoder_reply),
             "template_coherence": _coherence(eng, q, template_reply),
             "decoder_forced": forced,
+            # Which strategy actually produced each reply. Without this the
+            # reachability numbers cannot be interpreted: a "decoder" reply that
+            # came from a template fallback looks identical in the CE columns.
+            "template_strategy": _strategy_of(eng, template_reply),
+            "decoder_strategy": _strategy_of(eng, decoder_reply),
         })
 
     def _mean(vals):
@@ -397,6 +438,19 @@ def main():
         "decoder_reachability": (round(reach["returned"] / reach["calls"], 4)
                                  if reach["calls"] else None),
         "decoder_forced_count": sum(1 for r in rows if r.get("decoder_forced")),
+        # Per-probe strategies, so the effect of graph growth on decoder
+        # reachability is visible without re-deriving it.
+        "per_probe": [
+            {
+                "query": r["query"],
+                "template_strategy": r.get("template_strategy"),
+                "decoder_strategy": r.get("decoder_strategy"),
+                "decoder_forced": r.get("decoder_forced", False),
+                "decoder_ref_ce": r.get("decoder_ref_ce"),
+                "template_ref_ce": r.get("template_ref_ce"),
+            }
+            for r in rows
+        ],
         "promote_use_linggen": promote,
     }
 
