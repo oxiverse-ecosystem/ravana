@@ -11375,8 +11375,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         """
         import os as _os
         import json as _json
-        cand = _os.path.abspath(_os.path.join(_os.path.dirname(__file__),
-                                              "..", "..", ".."))
+        # engine.py lives at <proj>/ravana/src/ravana/chat/engine.py:
+        #   chat -> ravana -> src -> ravana -> <proj>   (five levels up)
+        # Fewer hops silently resolve to <proj>/ravana/data/... and the
+        # restore no-ops with no error.
+        _here = _os.path.abspath(__file__)
+        cand = _os.path.abspath(_os.path.join(_here, "..", "..", "..", "..", ".."))
         w = _os.path.join(cand, "data", "neural_decoder.npz")
         v = _os.path.join(cand, "data", "neural_decoder_vocab.json")
         if not (_os.path.exists(w) and _os.path.exists(v)):
