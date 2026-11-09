@@ -4,19 +4,19 @@ N = 10
 
 Method: per-path surface forms scored by the same decoder (read-only sampled-softmax NLL); coherence is a path-independent check
 
-decoder-CE = 3.8204
+decoder-CE = 3.0897
 
-template-CE = 3.7527
+template-CE = 2.4257
 
 decoder-CE <= template-CE: False
 
-decoder coherence = 0.5727
+decoder coherence = 0.5416
 
 template coherence = 0.5727
 
-decoder not worse on coherence: True
+decoder not worse on coherence: False
 
-decoder training examples = 1300160
+decoder training examples = 18872114
 
 uniform baseline CE (ln 51) = 3.9318
 
