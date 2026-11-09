@@ -683,6 +683,32 @@ def _mode_phase2(args):
     result = engine.save()
     print(f"  {result}")
 
+    # Persist the TRAINED decoder. `engine.save()` writes the graph and the
+    # word<->index maps but not the decoder parameters, so before this the
+    # 500k-example run left nothing usable behind: at runtime the decoder was
+    # rebuilt with random weights over a 217-word concept vocabulary and could
+    # only emit a single function word. See docs/DECODER_VOCAB_MISMATCH.md.
+    dec_path = os.path.join(_proj_root, "data", "neural_decoder.npz")
+    vocab_path = os.path.join(_proj_root, "data", "neural_decoder_vocab.json")
+    ok = nd.save_to(dec_path)
+    print(f"  [decoder] weights -> {os.path.relpath(dec_path, _proj_root)}: {ok}")
+    if ok:
+        try:
+            import json
+            with open(vocab_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "word_to_idx": {w: int(i) for w, i in engine._decoder_word_to_idx.items()},
+                    "idx_to_word": {str(i): w for i, w in engine._decoder_idx_to_word.items()},
+                    "vocab_size": int(len(engine._decoder_word_to_idx)),
+                    "embed_dim": int(getattr(engine, "_DECODER_DIM", 75)),
+                    "final_ce": float(getattr(nd, "_avg_cross_entropy", 0.0) or 0.0),
+                    "final_top1": float(getattr(nd, "_avg_top1_acc", 0.0) or 0.0),
+                    "training_examples": int(getattr(nd, "_total_training_examples", 0) or 0),
+                }, f)
+            print(f"  [decoder] vocab   -> {os.path.relpath(vocab_path, _proj_root)}: True")
+        except Exception as _e:
+            print(f"  [decoder] vocab save failed: {_e}")
+
     print()
     print("="*60)
     print("TRAINING COMPLETE")

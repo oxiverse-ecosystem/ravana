@@ -288,6 +288,13 @@ class ResponseGenMixin(ChainWalkerMixin):
             self._decoder_vocab_built = True
             return
 
+        # A trained decoder on disk takes priority over the concept vocabulary.
+        # Without this check the rebuild below discards the trained weights and
+        # their 15k-word vocabulary, leaving a 217-word module that can only
+        # emit a single function word. See docs/DECODER_VOCAB_MISMATCH.md.
+        if getattr(self, "_trained_decoder_restored", False):
+            return
+
         self._decoder_word_to_idx = {}
         self._decoder_idx_to_word = {}
         self._decoder_word_to_embed = {}
