@@ -7551,6 +7551,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         reason the spike log and retrieval practice are recorded at the TOP
         of the turn. The wrapper reads the outcome from user_model AFTER the
         turn completes, so a correction is labelled with the post-turn state.
+
+        NOTE: the outcome is NOT read fresh here. Both
+        _detect_and_handle_correction (engine_persistence.py) and the
+        correction-persist gate call user_model.reset_correction_flags() before
+        the turn ends, so a post-turn read would always yield 'continued' and
+        every correction would be mislabelled. The verdict is therefore
+        snapshotted at the top of the turn (_dm_outcome, set right after
+        mine_personal_facts) and refreshed after observe_user_query; see
+        _record_dialogue_turn.
         """
         response = self._process_turn_impl(user_input)
         try:
