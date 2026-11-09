@@ -3796,7 +3796,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         return raw
 
     def _epistemic_tag(self, ctx) -> str:
-        """A short hedge for output composed about a subject with no verified source.
+        """A hedge for output composed about a subject with no verified source.
 
         Source monitoring (Johnson, Hashtroudi & Lindsay 1993) is an
         ATTRIBUTION process: it tags a memory with where it came from. It does
@@ -3805,10 +3805,16 @@ class ResponseGenMixin(ChainWalkerMixin):
         So the faithful implementation of "I have no verified source for this"
         is a label on the utterance, not a veto of it.
 
+        The label comes from the shared hedge registry (`chat/hedges.py`), not
+        from a string authored here. That module exists precisely because
+        hardcoded hedge sentences were removed as authored personality living
+        in a lookup; adding one here would reintroduce the pattern. The state
+        is `related_weak` -- RAVANA has a graph trace for the subject but no
+        verified definition, which is the weak end of the trace-strength band.
+
         Attached only when the subject has no definition and no web-learned
-        source -- i.e. the reply is composed from association rather than
-        recalled from a verified fact. Replies that DO have a source are left
-        untagged, so this cannot degrade confident, grounded answers.
+        source. Replies that DO have a source are untagged, so this cannot
+        degrade confident, grounded answers.
         """
         try:
             subject = self._grounding_subject(ctx)
@@ -3818,7 +3824,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return ""
             if subject in getattr(self, "_concept_sources", {}):
                 return ""
-            return "i'm piecing this together rather than recalling it, so take it as a guess."
+            from ravana.chat.hedges import _marker
+            return _marker("related_weak")
         except Exception:
             return ""
 
