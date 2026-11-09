@@ -269,6 +269,17 @@ def main():
     print(f"  [probe] decoder _linggen_W_sm: "
           f"{getattr(dec, '_linggen_W_sm', None) is not None}")
 
+    # Attach the TRAINED decoder. Startup does this, but the probe's engine is
+    # built with baby_mode and the restore is not guaranteed to have run --
+    # without it the probe silently scores the UNTRAINED decoder, which is why
+    # decoder_training_examples read 1.3M (a stale in-memory value) instead of
+    # the 18.87M the trained artifact reports.
+    dec_restored = eng._restore_trained_decoder()
+    print(f"  [probe] trained decoder restored: {dec_restored}")
+    print(f"  [probe] decoder training examples: "
+          f"{int(getattr(eng.neural_decoder, '_total_training_examples', 0) or 0)}")
+    dec = eng.neural_decoder
+
     # Warm up (both paths) so cached state does not skew the first probe.
     for q in PROBES:
         eng.process_turn(q)
