@@ -34,7 +34,11 @@ for _p in (PROJ,
 import ravana.chat.engine as engine_mod  # noqa: E402
 from ravana.chat.engine import CognitiveChatEngine  # noqa: E402
 
-SRC = inspect.getsource(engine_mod.CognitiveChatEngine.process_turn)
+# The turn body lives in `_process_turn_impl`: process_turn is now a thin
+# wrapper that records the exchange for dialogue memory on every return path.
+# These ordering checks are properties of the TURN, so read the implementation
+# the wrapper delegates to -- scanning the wrapper finds none of these lines.
+SRC = inspect.getsource(engine_mod.CognitiveChatEngine._process_turn_impl)
 LINES = SRC.splitlines()
 
 # Match the stash PRECISELY: it is the f-string write carrying "agentic:". A
