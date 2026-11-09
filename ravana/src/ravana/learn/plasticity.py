@@ -90,6 +90,22 @@ class PlasticityConfig:
     compress_paths: bool = True
     compress_min_usage: int = 2
     compress_min_score: float = 0.15
+    # ── forgetting (SHY-style down-selection) ────────────────────────────────
+    # Wake potentiates, sleep down-selects: most synapses weaken, reactivated
+    # ones are spared. Without this the graph could only strengthen, so
+    # retention was not a variable -- every fact ever written was retained
+    # forever and "desirable difficulty" had nothing to act on.
+    decay_edges: bool = True
+    # Fraction of confidence a TYPICAL edge loses per elapsed turn (before the
+    # per-edge lability/interference/importance modulation). Deliberately small:
+    # the point is graded forgetting over many cycles, not amnesia in one. The
+    # per-edge rate is normalised so this is the rate for an edge with no
+    # competitors, no rehearsals and no structural importance.
+    decay_base_rate: float = 0.004
+    # Hours a freshly-rehearsed edge is protected for. Retrieval practice
+    # stamps last_rehearsal, so a fact just reviewed is not decayed.
+    decay_rehearsal_halflife: float = 6.0
+    decay_min_confidence: float = 0.05
 
 
 class GraphPlasticity:
@@ -115,6 +131,7 @@ class GraphPlasticity:
             "vectors_consolidated": 0,
             "edges_downscaled": 0,
             "si_edges_protected": 0,
+            "edges_decayed": 0,
         }
 
     # ── per-turn budget ──────────────────────────────────────────────────────
@@ -282,7 +299,40 @@ class GraphPlasticity:
             out["paths_compressed"] = self._compress_paths(graph)
             self.stats["paths_compressed"] += out["paths_compressed"]
 
+        # Forgetting runs LAST: it must not confound the retention measurement
+        # above, and it must see the rehearsal stamps this cycle produced.
+        if cfg.decay_edges:
+            out["edges_decayed"] = self._decay_edges(graph)
+            self.stats["edges_decayed"] += out["edges_decayed"]
+
         return out
+
+    def _decay_edges(self, graph) -> int:
+        """SHY-style down-selection: weaken what was not reactivated.
+
+        Runs after the retention measurement so it cannot confound it, and
+        after every rehearsal stamp this cycle produced.
+
+        Structural importance is computed here (not reused from the
+        downscale) because the decay needs it per edge and the cache may be
+        stale by this point in the cycle.
+        """
+        cfg = self.config
+        try:
+            si = {}
+            if cfg.homeostatic_structural_protection > 0:
+                try:
+                    si = graph.compute_edge_structural_importance()
+                except Exception:
+                    si = {}
+            return int(graph.decay_edges(
+                turns_elapsed=max(1, int(getattr(self, "_turns_since_sleep", 1) or 1)),
+                base_rate=cfg.decay_base_rate,
+                rehearsal_halflife=cfg.decay_rehearsal_halflife,
+                min_confidence=cfg.decay_min_confidence,
+                structural_importance=si))
+        except Exception:
+            return 0
 
     def _homeostatic_downscale(self, graph) -> Tuple[int, int]:
         """SHY-style homeostasis, plus the structural-importance -> EWC handoff.

@@ -1710,6 +1710,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             "last_sleep_metrics": {},
         }
         self._sleep_schedule_turns: int = 20  # Run sleep every N turns regardless of pressure
+        # Relative confidence drift a golden edge may show in one sleep cycle
+        # and still count as RETAINED. Relative (not absolute) so it tracks the
+        # scale of the trace; 0.10 = "lost at most 10% of its confidence".
+        self._retention_drift_tolerance: float = 0.10
         self._sleep_schedule_time: int = 300  # Run sleep every N seconds (5 min) if no turns
 
         # Concept-emotion tags
@@ -2061,6 +2065,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # hand-authored prose; concepts with no KB hit are simply skipped.
         try:
             self._seed_kb_definitions()
+        except Exception:
+            pass
+        # A trained decoder on disk takes priority over the concept vocabulary.
+        # `_build_decoder_vocab` otherwise rebuilds a ~217-word concept vocab
+        # and a randomly-initialised module, discarding the trained weights --
+        # so a 15k-word corpus-trained decoder was replaced by one that can
+        # only emit a single function word. See docs/DECODER_VOCAB_MISMATCH.md.
+        try:
+            self._restore_trained_decoder()
         except Exception:
             pass
         self._build_decoder_vocab()
@@ -11343,6 +11356,99 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
     # the engine attempts to answer it from its OWN memory (graph + episodic
     # buffer, source text never consulted) and records whether it succeeded.
     # Success expands the interval, failure resets it to the shortest.
+
+    def _restore_trained_decoder(self) -> bool:
+        """Load the decoder trained by `scripts/train.py`, weights AND vocabulary.
+
+        Without this the trained decoder is discarded. `_build_decoder_vocab`
+        rebuilds a small concept vocabulary (function words + graph labels, ~217
+        entries) and a fresh randomly-initialised module, so a 15k-word
+        corpus-trained decoder is replaced by one that can only emit a single
+        function word. See docs/DECODER_VOCAB_MISMATCH.md.
+
+        Mirrors `_restore_linggen_conditioner`: the artifact existed on disk and
+        nothing loaded it.
+
+        Returns True when a trained decoder was installed. Never raises -- a
+        missing or incompatible artifact must fall back to the concept
+        vocabulary rather than break startup.
+        """
+        import os as _os
+        import json as _json
+        # engine.py lives at <proj>/ravana/src/ravana/chat/engine.py:
+        #   chat -> ravana -> src -> ravana -> <proj>   (five levels up)
+        # Fewer hops silently resolve to <proj>/ravana/data/... and the
+        # restore no-ops with no error.
+        _here = _os.path.abspath(__file__)
+        cand = _os.path.abspath(_os.path.join(_here, "..", "..", "..", "..", ".."))
+        w = _os.path.join(cand, "data", "neural_decoder.npz")
+        v = _os.path.join(cand, "data", "neural_decoder_vocab.json")
+        if not (_os.path.exists(w) and _os.path.exists(v)):
+            return False
+        try:
+            with open(v, "r", encoding="utf-8") as f:
+                meta = _json.load(f)
+        except Exception:
+            return False
+        w2i = meta.get("word_to_idx") or {}
+        if len(w2i) < 100:
+            # Too small to be a trained corpus vocabulary; leave the concept
+            # vocab alone rather than regressing to it.
+            return False
+        try:
+            from ravana_ml.nn.neural_decoder import NeuralDecoder
+            dec, vocab_size = NeuralDecoder.load_from(
+                w, neuromodulator=getattr(self, "neuromodulator_engine", None))
+        except Exception:
+            return False
+        if dec is None:
+            return False
+        try:
+            self.neural_decoder = dec
+            self._decoder_word_to_idx = {str(k): int(i) for k, i in w2i.items()}
+            self._decoder_idx_to_word = {int(i): str(k) for k, i in w2i.items()}
+            self._decoder_vocab_built = True
+            self._freeze_decoder_vocab = True
+            self._trained_decoder_restored = True
+            self._trained_decoder_meta = {
+                "final_ce": meta.get("final_ce"),
+                "final_top1": meta.get("final_top1"),
+                "training_examples": meta.get("training_examples"),
+                "vocab_size": vocab_size,
+            }
+            return True
+        except Exception:
+            return False
+
+    def _restore_linggen_conditioner(self) -> bool:
+        """Load a previously-fit LingGen conditioner onto the decoder.
+
+        `train.py --mode linggen` fits W_sm and saves it to
+        data/linggen_wsm.npz, but nothing ever loaded it back: the file was
+        written and then ignored, so every later boot ran unconditioned. That
+        is why the promotion probe scored the decoder identically before and
+        after conditioner training (3.8014 both times).
+
+        Returns True if a trained projection is now attached.
+        """
+        nd = getattr(self, "neural_decoder", None)
+        if nd is None or not hasattr(nd, "set_linggen_projection"):
+            return False
+        # Already attached in this session.
+        if getattr(nd, "_linggen_W_sm", None) is not None:
+            return True
+        try:
+            from ravana.ontology.linggen import LingGenConditioner
+            cond = LingGenConditioner.load()
+        except Exception:
+            return False
+        if cond is None or not getattr(cond, "trained", False):
+            return False
+        try:
+            nd.set_linggen_projection(cond._W)
+        except Exception:
+            return False
+        return True
 
     def _get_knowledge_intake(self):
         """Lazily construct the schema-consistency-gated intake.

@@ -1,0 +1,54 @@
+{
+  "baseline (no gate, old effort)": {
+    "recalled": 5,
+    "of": 5,
+    "confidences": [
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3341
+    ],
+    "review_writes": 10,
+    "review_failed_no_write": 2
+  },
+  "success gate only": {
+    "recalled": 5,
+    "of": 5,
+    "confidences": [
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3113
+    ],
+    "review_writes": 11,
+    "review_failed_no_write": 6
+  },
+  "replay corroboration only": {
+    "recalled": 5,
+    "of": 5,
+    "confidences": [
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3341
+    ],
+    "review_writes": 10,
+    "review_failed_no_write": 2
+  },
+  "both": {
+    "recalled": 5,
+    "of": 5,
+    "confidences": [
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3889,
+      0.3113
+    ],
+    "review_writes": 11,
+    "review_failed_no_write": 6
+  }
+}

@@ -1,0 +1,92 @@
+[
+  {
+    "base_rate": 0.001,
+    "retention_final": 1.0,
+    "golden_after": {
+      "photosynthesis->process": 0.4574,
+      "chlorophyll->green": 0.4574,
+      "mitochondria->organelle": 0.4574,
+      "gravity->falling": 0.4574,
+      "evaporation->process": 0.4799
+    },
+    "competitors_after": {
+      "photosynthesis->reaction": null,
+      "chlorophyll->red": null,
+      "mitochondria->structure": null,
+      "gravity->orbit": null,
+      "evaporation->cycle": null
+    }
+  },
+  {
+    "base_rate": 0.002,
+    "retention_final": 1.0,
+    "golden_after": {
+      "photosynthesis->process": 0.456,
+      "chlorophyll->green": 0.4559,
+      "mitochondria->organelle": 0.4559,
+      "gravity->falling": 0.4559,
+      "evaporation->process": 0.4784
+    },
+    "competitors_after": {
+      "photosynthesis->reaction": null,
+      "chlorophyll->red": null,
+      "mitochondria->structure": null,
+      "gravity->orbit": null,
+      "evaporation->cycle": null
+    }
+  },
+  {
+    "base_rate": 0.004,
+    "retention_final": 1.0,
+    "golden_after": {
+      "photosynthesis->process": 0.453,
+      "chlorophyll->green": 0.4529,
+      "mitochondria->organelle": 0.4529,
+      "gravity->falling": 0.4529,
+      "evaporation->process": 0.4753
+    },
+    "competitors_after": {
+      "photosynthesis->reaction": null,
+      "chlorophyll->red": null,
+      "mitochondria->structure": null,
+      "gravity->orbit": null,
+      "evaporation->cycle": null
+    }
+  },
+  {
+    "base_rate": 0.008,
+    "retention_final": 1.0,
+    "golden_after": {
+      "photosynthesis->process": 0.4472,
+      "chlorophyll->green": 0.4471,
+      "mitochondria->organelle": 0.4471,
+      "gravity->falling": 0.4471,
+      "evaporation->process": 0.4692
+    },
+    "competitors_after": {
+      "photosynthesis->reaction": null,
+      "chlorophyll->red": null,
+      "mitochondria->structure": null,
+      "gravity->orbit": null,
+      "evaporation->cycle": null
+    }
+  },
+  {
+    "base_rate": 0.016,
+    "retention_final": 1.0,
+    "golden_after": {
+      "photosynthesis->process": 0.4357,
+      "chlorophyll->green": 0.4355,
+      "mitochondria->organelle": 0.4355,
+      "gravity->falling": 0.4355,
+      "evaporation->process": 0.4572
+    },
+    "competitors_after": {
+      "photosynthesis->reaction": null,
+      "chlorophyll->red": null,
+      "mitochondria->structure": null,
+      "gravity->orbit": null,
+      "evaporation->cycle": null
+    }
+  }
+]

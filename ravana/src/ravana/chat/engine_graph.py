@@ -594,33 +594,51 @@ class GraphMixin:
     def _build_combined_encoder(self):
         """Build a single CombinedAttributeEncoder (Lancaster primary, Binder
         fallback) reused for every sensorimotor lookup. Returns None if the
-        probe artifacts are absent (engine still boots; G3 hooks no-op)."""
+        probe artifacts are absent (engine still boots; G3 hooks no-op).
+
+        Both probes are searched for independently. The previous version only
+        looked for `attribute_encoder.npz` (the Binder probe) and treated
+        Lancaster as an optional extra found next to it -- so on any install
+        where the Binder norms were absent but Lancaster was present (the
+        normal case: Binder is 535 hand-rated words with no public download,
+        Lancaster is 39,707 words and downloadable), the encoder silently
+        returned None and every sensorimotor hook no-op'd. That is why
+        `_combined_attr_encoder` was None and LingGen conditioning was
+        skipped.
+        """
         try:
             from ravana.ontology.attribute_encoder import load_combined_encoder
         except Exception:
             return None
         base = os.path.join(_proj_root, "data") if '_proj_root' in globals() else None
-        candidates = []
+        dirs = []
         if base:
-            candidates.append(os.path.join(base, "attribute_encoder.npz"))
+            dirs.append(base)
         cur = os.path.dirname(os.path.abspath(__file__))
         for _ in range(6):
-            candidates.append(os.path.join(cur, "data", "attribute_encoder.npz"))
+            dirs.append(os.path.join(cur, "data"))
             cur = os.path.dirname(cur)
-        enc = None
-        for ecand in candidates:
-            if os.path.exists(ecand):
-                d = os.path.dirname(ecand)
-                lanc_cands = [os.path.join(d, "lancaster_encoder.npz"),
-                              os.path.join(os.path.dirname(d), "lancaster_encoder.npz")]
-                _lanc = next((p for p in lanc_cands if os.path.exists(p)), None)
-                try:
-                    enc = load_combined_encoder(ecand, _lanc)
-                except Exception:
-                    enc = None
-                if enc is not None:
-                    break
-        return enc
+
+        binder = None
+        lancaster = None
+        for d in dirs:
+            if binder is None:
+                p = os.path.join(d, "attribute_encoder.npz")
+                if os.path.exists(p):
+                    binder = p
+            if lancaster is None:
+                p = os.path.join(d, "lancaster_encoder.npz")
+                if os.path.exists(p):
+                    lancaster = p
+            if binder is not None and lancaster is not None:
+                break
+
+        if binder is None and lancaster is None:
+            return None
+        try:
+            return load_combined_encoder(binder, lancaster)
+        except Exception:
+            return None
 
     def _build_lancaster_norms(self) -> Dict[str, np.ndarray]:
         """Load the HUMAN Lancaster 11-D sensorimotor norms (39,707 words) for

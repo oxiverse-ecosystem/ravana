@@ -1299,6 +1299,29 @@ class GenerationMixin:
             _cands = self.hippocampal_buffer.get_consolidation_candidates()
             _graduated = 0
             _user_skipped = 0
+            _held = 0
+            # The drain must go through the SAME schema-consistency gate as
+            # live ingestion, carrying the fact's real provenance. It used to
+            # call _ensure_relation() directly, which writes confidence=0.9 and
+            # tags the edge "curated"/"common_facts" -- so a fact the gate had
+            # deliberately BUFFERED (an unresolved contradiction, or a
+            # challenger that could not overturn an incumbent) was being
+            # promoted into the graph as settled common knowledge, with forged
+            # provenance and no junk or provisional check. The gate's decision
+            # was being silently overridden every sleep cycle.
+            #
+            # Re-evaluating at drain time is also the brain-faithful move:
+            # replay reactivates the trace (Nader, Schafe & LeDoux 2000) and the
+            # write is gated by prediction error / schema-consistency
+            # (Kumaran, Hassabis & McClelland 2016), so the decision is allowed
+            # to change as the neocortical structure changes. A replayed record
+            # is internally reconstructed rather than directly perceived, so it
+            # is discounted as "retrieved" (Johnson, Hashtroudi & Lindsay
+            # 1993): SOURCE_RELIABILITY gives that 0.45 and is_inferred applies
+            # a further 0.85 factor, which is exactly right for a memory we are
+            # re-playing rather than one we are reading now.
+            _intake_getter = getattr(self, '_get_knowledge_intake', None)
+            _intake = _intake_getter() if callable(_intake_getter) else None
             for _ft in _cands:
                 try:
                     # Source monitoring (investigation Gap 2): user self-
@@ -1310,17 +1333,56 @@ class GenerationMixin:
                         self.hippocampal_buffer.mark_consolidated(_ft)
                         _user_skipped += 1
                         continue
-                    self._ensure_relation(_ft.subject, _ft.object,
-                                          _ft.predicate,
-                                          weight=float(getattr(_ft, 'confidence', 0.8)))
+                    if _intake is not None:
+                        from ravana.web.openie import Fact as _Fact
+                        from ravana.learn.intake import Provenance as _Prov
+                        from ravana.learn.intake import clamp01 as _clamp01
+                        _fact = _Fact(
+                            subject=_ft.subject, relation=_ft.predicate,
+                            obj=_ft.object,
+                            confidence=float(getattr(_ft, 'confidence', 0.8) or 0.8))
+                        # Sleep resolution policy. A replayed challenger is not
+                        # a fresh web sighting: it is a memory the system itself
+                        # stored, and replaying it to the SAME value repeatedly
+                        # is evidence that the value is stable -- Gershman et
+                        # al. (eLife 2017) predict that accumulated prediction
+                        # error over repeated reactivations is what moves even
+                        # a strong memory, and that a strong memory can be
+                        # updated when reactivation is accompanied by novelty.
+                        # The previous code re-presented each replay as a
+                        # 0.45-reliability event, so a buffered challenger
+                        # could never overturn an incumbent no matter how many
+                        # sleep cycles it survived. Rehearsal now accumulates
+                        # toward the corroboration threshold.
+                        _reh = int(getattr(_ft, 'rehearsal_count', 0) or 0)
+                        _corr = _clamp01(_reh / 4.0)
+                        _verdict = _intake.intake(
+                            _fact, _Prov(source_type="retrieved",
+                                         corroboration=_corr))
+                        if _verdict.route == 'episodic_buffer':
+                            # Still unresolved at replay: keep it in the buffer
+                            # rather than promoting a contradiction the gate
+                            # refused. NOT marked consolidated, so a later
+                            # sleep can reconsider it once the structure has
+                            # changed (e.g. the incumbent was superseded).
+                            _held += 1
+                            continue
+                    else:
+                        # Host without a gate (no _get_knowledge_intake): keep
+                        # the legacy write. There is no gate to override here.
+                        self._ensure_relation(_ft.subject, _ft.object,
+                                              _ft.predicate,
+                                              weight=float(getattr(_ft, 'confidence', 0.8)))
                     self.hippocampal_buffer.mark_consolidated(_ft)
                     _graduated += 1
                 except Exception:
                     continue
             result['buffer_facts_graduated'] = _graduated
             result['user_facts_withheld'] = _user_skipped
-            if getattr(self, '_trace_enabled', False) and _graduated:
-                print(f"  [sleep] graduated {_graduated} hippocampal facts to graph")
+            result['buffer_facts_held'] = _held
+            if getattr(self, '_trace_enabled', False) and (_graduated or _held):
+                print(f"  [sleep] graduated {_graduated} hippocampal facts to graph "
+                      f"({_held} held back by the consistency gate)")
         except Exception as e:
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace] buffer->graph consolidation error: {e}")
@@ -1501,16 +1563,39 @@ class GenerationMixin:
             retained = 0
             drifted = 0
             blackout = 0
-            DRIFT_TOL = 0.15
+            conf_deltas = []
+            # Tolerance is RELATIVE to how much the sleep pass is expected to
+            # move an edge, not a flat constant. The previous DRIFT_TOL = 0.15
+            # was larger than the entire per-cycle decay, so retention_rate
+            # read 1.000 for every decay_base_rate from 0.001 to 0.2 while the
+            # actual confidence drop went from 0.0011 to 0.177 -- the metric
+            # could not discriminate and was unusable for fitting.
+            #
+            # It also compared WEIGHT, which homeostatic_downscale scales in
+            # the opposite direction to the confidence decay, so the two
+            # partly cancelled. Confidence is the quantity the forgetting
+            # curve acts on, so it is what retention is measured against.
+            #
+            # NOTE: this block runs BEFORE the structural pass below, so it
+            # measures retention after the sleep_engine's own pruning but
+            # BEFORE GraphPlasticity's decay. That ordering is deliberate --
+            # the decay is the thing being fitted, so it must not be inside
+            # the measurement it is fitted against. `retention_mean_conf_delta`
+            # therefore reflects the sleep engine's retention, and the decay
+            # rate is fitted separately against the confidence trajectory
+            # (see scripts/fit_forgetting_rate.py).
             for k, (w0, c0) in golden_before.items():
                 e = self.graph.get_edge(*k)
                 if e is None:
                     drifted += 1
                     blackout += 1
                     continue
-                w1 = float(getattr(e, "weight", 0.0))
                 c1 = float(getattr(e, "confidence", 0.0))
-                if abs(w1 - w0) > DRIFT_TOL or abs(c1 - c0) > DRIFT_TOL:
+                # Relative drift: how much of the original trace is gone.
+                denom = max(abs(c0), 0.05)
+                rel = abs(c1 - c0) / denom
+                conf_deltas.append(round(c1 - c0, 6))
+                if rel > self._retention_drift_tolerance:
                     drifted += 1
                 else:
                     retained += 1
@@ -1520,6 +1605,12 @@ class GenerationMixin:
             result["important_facts_drifted"] = drifted
             result["important_facts_blackout"] = blackout
             result["retention_rate"] = retained / total_g if total_g else 0.0
+            # Continuous companion to the thresholded rate: mean signed
+            # confidence change. This is what a coefficient fit should use --
+            # it moves smoothly with the decay rate instead of flipping at a
+            # threshold.
+            result["retention_mean_conf_delta"] = (
+                sum(conf_deltas) / len(conf_deltas) if conf_deltas else 0.0)
         # ── Graph-level structural plasticity (the ConceptGraph's own rules) ──
         # The graph already implements inhibitory contradiction edges, concept
         # splitting, two-timescale vector consolidation (fast active -> slow
@@ -1677,6 +1768,21 @@ class GenerationMixin:
                                         sources.append("graph_corrected")
                                         graph_conf.append(float(_gs))
                                 cur_id = gchain[-1][0]  # advance to last graph node
+                                # Knowledge compilation (ACT-R 1993; Kumaran et al.
+                                # 2016): a multi-hop chain that was actually USED
+                                # is recorded by its ENDPOINTS, so sleep can
+                                # collapse it into a direct shortcut edge.
+                                # chain_walker records only the edges it
+                                # traversed, and an edge that already exists can
+                                # never be compressed into a shortcut -- so the
+                                # chain-level record has to happen here, where the
+                                # path is still in hand.
+                                _path = gchain[-1][2]
+                                if len(_path) >= 2:
+                                    _gp = getattr(self, "graph_plasticity", None)
+                                    if _gp is not None:
+                                        _gp.record_successful_path(
+                                            self.graph, _path[0], _path[-1])
                                 # Record calibration against graph truth (the graph
                                 # IS ground truth here): HRR's predicted conf vs the
                                 # fact that the graph-corrected hop is correct.
@@ -1726,6 +1832,15 @@ class GenerationMixin:
                     graph_support = [1.0] * len(sel_chain)
                     sources = ["graph_corrected"] * len(sel_chain)
                     graph_conf = [float(_s) for (_t, _s, _p) in gchain]
+                    # Knowledge compilation: record the USED chain by its
+                    # endpoints so sleep can collapse it into a shortcut edge.
+                    # See the note at the graph_override call site above.
+                    _path = gchain[-1][2]
+                    if len(_path) >= 2:
+                        _gp = getattr(self, "graph_plasticity", None)
+                        if _gp is not None:
+                            _gp.record_successful_path(
+                                self.graph, _path[0], _path[-1])
                 except Exception:
                     sel_chain, sel_confs, graph_support, topks_out = [], [], [], []
                     sources, graph_conf = [], []

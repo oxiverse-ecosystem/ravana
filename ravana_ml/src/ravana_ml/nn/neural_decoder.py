@@ -168,6 +168,102 @@ class NeuralDecoder(Module):
         """Rebuild internal vocabulary embedding cache for fast similarity lookup."""
         self._vocab_embed_cache = self.word_embedding._w_raw.copy()
 
+    # ── Persistence ────────────────────────────────────────────────────────
+    # The decoder used to be unpersistable: `scripts/train.py` trained it in
+    # memory and the weights vanished on exit, so the 500k-example run had no
+    # effect on the running system. These two methods write and restore the
+    # FULL state -- parameters, vocabulary, and the config needed to
+    # reconstruct the module tree.
+    #
+    # The vocabulary is saved alongside the weights because the two must agree:
+    # a decoder trained on 15k words driven with a 217-word concept vocabulary
+    # emits one function word and stops. See docs/DECODER_VOCAB_MISMATCH.md.
+
+    def save_to(self, path) -> bool:
+        """Write parameters + vocabulary + config to `path` (npz).
+
+        Returns True on success. Never raises: a failed save must not take down
+        a training run that has already done the expensive work.
+        """
+        try:
+            import numpy as np
+            sd = self.state_dict()
+            flat = {}
+            for name, entry in sd.items():
+                arr = entry["data"] if isinstance(entry, dict) else entry
+                flat[f"w:{name}"] = np.asarray(arr)
+                if isinstance(entry, dict):
+                    for k, v in entry.items():
+                        if k == "data":
+                            continue
+                        flat[f"m:{name}:{k}"] = np.asarray(v)
+            flat["_vocab_size"] = np.asarray(self.vocab_size)
+            flat["_embed_dim"] = np.asarray(self.embed_dim)
+            flat["_hidden_dim"] = np.asarray(self.hidden_dim)
+            flat["_contrastive_weight"] = np.asarray(self.contrastive_weight)
+            flat["_contrastive_negatives"] = np.asarray(self.contrastive_negatives)
+            np.savez(path, **flat)
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def load_from(cls, path, neuromodulator=None):
+        """Reconstruct a decoder from `save_to` output.
+
+        Returns (decoder, vocab_size) or (None, None). The caller is responsible
+        for installing the word<->index maps, which live on the engine rather
+        than the decoder.
+        """
+        try:
+            import numpy as np
+            z = np.load(path, allow_pickle=False)
+            keys = set(z.files)
+            if "_vocab_size" not in keys:
+                return None, None
+            vocab_size = int(np.asarray(z["_vocab_size"]).reshape(-1)[0])
+            embed_dim = int(np.asarray(z.get("_embed_dim", 75)).reshape(-1)[0])
+            hidden_dim = int(np.asarray(z.get("_hidden_dim", 256)).reshape(-1)[0])
+            dec = cls(
+                vocab_size=vocab_size,
+                embed_dim=embed_dim,
+                hidden_dim=hidden_dim,
+                n_attention_heads=4,
+                contrastive_weight=float(
+                    np.asarray(z.get("_contrastive_weight", 0.5)).reshape(-1)[0]),
+                contrastive_negatives=int(
+                    np.asarray(z.get("_contrastive_negatives", 8)).reshape(-1)[0]),
+                neuromodulator=neuromodulator,
+            )
+            sd = {}
+            # Only real parameters carry the `w:` prefix. The decoder's
+            # load_state_dict also reads metric keys (`_avg_cross_entropy`,
+            # `_total_training_examples`, ...) and expects them as BARE
+            # scalars -- wrapping them in the {"data": ...} parameter shape
+            # makes float() raise TypeError. So pass those through untouched.
+            for k in keys:
+                if not k.startswith("w:"):
+                    continue
+                name = k[2:]
+                if name.startswith("_"):
+                    # Metric, not a parameter: bare scalar.
+                    sd[name] = float(np.asarray(z[k]).reshape(-1)[0])
+                    continue
+                entry = {"data": z[k].copy()}
+                for mk in keys:
+                    pref = f"m:{name}:"
+                    if mk.startswith(pref):
+                        # np.savez stores scalars as 0-d arrays; float() on the
+                        # raw value raises TypeError, so flatten first.
+                        entry[mk[len(pref):]] = float(
+                            np.asarray(z[mk]).reshape(-1)[0])
+                sd[name] = entry
+            dec.load_state_dict(sd)
+            dec.rebuild_vocab_cache()
+            return dec, vocab_size
+        except Exception:
+            return None, None
+
     def reset_plasticity(self, stability: float = 0.5):
         """Reset every parameter's stability to keep the network learnable.
 

@@ -78,7 +78,21 @@ class PredictiveCodingLearner:
         
         if error_norm > 0.3:
             node.contradiction_count += 1
-            
+
+        # Route the error into the graph's free-energy accumulator so the
+        # sleep stages that consume contradiction_hotspots can ever see it.
+        # Without this the node's prediction_free_energy was updated but
+        # apply_free_energy was never called, so contradiction_hotspots stayed
+        # permanently empty and three sleep stages (inhibitory-edge formation,
+        # hotspot-driven splitting, contradiction reconciliation) were dead code.
+        # Escalation mirrors ConceptGraph.apply_prediction_error: a rising
+        # error gradient amplifies the pressure (temporal amplification).
+        escalation = 1.0 + max(0.0, float(getattr(node, "free_energy_gradient", 0.0))) * 2.0
+        try:
+            self.graph.apply_free_energy(node_id, error_norm * escalation)
+        except Exception:
+            pass
+
         return error, error_norm
         
     def propagate_errors(self, path: List[int], context_vector: np.ndarray) -> float:

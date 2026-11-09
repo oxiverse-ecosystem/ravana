@@ -71,6 +71,19 @@ SOURCE_RELIABILITY: Dict[str, float] = {
     "retrieved": 0.45,    # recalled from an earlier read
 }
 
+# Map a provenance source_type onto the graph's edge_kind vocabulary
+# (provenance.provenance_class reads this field to decide how much an edge
+# may be trusted). "retrieved" is a replayed record, not a fresh read, so it
+# maps to "inferred" -- the class provenance_class already treats as
+# internally-generated and discounts.
+_EDGE_KIND_FOR_SOURCE: Dict[str, str] = {
+    "user": "curated",
+    "seed": "curated",
+    "web": "web_fact",
+    "inference": "inferred",
+    "retrieved": "inferred",
+}
+
 
 @dataclass
 class Provenance:
@@ -612,17 +625,25 @@ class KnowledgeIntake:
     """
 
     def __init__(self, gate: Optional[SchemaConsistencyGate] = None,
-                 ge=None, buffer=None, clock: Optional[Any] = None):
+                 ge=None, buffer=None, clock: Optional[Any] = None,
+                 min_success_rate: float = 0.75):
         self.gate = gate or SchemaConsistencyGate()
         self.ge = ge
         self.buffer = buffer
         self._now = clock or (lambda: time.time())
+        # Retrieval-effort only pays off above this recent success rate
+        # (Karpicke 2025 §4.21.2.2, after Rowland 2014: effects become robust
+        # when initial retrieval success exceeds ~75%). Below it, a fact is
+        # held at the shortest interval instead of being pushed further out.
+        self.min_success_rate = clamp01(min_success_rate)
         # (subject, predicate, object) -> {"due": turn, "reviews": n, ...}
         self._review_queue: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
         self._turn = 0
         self.stats: Dict[str, int] = {
             "fast_merge": 0, "novel_write": 0, "episodic_buffer": 0,
             "revise": 0, "fallback_merge": 0, "rejected": 0, "reviewed": 0,
+            # retrieval practice is a write, not just a measurement
+            "review_writes": 0, "review_failed_no_write": 0,
         }
 
     # ── turn bookkeeping ─────────────────────────────────────────────────────
@@ -680,6 +701,8 @@ class KnowledgeIntake:
                 meta.update(v.provenance.as_metadata())
                 meta["last_revised"] = self._now()
                 meta["revisions"] = int(meta.get("revisions", 0)) + 1
+                meta["edge_kind"] = _EDGE_KIND_FOR_SOURCE.get(
+                    v.provenance.source_type, "learned")
             return True
         edge = graph.add_edge(
             source=subj_id, target=obj_id, weight=0.5,
@@ -687,6 +710,15 @@ class KnowledgeIntake:
         if edge is not None and hasattr(edge, "source_metadata"):
             edge.source_metadata.update(v.provenance.as_metadata())
             edge.source_metadata["revisions"] = 0
+            # edge_kind is the discriminator every downstream reader uses
+            # (provenance.provenance_class, the answer path's
+            # _edge_has_provenance, the offline pruner). Leaving it at the
+            # ConceptEdge default "unknown" means this edge -- which DID clear
+            # the schema-consistency gate and carries a real source record --
+            # is indistinguishable from a bootstrap artifact and is refused by
+            # the answer path. Tag it by where it came from.
+            edge.source_metadata["edge_kind"] = _EDGE_KIND_FOR_SOURCE.get(
+                v.provenance.source_type, "learned")
         return edge is not None
 
     def _fast_merge(self, v: IntakeVerdict) -> None:
@@ -814,6 +846,16 @@ class KnowledgeIntake:
         Success expands the interval (spacing effect); failure resets it to
         the shortest interval, because a fact that could not be recalled is
         exactly the one that needs the next attempt soonest.
+
+        The trial is also a WRITE. Karpicke & Roediger (2008): retrieval is
+        itself the learning event, and the benefit is greatest when retrieval
+        was effortful -- a fact recalled after a long interval is strengthened
+        more than one recalled immediately. So the trace is moved toward its
+        retention prior by an amount that grows with the interval just served
+        (desirable difficulty, Bjork & Bjork 1994), and a failed retrieval
+        leaves the trace untouched rather than strengthening it: reactivating
+        a trace that could not be recovered is not evidence the trace is
+        correct, and writing on failure would reinforce a possibly-wrong value.
         """
         rec = self._review_queue.get(key)
         if rec is None:
@@ -822,13 +864,127 @@ class KnowledgeIntake:
             rec["reviews"] = int(rec.get("reviews", 0)) + 1
             rec["retention"] = clamp01(rec.get("retention", 0.5) + 0.1)
             nxt = review_interval_for(rec["retention"], rec["reviews"])
+            # Success-rate gate (Karpicke 2025 §4.21.2.2): retrieval effort only
+            # helps WHEN RETRIEVAL SUCCEEDS. Across studies the testing effect
+            # becomes robust once initial retrieval success exceeds ~75%; below
+            # that, extra effort stops paying and the fact needs massed practice
+            # first (Landauer & Bjork 1978: mass poorly-learned items so they
+            # are actually retrieved). So a fact with a poor recent success rate
+            # is NOT pushed to a longer interval, however many times it has
+            # been reviewed -- otherwise the schedule keeps expanding a fact
+            # that is mostly failing to be recalled.
+            if self._success_rate(rec) < self.min_success_rate:
+                nxt = min(nxt, REVIEW_SCHEDULE[0])
+            self._record_outcome(rec, recalled=True)
+            self._strengthen_from_retrieval(key, rec)
         else:
             rec["reviews"] = 0
             rec["retention"] = clamp01(rec.get("retention", 0.5) * 0.6)
             nxt = REVIEW_SCHEDULE[0]
+            self._record_outcome(rec, recalled=False)
+            self.stats["review_failed_no_write"] += 1
         rec["interval"] = nxt
         rec["due"] = self._turn + nxt
         self.stats["reviewed"] += 1
+
+    # ── retrieval-practice calibration ───────────────────────────────────────
+
+    def _max_schedule_interval(self) -> int:
+        """Largest interval the expanding schedule can produce (pre-scaling)."""
+        try:
+            return max(1, int(max(REVIEW_SCHEDULE)))
+        except Exception:
+            return 32
+
+    @staticmethod
+    def _success_rate(rec: Dict[str, Any]) -> float:
+        """Recent retrieval success rate for one fact, in 0..1.
+
+        Uses a bounded window of the most recent outcomes so a fact that was
+        once hopeless but is now reliable is not permanently penalised, and
+        vice versa. Defaults to 1.0 for an unseen record: absence of evidence
+        of failure must not hold a fact back.
+        """
+        window = rec.get("outcomes")
+        if not isinstance(window, list) or not window:
+            return 1.0
+        recent = [bool(x) for x in window[-8:]]
+        return sum(recent) / float(len(recent))
+
+    def _record_outcome(self, rec: Dict[str, Any], recalled: bool) -> None:
+        """Append to the bounded outcome window used by the success-rate gate."""
+        window = rec.get("outcomes")
+        if not isinstance(window, list):
+            window = []
+            rec["outcomes"] = window
+        window.append(bool(recalled))
+        if len(window) > 8:
+            del window[:-8]
+
+    def _strengthen_from_retrieval(self, key: Tuple[str, str, str],
+                                   rec: Dict[str, Any]) -> None:
+        """Move a successfully-recalled edge toward its retention prior.
+
+        The write magnitude scales with the interval just served: a retrieval
+        that came easily (short interval) confirms an already-strong trace and
+        adds little, while an effortful retrieval after a long interval is the
+        condition that produces the largest durable gain (Bjork & Bjork 1994).
+        Bounded and capped so repeated review converges instead of pinning the
+        edge at 1.0.
+        """
+        if self.ge is None:
+            return
+        subject, predicate, obj = key
+        try:
+            subj_id = self.gate._node_id(self.ge, subject)
+            obj_id = self.gate._node_id(self.ge, obj)
+            if subj_id is None or obj_id is None:
+                return
+            graph = getattr(self.ge, "graph", None)
+            if graph is None:
+                return
+            edge_type = self.gate._edge_type_for(
+                Fact(subject=subject, relation=predicate, obj=obj,
+                     confidence=0.5))
+            target = None
+            for e in self.gate._out_edges(self.ge, subj_id):
+                if self.gate._edge_relation(e) != edge_type:
+                    continue
+                if self.gate._target_label(self.ge, e) != _norm_label(obj):
+                    continue
+                target = e
+                break
+            if target is None:
+                return
+            interval = max(1, int(rec.get("interval", 1)))
+            # Effort is scaled over the ACTUAL schedule range, not a fixed
+            # constant. The previous form, log(interval+1)/log(9), saturated at
+            # interval 8 and was nearly flat from 8 -> 32, so the top of the
+            # expanding schedule was worth only ~1.7x the bottom. The spacing
+            # literature (Landauer & Bjork 1978; Karpicke 2025 §4.21.4.5) puts
+            # substantially more value on the long-interval retrieval, so the
+            # normaliser is the schedule maximum.
+            effort = clamp01(math.log(interval + 1.0)
+                             / math.log(self._max_schedule_interval() + 1.0))
+            prior = clamp01(float(rec.get("retention", 0.5)))
+            current = self.gate._edge_confidence(target)
+            delta = 0.05 + 0.20 * effort
+            new_conf = clamp01(current + (prior - current) * delta)
+            try:
+                target.confidence = new_conf
+            except Exception:
+                return
+            # Rehearsal rescue: a successful retrieval stamps the trace as
+            # reactivated, which both spares it from this cycle's decay and
+            # slows future decay (mark_rehearsed increments `rehearsals`).
+            graph.mark_rehearsed(subj_id, obj_id)
+            meta = getattr(target, "source_metadata", None)
+            if isinstance(meta, dict):
+                meta["retrievals"] = int(meta.get("retrievals", 0)) + 1
+                meta["last_recalled"] = self._now()
+            self.stats["review_writes"] += 1
+        except Exception:
+            return
 
     def drop_review(self, key: Tuple[str, str, str]) -> None:
         self._review_queue.pop(key, None)
