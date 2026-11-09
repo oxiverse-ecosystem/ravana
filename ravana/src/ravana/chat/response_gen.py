@@ -3728,6 +3728,38 @@ class ResponseGenMixin(ChainWalkerMixin):
         closer = " what's your take on it?" if random.random() < 0.5 else ""
         return opener + closer
 
+    def _is_affective_subject(self, phrase: str) -> bool:
+        """True when a subject phrase is really an affective clause.
+
+        Idioms and feeling-words are not concepts. Treating them as subjects
+        makes the reply generator splice the user's own words back at them --
+        the CI failure was "i don't have a clean definition for blood boil
+        furious" in reply to "that parking lot plan makes my blood boil".
+
+        Seed vocabulary only: a closed class of feeling words and affective
+        idioms, not authored content. Returns False for anything it does not
+        recognise, so a genuine multi-word concept is never blocked.
+        """
+        _AFFECTIVE = frozenset({
+            "furious", "angry", "mad", "rage", "raging", "irate", "livid",
+            "annoyed", "irritated", "frustrated", "outraged", "fuming",
+            "happy", "sad", "upset", "miserable", "devastated", "heartbroken",
+            "anxious", "worried", "nervous", "scared", "afraid", "terrified",
+            "excited", "thrilled", "delighted", "overjoyed", "ecstatic",
+            "tired", "exhausted", "drained", "weary",
+            "love", "hate", "loathe", "adore", "despise",
+            "jealous", "envious", "ashamed", "guilty", "embarrassed",
+            "proud", "grateful", "thankful", "lonely", "bored",
+            "blood boil", "blood boiling", "makes my blood",
+        })
+        try:
+            words = set(phrase.lower().split())
+            if words & _AFFECTIVE:
+                return True
+            return phrase.lower().strip() in _AFFECTIVE
+        except Exception:
+            return False
+
     def _grounding_subject(self, ctx) -> str:
         """The subject key the grounding gate should look up.
 
@@ -3755,6 +3787,15 @@ class ResponseGenMixin(ChainWalkerMixin):
         """
         raw = (getattr(ctx, "subject", None) or "").strip().lower()
         if not raw or " " not in raw:
+            return raw
+        # Never normalize an AFFECTIVE clause. "that parking lot plan makes my
+        # blood boil" yields the subject 'blood boil furious' -- an idiom plus a
+        # feeling, not a concept. Reducing it (or leaving it) as a subject makes
+        # the reply template splice the user's own words back at them: the CI
+        # failure was "i don't have a clean definition for blood boil furious".
+        # Affective input has its own reply path (_appraised_affective_reply);
+        # it must not be treated as a subject to be grounded.
+        if self._is_affective_subject(raw):
             return raw
         # Already a known concept: keep it whole. This must stay FIRST -- a real
         # multi-word concept like 'black holes' is a single graph node, and
