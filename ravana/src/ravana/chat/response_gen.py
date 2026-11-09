@@ -3728,6 +3728,56 @@ class ResponseGenMixin(ChainWalkerMixin):
         closer = " what's your take on it?" if random.random() < 0.5 else ""
         return opener + closer
 
+    def _sentence_is_about_subject(self, subject: str, content_words) -> bool:
+        """True when the sentence's content words are the subject's graph neighbours.
+
+        The vector-space coherence check asks whether a sentence's words RESEMBLE
+        the subject. That is the wrong question for a definition: the words that
+        define 'rumour' (pieces, purportedly, true, information) do not look like
+        'rumour', so a correct sentence scores 0.167 and is rejected.
+
+        Two kinds of evidence are, and both are already in the system:
+
+          * GRAPH NEIGHBOURS -- an edge subject -> w is the system's own record
+            that w is about the subject. Same evidence the gate's step 1 trusts.
+          * STORED DEFINITION -- a web-learned definition of the subject is the
+            most direct evidence there is that a sentence is on-topic, and it is
+            stored in `_definitions` rather than as edges. Measured: after
+            learning about rumour the graph neighbours are person, model,
+            quickly, study, news, hard, power, another, include -- none of which
+            appear in the definition, so graph anchoring alone cannot rescue it.
+
+        Requires at least two content words to match, so a single coincidental
+        hit cannot carry a sentence.
+        """
+        if not subject or not content_words:
+            return False
+        words = {str(w).lower().strip() for w in content_words}
+        try:
+            # (a) graph neighbours
+            nids = self._concept_keywords.get(subject, [])
+            if nids:
+                nid = nids[0]
+                for tgt, _edge in (self.graph._outgoing.get(nid, []) or []):
+                    node = self.graph.nodes.get(tgt)
+                    if node is not None and node.label:
+                        if str(node.label).lower().strip() in words:
+                            words.discard(str(node.label).lower().strip())
+                            if len(words) < len(content_words) - 1:
+                                return True
+            # (b) stored definition content
+            defn = getattr(self, "_definitions", {}).get(subject)
+            if defn:
+                dwords = {w for w in re.findall(r"[a-z']+", str(defn).lower())
+                          if len(w) >= 3}
+                hits = sum(1 for w in content_words
+                           if str(w).lower().strip() in dwords)
+                if hits >= 2:
+                    return True
+        except Exception:
+            return False
+        return False
+
     def _is_affective_subject(self, phrase: str) -> bool:
         """True when a subject phrase is really an affective clause.
 
@@ -4267,13 +4317,33 @@ class ResponseGenMixin(ChainWalkerMixin):
                     vecs.append(v)
                 if sims:
                     frac = sum(1 for s in sims if s >= 0.30) / len(sims)
-                    if frac < 0.30:
-                        return False
                     if vecs:
                         mean = np.mean(vecs, axis=0)
                         nc = float(np.linalg.norm(mean)) * float(np.linalg.norm(_subj_vec))
                         align = float(np.dot(mean, _subj_vec)) / nc if nc > 0 else -1.0
-                        if align < 0.10:
+                    else:
+                        align = -1.0
+                    # GRAPH-ANCHORED ALTERNATIVE. Requiring 30% of a
+                    # sentence's content words to be GloVe-CLOSE to the subject
+                    # measures lexical resemblance, not aboutness. A real
+                    # definition fails it:
+                    #
+                    #   'rumours are pieces of purportedly true information'
+                    #   sims: rumours 0.758, pieces 0.022, purportedly 0.233,
+                    #         true 0.176, information 0.200  -> frac 0.167
+                    #
+                    # Every content word there is ABOUT rumour; none of them
+                    # resemble 'rumour'. The gate was rejecting good output
+                    # because it asked the wrong question.
+                    #
+                    # So: a sentence also counts as on-topic when its content
+                    # words are the subject's GRAPH NEIGHBOURS -- words the
+                    # system has actually related to the subject, by a typed or
+                    # weighted edge. That is evidence of aboutness the vector
+                    # space cannot supply, and it is the same evidence the
+                    # grounding gate already trusts in step 1.
+                    if frac < 0.30 or align < 0.10:
+                        if not self._sentence_is_about_subject(subject, cw):
                             return False
 
             # (4) SELF-REFERENCE / CONFLICT (Nozari/Botvinick) — full-subject
