@@ -405,6 +405,78 @@ def classify_word_pos(word: str) -> str:
         
     return 'noun'
 
+
+# Words grammatically incapable of heading a noun phrase that are NOT in the
+# seed lists above. The seed lists are small (26 adjectives, 46 verbs, 110
+# function words), so `classify_word_pos` returns 'noun' for almost everything
+# -- measured: 'there', 'include', 'another', 'early', 'systems' all classify
+# as 'noun'. Any filter asking "is this a noun?" therefore admits them, and they
+# get spliced into hedge frames as if they were the gist of the subject
+# ("the closest i get to heavy rumour is early and water").
+#
+# This is a closed class of function words, determiners and generic verbs --
+# linguistic vocabulary, not authored content. It lets a filter require
+# evidence of noun-ness instead of trusting a default.
+_NON_NOUN = frozenset({
+    "the", "a", "an", "this", "that", "these", "those", "each", "every",
+    "all", "both", "few", "several", "many", "much", "more", "most", "some",
+    "any", "no", "none", "another", "other", "others", "either", "neither",
+    "such", "what", "which", "whatever", "whichever",
+    "i", "me", "my", "mine", "myself", "we", "us", "our", "ours", "ourselves",
+    "you", "your", "yours", "yourself", "yourselves", "he", "him", "his",
+    "himself", "she", "her", "hers", "herself", "it", "its", "itself",
+    "they", "them", "their", "theirs", "themselves", "one", "ones",
+    "who", "whom", "whose", "whoever", "whomever",
+    "there", "here", "where", "everywhere", "somewhere", "nowhere",
+    "now", "then", "today", "tomorrow", "yesterday", "soon", "later",
+    "early", "earlier", "late", "recently", "already", "still", "yet",
+    "am", "is", "are", "was", "were", "be", "been", "being", "have", "has",
+    "had", "do", "does", "did", "will", "would", "shall", "should", "can",
+    "could", "may", "might", "must", "ought", "need", "dare",
+    "of", "in", "on", "at", "by", "for", "with", "from", "to", "into",
+    "onto", "upon", "about", "over", "under", "between", "among", "through",
+    "during", "before", "after", "above", "below", "up", "down", "out",
+    "off", "again", "further", "once", "when", "why", "how", "and", "but",
+    "or", "nor", "so", "if", "unless", "while", "because", "although",
+    "though", "since", "as", "than", "whether", "not", "only", "also",
+    "too", "very", "just", "even", "quite", "rather", "almost", "nearly",
+    "really", "actually", "probably", "possibly", "perhaps", "maybe",
+    "definitely", "certainly", "surely", "simply", "merely", "hardly",
+    "barely", "else", "instead", "however", "therefore", "thus", "hence",
+    "moreover", "furthermore", "nevertheless", "nonetheless", "otherwise",
+    "meanwhile", "anyway", "anyhow", "besides", "indeed", "ever", "never",
+    "always", "often", "sometimes", "usually", "rarely", "seldom",
+    "frequently", "generally", "mostly", "partly", "fully", "completely",
+    "entirely", "totally", "absolutely",
+    "include", "includes", "including", "contain", "contains", "involve",
+    "involves", "form", "forms", "formed", "make", "makes", "made", "take",
+    "takes", "get", "gets", "got", "give", "gives", "given", "keep", "keeps",
+    "put", "set", "let", "go", "goes", "went", "gone", "come", "comes",
+    "came", "become", "becomes", "became", "seem", "seems", "seemed",
+    "appear", "appears", "appeared", "look", "looks", "looked", "sound",
+    "sounds", "sounded", "feel", "feels", "felt", "mean", "means", "meant",
+    "happen", "happens", "happened", "exist", "exists", "existed",
+})
+
+
+def is_known_non_noun(word: str) -> bool:
+    """True when the word is positively known to be unable to head a noun phrase.
+
+    Use this instead of ``classify_word_pos(w) != 'noun'`` whenever a filter
+    must not be defeated by the noun default.
+    """
+    ll = (word or "").lower().strip()
+    if not ll:
+        return False
+    if ll in _NON_NOUN or ll in KNOWN_VERBS or ll in KNOWN_ADJS:
+        return True
+    if ll.endswith(('ing', 'ed', 'ize', 'ify', 'ate')) and len(ll) > 4:
+        return True
+    if ll.endswith(('able', 'ible', 'ful', 'less', 'ous', 'ive')) and len(ll) > 4:
+        return True
+    return False
+
+
 class ConceptPosDict(dict):
     def __missing__(self, key):
         val = classify_word_pos(key)

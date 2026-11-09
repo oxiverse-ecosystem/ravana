@@ -3728,6 +3728,32 @@ class ResponseGenMixin(ChainWalkerMixin):
         closer = " what's your take on it?" if random.random() < 0.5 else ""
         return opener + closer
 
+    def _assoc_cos_ok(self, label: str, subj_vec, floor: float = 0.25) -> bool:
+        """Cosine floor for an association, used by the fallback path.
+
+        The primary association filter requires cos >= 0.35. The fallback that
+        runs when nothing clears that bar used to apply NO cosine test at all,
+        which let weak neighbours through -- 'water' (cos 0.259 to 'rumour') was
+        rendered as "the closest i get to heavy rumour is early and water".
+
+        The fallback still needs to be permissive (its job is to avoid returning
+        None when the topic gate has already vetted the set), so it uses a lower
+        floor rather than none. Returns True when there is no embedding to judge
+        by, so a missing vector never silently drops a candidate.
+        """
+        if subj_vec is None:
+            return True
+        v = self._glove_vector(label)
+        if v is None:
+            return True
+        try:
+            n = float(np.linalg.norm(v)) * float(np.linalg.norm(subj_vec))
+            if n <= 0:
+                return True
+            return float(np.dot(subj_vec, v)) / n >= floor
+        except Exception:
+            return True
+
     def _sentence_is_about_subject(self, subject: str, content_words) -> bool:
         """True when the sentence's content words are the subject's graph neighbours.
 
@@ -6768,6 +6794,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         }
 
         def _is_ok_assoc(ll):
+            from ravana.chat.constants import is_known_non_noun
             if ll == sl or ll in _JUNK:
                 return False
             # Reject sub-token collisions: a constituent word of a multi-word
@@ -6782,8 +6809,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             # in as if it were the gist of the subject.
             if ll in _NON_CONTENT_ASSOC:
                 return False
+            # Require POSITIVE evidence that this can head a noun phrase.
+            # `_concept_pos.get(ll, 'noun') == 'noun'` is useless here: the seed
+            # POS lists are tiny (26 adjectives, 46 verbs, 110 function words),
+            # so classify_word_pos returns 'noun' for nearly everything --
+            # measured: 'there', 'include', 'another', 'early', 'systems' all
+            # classify as 'noun'. They then get spliced into hedge frames as if
+            # they were the gist of the subject ("the closest i get to heavy
+            # rumour is early and water").
+            if is_known_non_noun(ll):
+                return False
             return getattr(self, '_concept_pos', {}).get(ll, 'noun') == 'noun'
-
         # Apply PFC topic-set gate first (replaces raw cosine threshold + fallback).
         _gated = self._topic_set_gate(
             ctx.associated_concepts or [], subject, min_coherence=0.20)
@@ -6802,8 +6838,17 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not related:
             # Fallback: use the topic-gate's self-anchor or the strongest activated
             # associations by score.
+            #
+            # This fallback used to bypass the cosine filter entirely, so a
+            # subject whose every association was weak still got an answer --
+            # 'water' (cos 0.259 to 'rumour') reached the hedge frame as "the
+            # closest i get to heavy rumour is early and water". The fallback
+            # exists to avoid returning None when the gate has already vetted
+            # the set, so it keeps the gate's ranking but must still respect the
+            # same evidence bar the primary path applies.
             related = [(label, score) for label, score in _gated
-                       if _is_ok_assoc(label.lower())][:4]
+                       if _is_ok_assoc(label.lower())
+                       and self._assoc_cos_ok(label, subj_vec, floor=0.25)][:4]
         if not related:
             return None
         related.sort(key=lambda x: -x[1])
