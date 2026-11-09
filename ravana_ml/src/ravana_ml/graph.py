@@ -253,7 +253,7 @@ class ConceptEdge:
     # __init__ runs on every add_edge -- a 50k-edge build was measurably
     # slower with them eager (~13.0s vs ~12.1s on main). An edge that is
     # never touched by the forgetting machinery should cost nothing.
-    _LAZY_DEFAULTS = {"last_rehearsal": None, "rehearsals": 0}
+    _LAZY_DEFAULTS = {"last_rehearsal": None, "rehearsals": 0, "_forget_age": 0.0}
 
     def __getattr__(self, name):
         # Only called when normal lookup fails, so existing attributes are
@@ -2660,7 +2660,7 @@ class ConceptGraph:
                               structural_importance: float) -> float:
         """Per-edge forgetting rate: how labile is THIS synapse?
 
-        A flat rate is the wrong shape. Three literature-grounded factors:
+        A flat rate is the wrong shape. Four literature-grounded factors:
 
         1. LABIALITY (plasticity-stability tradeoff, Fusi's bounded-synapse
            analysis). For a bistable synapse with lability q, the memory
@@ -2682,6 +2682,12 @@ class ConceptGraph:
            the SHY ultrastructure shows the largest synapses are the ones
            that do not scale down.
 
+        4. DEGREE OF LEARNING (Wixted 2022). A higher degree of initial
+           learning yields a slower RELATIVE rate of forgetting -- stronger
+           memories decay slower proportionally, not merely from a higher
+           starting point. This is what makes the curve a power law rather
+           than an exponential (see `_power_forgetting_factor`).
+
         Returns a rate in 1/turns, bounded so no edge is ever immortal and
         none is destroyed in a single cycle.
         """
@@ -2694,13 +2700,52 @@ class ConceptGraph:
         interference = 1.0 + math.log1p(max(0, competitors))
         # Importance: structurally critical edges decay slower.
         importance = 1.0 / (1.0 + 2.0 * max(0.0, float(structural_importance)))
+        # Degree of learning: a well-learned trace forgets slower in
+        # proportion to its strength (Wixted 2022). confidence is the
+        # graph's degree-of-learning measure.
+        strength = max(0.0, min(1.0, float(getattr(edge, "confidence", 0.5) or 0.5)))
+        learning = 1.0 / (1.0 + 2.0 * strength)
         # Normalise so the BASE rate is the per-cycle decay of a typical edge
         # (no competitors, no rehearsals, no importance), not the slowest one.
         # Without this the interference term alone inflates every rate and a
         # single sleep cycle can erase a trace outright.
         typical = 1.0 + math.log1p(3.0)      # a node with ~4 outgoing edges
         return (self._forgetting_base_rate * lability * interference * importance
-                / typical)
+                * learning / typical)
+
+    @staticmethod
+    def _power_forgetting_factor(age_turns: float, rate: float,
+                                 dt: float = 1.0) -> float:
+        """Power-law forgetting factor (Wixted & Ebbesen 1991, 1997).
+
+        Forgetting is a POWER function of time,
+
+            n(t) = n0 * (1 + t)^(-b),
+
+        not an exponential. The behavioural consequence is the property the
+        literature regards as diagnostic: the RELATIVE rate of forgetting
+        decreases with time. An exponential has a constant relative rate; a
+        power law does not. This is Jost's second law (1897) -- of two memories
+        at equal strength, the older decays more slowly.
+
+        `rate` is the power exponent b (per turn), `age_turns` is how long the
+        trace has already gone unused, and `dt` is how much disuse this cycle
+        covers. The factor returned is the ratio
+
+            n(age + dt) / n(age) = ((1 + age) / (1 + age + dt)) ** b
+
+        which multiplies the trace. Both terms matter: `age` in the base is
+        what makes the relative rate fall as the trace ages, and `dt` scales
+        how much decay this cycle delivers.
+
+        Note that b is small (order 1e-3..1e-1 per turn), so the exponent is
+        applied to the RATIO of ages rather than to a raw turn count -- that is
+        what keeps a single cycle from either erasing a trace or doing nothing.
+        """
+        age = max(0.0, float(age_turns))
+        dt = max(1e-9, float(dt))
+        base = 1.0 + age
+        return (base / (base + dt)) ** float(rate)
 
     def decay_edges(self, turns_elapsed: int, base_rate: float = 0.02,
                     rehearsal_halflife: float = 6.0,
@@ -2722,8 +2767,14 @@ class ConceptGraph:
         proportionally to their size; the largest are spared).
 
         The RATE is per-edge and computed by `_edge_forgetting_rate` from
-        lability, interference and structural importance -- not a flat
+        lability, interference, importance and degree of learning -- not a flat
         constant. See that method for the grounding.
+
+        The SHAPE is a power law, not an exponential: the per-cycle factor is
+        ((1+age+dt)/(1+age))^(-b), so the RELATIVE rate of forgetting falls as
+        the trace ages (Jost's second law; Wixted & Ebbesen 1991, 1997).
+        `edge._forget_age` accumulates turns since the trace was last
+        reactivated, and is what makes the decay self-retarding.
 
         An edge is SPAREd outright when it was rehearsed very recently -- the
         trace is still in its labile window and must not be decayed mid-flight.
@@ -2746,10 +2797,24 @@ class ConceptGraph:
                     continue
             competitors = max(0, len(self._outgoing.get(src, [])) - 1)
             rate = self._edge_forgetting_rate(edge, competitors, si.get((src, tgt), 0.0))
-            factor = math.exp(-rate * float(turns_elapsed))
+            # Power-law decay over the disuse interval [age, age + turns]:
+            #   n(t+dt)/n(t) = ((1+age)/(1+age+dt))^b
+            # The age in the base is what makes the RELATIVE rate fall as the
+            # trace gets older (Jost's second law); dt is how much disuse this
+            # cycle covers. Both appear, neither is squared.
+            age = float(getattr(edge, "_forget_age", 0.0) or 0.0)
+            dt = float(turns_elapsed)
+            factor = self._power_forgetting_factor(age, rate, dt)
             factor = max(0.05, min(1.0, factor))
             old = float(getattr(edge, "confidence", 0.5) or 0.5)
             new = max(min_confidence, old * factor)
+            # Age accumulates only while the trace goes unused: a trace that
+            # keeps being needed does not become more resistant by lapse of
+            # time alone (need odds are a function of USE, not of the clock).
+            try:
+                edge._forget_age = age + float(turns_elapsed)
+            except Exception:
+                pass
             if abs(new - old) > 1e-9:
                 try:
                     edge.confidence = new
@@ -2771,6 +2836,10 @@ class ConceptGraph:
         try:
             edge.last_rehearsal = float(now)
             edge.rehearsals = int(getattr(edge, "rehearsals", 0) or 0) + 1
+            # A reactivated trace is, for forgetting purposes, young again:
+            # need odds are estimated from the history of use, so the
+            # power-law age resets (Anderson & Schooler 1991).
+            edge._forget_age = 0.0
         except Exception:
             return False
         return True

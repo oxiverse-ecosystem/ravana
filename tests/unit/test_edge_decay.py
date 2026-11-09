@@ -80,18 +80,36 @@ def test_decay_is_multiplicative_not_subtractive():
     assert s1 > w1, "relative ordering must be preserved"
 
 
-def test_repeated_decay_converges_to_the_floor():
+def test_repeated_decay_is_self_retarding():
+    """Power-law forgetting: the RELATIVE rate falls as the trace ages.
+
+    This is Jost's second law (1897) and the property that distinguishes a power
+    law from an exponential (Wixted & Ebbesen 1991, 1997). An exponential would
+    keep losing the same proportion every cycle and eventually cross any floor;
+    a power law loses a shrinking proportion and asymptotes instead.
+
+    So the assertion is on the RATIO of successive losses, not on reaching a
+    floor: each cycle must remove a smaller fraction than the one before.
+    """
     g, (a, b, _) = _graph()
     _link(g, a, b, conf=0.9)
-    # Exponential decay: many cycles to approach the floor, and it must
-    # asymptote there rather than cross it.
-    prev = float(g.get_edge(a, b).confidence)
-    for _ in range(400):
-        g.decay_edges(turns_elapsed=10)
-        cur = float(g.get_edge(a, b).confidence)
-        assert cur <= prev + 1e-12, "decay must be monotone"
-        prev = cur
-    assert 0.05 <= float(g.get_edge(a, b).confidence) < 0.06
+    e = g.get_edge(a, b)
+    e._forget_age = 0.0
+
+    losses = []
+    for _ in range(12):
+        before = float(e.confidence)
+        g.decay_edges(turns_elapsed=5)
+        after = float(e.confidence)
+        losses.append((before - after) / max(before, 1e-9))
+
+    # Monotone decreasing relative loss, and the last is far smaller than the
+    # first -- the signature of a power law.
+    assert losses[0] > losses[-1], f"relative loss did not fall: {losses}"
+    assert losses[-1] < losses[0] * 0.5, (
+        f"relative loss barely fell: first={losses[0]:.6f} last={losses[-1]:.6f}")
+    # And it never crosses the floor.
+    assert float(e.confidence) >= 0.05
 
 
 def test_no_decay_without_elapsed_turns():
@@ -188,6 +206,40 @@ def test_rate_is_lower_for_a_structurally_important_edge():
     plain = g._edge_forgetting_rate(e, competitors=0, structural_importance=0.0)
     critical = g._edge_forgetting_rate(e, competitors=0, structural_importance=0.9)
     assert critical < plain, "a structurally critical edge must decay slower"
+
+
+def test_rate_is_lower_for_a_strongly_learned_edge():
+    """Degree of learning (Wixted 2022): a higher degree of initial learning
+    yields a slower RELATIVE rate of forgetting -- stronger memories decay
+    slower proportionally, not just from a higher start."""
+    g, (a, b, _) = _graph()
+    weak = _link(g, a, b, conf=0.2)
+    g._forgetting_base_rate = 0.02
+    r_weak = g._edge_forgetting_rate(weak, competitors=0, structural_importance=0.0)
+    strong = _link(g, a, b, conf=0.95)
+    r_strong = g._edge_forgetting_rate(strong, competitors=0, structural_importance=0.0)
+    assert r_strong < r_weak, (
+        f"a well-learned trace must forget slower in proportion: "
+        f"{r_strong} vs {r_weak}")
+
+
+def test_older_traces_forget_slower_in_proportion():
+    """Jost's second law, end to end: of two traces at equal strength, the
+    older loses a smaller FRACTION of itself per cycle."""
+    g, ids = _graph(4)
+    young = _link(g, ids[0], ids[1], conf=0.8)
+    old = _link(g, ids[2], ids[3], conf=0.8)
+    young._forget_age = 0.0
+    old._forget_age = 200.0
+
+    y0, o0 = float(young.confidence), float(old.confidence)
+    g.decay_edges(turns_elapsed=5)
+    y_loss = (y0 - float(young.confidence)) / y0
+    o_loss = (o0 - float(old.confidence)) / o0
+
+    assert o_loss < y_loss, (
+        f"the older trace must forget slower in proportion: "
+        f"old={o_loss:.6f} young={y_loss:.6f}")
 
 
 def test_rates_differ_between_edges_in_one_graph():
