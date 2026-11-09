@@ -133,8 +133,15 @@ def test_observation_coverage_is_partial_because_predictions_are_partial():
     # `inspect.getsource` on a method keeps the class-body indentation, which
     # is not valid standalone Python for ast.parse. One dedent fixes it
     # (measured, not assumed — see tmp/probe_getsource.py).
+    #
+    # The turn body lives in `_process_turn_impl`: process_turn is now a thin
+    # wrapper that records the exchange for dialogue memory on every return
+    # path. The invariant under test -- no early return precedes the confidence
+    # prediction -- is a property of the TURN, so walk the implementation the
+    # wrapper delegates to. Walking the wrapper would find neither the
+    # assignment nor the early returns and would fail without testing anything.
     tree = ast.parse(textwrap.dedent(
-        inspect.getsource(CognitiveChatEngine.process_turn)))
+        inspect.getsource(CognitiveChatEngine._process_turn_impl)))
 
     conf_line = None
     early_returns = []

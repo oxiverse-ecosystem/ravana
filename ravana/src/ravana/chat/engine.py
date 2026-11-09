@@ -470,6 +470,10 @@ from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 # Phase 3 Imports
 from ravana.learn.curiosity import CuriosityEngine
 from ravana.learn.consolidation import HippocampalReplay
+from ravana.learn.dialogue_memory import (
+    DialogueMemory, DialogueMemoryConfig, derive_outcome,
+    OUTCOME_CORRECTED, OUTCOME_NEUTRAL, OUTCOME_CONTINUED,
+)
 from ravana.language.register import RegisterController
 
 
@@ -1543,6 +1547,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 print(f"  [Migration] Legacy migration failed: {e}")
                 
         self.db = CognitiveDB(self._db_path)
+        # ── Dialogue memory (Phase 1) ──────────────────────────────────────
+        # A persistent, retrievable store of conversation exchanges. Built on
+        # the SAME CognitiveDB as the graph so it survives restarts and
+        # shares the WAL/ACID guarantees. Fail-open: if the table cannot be
+        # created the memory is inert and the engine still boots and chats.
+        # The vector function is the engine's own GloVe lookup, injected so
+        # this module owns no embedding table.
+        self.dialogue_memory = DialogueMemory(
+            self.db,
+            config=DialogueMemoryConfig(),
+            vector_fn=self._glove_vector,
+            dim=self.dim,
+        )
+        # Per-turn dialogue-memory outcome snapshot. Set at the top of the
+        # turn (right after mine_personal_facts) and refreshed after
+        # observe_user_query, before any early-return path or the correction
+        # circuit can reset the user_model flags; consumed by the
+        # process_turn wrapper after the reply is final. None means "no
+        # snapshot this turn" and the wrapper derives the outcome from
+        # user_model.
+        self._dm_outcome: Optional[str] = None
+        self._dm_severity: float = 0.0
+        self._dm_ctype: str = ""
         self.working_memory = WorkingMemory(capacity=self._pfc_buffer_capacity)
         self.predictive_coding_learner = PredictiveCodingLearner(self.graph)
         self.coherence_net = CoherenceNetwork()
@@ -7514,6 +7541,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return None
 
     def process_turn(self, user_input: str) -> str:
+        """Process input and generate a response, auto-learning when needed.
+
+        Dialogue-memory note (Phase 1): the whole turn runs inside
+        ``_process_turn_impl`` and the wrapper records the exchange on EVERY
+        return path. process_turn has ~66 early returns (meta_command,
+        structured_recall, empathy, arithmetic, ...), so instrumenting only
+        the tail would silently drop most turns from the memory -- the same
+        reason the spike log and retrieval practice are recorded at the TOP
+        of the turn. The wrapper reads the outcome from user_model AFTER the
+        turn completes, so a correction is labelled with the post-turn state.
+
+        NOTE: the outcome is NOT read fresh here. Both
+        _detect_and_handle_correction (engine_persistence.py) and the
+        correction-persist gate call user_model.reset_correction_flags() before
+        the turn ends, so a post-turn read would always yield 'continued' and
+        every correction would be mislabelled. The verdict is therefore
+        snapshotted at the top of the turn (_dm_outcome, set right after
+        mine_personal_facts) and refreshed after observe_user_query; see
+        _record_dialogue_turn.
+        """
+        response = self._process_turn_impl(user_input)
+        try:
+            self._record_dialogue_turn(
+                user_input, response,
+                getattr(self, "_last_subject", None) or "")
+        except Exception:
+            pass  # memory must never take a turn down
+        return response
+
+    def _process_turn_impl(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
         # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
         # so affect realizers can read the user's own felt-label ("i feel
@@ -7610,6 +7667,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.user_model.reset_correction_flags()
         except Exception:
             pass
+        # Clear the prior turn's dialogue-memory outcome snapshot so a stale
+        # verdict cannot leak into this turn's recording.
+        self._dm_outcome = None
+        self._dm_severity = 0.0
+        self._dm_ctype = ""
         # Step 3a: Meta-command detector at the VERY TOP of process_turn (PFC task-set override)
         _meta_res = self._check_meta_command(user_input)
         if _meta_res is not None:
@@ -7840,6 +7902,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # early-returns later (e.g. a bare "i really like cats" hitting a
         # preference handler). The same-turn recall block below reads these.
         self.user_model.mine_personal_facts(user_input)
+        # ── Dialogue memory (Phase 1): snapshot the outcome NOW ──────────
+        # mine_personal_facts (and, on the full pipeline, observe_user_query)
+        # set the correction flags here, BEFORE any early-return path can
+        # consume and reset them (the correction-persist gate at ~line 9100
+        # and _detect_and_handle_correction both call reset_correction_flags).
+        # Snapshotting here captures the verdict for EVERY path. Fail-open.
+        try:
+            self._dm_outcome, self._dm_severity, self._dm_ctype = \
+                derive_outcome(self.user_model)
+        except Exception:
+            self._dm_outcome, self._dm_severity, self._dm_ctype = \
+                (OUTCOME_NEUTRAL, 0.0, "")
 
         # ── Same-turn user-profile / opinion recall (A5 / C3) ────────────────
         # MUST fire before ANY recall/combine handler below (the combined-fact
@@ -10352,6 +10426,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # earlier at the identity gate for SAME-turn fact capture; this full
         # observe also seeds opinions, which the gate miner does not.)
         self.user_model.observe_user_query(user_input, subject, self.emotion.state.valence)
+        # ── Dialogue memory (Phase 1): re-snapshot the outcome ──────────
+        # observe_user_query ran _detect_correction, which adds the direct /
+        # sentiment-drop / reask streams to the flags the top-of-turn
+        # snapshot already captured from mine_personal_facts. Refresh the
+        # snapshot so the full pipeline records the complete verdict. This
+        # runs BEFORE any early-return path below can reset the flags.
+        try:
+            self._dm_outcome, self._dm_severity, self._dm_ctype = \
+                derive_outcome(self.user_model)
+        except Exception:
+            pass
 
         # Step 5c: P1 Theory of Mind — post-spread deep ToM update (roadmap §7)
         self._update_user_model(user_input, subject, associations)
@@ -11025,6 +11110,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         prev_strategy = getattr(self, '_last_strategy', strategy) or strategy
         self.user_model.store_response_for_correction(
             prev_response, prev_strategy, self.emotion.state.valence if hasattr(self, 'emotion') else 0.0)
+        # ── Dialogue memory (Phase 1): outcome already snapshotted ──────
+        # The verdict was captured at the top of the turn (right after
+        # mine_personal_facts), before any early-return path or this
+        # correction circuit could reset the flags. Nothing to do here.
         correction_ack = self._detect_and_handle_correction(
             user_input, ctx.subject, response, strategy, quality_score)
         if correction_ack:
@@ -11286,7 +11375,65 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._identity_end_of_turn(user_input, quality_score=None)
 
         self._record_own_reply(user_input, response, subject)
+        # Dialogue-memory recording is done by the process_turn wrapper so
+        # EVERY return path (including the ~66 early returns above) is stored.
         return response
+
+    # ── Dialogue memory (Phase 1) ────────────────────────────────────────────
+    def _record_dialogue_turn(self, user_input: str, response: str,
+                              subject: str = "") -> bool:
+        """Store one exchange in the dialogue memory. Returns True on success.
+
+        The outcome is derived from the EXISTING user_model correction
+        detector (detected_correction / correction_severity) -- this method
+        does not re-detect anything. The verdict is snapshotted at the top of
+        the turn (right after mine_personal_facts) and refreshed after
+        observe_user_query, because both the correction-persist gate and
+        _detect_and_handle_correction reset the flags before the turn ends.
+
+        Fail-open: returns False (no-op) when the memory is unavailable or
+        any step raises. Never propagates.
+        """
+        try:
+            mem = getattr(self, "dialogue_memory", None)
+            if mem is None or not getattr(mem, "available", False):
+                return False
+            if getattr(self, "_dm_outcome", None) is not None:
+                outcome = self._dm_outcome
+                severity = float(getattr(self, "_dm_severity", 0.0) or 0.0)
+                ctype = getattr(self, "_dm_ctype", "") or ""
+            else:
+                outcome, severity, ctype = derive_outcome(self.user_model)
+            strategy = getattr(self, "_last_strategy", "") or ""
+            return bool(mem.record_turn(
+                turn_index=self.turn_count,
+                user_utterance=user_input or "",
+                ravana_reply=response or "",
+                subject=subject or "",
+                strategy=strategy,
+                outcome=outcome,
+                outcome_severity=severity,
+                correction_type=ctype,
+            ))
+        except Exception:
+            return False
+
+    def recall_similar_exchanges(self, query: str, k: int = 3) -> List[Tuple[Any, float]]:
+        """Return the k most similar PAST exchanges for ``query``.
+
+        Phase 2 entry point: retrieval is exposed here but is NOT yet wired
+        into the response generator. Returns a list of
+        ``(DialogueTurn, similarity)`` sorted by similarity descending, or an
+        empty list when the memory is unavailable or no similarity can be
+        computed. Fail-open.
+        """
+        try:
+            mem = getattr(self, "dialogue_memory", None)
+            if mem is None or not getattr(mem, "available", False):
+                return []
+            return mem.recall_similar_exchanges(query, k=k)
+        except Exception:
+            return []
 
     # ── Identity update wiring (RV-1 fix) ──────────────────────────────────────
     # process_turn() never called IdentityEngine.compute_update(), so the
