@@ -170,6 +170,40 @@ def _cond_for(eng, dec, reply_ids):
         return None
 
 
+def _force_decoder_reply(eng, query):
+    """Run the decoder path DIRECTLY, bypassing the upstream generation paths.
+
+    `_generate_with_situation_model` sits at response_gen.py:6909, behind the
+    decomposition, definition, reflective and metacognitive paths (6719-6896).
+    Those return first for most queries, so flipping `use_linggen` and calling
+    `process_turn` never reaches the decoder -- which is why the old gate
+    compared the template path against itself.
+
+    This calls the decoder path on a context built from the query, so the
+    measurement observes the decoder rather than the fallback distribution.
+    Returns (text, strategy) or None.
+    """
+    try:
+        ctx = eng._build_response_context(query) if hasattr(
+            eng, "_build_response_context") else None
+    except Exception:
+        ctx = None
+    if ctx is None:
+        return None
+    owner = None
+    for name in dir(eng):
+        o = getattr(eng, name, None)
+        if o is not None and hasattr(o, "_generate_with_situation_model"):
+            owner = o
+            break
+    if owner is None:
+        return None
+    try:
+        return owner._generate_with_situation_model(ctx)
+    except Exception:
+        return None
+
+
 def _coherence(eng, query, reply):
     """Path-independent quality: topical coherence with the query subject,
     penalised when the learned salad classifier calls the reply degenerate."""
@@ -217,18 +251,46 @@ def main():
 
     rows = []
     skipped_identical = 0
+    # REACHABILITY: how often does the decoder path actually run on a real
+    # query? If it is ~0, the promotion flag cannot change behaviour and the
+    # whole comparison is moot. Measured by instrumenting the decoder entry
+    # point, not by guessing from the replies.
+    reach = {"calls": 0, "returned": 0}
+    owner = None
+    for _name in dir(eng):
+        _o = getattr(eng, _name, None)
+        if _o is not None and hasattr(_o, "_generate_with_situation_model"):
+            owner = _o
+            break
+    if owner is not None:
+        _orig_sm = owner._generate_with_situation_model
+
+        def _counting_sm(ctx, *a, **k):
+            reach["calls"] += 1
+            r = _orig_sm(ctx, *a, **k)
+            if r is not None:
+                reach["returned"] += 1
+            return r
+        owner._generate_with_situation_model = _counting_sm
+
     for q in PROBES:
         eng.use_linggen = False
         template_reply = eng.process_turn(q) or ""
         eng.use_linggen = True
         decoder_reply = eng.process_turn(q) or ""
 
-        # If both paths emitted the SAME string, the decoder never ran --
-        # `_consult_internal_knowledge` answered from the KB first. Scoring
-        # that pair measures nothing, so exclude it and say so.
+        # If the flag did not change the reply, the decoder was unreachable for
+        # this query. Fall back to invoking the decoder path directly so the
+        # measurement still observes it -- and record that we had to.
+        forced = False
         if template_reply.strip() and template_reply.strip() == decoder_reply.strip():
             skipped_identical += 1
-            continue
+            forced_reply = _force_decoder_reply(eng, q)
+            if forced_reply:
+                decoder_reply = forced_reply[0]
+                forced = True
+            else:
+                continue
 
         t_ids, d_ids = _to_ids(eng, template_reply), _to_ids(eng, decoder_reply)
         # ── SHARED-REFERENCE CE ────────────────────────────────────────────
@@ -263,6 +325,7 @@ def main():
                 if (ref_ids and t_ids) else None),
             "decoder_coherence": _coherence(eng, q, decoder_reply),
             "template_coherence": _coherence(eng, q, template_reply),
+            "decoder_forced": forced,
         })
 
     def _mean(vals):
@@ -326,6 +389,14 @@ def main():
         "decoder_replies_produced": decoder_produced,
         "template_replies_produced": template_produced,
         "uniform_baseline_ce": uniform_ce,
+        # Reachability: the fraction of real queries where the decoder path is
+        # actually entered. If this is ~0 the promotion flag is inert no matter
+        # what the CE numbers say.
+        "decoder_path_calls": reach["calls"],
+        "decoder_path_returned": reach["returned"],
+        "decoder_reachability": (round(reach["returned"] / reach["calls"], 4)
+                                 if reach["calls"] else None),
+        "decoder_forced_count": sum(1 for r in rows if r.get("decoder_forced")),
         "promote_use_linggen": promote,
     }
 
