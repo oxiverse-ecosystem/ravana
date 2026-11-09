@@ -3942,7 +3942,14 @@ class ResponseGenMixin(ChainWalkerMixin):
             if subject in getattr(self, "_concept_sources", {}):
                 return ""
             from ravana.chat.hedges import _marker
-            return _marker("related_weak")
+            # Phase 2 (style conditioning): the user's directness is a
+            # REGISTER signal, so the measured state is adjusted before the
+            # marker is looked up. The marker itself still comes from the
+            # shared registry -- no hedge string is authored here. Fail-open:
+            # no style context -> the base state is used unchanged.
+            _state = self.condition_modality(
+                "related_weak", getattr(self, "_style_context", None))
+            return _marker(_state)
         except Exception:
             return ""
 
@@ -6901,6 +6908,13 @@ class ResponseGenMixin(ChainWalkerMixin):
         _rel0 = top[0]
         _rel1 = top[1] if len(top) > 1 else None
         _strong = related[0][1] >= 0.55 if related else False
+        # Phase 2 (style conditioning): the base trace band is adjusted by
+        # the user's directness before the hedge frame is composed. The
+        # frame and marker still come from the shared registry -- no hedge
+        # string is authored here. Fail-open: no style context -> unchanged.
+        _style_ctx = getattr(self, "_style_context", None)
+        _base_band = ("related_strong" if _strong else "related_weak")
+        _band = self.condition_modality(_base_band, _style_ctx)
         # Coherence-gate any retrieved evidence before surfacing it (no raw splice).
         _safe_evidence = ""
         if _evidence:
@@ -6917,11 +6931,11 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _note = f" — from what i've seen, {_rel0} {_safe_evidence.lower()}"
                 openers = [
                     hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + _note,
-                    hedge_frame("ignorance", "related_weak", subj=subj, rel=_rel0) + _note,
+                    hedge_frame("ignorance", _band, subj=subj, rel=_rel0) + _note,
                 ]
             else:
                 openers = [
-                    hedge_frame("ignorance", "related_strong" if _strong else "related_weak",
+                    hedge_frame("ignorance", _band,
                                 subj=subj, rel=_rel0),
                     f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {_rel0}.",
                     f"i'm still figuring out {subj_cap} — the thread i keep pulling is {_rel0}.",
@@ -6931,11 +6945,11 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _note = f" — and {_rel0} seems to be {_safe_evidence.lower()}"
                 openers = [
                     hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + f" and {_rel1}" + _note,
-                    hedge_frame("ignorance", "related_weak", subj=subj, rel=_rel0) + f" and maybe {_rel1}" + _note,
+                    hedge_frame("ignorance", _band, subj=subj, rel=_rel0) + f" and maybe {_rel1}" + _note,
                 ]
             else:
                 openers = [
-                    hedge_frame("ignorance", "related_strong" if _strong else "related_weak",
+                    hedge_frame("ignorance", _band,
                                 subj=subj, rel=_rel0) + f" and {_rel1}",
                     f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
                 ]
@@ -6966,7 +6980,27 @@ class ResponseGenMixin(ChainWalkerMixin):
         - Implicature detector (greetings handled by PFC routing)
         - Nested proposition parser (edge case, rarely triggered)
         - Quantity comparison (special case, rarely triggered)
+
+        STYLE CONDITIONING (Phase 2): before the decision tree, a style context
+        is built from the USER half of the retrieved exchanges and applied to
+        the surface realizer's variant weights. This is CONDITIONING on the
+        syntax path -- the frozen decoder is never touched, and no reply
+        string is authored. Fail-open: when conditioning is off or the
+        memory is empty, ``style`` is None and every consumer no-ops, so the
+        output is byte-identical to the pre-Phase-2 behaviour.
         """
+        # ── Phase 2: style conditioning ──────────────────────────────────
+        # Published at the TOP of the turn, before any consumer can run.
+        # `_epistemic_tag` and the hedge-frame path both read `_style_context`
+        # and both are reachable earlier in this method than the conditioning
+        # block below, so building it there left them reading None on the first
+        # pass and the modality conditioning silently never applied.
+        self._style_context = self.build_style_context(ctx.raw_input)
+        if self._style_context is not None:
+            # Nudge the realizer's variant weights now that the context is
+            # published. Multiplicative only -- the realizer's own
+            # discourse-driven selection is preserved.
+            self.apply_style_conditioning(self._style_context)
         # Step 1: PFC Classifier — detect question type and knowledge confidence
         qtype, _ = self.pfc_workspace.detect_question_type(ctx.raw_input, concept_pos=self._concept_pos)
 

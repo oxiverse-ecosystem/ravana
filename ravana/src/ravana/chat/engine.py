@@ -474,6 +474,10 @@ from ravana.learn.dialogue_memory import (
     DialogueMemory, DialogueMemoryConfig, derive_outcome,
     OUTCOME_CORRECTED, OUTCOME_NEUTRAL, OUTCOME_CONTINUED,
 )
+from ravana.learn.style_conditioning import (
+    StyleContext, alignment_metric, build_style_context_from_memory,
+    apply_style_to_realizer, select_modality,
+)
 from ravana.language.register import RegisterController
 
 
@@ -1570,6 +1574,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._dm_outcome: Optional[str] = None
         self._dm_severity: float = 0.0
         self._dm_ctype: str = ""
+        # ── Style conditioning (Phase 2) ─────────────────────────────────
+        # OFF by default: when False, generation is byte-identical to the
+        # pre-Phase-2 behaviour (no style context is built, no realizer
+        # weights are touched). Flip on to test interactive alignment.
+        # Fail-open: an unavailable memory yields no style context and every
+        # consumer no-ops, so the flag alone never changes output.
+        self.use_style_conditioning = False
+        self._style_context: Optional[StyleContext] = None
+        self._style_context_turn: int = -1
+        # Rolling alignment windows (turn-indexed) so turn 1 vs turn 20 can
+        # be compared automatically. Each entry is the metric dict from
+        # alignment_metric().
+        self._alignment_log: List[Dict[str, Any]] = []
         self.working_memory = WorkingMemory(capacity=self._pfc_buffer_capacity)
         self.predictive_coding_learner = PredictiveCodingLearner(self.graph)
         self.coherence_net = CoherenceNetwork()
@@ -7568,7 +7585,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 getattr(self, "_last_subject", None) or "")
         except Exception:
             pass  # memory must never take a turn down
+        # ── Phase 2: interactive-alignment measurement ────────────────────
+        # Recorded AFTER the turn so the reply is final. Pure function of the
+        # user's recent utterances and RAVANA's recent replies; fail-open.
+        try:
+            self._measure_turn_alignment(user_input, response)
+        except Exception:
+            pass
         return response
+
+    def _measure_turn_alignment(self, user_input: str, response: str) -> None:
+        """Compute and record the alignment metric for the last few turns.
+
+        Uses the dialogue memory's stored turns (the SAME source the style
+        context is derived from), so the metric is computable automatically
+        and comparable across turn 1 vs turn 20. Fail-open: no memory, no
+        stored turns, or a metric error -> no-op.
+        """
+        try:
+            mem = getattr(self, "dialogue_memory", None)
+            if mem is None or not getattr(mem, "available", False):
+                return
+            turns = mem.recent_turns(6)
+            if len(turns) < 2:
+                return
+            user_texts = [t.user_utterance for t in turns
+                          if isinstance(t.user_utterance, str) and t.user_utterance.strip()]
+            ravana_texts = [t.ravana_reply for t in turns
+                            if isinstance(t.ravana_reply, str) and t.ravana_reply.strip()]
+            if not user_texts or not ravana_texts:
+                return
+            metric = self.measure_alignment(user_texts, ravana_texts)
+            self.record_alignment(int(getattr(self, "turn_count", 0)), metric)
+        except Exception:
+            return
 
     def _process_turn_impl(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
@@ -11435,6 +11485,116 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             return []
 
+    # ── Style conditioning (Phase 2) ─────────────────────────────────────────
+    def _style_conditioning_enabled(self) -> bool:
+        """True when style conditioning is on AND the memory can serve it.
+
+        The flag alone is not enough: an empty/unavailable memory must leave
+        generation exactly as before, so the memory's availability is part
+        of the gate.
+        """
+        if not getattr(self, "use_style_conditioning", False):
+            return False
+        mem = getattr(self, "dialogue_memory", None)
+        return bool(mem is not None and getattr(mem, "available", False))
+
+    def build_style_context(self, query: str, k: int = 3) -> Optional[StyleContext]:
+        """Build (and cache) the style context for this turn's query.
+
+        The context is derived from the USER half of the retrieved exchanges
+        only. Cached per turn so every consumer in one turn sees the same
+        context (and so the realizer weights are nudged once, not per call).
+        Returns None when conditioning is off or the memory is empty --
+        callers must treat None as "no conditioning".
+        """
+        if not self._style_conditioning_enabled():
+            return None
+        turn = int(getattr(self, "turn_count", 0))
+        if self._style_context is not None and self._style_context_turn == turn:
+            return self._style_context
+        ctx = build_style_context_from_memory(
+            getattr(self, "dialogue_memory", None), query, k=k)
+        self._style_context = ctx
+        self._style_context_turn = turn
+        return ctx
+
+    def apply_style_conditioning(self, style: Optional[StyleContext]) -> bool:
+        """Apply the style context to the surface realizer's variant weights.
+
+        Multiplies (never replaces) the realizer's existing weights, so the
+        bias is a nudge and the realizer's discourse-driven selection is
+        preserved. Returns True when any weight changed. Fail-open.
+        """
+        if style is None or not style.available:
+            return False
+        # Publish the context for the consumers that read `_style_context`
+        # directly -- `_epistemic_tag` and the hedge-frame path both consult it
+        # and both run BEFORE this method is reached on the first pass through
+        # _generate_response. Without this assignment they always saw None and
+        # the modality conditioning silently never applied.
+        self._style_context = style
+        self._style_context_turn = int(getattr(self, "turn_count", 0))
+        try:
+            return bool(apply_style_to_realizer(
+                getattr(self, "surface_realizer", None), style))
+        except Exception:
+            return False
+
+    def condition_modality(self, base_modality: str,
+                           style: Optional[StyleContext]) -> str:
+        """Adjust a measured modality by the user's directness (register).
+
+        The marker itself still comes from the shared hedge registry; this
+        only chooses which measured state to ask for. Fail-open.
+        """
+        try:
+            return select_modality(style, base_modality)
+        except Exception:
+            return base_modality
+
+    def measure_alignment(self, user_texts: List[str],
+                          ravana_texts: List[str]) -> Dict[str, float]:
+        """Compute the interactive-alignment metric for a window of turns.
+
+        Pure function of the two text windows; no engine state. Returns the
+        metric dict (function_word_distance, length_ratio,
+        question_rate_delta, composite).
+        """
+        try:
+            return alignment_metric(user_texts, ravana_texts)
+        except Exception:
+            return {"function_word_distance": 1.0, "length_ratio": 0.0,
+                    "question_rate_delta": 0.0, "composite": 0.0}
+
+    def record_alignment(self, turn_index: int, metric: Dict[str, float]) -> None:
+        """Append an alignment sample to the rolling log (fail-open)."""
+        try:
+            self._alignment_log.append({
+                "turn": int(turn_index),
+                "metric": dict(metric),
+            })
+            if len(self._alignment_log) > 200:
+                self._alignment_log = self._alignment_log[-200:]
+        except Exception:
+            pass
+
+    def alignment_trend(self, window: int = 5) -> Optional[float]:
+        """Composite-alignment change between the first and last window.
+
+        Positive = RAVANA moved TOWARD the user. None when there are fewer
+        than two windows (nothing to compare).
+        """
+        log = getattr(self, "_alignment_log", [])
+        if len(log) < 2:
+            return None
+        try:
+            head = [e["metric"].get("composite", 0.0) for e in log[:window]]
+            tail = [e["metric"].get("composite", 0.0) for e in log[-window:]]
+            return float(np.mean(tail) - np.mean(head))
+        except Exception:
+            return None
+
+
     # ── Identity update wiring (RV-1 fix) ──────────────────────────────────────
     # process_turn() never called IdentityEngine.compute_update(), so the
     # identity stayed pinned at initial_strength=1.0. This helper computes the
@@ -11838,6 +11998,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'use_beliefs': getattr(self, 'use_beliefs', True),
                 'use_cerebellar_snippet': getattr(self, 'use_cerebellar_snippet', False),
                 'use_linggen': getattr(self, 'use_linggen', False),
+                # Phase 2 (style conditioning): the flag and the derived
+                # style context. The context is a pure function of the
+                # dialogue memory, so it could be rebuilt, but persisting it
+                # keeps the register stable across a reload (and lets a
+                # session resume with the same conditioning it ended with).
+                'use_style_conditioning': getattr(self, 'use_style_conditioning', False),
+                'style_context_state': (
+                    getattr(self._style_context, 'to_state', lambda: None)()
+                    if getattr(self, '_style_context', None) is not None
+                    else None),
                 'linggen_genconf_seq': list(getattr(self, '_linggen_genconf_seq', [])),
                 'source_trust': dict(getattr(self, '_source_trust', {})),
                 'belief_store_state': getattr(self, 'belief_store', BeliefStore()).get_state(),
@@ -12601,6 +12771,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 except Exception:
                     pass
 
+            # Restore Phase 2 style-conditioning state. The flag is a plain
+            # bool; the context is rebuilt from the dialogue memory when
+            # absent (it is a pure function of the stored turns), so a
+            # missing context degrades to "no conditioning" rather than
+            # breaking the reload.
+            self.use_style_conditioning = bool(
+                state.get('use_style_conditioning', False))
+            _sc = StyleContext.from_state(state.get('style_context_state'))
+            self._style_context = _sc
+            self._style_context_turn = -1
             # Restore Phase 10-17 state
             self._sentence_schema = state.get('sentence_schema', {})
             self._mean_sentence_pe = state.get('mean_sentence_pe', 0.0)
