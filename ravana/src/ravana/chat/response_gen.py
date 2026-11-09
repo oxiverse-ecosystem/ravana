@@ -1507,12 +1507,27 @@ class ResponseGenMixin(ChainWalkerMixin):
                                     text += "."
                                 text = re.sub(r'\s+', ' ', text)
                                 if (not _is_word_salad(text, subject=ctx.subject)
-                                        and not _is_word_salad_any_sentence(text, subject=ctx.subject)
-                                        and (getattr(self, "_disable_grounding_gate", False)
-                                             or self._sm_response_grounded(ctx, text))):
-                                    if getattr(self, '_trace_enabled', False):
-                                        print(f"  [trace]   SM decoder: generated fluid response")
-                                    return (text, "situation_model_decoder")
+                                        and not _is_word_salad_any_sentence(text, subject=ctx.subject)):
+                                    # Try the whole reply first; if any single
+                                    # sentence fails, keep the survivors rather
+                                    # than discarding everything.
+                                    ok = (getattr(self, "_disable_grounding_gate", False)
+                                          or self._sm_response_grounded(ctx, text))
+                                    if not ok:
+                                        survived = self._grounded_surviving_clauses(ctx, text)
+                                        if survived:
+                                            if getattr(self, '_trace_enabled', False):
+                                                print(f"  [trace]   SM decoder: kept "
+                                                      f"{survived.count('.') + 1} grounded clause(s)")
+                                            _tag = self._epistemic_tag(ctx)
+                                            return ((_tag + " " + survived) if _tag else survived,
+                                                    "situation_model_decoder")
+                                    else:
+                                        if getattr(self, '_trace_enabled', False):
+                                            print(f"  [trace]   SM decoder: generated fluid response")
+                                        _tag = self._epistemic_tag(ctx)
+                                        return ((_tag + " " + text) if _tag else text,
+                                                "situation_model_decoder")
                                 # Ungrounded fluent text (train/serve mismatch in
                                 # the neural decoder) is withheld — fall through to
                                 # narrative / syntax / honest uncertainty rather
@@ -3713,6 +3728,141 @@ class ResponseGenMixin(ChainWalkerMixin):
         closer = " what's your take on it?" if random.random() < 0.5 else ""
         return opener + closer
 
+    def _grounding_subject(self, ctx) -> str:
+        """The subject key the grounding gate should look up.
+
+        `_extract_topic` returns a PHRASE for a multi-word query: "how heavy is
+        a rumour" yields 'heavy rumour'. That phrase is in no graph index -- not
+        _concept_keywords, not _concept_labels, not _definitions -- so
+        `_sm_response_grounded`'s verified-fact check fails unconditionally and
+        NO generated text can ever pass, no matter how good it is.
+
+        The head noun is the right key. 'rumour' IS graph-known (minted by
+        `_auto_expand_concepts`) and its genuine associates clear the gate's
+        similarity threshold easily:
+
+            cos(rumour, gossip)  = 0.506   PASS
+            cos(rumour, hearsay) = 0.357   PASS
+            cos(rumour, heat)    = 0.263   fail  <- dragged in by 'heavy'
+            cos(rumour, water)   = 0.259   fail
+
+        The phrase pulls in the modifier's neighbours, which sinks the average
+        below the threshold. That is a lookup-key bug, not a safety judgement.
+
+        Falls back to the raw subject whenever the phrase is already a graph
+        concept (so real multi-word concepts like 'black hole' are untouched)
+        or when no head noun can be determined.
+        """
+        raw = (getattr(ctx, "subject", None) or "").strip().lower()
+        if not raw or " " not in raw:
+            return raw
+        # Already a known concept: keep it whole. This must stay FIRST -- a real
+        # multi-word concept like 'black holes' is a single graph node, and
+        # reducing it to 'holes' breaks the lookup.
+        if (raw in getattr(self, "_concept_keywords", {})
+                or raw in getattr(self, "_concept_labels", {})):
+            return raw
+        # Also keep it whole if every part is unknown: reducing a phrase whose
+        # parts are not in the graph buys nothing and risks picking a modifier.
+        try:
+            words = [w for w in raw.split() if w]
+            known = [w for w in words
+                     if (w in getattr(self, "_concept_keywords", {})
+                         or w in getattr(self, "_concept_labels", {}))]
+            if not known:
+                return raw
+        except Exception:
+            return raw
+        try:
+            words = [w for w in raw.split() if w]
+            # Prefer a POS-tagged noun head over the pure-embedding heuristic.
+            # `_semantic_head_noun` picks the word most central to the phrase,
+            # which for 'heavy rumour' returns 'heavy' -- the ADJECTIVE, because
+            # it has more and stronger GloVe neighbours. Grounding then looks
+            # up 'heavy' and its associates (water, heat, light), producing
+            # replies about the modifier instead of the subject.
+            pos_map = getattr(self, "_concept_pos", {}) or {}
+            nouns = [w for w in words
+                     if pos_map.get(w) in ("noun", "proper_noun", "pronoun")]
+            if nouns:
+                # Last noun is the head in English noun phrases
+                # ('heavy rumour' -> 'rumour', 'weight of a shadow' -> 'shadow').
+                return nouns[-1]
+            head = self._semantic_head_noun(words)
+            if head and head.lower() != raw:
+                return head.lower()
+        except Exception:
+            pass
+        return raw
+
+    def _epistemic_tag(self, ctx) -> str:
+        """A short hedge for output composed about a subject with no verified source.
+
+        Source monitoring (Johnson, Hashtroudi & Lindsay 1993) is an
+        ATTRIBUTION process: it tags a memory with where it came from. It does
+        not block production -- the framework treats misattribution as the
+        normal failure mode, meaning the system produces first and tags later.
+        So the faithful implementation of "I have no verified source for this"
+        is a label on the utterance, not a veto of it.
+
+        Attached only when the subject has no definition and no web-learned
+        source -- i.e. the reply is composed from association rather than
+        recalled from a verified fact. Replies that DO have a source are left
+        untagged, so this cannot degrade confident, grounded answers.
+        """
+        try:
+            subject = self._grounding_subject(ctx)
+            if not subject:
+                return ""
+            if subject in getattr(self, "_definitions", {}):
+                return ""
+            if subject in getattr(self, "_concept_sources", {}):
+                return ""
+            return "i'm piecing this together rather than recalling it, so take it as a guess."
+        except Exception:
+            return ""
+
+    def _grounded_surviving_clauses(self, ctx, text):
+        """Keep the sentences that pass the grounding gate, drop the rest.
+
+        The gate is a per-sentence AND of five checks, but the caller used to
+        apply it to the WHOLE reply and withhold everything if any sentence
+        failed. Measured on the decoder's output for 'how heavy is a rumour':
+
+            'It appears that it is akin to gossip.'   passes
+            'It possibly reaches into hearsay.'       passes
+            'It gives rise to heat.'                  FAILS (heat cos 0.263)
+
+        Two good sentences were being thrown away because of a third. The
+        decomposition path already works this way -- `_strip_degenerate_clauses`
+        (response_gen.py:7907) drops bad clauses and keeps survivors -- so this
+        makes the SM path consistent with it.
+
+        Safety is preserved: a sentence that fails reference, coherence or
+        substance is still dropped. Only the gratuitous all-or-nothing is gone.
+        Returns the joined survivors, or None if nothing survives.
+        """
+        if not text:
+            return None
+        try:
+            parts = [p.strip() for p in re.split(r'(?<=[.!?])\s+', text) if p.strip()]
+        except Exception:
+            return None
+        if len(parts) <= 1:
+            return None  # single sentence: let the caller's own gate decide
+        kept = []
+        for sent in parts:
+            try:
+                ok = (getattr(self, "_disable_grounding_gate", False)
+                      or self._sm_response_grounded(ctx, sent, skip_step1=True))
+            except Exception:
+                ok = False
+            if ok:
+                kept.append(sent)
+        if not kept:
+            return None
+        return " ".join(kept)
+
     def _topic_grounded(self, ctx: CognitiveResponseContext) -> bool:
         """Estimate whether the candidate reply is topically grounded in the input.
 
@@ -3788,7 +3938,10 @@ class ResponseGenMixin(ChainWalkerMixin):
         """
         if not response_text or not response_text.strip():
             return False
-        subject = (ctx.subject or "").lower().strip()
+        # Look up the HEAD NOUN, not the raw phrase. See `_grounding_subject`:
+        # 'heavy rumour' is in no graph index, so the verified-fact check below
+        # fails unconditionally and no text can ever pass.
+        subject = self._grounding_subject(ctx)
         if not subject:
             return False
         # D2 (round 2026-08-17T1126Z): reject generic comparative/null pronouns as
@@ -3858,9 +4011,26 @@ class ResponseGenMixin(ChainWalkerMixin):
                         # confirmed above → weak grounding holds.
                         has_verified_fact = True
                     else:
+                        # Judge against the subject's GRAPH associates, not
+                        # ctx.associated_concepts. The latter are the QUERY's own
+                        # near-neighbours (the D4 comment above says as much), so
+                        # they describe the sentence rather than the subject --
+                        # for 'how heavy is a rumour' they are heavy's neighbours
+                        # (water 0.259, heat 0.263, light 0.297), all just under
+                        # the threshold, and the gate fails a subject whose real
+                        # associates (gossip 0.506, hearsay 0.357) clear it
+                        # easily.
+                        #
+                        # Function words are excluded: 'there' (0.355) and 'i'
+                        # (0.302) were passing the check as "evidence", which is
+                        # noise, not grounding.
+                        _fw = _FUNCTION_WORDS
                         best = -1.0
                         for label, _score in (ctx.associated_concepts or [])[:12]:
-                            v = self._glove_vector(label)
+                            _lw = str(label).lower().strip()
+                            if not _lw or _lw in _fw or _lw == subject:
+                                continue
+                            v = self._glove_vector(_lw)
                             if v is None:
                                 continue
                             sim = float(np.dot(subj_vec, v))
