@@ -3870,7 +3870,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         the subject (a definition, web-learned fact, or an association whose GloVe
         vector is close to the subject). Mirrors a high feeling-of-knowing.
         """
-        subject = ctx.subject
+        # Use the normalized subject, same as _sm_response_grounded. This gate
+        # looked up the raw phrase, so 'heavy rumour' read as unknown even after
+        # 'rumour' had been learned into the graph with 10 edges and a source --
+        # the ACC/ERN monitor then fired _human_like_uncertainty and the decoder
+        # path was never given a chance to answer.
+        subject = self._grounding_subject(ctx)
         if not subject:
             return False
         subj_lower = subject.lower()
