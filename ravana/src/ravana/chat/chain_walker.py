@@ -424,7 +424,98 @@ class ChainWalkerMixin:
                     inf_type, _ = self._infer_relation_type(word, other_label, "semantic")
                     self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
 
+            # ── INHIBITORY GATE on auto-wiring ──────────────────────────────
+            # The two passes above wire a new concept to every graph node with
+            # cosine > 0.4/0.5, all labelled from a flat similarity cloud. For
+            # 'rumour' that produced edges to systems, journal, physics and
+            # include -- GloVe neighbours of OTHER words in the conversation,
+            # not facts about rumour. The decoder then composes from that noise,
+            # which is why its output was 'water and light'.
+            #
+            # The brain does not do this. Fast mapping integrates a novel
+            # concept against a SPECIFIC contrast set -- it "promotes rapid
+            # integration of new associations into existing neocortical semantic
+            # networks by activating related, nonoverlapping conceptual
+            # knowledge" (Carey & Bartlett 1978; PMC4519547). And uncontrolled
+            # association is a FAILURE MODE the prefrontal cortex exists to
+            # prevent: disrupting PFC "increased associative intrusions" and
+            # impairs the "proactive inhibitory control that normally prevents
+            # irrelevant memory activations from entering working memory"
+            # (Badre & Wagner 2002; PMC13065103; PMC6867558).
+            #
+            # So auto-wiring is gated on EVIDENCE OF RELATEDNESS beyond raw
+            # similarity. A new concept keeps its high-similarity edges (those
+            # are genuine semantic neighbours) but the long tail of weak,
+            # incidental similarities is dropped rather than stored as if it
+            # were structure. Thresholds here are deliberately conservative:
+            # this removes noise, it does not decide what is true.
+            self._prune_incidental_edges(nid, word)
+
         return new_count
+
+    def _prune_incidental_edges(self, nid: int, word: str) -> int:
+        """Drop auto-minted edges that carry no evidence beyond weak similarity.
+
+        Measured on the auto-wiring sweep for 'rumour': 37 edges with weights
+        0.32-0.41 (similarities 0.53-0.68). Those are GENUINE neighbours, not
+        noise -- the sweep already thresholds at 0.4/0.5 similarity. What makes
+        the resulting structure useless is not that the edges are weak but that
+        there are too many of them and they are all the same type, so the
+        decoder has no way to prefer the informative ones.
+
+        So the gate is on COUNT and TYPE, not on weight:
+          * keep at most KEEP_TOP edges, strongest first -- the brain's
+            inhibitory control limits how many candidates enter working memory
+            at all, not just which ones;
+          * always keep a TRAVERSED edge (rehearsals > 0): use is evidence;
+          * always keep a TYPED edge (not the default 'semantic'): a typed
+            relation means something specific was inferred.
+
+        Everything past that cap was minted by the similarity sweep alone and
+        is the incidental tail.
+
+        Returns the number of edges removed.
+        """
+        KEEP_TOP = 6
+        try:
+            outs = list(self.graph._outgoing.get(nid, []) or [])
+        except Exception:
+            return 0
+        if len(outs) <= KEEP_TOP:
+            return 0
+        # Rank: typed/traversed edges first, then by weight.
+        def rank(item):
+            _tgt, edge = item
+            try:
+                w = float(getattr(edge, "weight", 0.0) or 0.0)
+            except Exception:
+                w = 0.0
+            rel = (getattr(edge, "relation_type", "semantic") or "semantic")
+            rehearsals = int(getattr(edge, "rehearsals", 0) or 0)
+            typed = 1 if rel != "semantic" else 0
+            used = 1 if rehearsals > 0 else 0
+            return (used, typed, w)
+
+        ranked = sorted(outs, key=rank, reverse=True)
+        # Reserve at least half the slots for the strongest SEMANTIC edges:
+        # typed relations are informative but few, and a node with only typed
+        # edges loses its ordinary semantic neighbourhood. Measured on 'rumour'
+        # the first cut kept 3 typed edges and dropped every semantic one,
+        # including genuine neighbours like 'spread'.
+        typed_kept = [x for x in ranked if rank(x)[1] == 1][:KEEP_TOP]
+        sem_kept = [x for x in ranked if rank(x)[1] == 0][:KEEP_TOP - len(typed_kept)]
+        keep = set(id(x) for x in typed_kept + sem_kept)
+        removed = 0
+        for item in ranked:
+            if id(item) in keep:
+                continue
+            tgt = item[0]
+            try:
+                if self.graph.remove_edge(nid, tgt):
+                    removed += 1
+            except Exception:
+                continue
+        return removed
 
 
     def _init_causal_detection(self):
