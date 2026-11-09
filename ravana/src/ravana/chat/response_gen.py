@@ -6873,6 +6873,27 @@ class ResponseGenMixin(ChainWalkerMixin):
         # This is the terminal safety net: it also guards the graph fallback.
         grounded = self._topic_grounded(ctx)
         if not grounded:
+            # When the promoted decoder flag is on, the decoder's OWN grounding
+            # gate gets first refusal. `_topic_grounded` only recognises KB
+            # definitions, concept sources and GloVe-close associations, so a
+            # subject the graph knows but cannot define reads as ungrounded and
+            # the monitor would refuse it outright -- leaving the decoder
+            # unreachable (measured: 0 calls across the probe set, and the
+            # monitor firing `_human_like_uncertainty` first for every
+            # abstract-concept query).
+            #
+            # This does not bypass the safety property: the decoder still has to
+            # pass `_sm_response_grounded` before its text is emitted. It only
+            # moves the veto from a proxy (GloVe similarity) to the gate that
+            # actually evaluates decoder output.
+            if (getattr(self, "use_linggen", False)
+                    and not (getattr(ctx, 'decomposition', None)
+                             and getattr(ctx.decomposition, 'sub_questions', None))):
+                sm_res = self._generate_with_situation_model(ctx)
+                if sm_res:
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [trace]   SM path (ACC-defer branch): {sm_res[1]}")
+                    return sm_res
             if getattr(self, '_trace_enabled', False):
                 print(f"  [trace]   ACC/ERN monitor: low FOK for '{subject}' "
                       f"— suppressing ungrounded reply")
@@ -6893,24 +6914,69 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if _kb_try:
                         self._definitions[ctx.subject.lower()] = _kb_try
                         return (_kb_try, "kb_grounding")
+                # LingGen promotion gate, tried BEFORE the reflective
+                # fallback. Ordering matters: the decoder gate used to sit
+                # after this `return refl`, so any query without a clean KB
+                # definition was answered by the reflective path and the
+                # decoder was unreachable -- measured at 0 calls across the
+                # whole probe set (docs/DECODER_REACHABILITY.md). A gate that
+                # can only observe the decoder where every other path has
+                # already failed measures the fallback distribution.
+                #
+                # `use_linggen` is a PROMOTED flag, not runtime config: it may
+                # flip only when scripts/measure_linggen_ce.py shows the
+                # decoder winning on the shared-reference comparison AND on
+                # coherence. Default False keeps de-facto behaviour unchanged.
+                if getattr(self, "use_linggen", False):
+                    sm_res = self._generate_with_situation_model(ctx)
+                    if sm_res:
+                        if getattr(self, '_trace_enabled', False):
+                            print(f"  [trace]   SM path (no-defn branch): "
+                                  f"{sm_res[1]} "
+                                  f"(coherence={situation_coherence:.2f})")
+                        return sm_res
                 refl = self._reflective_response(ctx)
                 if refl:
                     return refl
-            # LingGen promotion gate. `use_linggen` is a PROMOTED flag, not a
-            # runtime config: it may flip only when scripts/train.py shows the
-            # decoder's conditioned CE <= the template path's on held-out text.
-            # Until then the neural decoder is a research path and the
-            # template/realizer path produces the reply.
-            #
-            # (This flag used to be written and persisted but never read, so
-            # the decoder path ran ungated -- and with an untrained decoder
-            # that is exactly the "ungrounded gibberish" the flag exists to
-            # prevent. Default False keeps the de-facto behaviour unchanged.)
+            # LingGen promotion gate for the HAS-definition branch. Same flag,
+            # same rationale: the decoder is tried before falling through to
+            # the PFC gate below.
             sm_res = (self._generate_with_situation_model(ctx)
                       if getattr(self, "use_linggen", False) else None)
             if sm_res:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   SM path: {sm_res[1]} (coherence={situation_coherence:.2f})")
+                return sm_res
+
+        # ── LingGen gate for the NO-SITUATION case ──────────────────────────
+        # `try_situation_path` requires situation_active > 1, so when the
+        # situation model produces no active concepts the entire block above is
+        # skipped -- and with it the decoder. That is the common case: measured
+        # on the probe set, situation_narrative was empty (coh=0.00,
+        # active=0) for every query, so the decoder was unreachable regardless
+        # of the ordering fix above.
+        #
+        # This is exactly the case free generation exists for: no KB definition,
+        # no situation narrative, no decomposition. Route to the decoder before
+        # the PFC gate's fallback pools, still behind the same promoted flag.
+        #
+        # Placed AFTER the ACC/ERN monitor on purpose. That monitor withholds
+        # ungrounded replies -- a real safety property, and the decoder must not
+        # bypass it. But the monitor's `_topic_grounded` only recognises KB
+        # definitions, concept sources and GloVe-close associations; a subject
+        # the graph knows but cannot define reads as ungrounded, and the
+        # decoder's own grounding gate (`_sm_response_grounded`) is the right
+        # arbiter for decoder output. So: the monitor still vetoes, and the
+        # decoder gets to answer the cases the monitor would otherwise
+        # refuse -- provided the decoder's own gate passes.
+        if (getattr(self, "use_linggen", False)
+                and not has_defn
+                and not (getattr(ctx, 'decomposition', None)
+                         and getattr(ctx.decomposition, 'sub_questions', None))):
+            sm_res = self._generate_with_situation_model(ctx)
+            if sm_res:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   SM path (no-situation branch): {sm_res[1]}")
                 return sm_res
 
         # Step 3: PFC Gate — route to Ventral or Dorsal path
