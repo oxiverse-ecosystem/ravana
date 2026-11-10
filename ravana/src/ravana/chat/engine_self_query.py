@@ -2177,7 +2177,10 @@ class SelfQueryMixin:
                     if _reason and not _reason.endswith((".", "!", "?")):
                         _reason += "."
                     response = f"{stance}{(' ' + _reason) if _reason else ''} what about you?".replace("  ", " ")
-                    return response.lower()
+                    # CASE PRESERVED (round 2026-11-10) -- see the NOTE in
+                    # engine.py's _process_turn_impl. Flattening here destroyed
+                    # the register signal that Phase 2 conditions on.
+                    return response
             _i = 0
             while _i < len(_toks) and (_toks[_i] in _PRON_OR_CLOSED
                                        or _toks[_i] in _VERB_SCAFFOLD
