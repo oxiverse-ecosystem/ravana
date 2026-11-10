@@ -1620,189 +1620,33 @@ class ChatInterface:
         return " ".join(chain)
 
     def _generate_with_decoder_and_syntax(self, ctx: CognitiveResponseContext) -> Optional[str]:
-        """Generate using full syntactic pipeline (P1: Production-Grade Syntactic Pipeline).
+        """Delegate to the ENGINE's pipeline (G13 collapse, round 2026-11-10).
 
-        Pipeline:
-        1. PrefrontalWorkspace → Discourse Plan (structured intents from graph)
-        2. SyntacticCellAssembly → Syntactic Frames (bind concepts to grammatical roles)
-        3. BasalGangliaGate → Candidate Selection (Go/NoGo gating)
-        4. CerebellarNgram → Fluent Completion (learned transitions)
-        5. SurfaceRealizer → Final Text (morphology, agreement, punctuation)
+        This class used to carry a second copy of the syntactic pipeline
+        (184 lines). The engine's copy (``engine_generation.py:186``, 278
+        lines) is strictly ahead:
+
+          * cross-turn anaphora -- carries the previous turn's subject /
+            object / verb into the DiscourseState so the realizer can
+            pronounize instead of re-emitting the noun phrase (Pivot M17);
+          * a merging/nesting pass that embeds a following frame inside the
+            current one when the subjects chain (Broca-style hierarchy);
+          * VSA schema realization;
+          * ``learn_phrase`` + ``VerbLexicon.reinforce`` on success.
+
+        The only block the interface copy had that the engine lacked was a
+        cerebellar function-word prediction -- and it was a NO-OP (it computed
+        a value and discarded it), so nothing is lost.
+
+        Delegating rather than copying keeps one pipeline, which is what
+        ``docs/LANGUAGE_PRODUCTION_PIVOT.md`` G13 / P5 prescribe. Fail-open:
+        any error returns None, which is what the callers already handle.
         """
-        if not ctx.subject:
-            return None
-
         try:
-            # Step 0: Seed language modules with POS info if not already seeded
-            if not self.syntactic_assembly.subject_role and self._concept_pos:
-                self.syntactic_assembly.seed_from_pos(self._concept_pos)
-            if not self.cerebellar_ngram._pos_agreement and self._concept_pos:
-                self.cerebellar_ngram.seed_from_pos(self._concept_pos)
-
-            # Step 1: CausalSchema query for hypothetical/causal questions (Issues #2, #10)
-            _causal_prediction = None
-            if hasattr(self, 'causal_schema') and ctx.subject:
-                qtype = self.pfc_workspace.detect_question_type(ctx.raw_input, self._concept_pos)[0]
-                if qtype in ('hypothetical', 'why', 'how'):
-                    # Try to predict what happens with the subject
-                    pred, conf = self.causal_schema.predict(ctx.subject, 'change')
-                    if pred and conf > 0.3:
-                        _causal_prediction = (pred, conf)
-                        # Record prediction for free-energy tracking
-                        self.causal_schema.record_prediction(ctx.subject, 'change', pred, True)
-
-            # Step 2: Check relational memory for transitive/comparison queries (Issue #9)
-            _relation_result = None
-            if hasattr(self, 'relation_memory') and ctx.subject:
-                qtype = self.pfc_workspace.detect_question_type(ctx.raw_input, self._concept_pos)[0]
-                if qtype == 'compare':
-                    # Try to find comparative relations involving the subject
-                    transitive_results = self.relation_memory.transitive_query(ctx.subject, 'taller')
-                    if transitive_results:
-                        _relation_result = transitive_results[0]
-
-            # Step 3: Quantity comparison response (Issue #5)
-            if hasattr(self, '_pending_quantity_result') and self._pending_quantity_result:
-                qa, qb, q_result, q_conf = self._pending_quantity_result
-                if q_result == 'equal':
-                    return f"{qa.concept.capitalize()} and {qb.concept} have the same quantity. They are equal."
-                elif q_result == 'a_greater':
-                    return f"{qa.concept.capitalize()} has more than {qb.concept} ({qa.value} vs {qb.value})."
-                elif q_result == 'b_greater':
-                    return f"{qb.concept.capitalize()} has more than {qa.concept} ({qb.value} vs {qa.value})."
-
-            # Discourse Planning
-            is_follow_up = self._is_follow_up(ctx.raw_input)
-            # Emotional mirror modulation: adjust associations and verbosity
-            mirror_mod = self.mirror_engine.get_modulation(self.emotion.state)
-            bm = mirror_mod['breadth_mult']
-            max_assocs = max(2, min(10, int(round(5 * bm))))
-            reduced_assocs = ctx.associated_concepts[:max_assocs]
-            discourse_plan = self.pfc_workspace.plan_discourse(
-                user_input=ctx.raw_input,
-                subject=ctx.subject,
-                concept_pos=self._concept_pos,
-                associations=reduced_assocs,
-                past_topics=ctx.past_topics,
-                is_follow_up=is_follow_up,
-            )
-
-            vm = mirror_mod['verbosity_mult']
-            target_verbosity = max(1, min(5, int(round(3 * vm))))
-            if target_verbosity < len(discourse_plan.intents):
-                discourse_plan.intents = discourse_plan.intents[:target_verbosity]
-            elif target_verbosity > len(discourse_plan.intents):
-                most_recent = self._topic_list[-1] if self._topic_list else ctx.subject
-                for _ in range(target_verbosity - len(discourse_plan.intents)):
-                    discourse_plan.intents.append(DiscourseIntent(
-                        type=DiscourseType.ELABORATE,
-                        subject=most_recent,
-                        primary_relation="semantic",
-                        seen_so_far=set(),
-                    ))
-
-            # Step 2-5: Build and realize each sentence from the discourse plan
-            utterances = []
-            
-            # Inject relational memory and causal schema info into discourse context (Issues #2, #9)
-            _relational_info = ""
-            if hasattr(self, 'relation_memory') and ctx.subject:
-                transitive_results = self.relation_memory.transitive_query(ctx.subject, 'taller')
-                if transitive_results:
-                    _relational_info = f" {ctx.subject} is {transitive_results[0][1]} than {transitive_results[0][0]}"
-
-            discourse_context = DiscourseState(
-                sentence_index=0,
-                discourse_type=discourse_plan.question_type,
-                total_sentences=len(discourse_plan.intents),
-                free_energy=self._free_energy,
-            )
-
-            for i, intent in enumerate(discourse_plan.intents):
-                if not intent.target_concept:
-                    continue
-
-                # Determine relation type from intent
-                relation = intent.primary_relation
-                if intent.type == DiscourseType.CAUSAL_EXPLAIN:
-                    relation = "causal"
-                elif intent.type == DiscourseType.CONTRAST:
-                    relation = "contrastive"
-
-                # Step 2: Syntactic Frame Generation
-                frame = self.syntactic_assembly.bind_to_sentence(
-                    subject=intent.subject,
-                    relation=relation,
-                    target=intent.target_concept,
-                    pos_map=self._concept_pos,
-                    chain_concepts=None,
-                    chain_connectors=None,
-                    depth=0,
-                )
-
-                # Step 3: Basal Ganglia Gating (Go/NoGo)
-                # Convert to candidate format for BG gate: (label, score, confidence, relation_type)
-                candidates = [(frame.subject_concept, 1.0, 1.0, relation)]
-                self.basal_ganglia.set_all_from_modulators({
-                    "arousal": ctx.arousal,
-                    "novelty": 0.3 if ctx.learned_recently else 0.1,
-                    "exploration_drive": ctx.exploration_drive,
-                    "prediction_error": 0.2,
-                    "identity_strength": ctx.identity_strength,
-                    "fatigue_level": 0.1,
-                    "prefrontal_boost": 0.5,
-                    "thalamic_salience": 0.7,
-                    "subject_proximity_bonus": 0.3,
-                    "contradiction_penalty": 0.3,
-                    "dopamine_tone": self._dopamine_tone,
-                })
-                selected_label, selected_rel, go_score = self.basal_ganglia.select_concept(candidates)
-
-                if not selected_label:
-                    continue
-
-                # Step 4: Cerebellar N-gram completion (for function word prediction)
-                # This helps the surface realizer pick better function words
-                if self.cerebellar_ngram.bigram:
-                    fw = self.cerebellar_ngram.predict_function_word(
-                        frame.subject_concept.lower(), frame.object_concept.lower()
-                    )
-                    if fw:
-                        # Could influence verb phrase selection, but surface_realizer handles this
-                        pass
-
-                # Step 5: Surface Realization
-                discourse_context.sentence_index = i
-                discourse_context.previous_subject = (frame.subject_concept if getattr(frame, 'subject_concept', None) else (utterances[-1].split()[0] if utterances else None))
-                discourse_context.previous_object = getattr(frame, 'object_concept', None) or None
-                discourse_context.previous_verb = getattr(frame, 'verb_concept', None) or getattr(frame, 'verb_phrase', None) or None
-                discourse_context.discourse_type = intent.type
-
-                sentence = self.surface_realizer.realize(
-                    frame=frame,
-                    discourse_context=discourse_context,
-                    dopamine_tone=self._dopamine_tone,
-                    cerebellar_ngram=self.cerebellar_ngram,
-                    discourse_marker=intent.discourse_marker,
-                )
-
-                utterances.append(sentence)
-
-                # Learn from this chain for cerebellar n-gram
-                if len(utterances) > 0:
-                    chain_labels = [frame.subject_concept, frame.verb_phrase, frame.object_concept]
-                    self.cerebellar_ngram.learn_chain(chain_labels, successful=True)
-
-            if utterances:
-                return " ".join(utterances)
-
-        except Exception as e:
-            if self._trace_enabled:
-                import traceback
-                print(f"  [trace] syntactic pipeline error: {e}")
-                traceback.print_exc()
-
-        return None
+            from ravana.chat.engine_generation import GenerationMixin
+            return GenerationMixin._generate_with_decoder_and_syntax(self, ctx)
+        except Exception:
+            return None
 
     def save(self) -> str:
         state = {

@@ -2074,9 +2074,43 @@ class WebLearningMixin(ResponseGenMixin):
         try:
             _ui = getattr(self, "_last_user_input", None)
             _replies = getattr(self, "_last_responses", None)
+            # STALE-REPLY GUARD (round 2026-11-10).
+            #
+            # `_last_responses[-1]` is the most recent reply IN THE BUFFER, not
+            # necessarily the reply to `_last_user_input`. When a turn appends
+            # its reply and then calls notify_user_idle, the two agree. But a
+            # turn that calls notify_user_idle BEFORE appending (several early
+            # return sites do) records the PREVIOUS turn's reply against the
+            # CURRENT user input, keyed by the current subject.
+            #
+            # Measured corruption: after "i think board games are a great way
+            # to bond with friends", the store gained
+            #     key='friends'  text="i said: good to know -- you love the
+            #                            autumn season..."
+            # -- the autumn reply filed under a board-games topic. That entry
+            # then won the topical-overlap tie against the real board-games
+            # reply, so "remind me what you said about board games" recalled
+            # the autumn text.
+            #
+            # Only record when the reply actually belongs to this turn. The
+            # post-generation path in process_turn calls _record_own_reply
+            # directly with the correct pairing, so skipping a stale one here
+            # loses nothing.
             if _replies:
-                self._record_own_reply(_ui, _replies[-1],
-                                       getattr(self, "_last_subject", None))
+                # Only record when the buffered reply actually belongs to this
+                # turn. `_record_own_reply` stamps `_own_reply_turn` when it
+                # stores, so a mismatch means the buffer still holds the
+                # PREVIOUS turn's reply -- recording it would file that reply
+                # under the current turn's topic.
+                #
+                # The stamp is compared against the turn that PRODUCED the
+                # reply, not the current turn: `_last_reply_turn` is set by
+                # process_turn right after the reply is generated, so a
+                # notify_user_idle call from anywhere in the same turn agrees.
+                if getattr(self, "_last_reply_turn", None) == int(
+                        getattr(self, "turn_count", 0) or 0):
+                    self._record_own_reply(_ui, _replies[-1],
+                                           getattr(self, "_last_subject", None))
         except Exception:
             pass
 
