@@ -241,6 +241,12 @@ class StyleContext:
         signal.
     top_function_words : List[str]
         The user's most-over-used function words, most frequent first.
+    distinctive_function_words : List[str]
+        The user's most OVER-REPRESENTED function words, relative to a general
+        English baseline. This is the entrainment signal the LSM literature
+        actually measures (Ireland et al. 2011); ``top_function_words`` is raw
+        frequency and is the same for every user. Empty when nothing is
+        over-represented.
     directness : float
         0..1, higher = more direct (short, few hedges, more statements).
     formality : float
@@ -254,6 +260,7 @@ class StyleContext:
     contraction_rate: float = 0.0
     function_word_profile: Dict[str, float] = field(default_factory=dict)
     top_function_words: List[str] = field(default_factory=list)
+    distinctive_function_words: List[str] = field(default_factory=list)
     directness: float = 0.5
     formality: float = 0.5
 
@@ -272,6 +279,7 @@ class StyleContext:
             "contraction_rate": float(self.contraction_rate),
             "function_word_profile": dict(self.function_word_profile),
             "top_function_words": list(self.top_function_words),
+            "distinctive_function_words": list(self.distinctive_function_words),
             "directness": float(self.directness),
             "formality": float(self.formality),
         }
@@ -290,6 +298,8 @@ class StyleContext:
                 contraction_rate=float(state.get("contraction_rate", 0.0) or 0.0),
                 function_word_profile=dict(state.get("function_word_profile", {}) or {}),
                 top_function_words=list(state.get("top_function_words", []) or []),
+                distinctive_function_words=list(
+                    state.get("distinctive_function_words", []) or []),
                 directness=float(state.get("directness", 0.5) or 0.5),
                 formality=float(state.get("formality", 0.5) or 0.5),
             )
@@ -380,6 +390,39 @@ def derive_style_context(exemplars: Sequence[Any]) -> StyleContext:
     profile = {w: v for w, v in sorted_items}
     top_words = [w for w, _ in sorted_items[:8]]
 
+    # OVER-REPRESENTATION RANKING (round 2026-11-10).
+    #
+    # Raw frequency is the wrong ranking for style entrainment. The most
+    # frequent function words in ANY English sample are 'the', 'is', 'and',
+    # 'to' -- they carry no information about THIS user. What the LSM
+    # literature actually measures is how a speaker's function-word
+    # distribution differs from a baseline (Ireland et al. 2011;
+    # Niederhoffer & Pennebaker 2002; Danescu-Niculescu-Mizil & Lee 2011).
+    #
+    # This matters operationally: `register_style_markers_for` picks
+    # top_function_words[0] as a candidate modal marker, and with a
+    # raw-frequency ranking that is always a copula or a determiner --
+    # 'is entropy sits close to disorder'. Ranking by over-representation
+    # surfaces the words that are actually distinctive of this user, which is
+    # both the better entrainment signal and the only one that yields
+    # plausible markers.
+    #
+    # The baseline is a fixed English function-word distribution (general
+    # written English, roughly LIWC's normative rates). A word scores
+    # max(0, observed - baseline) / baseline, so only OVER-use counts and a
+    # word at twice its baseline rate scores 1.0.
+    _over = []
+    for _w, _v in sorted_items:
+        _base = _FW_BASELINE.get(_w)
+        if not _base or _base <= 0:
+            continue
+        _ratio = _v / _base
+        if _ratio <= 1.0:
+            continue  # at or below baseline: not distinctive
+        _over.append((_w, _ratio))
+    _over.sort(key=lambda kv: (-kv[1], kv[0]))
+    distinctive_words = [w for w, _ in _over[:8]]
+
     # Directness: short + few hedges + more statements -> more direct.
     # Each term is a bounded 0..1 signal; combined by a fixed weighted sum.
     len_sig = 1.0 - min(1.0, mean_length / 20.0)          # shorter -> higher
@@ -401,6 +444,7 @@ def derive_style_context(exemplars: Sequence[Any]) -> StyleContext:
         contraction_rate=contraction_rate,
         function_word_profile=profile,
         top_function_words=top_words,
+        distinctive_function_words=distinctive_words,
         directness=directness,
         formality=formality,
     )
@@ -569,6 +613,59 @@ _VERBOSITY_FLOOR = 0.6
 # that a neutral profile is byte-identical to the old behaviour.
 _QUESTION_BASE = 0.5
 
+# Floor on that probability. The question-rate channel is BEHAVIOURAL, not a
+# matching one: the evidence is that asking more questions increases liking
+# (Huang et al. 2017), not that interlocutors converge on question rate (only
+# Muir et al. 2021, a single instructed-mimicry study). So RAVANA never goes
+# below this, whatever the user's rate. See `style_question_propensity`.
+_QUESTION_FLOOR = 0.35
+
+
+# Baseline English function-word distribution, as a share of all
+# function-word tokens. Approximates general written English (LIWC's
+# normative rates, as used in the LSM literature). Only the words that can
+# plausibly carry style are listed; anything absent is treated as having no
+# baseline and is skipped by the over-representation ranking.
+#
+# Purpose: raw frequency cannot rank style. 'the'/'is'/'and' dominate every
+# English sample, so a top-frequency list is the same for every user and
+# yields only copulas and determiners as candidate markers. Over-use
+# relative to this baseline is the signal the LSM work actually measures.
+_FW_BASELINE: Dict[str, float] = {
+    # determiners / articles
+    "the": 0.070, "a": 0.033, "an": 0.008, "this": 0.010, "that": 0.021,
+    "these": 0.004, "those": 0.003, "my": 0.006, "your": 0.006,
+    "his": 0.004, "her": 0.005, "its": 0.004, "our": 0.004, "their": 0.005,
+    "all": 0.006, "some": 0.006, "any": 0.004, "each": 0.003, "every": 0.003,
+    "no": 0.004, "both": 0.002, "one": 0.008, "two": 0.003,
+    # pronouns
+    "i": 0.035, "you": 0.028, "he": 0.008, "she": 0.008, "it": 0.030,
+    "we": 0.010, "they": 0.012, "me": 0.008, "him": 0.004, "us": 0.004,
+    "them": 0.007, "who": 0.005, "what": 0.008, "which": 0.005,
+    # auxiliaries / copulas
+    "is": 0.030, "are": 0.018, "was": 0.013, "were": 0.008, "be": 0.010,
+    "been": 0.005, "being": 0.002, "am": 0.005, "do": 0.010, "does": 0.005,
+    "did": 0.004, "have": 0.013, "has": 0.008, "had": 0.007, "will": 0.008,
+    "would": 0.008, "can": 0.007, "could": 0.006, "shall": 0.001,
+    "should": 0.005, "may": 0.004, "might": 0.003, "must": 0.003,
+    # prepositions
+    "of": 0.035, "in": 0.025, "to": 0.030, "for": 0.013, "with": 0.012,
+    "on": 0.011, "at": 0.010, "from": 0.010, "by": 0.009, "about": 0.006,
+    "into": 0.004, "over": 0.004, "after": 0.004, "before": 0.004,
+    "under": 0.003, "between": 0.003, "through": 0.003, "during": 0.002,
+    "as": 0.013, "than": 0.005,
+    # conjunctions
+    "and": 0.030, "but": 0.010, "or": 0.009, "if": 0.008, "so": 0.009,
+    "because": 0.004, "while": 0.003, "though": 0.002, "although": 0.002,
+    "unless": 0.001, "since": 0.003, "until": 0.002, "whether": 0.002,
+    # particles / negation / discourse
+    "not": 0.013, "no": 0.004, "very": 0.005, "just": 0.006, "also": 0.005,
+    "too": 0.004, "only": 0.006, "even": 0.004, "still": 0.003,
+    "maybe": 0.002, "perhaps": 0.001, "really": 0.004, "actually": 0.003,
+    "there": 0.010, "here": 0.004, "now": 0.005, "then": 0.007,
+    "well": 0.003, "oh": 0.001, "yes": 0.003, "okay": 0.002,
+}
+
 
 def style_verbosity(style: Optional[StyleContext]) -> float:
     """Map the user's observed utterance length to a verbosity multiplier.
@@ -619,23 +716,36 @@ def style_question_propensity(style: Optional[StyleContext]) -> float:
     QUESTION-RATE CHANNEL (round 2026-11-10). See `style_verbosity` for why
     this channel exists.
 
-    Returns a probability in 0..1 that a closer should be appended at all.
-    The user's own question rate is the signal: people who ask questions
-    invite questions back, people who make statements do not.
+    RESEARCH CORRECTION (round 2026-11-10, same day). This function originally
+    CONVERGED on the user's question rate: a user who never asks questions got
+    a propensity near 0.05, i.e. RAVANA stopped asking them anything. The
+    literature does not support that. The robust finding is that asking more
+    questions INCREASES liking and engagement (Huang et al. 2017, "It doesn't
+    hurt to ask"), while the only direct test of interrogative mimicry is a
+    single instructed-mimicry negotiation study (Muir et al. 2021). Matching a
+    low-question-rate user by going quiet is not alignment -- it is a system
+    becoming less engaging, and it is the direction the evidence warns
+    against.
+
+    So this is now a BEHAVIOURAL channel, not a matching one: RAVANA keeps a
+    modest floor of follow-up questions regardless of the user's rate, and
+    the user's rate only modulates within a narrow band above that floor.
 
     Fail-open: no style context -> None, meaning "use the caller's default".
-    Returning None rather than 0.5 matters -- a neutral profile must not move
-    the behaviour at all, and the callers already have a sensible default.
+    Returning None rather than a number matters -- a neutral profile must not
+    move the behaviour at all, and the callers already have a sensible
+    default.
     """
     if style is None or not style.available:
         return None  # type: ignore[return-value]
     qr = float(getattr(style, "question_rate", 0.0) or 0.0)
-    # Only act when the user's profile is clearly on one side. A user who
-    # asks questions half the time is the baseline and gets no shift.
+    # Floor: RAVANA always remains at least somewhat inquisitive. A user who
+    # makes only statements does not get a monologue back.
     if qr >= 0.5:
-        return float(min(0.85, _QUESTION_BASE + (qr - 0.5) * 0.7))
+        return float(min(0.85, _QUESTION_BASE + (qr - 0.5) * 0.5))
     if qr <= 0.15:
-        return float(max(0.05, _QUESTION_BASE - (0.15 - qr) * 1.2))
+        # Narrow band above the floor -- a nudge down, never a shutdown.
+        return float(max(_QUESTION_FLOOR, _QUESTION_BASE - (0.15 - qr) * 0.4))
     return None  # type: ignore[return-value]
 
 
@@ -696,6 +806,43 @@ def register_style_markers(style: Optional[StyleContext]) -> bool:
     return changed
 
 
+# Words that cannot occupy the epistemic-marker slot. A denylist rather than
+# an allowlist: an allowlist of known-good markers would defeat the point of
+# learning a marker the user actually uses.
+_NOT_MARKER_WORDS = {
+    # copulas / auxiliaries -- cannot head a hedge clause
+    "is", "are", "was", "were", "be", "been", "being", "am", "do", "does",
+    "did", "has", "have", "had", "will", "would", "can", "could", "shall",
+    "should", "may", "might", "must",
+    # determiners / pronouns / prepositions / conjunctions
+    "the", "a", "an", "this", "that", "these", "those", "i", "you", "he",
+    "she", "it", "we", "they", "me", "him", "her", "us", "them", "my",
+    "your", "his", "its", "our", "their", "of", "in", "on", "at", "to",
+    "for", "with", "by", "from", "as", "and", "or", "but", "if", "so",
+    "than", "then", "there", "here", "not", "no", "yes", "what", "which",
+    "who", "how", "when", "where", "why", "all", "some", "any", "each",
+    "more", "most", "much", "many", "very", "just", "also", "too", "only",
+    "own", "same", "such", "one", "two", "first", "second", "now", "up",
+    "out", "about", "into", "over", "after", "before", "again", "once",
+}
+
+
+def _plausible_marker_words_list(words: Sequence[str]) -> List[str]:
+    """Filter an arbitrary word list down to plausible epistemic markers.
+
+    See `_plausible_marker_words` for why the filter exists. Split out so the
+    caller can supply either the over-represented ranking or the raw-frequency
+    one.
+    """
+    out = []
+    for w in words or ():
+        w = str(w).strip().lower()
+        if not w or len(w) > 12 or w in _NOT_MARKER_WORDS:
+            continue
+        out.append(w)
+    return out
+
+
 def _plausible_marker_words(style: StyleContext) -> List[str]:
     """Function words that could plausibly serve as an epistemic marker.
 
@@ -714,29 +861,8 @@ def _plausible_marker_words(style: StyleContext) -> List[str]:
     in the slot, rather than an allowlist of known-good markers -- an allowlist
     would defeat the point of learning a marker the user actually uses.
     """
-    _NOT_MARKERS = {
-        # copulas / auxiliaries -- cannot head a hedge clause
-        "is", "are", "was", "were", "be", "been", "being", "am", "do", "does",
-        "did", "has", "have", "had", "will", "would", "can", "could", "shall",
-        "should", "may", "might", "must",
-        # determiners / pronouns / prepositions / conjunctions
-        "the", "a", "an", "this", "that", "these", "those", "i", "you", "he",
-        "she", "it", "we", "they", "me", "him", "her", "us", "them", "my",
-        "your", "his", "its", "our", "their", "of", "in", "on", "at", "to",
-        "for", "with", "by", "from", "as", "and", "or", "but", "if", "so",
-        "than", "then", "there", "here", "not", "no", "yes", "what", "which",
-        "who", "how", "when", "where", "why", "all", "some", "any", "each",
-        "more", "most", "much", "many", "very", "just", "also", "too", "only",
-        "own", "same", "such", "one", "two", "first", "second", "now", "up",
-        "out", "about", "into", "over", "after", "before", "again", "once",
-    }
-    out = []
-    for w in getattr(style, "top_function_words", ()) or ():
-        w = str(w).strip().lower()
-        if not w or len(w) > 12 or w in _NOT_MARKERS:
-            continue
-        out.append(w)
-    return out
+    return _plausible_marker_words_list(
+        getattr(style, "top_function_words", ()) or ())
 
 
 def register_style_markers_for(engine: Any, style: Optional[StyleContext]) -> bool:
@@ -758,7 +884,12 @@ def register_style_markers_for(engine: Any, style: Optional[StyleContext]) -> bo
         from ravana.chat.hedges import register_marker_scoped
     except Exception:
         return False
-    candidates = _plausible_marker_words(style)
+    # Prefer the OVER-REPRESENTED words: those are the ones distinctive of this
+    # user, and the only ones that yield plausible modal markers. Fall back to
+    # the raw-frequency list when nothing clears the baseline.
+    _pool = (list(getattr(style, "distinctive_function_words", ()) or ())
+             or list(getattr(style, "top_function_words", ()) or ()))
+    candidates = _plausible_marker_words_list(_pool)
     if not candidates:
         return False
     try:
