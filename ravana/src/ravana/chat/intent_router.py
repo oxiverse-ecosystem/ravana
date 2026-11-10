@@ -368,17 +368,72 @@ class IntentRouter:
                    gamma=eff_gamma, delta=delta, detect_fn=detect_fn)
 
     # ── internal fused-vector helpers ──
+    def _sem_width(self, glove_fn=None) -> int:
+        """Width of the semantic sub-vector this router must use.
+
+        The fitted centroids in ``data/intent_router.json`` were built at the
+        dim the calibration harness ran (64 -- ``experiments/measure_intent_router.py``
+        constructs ``CognitiveChatEngine(dim=64)``). When the engine runs at a
+        different ``dim``, ``_glove_vector`` returns that width instead, so the
+        query's semantic sub-vector and the persisted centroids disagree and
+        ``np.dot(qv, rv)`` raises::
+
+            ValueError: shapes (50,) and (82,) not aligned: 50 (dim 0) != 82 (dim 0)
+
+        (50 = 32+7+3+8 query, 82 = 64+7+3+8 route vector.)
+
+        Prefer the width the centroids were actually fitted at (the router's own
+        stored width) and PROJECT the live GloVe vectors to it, so the router's
+        fitted decision boundaries stay valid at any engine dim. Falls back to
+        the live GloVe width when no fitted centroids are present (the
+        ``from_seed`` path, which is built at the engine's own dim).
+        """
+        if self._sem:
+            try:
+                return int(len(next(iter(self._sem.values()))))
+            except Exception:
+                pass
+        if callable(glove_fn):
+            try:
+                _probe = glove_fn("trust")
+                if _probe is not None:
+                    return int(np.asarray(_probe).reshape(-1).shape[0])
+            except Exception:
+                pass
+        return 64
+
+    def _project_sem(self, vec: Optional[np.ndarray], width: int
+                     ) -> Optional[np.ndarray]:
+        """Return ``vec`` at ``width`` (identity when it already matches).
+
+        Deterministic, no RNG: a plain resize (leading channels kept, or a
+        zero-padded tail). Only used to reconcile a live GloVe width with the
+        width the centroids were fitted at.
+        """
+        if vec is None:
+            return None
+        v = np.asarray(vec, dtype=float).reshape(-1)
+        if v.shape[0] == width:
+            return v
+        if v.shape[0] > width:
+            return v[:width].copy()
+        out = np.zeros(width, dtype=float)
+        out[:v.shape[0]] = v
+        return out
+
     def _fuse(self, sem: Optional[np.ndarray],
               shape: Optional[np.ndarray],
               affect: Optional[np.ndarray] = None,
-              reference: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+              reference: Optional[np.ndarray] = None,
+              sem_width: Optional[int] = None) -> Optional[np.ndarray]:
         if sem is None and shape is None and affect is None and reference is None:
             return None
         parts = []
         if sem is not None:
             parts.append(self._alpha * sem)
         elif self._alpha != 0.0:
-            sem_dim = len(next(iter(self._sem.values()))) if self._sem else 64
+            sem_dim = sem_width or (
+                len(next(iter(self._sem.values()))) if self._sem else 64)
             parts.append(np.zeros(sem_dim, dtype=float))
         if shape is not None:
             parts.append(self._beta * shape)
@@ -393,18 +448,26 @@ class IntentRouter:
             return None
         return np.concatenate(parts)
 
-    def _route_vec(self, route: str) -> Optional[np.ndarray]:
+    def _route_vec(self, route: str, sem_width: Optional[int] = None
+                   ) -> Optional[np.ndarray]:
         sem = self._sem.get(route)
         shape = self._shape.get(route)
         affect = self._affect.get(route)
         reference = self._ref.get(route)
         if sem is None and shape is None and affect is None and reference is None:
             return None
-        sem = sem if sem is not None else np.zeros(_SHAPE_DIMS)
-        shape = shape if shape is not None else np.zeros(_SHAPE_DIMS)
+        # The zero-fill widths must match the FITTED centroid widths, not the
+        # live GloVe width -- a route missing one sub-vector is fused against
+        # centroids that DO have it, so a wrong-width zero here would shift the
+        # concatenation and misalign every dot product.
+        _sw = sem_width or (
+            len(next(iter(self._sem.values()))) if self._sem else _SHAPE_DIMS)
+        sem = sem if sem is not None else np.zeros(_sw)
+        shape = shape if shape is not None else np.zeros(
+            len(next(iter(self._shape.values()))) if self._shape else _SHAPE_DIMS)
         affect = affect if affect is not None else np.zeros(_AFFECT_DIMS)
         reference = reference if reference is not None else np.zeros(_REF_DIMS)
-        return self._fuse(sem, shape, affect, reference)
+        return self._fuse(sem, shape, affect, reference, sem_width=_sw)
 
     def classify(self, query: str, glove_fn=None) -> Optional[str]:
         """Return the nearest route, or None if uncertain (below margin)."""
@@ -426,7 +489,17 @@ class IntentRouter:
         q_shape = _shape_features(query, glove_fn, person_anchor, command_anchor)
         q_affect = _affect_features(query, self._detect_fn) if self._gamma != 0.0 else None
         q_ref = _reference_features(query)
-        qv = self._fuse(q_sem, q_shape, q_affect, q_ref)
+        # CANONICAL SEMANTIC WIDTH (round 2026-11-10).
+        #
+        # The fitted centroids were built at the calibration harness's dim (64).
+        # At any other engine dim the query's semantic sub-vector is a different
+        # width and `np.dot(qv, rv)` raises
+        # "shapes (50,) and (82,) not aligned". Project the query's semantic
+        # sub-vector onto the width the centroids were fitted at so the fitted
+        # decision boundaries stay valid at every dim.
+        _sw = self._sem_width(glove_fn)
+        q_sem = self._project_sem(q_sem, _sw)
+        qv = self._fuse(q_sem, q_shape, q_affect, q_ref, sem_width=_sw)
         if qv is None:
             return None
         qn = np.linalg.norm(qv)
@@ -434,7 +507,7 @@ class IntentRouter:
             return None
         sims = {}
         for route, c in self._sem.items():
-            rv = self._route_vec(route)
+            rv = self._route_vec(route, sem_width=_sw)
             if rv is None:
                 continue
             rn = np.linalg.norm(rv)
