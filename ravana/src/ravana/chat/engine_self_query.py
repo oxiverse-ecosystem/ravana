@@ -2569,16 +2569,25 @@ class SelfQueryMixin:
             if _qwords & _factual_attrs:
                 return None
             # --- Analogical reasoning fallback ---
-            # Instead of flat uncertainty, try to find the closest known
-            # concept via GloVe similarity and reason analogically.
-            _analog = self._try_analogical_reasoning(subj, user_input)
-            if _analog is not None:
-                # SEED-backed relevance gate (round 2026-10-13): verify the
-                # analogical answer is relevant to the query before returning.
-                _gate = getattr(self, "_relevance_gate", None)
-                if _gate is not None:
-                    return _gate(user_input, _analog)
-                return _analog
+            # REACHABILITY (round 2026-11-10): this fallback used to answer HERE,
+            # before generation. Measured over a 46-query probe set, this single
+            # path answered 13 turns and 12 of those 13 were analogy TEMPLATES
+            # -- one of 16 hardcoded "{subj} is like {rel} -- ..." frames keyed
+            # only on graph relation type. So "what is memory?" returned
+            # "memory is like learning -- one tends to follow the other in time"
+            # without generation ever running.
+            #
+            # The fix is to NOT answer here at all. Returning None lets the
+            # caller fall through to the generative paths, and the analogy
+            # fallback is still available to them as a last resort (see
+            # _try_analogical_reasoning's other call sites). Gating it on a
+            # "generation has run" flag does NOT work: generation is downstream
+            # of this consult, so the flag is always False at this point and the
+            # template fires exactly as before.
+            #
+            # The HIT branch above (a real stored definition, typed graph edge
+            # or BeliefStore value) is untouched and still short-circuits --
+            # that is evidence generation cannot produce.
             return None
 
         # the capital clause (Paris), not France's whole stored definition.
