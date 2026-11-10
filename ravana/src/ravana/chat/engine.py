@@ -7578,6 +7578,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         mine_personal_facts) and refreshed after observe_user_query; see
         _record_dialogue_turn.
         """
+        # ── Phase 2: publish the style context BEFORE any early return ──────
+        # _process_turn_impl has ~66 early returns (autobiographical memory,
+        # "i don't know" short-circuits, web, KB, meta-commands, ...), and the
+        # conditioning used to be published inside _generate_response -- behind
+        # all of them. Measured on a 20-turn run: build_style_context was called
+        # ZERO times, so the alignment metric moved +0.000 on every channel.
+        # Publishing here means every downstream path can consult it.
+        try:
+            if self._style_conditioning_enabled():
+                self._style_context = self.build_style_context(user_input)
+                if self._style_context is not None:
+                    self.apply_style_conditioning(self._style_context)
+        except Exception:
+            self._style_context = None  # conditioning must never break a turn
         response = self._process_turn_impl(user_input)
         try:
             self._record_dialogue_turn(
@@ -8772,12 +8786,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Personal/autobiographical queries are left to the recall path below.
         # Placed AFTER self-model/abstract-meaning/grounding handlers so those
         # can still answer their queries.
+        #
+        # TEST-MODE ONLY. `RAVANA_OFFLINE` is set by .github/workflows/ci.yml
+        # (and tests/conftest.py) to make runs deterministic -- it is a CI
+        # contract, not a product mode. But this gate used to read it directly,
+        # so anyone who exported RAVANA_OFFLINE=1 got CI behaviour in
+        # production: a hardcoded "i don't really know that yet" for every
+        # impersonal wh-question, ahead of generation. Measured over a 46-query
+        # probe set, this was the second-largest generation bypass (10/46).
+        #
+        # The gate now requires BOTH flags: RAVANA_OFFLINE (no network, no
+        # GloVe download -- the legitimate half) and RAVANA_TEST_MODE (the
+        # determinism contract that licenses refusing instead of guessing).
+        # Production sets neither, so it reaches generation; CI sets both, so
+        # it stays reproducible. See docs/OFFLINE_MODE.md.
         try:
             import os as _os
             _offline = _os.environ.get("RAVANA_OFFLINE", "") == "1"
+            _test_mode = _os.environ.get("RAVANA_TEST_MODE", "") == "1"
         except Exception:
             _offline = False
-        if _offline:
+            _test_mode = False
+        if _offline and _test_mode:
             _t = (user_input or "").lower().strip()
             if re.search(r"^\s*(?:why|what|how|who|where|when|which)\b", _t):
                 if not re.search(r"\b(i|me|my|we|our|you|your)\b", _t) and not ((getattr(self, "_seeded_domain_concepts", set()) | getattr(self, "_PROTECTED_CONCEPTS", set()) | set(getattr(self, "_definitions", {}).keys())) & set(_t.split())):

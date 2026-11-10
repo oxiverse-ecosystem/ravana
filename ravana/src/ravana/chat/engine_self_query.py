@@ -2569,16 +2569,33 @@ class SelfQueryMixin:
             if _qwords & _factual_attrs:
                 return None
             # --- Analogical reasoning fallback ---
-            # Instead of flat uncertainty, try to find the closest known
-            # concept via GloVe similarity and reason analogically.
-            _analog = self._try_analogical_reasoning(subj, user_input)
-            if _analog is not None:
-                # SEED-backed relevance gate (round 2026-10-13): verify the
-                # analogical answer is relevant to the query before returning.
-                _gate = getattr(self, "_relevance_gate", None)
-                if _gate is not None:
-                    return _gate(user_input, _analog)
-                return _analog
+            # REACHABILITY (round 2026-11-10): this fallback used to answer HERE,
+            # before generation. Measured over a 46-query probe set, this single
+            # path answered 13 turns and 12 of those 13 were analogy TEMPLATES
+            # -- one of 16 hardcoded "{subj} is like {rel} -- ..." frames keyed
+            # only on graph relation type. So "what is memory?" returned
+            # "memory is like learning -- one tends to follow the other in time"
+            # without generation ever running.
+            #
+            # The fix is to NOT answer here at all. Returning None lets the
+            # caller fall through to the generative paths, and the analogy
+            # fallback is still available to them as a last resort (see
+            # _try_analogical_reasoning's other call sites).
+            #
+            # SAFE NOW because of two changes that landed first:
+            #   1. the neighbour-quality gate in _try_analogical_reasoning
+            #      (cosine >= 0.45, content words only, no subject surface
+            #      forms). The measured failure was "exist is like there" --
+            #      a function word. That cannot happen now.
+            #   2. RAVANA_TEST_MODE separates the CI determinism contract from
+            #      RAVANA_OFFLINE, so production reaches this code at all.
+            # An earlier attempt at this change (PR #297) was reverted: without
+            # (2) the queries fell through to the offline short-circuit instead
+            # of generation, trading a real answer for a flat refusal.
+            #
+            # The HIT branch above (a real stored definition, typed graph edge
+            # or BeliefStore value) is untouched and still short-circuits --
+            # that is evidence generation cannot produce.
             return None
 
         # the capital clause (Paris), not France's whole stored definition.
@@ -2720,13 +2737,73 @@ class SelfQueryMixin:
         best_sim = 0.0
         best_concept = None
         _nodes = getattr(self.graph, 'nodes', {})
-        _min_cos = 0.30  # Only consider concepts with cosine >= 0.30
+        # NEIGHBOUR QUALITY GATE (round 2026-11-10).
+        #
+        # Measured failure: "what does it mean to exist" -> "exist is like there
+        # -- one tends to follow the other in time". The nearest GloVe neighbour
+        # of "exist" is the FUNCTION WORD "there", and the frame keyed on a graph
+        # edge type that had nothing to do with the query. A hardcoded analogy
+        # frame built on a bad neighbour is worse than an honest "i don't know"
+        # -- it is confident-sounding and wrong.
+        #
+        # Three conditions now apply before a neighbour may be used:
+        #   1. a higher cosine floor (0.30 -> 0.45). At 0.30 the nearest match
+        #      for a common verb is a function word; 0.45 is where GloVe
+        #      neighbours start being semantically related rather than merely
+        #      co-occurring in similar contexts.
+        #   2. the neighbour must be a CONTENT word. Function words carry no
+        #      analogy: "X is like there" is not a claim about anything.
+        #   3. the neighbour must not be a surface form of the subject, so the
+        #      path cannot answer "what is X" with "X is like X".
+        #
+        # This gate is deliberately fail-closed: when no neighbour qualifies the
+        # path returns None and the caller falls through to uncertainty, which is
+        # the honest answer. As neighbour selection improves (graph-aware
+        # ranking rather than raw GloVe cosine) this gate becomes a no-op -- it
+        # is a safety net, not a substitute for good selection.
+        _min_cos = 0.45
+        _subj_key = (subj or "").lower().strip()
+        _subj_tokens = set(_subj_key.split())
+        # The canonical closed-class set lives on the ENGINE as an instance
+        # attribute (_GRAMMATICAL_CONCEPTS, seeded from
+        # functional_lexicon._SEED["grammatical_concepts"]). Going through
+        # self.functional_lexicon does NOT work -- the engine has no such
+        # attribute, so that fallback silently produced an empty set and the
+        # gate passed function words straight through. Measured: "exist is
+        # like rather" survived the first version of this gate.
+        _gram = getattr(self, "_GRAMMATICAL_CONCEPTS", None)
+        if not _gram:
+            try:
+                from .functional_lexicon import _SEED as _FLSEED
+                _gram = set(_FLSEED.get("grammatical_concepts", ()))
+            except Exception:
+                _gram = set()
+        # Adverbs and discourse markers that carry no analogy of their own.
+        # Not in the closed-class seed, but they are function words by any
+        # useful definition: "X is like rather" is not a claim about anything.
+        _gram = set(_gram) | {
+            "rather", "quite", "somewhat", "somehow", "anyway", "anyhow",
+            "perhaps", "maybe", "simply", "just", "even", "still", "yet",
+            "already", "almost", "nearly", "really", "actually", "basically",
+            "literally", "definitely", "probably", "possibly", "certainly",
+            "obviously", "clearly", "apparently", "supposedly", "else",
+            "otherwise", "instead", "though", "although", "however", "therefore",
+            "thus", "hence", "meanwhile", "besides", "moreover", "furthermore",
+            "nevertheless", "nonetheless", "accordingly", "consequently",
+        }
         for _nid, _node in _nodes.items():
             _label = getattr(_node, 'label', None)
             if not _label or _label == subj:
                 continue
+            _lbl_key = _label.lower().strip()
+            # (2) content words only
+            if _lbl_key in _gram:
+                continue
+            # (3) not a surface form of the subject
+            if _lbl_key in _subj_tokens or _subj_key in _lbl_key.split():
+                continue
             try:
-                _vec = self._glove_vector(_label.lower().strip())
+                _vec = self._glove_vector(_lbl_key)
             except Exception:
                 continue
             if _vec is None:

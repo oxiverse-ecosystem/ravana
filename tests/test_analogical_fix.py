@@ -1,10 +1,38 @@
 """Regression tests for the analogical reasoning fix (t_d8a44003 / RV-3).
 
-Verifies that _consult_internal_knowledge attempts analogical reasoning
-via GloVe similarity + concept-graph structure when internal knowledge
-returns MISS for abstract words like "exist", instead of returning the
-flat hedge "i'm not sure about X, but it reminds me of Y — they feel
-related somehow" (the degenerate RV-3 failure mode).
+Verifies that analogical reasoning is attempted via GloVe similarity +
+concept-graph structure when internal knowledge returns MISS for abstract
+words like "exist", instead of returning the flat hedge "i'm not sure
+about X, but it reminds me of Y — they feel related somehow" (the
+degenerate RV-3 failure mode).
+
+ROUND 2026-11-10 — the contract these tests exercise MOVED, twice.
+
+1. REACHABILITY. The analogy fallback no longer answers from inside
+   `_consult_internal_knowledge`; that method now returns None on a MISS so
+   the caller falls through to generation. Measured over a 46-query probe
+   set, answering there made this single path the largest generation bypass
+   (13 turns, 12 of them analogy templates). The analogy itself is unchanged
+   and still available as a last resort via `_try_analogical_reasoning`'s
+   other call sites.
+
+2. NEIGHBOUR QUALITY. The gate now declines to analogise when no good
+   neighbour exists. Measured GloVe neighbours of "exist":
+
+       0.639 there   0.635 although   0.618 many
+       0.611 rather  0.610 must       0.609 example
+
+   The top five are function words; the best content word ("example") is not
+   an analogy for existence. So for this query the correct reply is honest
+   uncertainty, and "exist is like example" would be a regression, not a
+   success. These tests previously asserted the opposite.
+
+So the contract now is:
+  - `_consult_internal_knowledge` does NOT preempt generation on a MISS.
+  - The analogy path, WHEN IT FIRES, produces a structurally derived frame
+    and never builds one on a function word.
+  - The flat RV-3 hedge never comes back.
+
 
 The analogical reply must be STRUCTURALLY DERIVED:
   - GloVe cosine picks the closest known concept in the graph
@@ -36,55 +64,87 @@ def engine():
 
 
 def _result_lower(eng):
-    return eng._consult_internal_knowledge('what does it mean to exist').lower()
+    """The full turn, not the internal consult.
+
+    The consult no longer answers on a MISS (by design -- see module
+    docstring), so asserting on it would test the absence of an answer
+    rather than the quality of one.
+    """
+    return (eng.process_turn('what does it mean to exist') or '').strip().lower()
 
 
 def test_analogical_reasoning_for_exist(engine):
-    """Query 'what does it mean to exist' should produce a graph-derived
-    analogical reply, not the flat uncertainty hedge."""
-    result = engine._consult_internal_knowledge('what does it mean to exist')
-    assert result is not None, "Expected analogical reasoning to produce a non-None answer"
+    """Query 'what does it mean to exist' must NOT produce the flat RV-3 hedge.
+
+    It may produce a structurally derived analogy OR honest uncertainty --
+    which one depends on whether a qualifying neighbour exists, and for
+    "exist" none does (see module docstring). What must never come back is
+    the degenerate hedge.
+    """
+    result = (engine.process_turn('what does it mean to exist') or '').strip()
+    assert result, "Expected a non-empty reply"
     rl = result.lower()
-    # OLD degenerate RV-3 hedge must NOT appear.
     assert "they feel related somehow" not in rl, \
-        f"Got the flat RV-3 hedge instead of analogical reasoning: {result!r}"
-    # Must be a real analogical frame (structured "X is like Y — ..."),
-    # not the flat "i don't have a clean definition yet" line.
-    assert "is like" in rl or "sits close to" in rl or "keeps coming up nearby" in rl, \
-        f"Expected a structural analogical frame, got: {result!r}"
-    # Must reference a real graph concept (the GloVe-nearest known neighbor).
-    assert any(w in rl for w in ['nature', 'things', 'life', 'everything']), \
-        f"Expected reference to a known graph concept, got: {result!r}"
+        f"Got the flat RV-3 hedge: {result!r}"
+    assert "i don't have a clean definition yet" not in rl, \
+        f"Got the pre-RV-3 flat hedge: {result!r}"
 
 
 def test_analogical_no_flat_uncertainty(engine):
-    """Verify the reply does NOT contain the flat uncertainty phrases
-    that the RV-3 fix removed."""
+    """The reply must not carry the flat uncertainty phrases RV-3 removed."""
     rl = _result_lower(engine)
     assert "i don't have a clean definition yet" not in rl
     assert "i don't have a clean definition" not in rl
-    # Must contain structural analogical language (frame + known concept),
-    # NOT the old hedge vocabulary the fix replaced.
-    assert ("is like" in rl or "sits close to" in rl
-            or "keeps coming up nearby" in rl), \
-        f"Expected structural analogical content, got: {engine._consult_internal_knowledge('what does it mean to exist')!r}"
+    assert "they feel related somehow" not in rl
 
 
 def test_analogical_uses_graph_structure(engine):
-    """Verify the analogical reply is derived from the concept graph's
-    real edge structure, not a hardcoded hedge."""
-    result = engine._consult_internal_knowledge('what does it mean to exist')
-    assert result is not None
+    """When an analogy IS produced it must be graph-derived, not a hedge.
+
+    Asserted on the analogy path directly rather than on a specific query,
+    because whether an analogy fires now depends on neighbour quality --
+    which is the point of the gate.
+    """
+    result = engine._try_analogical_reasoning('exist', 'what does it mean to exist')
+    if result is None:
+        # No qualifying neighbour: the honest and correct outcome.
+        return
     rl = result.lower()
-    # The reply must name the known concept that grounded the analogy
-    # (nature is the best GloVe neighbor in the graph that also carries
-    # outgoing edge structure — things has no outgoing edges).
-    known_concepts = ['nature', 'things', 'life', 'everything', 'we', 'know']
-    assert any(w in rl for w in known_concepts), \
-        f"Expected the reply to reference a known graph concept, got: {result!r}"
-    # Must be a framed analogical sentence, not a bare hedge.
-    assert "is like" in rl or "sits close to" in rl or "keeps coming up nearby" in rl, \
+    assert "they feel related somehow" not in rl, \
+        f"Regressed to the RV-3 hedge: {result!r}"
+    assert ("is like" in rl or "sits close to" in rl
+            or "keeps coming up nearby" in rl), \
         f"Expected a framed analogical reply, got: {result!r}"
+
+
+def test_consult_does_not_preempt_generation(engine):
+    """A MISS must NOT answer from the consult.
+
+    Answering there made this path the largest generation bypass measured
+    (13 of 46 probe turns, 12 of them analogy templates). The consult now
+    returns None on a MISS so the caller falls through to generation; the
+    analogy remains available as a last resort elsewhere.
+    """
+    assert engine._consult_internal_knowledge('what does it mean to exist') is None
+
+
+def test_analogy_refuses_function_word_neighbour(engine):
+    """A function word is not a concept and must not ground an analogy.
+
+    Measured failure: "what does it mean to exist" -> "exist is like there
+    -- one tends to follow the other in time". The nearest GloVe neighbour
+    of "exist" is the function word "there" (cosine 0.639). The
+    neighbour-quality gate (cosine >= 0.45, content words only) must reject
+    it, so the reply is either a real analogy on a content word or no
+    analogy at all.
+    """
+    result = (engine.process_turn('what does it mean to exist') or '').strip().lower()
+    if 'is like' in result or 'sits close to' in result:
+        for _fw in (' there ', ' it ', ' they ', ' them ', ' this ',
+                    ' that ', ' rather ', ' although ', ' must '):
+            assert _fw not in result, \
+                f"Analogy built on a function word: {result!r}"
+    # else: no analogy, which is the honest and acceptable outcome.
 
 
 if __name__ == '__main__':
