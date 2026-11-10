@@ -11491,7 +11491,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
     @staticmethod
     def _footnote_evidence(response: str, payload: Any) -> str:
-        """Append tool evidence to a reply as a BOUNDED FOOTNOTE.
+        """Append tool evidence to a reply as a BOUNDED CITATION.
 
         SURFACE, DON'T DROWN (round 2026-11-10). The raw payload from
         ``tool_registry`` is a title list, and appending it verbatim made it
@@ -11505,11 +11505,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         the length channel of Phase 2 unable to act -- compressing one
         evidence clause changes ~5 of 65 words.
 
-        Provenance is the point of the agentic layer, so the payload is kept,
-        but truncated to ``_EVIDENCE_FOOTNOTE_MAX`` and bracketed once (the
-        payload already carries its own brackets; wrapping it again produced
-        ``[[agentic:``). The full payload still goes to
-        ``_record_agent_action``, so nothing is lost.
+        The provenance IS for the user (a deliberate product decision, not an
+        oversight), so the payload is kept -- but rendered as a citation
+        rather than a debug dump:
+
+            before: [agentic:web_search] [web:intentforge] Rumour Verification
+                    Latest News Reports- NSE India; Rumour Has It - Top Heavy
+            after:  [source: web search -- 2 results]
+
+        The full payload still goes to ``_record_agent_action``, so nothing is
+        lost and the trace remains inspectable. Only the user-visible rendering
+        changes.
 
         Fail-open: an empty or unusable payload returns ``response`` unchanged.
         """
@@ -11517,17 +11523,53 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _ev = str(payload).strip()
             if not _ev:
                 return response
-            if _ev.startswith("[") and _ev.endswith("]"):
-                pass
-            elif _ev.startswith("["):
-                _ev = _ev + "]"
-            else:
-                _ev = f"[{_ev}]"
-            if len(_ev) > _EVIDENCE_FOOTNOTE_MAX:
-                _ev = _ev[:_EVIDENCE_FOOTNOTE_MAX].rstrip() + "...]"
-            return f"{response}\n{_ev}"
+            _note = CognitiveChatEngine._citation_for(_ev)
+            # Never truncate a citation: it is already ~40 chars, and cutting
+            # it mid-word produced "[source: web search (intentforge) -- 5
+            # resu". The bound is kept only as a guard against a pathological
+            # payload slipping through _citation_for.
+            if len(_note) > _EVIDENCE_FOOTNOTE_MAX:
+                _note = f"[source: {CognitiveChatEngine._citation_tool(_ev)}]"
+            return f"{response}\n{_note}"
         except Exception:
             return response
+
+    @staticmethod
+    def _citation_tool(payload: str) -> str:
+        """The tool label for a payload, for the fallback citation."""
+        import re as _re
+        _tools = _re.findall(r"\[agentic:([^\]]+)\]", payload or "")
+        return _tools[0].strip().replace("_", " ") if _tools else "tool"
+
+    @staticmethod
+    def _citation_for(payload: str) -> str:
+        """Render a raw tool payload as a short user-facing citation.
+
+        ``[agentic:web_search] [web:intentforge] A; B; C`` becomes
+        ``[source: web search -- 3 results]``. Anything unrecognised is
+        truncated rather than passed through, so a raw title list can never
+        reach the user again.
+        """
+        import re as _re
+        _p = (payload or "").strip()
+        if not _p:
+            return ""
+        _tools = _re.findall(r"\[agentic:([^\]]+)\]", _p)
+        _sources = _re.findall(r"\[web:([^\]]+)\]", _p)
+        _tool = _tools[0].strip() if _tools else "tool"
+        _src = _sources[0].strip() if _sources else ""
+        # Count result-ish items: the registry joins titles with '; '.
+        _body = _p
+        for _m in _re.findall(r"\[[^\]]*\]", _p):
+            _body = _body.replace(_m, " ")
+        _body = _body.strip(" ;|")
+        _n = len([x for x in _body.split(";") if x.strip()]) if _body else 0
+        _label = _tool.replace("_", " ")
+        if _src:
+            _label = f"{_label} ({_src})"
+        if _n:
+            return f"[source: {_label} -- {_n} result{'s' if _n != 1 else ''}]"
+        return f"[source: {_label}]"
 
     # ── Dialogue memory (Phase 1) ────────────────────────────────────────────
     def _record_dialogue_turn(self, user_input: str, response: str,
