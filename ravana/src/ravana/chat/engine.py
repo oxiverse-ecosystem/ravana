@@ -11594,11 +11594,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the modality conditioning silently never applied.
         self._style_context = style
         self._style_context_turn = int(getattr(self, "turn_count", 0))
+        changed = False
         try:
-            return bool(apply_style_to_realizer(
+            changed = bool(apply_style_to_realizer(
                 getattr(self, "surface_realizer", None), style))
         except Exception:
-            return False
+            changed = False
+        # FUNCTION-WORD CHANNEL (round 2026-11-10).
+        #
+        # `register_style_markers` was defined but NEVER CALLED -- a third
+        # unwired function in this subsystem, after `use_style_conditioning`
+        # (never set) and the length/question channels (never consulted). It
+        # registers the user's most over-represented function words as runtime
+        # modal markers via the growth path `chat/hedges.py` already exposes,
+        # so RAVANA's hedge vocabulary drifts toward the user's with no
+        # retrain and no authored string.
+        #
+        # Fail-open: any error leaves the existing markers untouched.
+        try:
+            from ravana.learn.style_conditioning import register_style_markers
+            if register_style_markers(style):
+                changed = True
+        except Exception:
+            pass
+        return changed
 
     def condition_modality(self, base_modality: str,
                            style: Optional[StyleContext]) -> str:
