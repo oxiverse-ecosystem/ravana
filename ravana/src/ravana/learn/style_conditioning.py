@@ -696,6 +696,77 @@ def register_style_markers(style: Optional[StyleContext]) -> bool:
     return changed
 
 
+def _plausible_marker_words(style: StyleContext) -> List[str]:
+    """Function words that could plausibly serve as an epistemic marker.
+
+    WHY THIS FILTER EXISTS (round 2026-11-10). `top_function_words` is simply
+    the user's most frequent closed-class words, and those are always the same
+    few: 'is', 'the', 'i', 'and', 'to'. Registering one as a modal marker
+    produced
+
+        "is entropy sits close to disorder"
+
+    -- a copula where a hedge belongs. The marker slot is a DISCOURSE MARKER
+    position, so only words that can occupy it are eligible: hedges, downtoners
+    and discourse particles. Frequency alone is not evidence of markerhood.
+
+    This is deliberately a denylist of the words that are clearly ungrammatical
+    in the slot, rather than an allowlist of known-good markers -- an allowlist
+    would defeat the point of learning a marker the user actually uses.
+    """
+    _NOT_MARKERS = {
+        # copulas / auxiliaries -- cannot head a hedge clause
+        "is", "are", "was", "were", "be", "been", "being", "am", "do", "does",
+        "did", "has", "have", "had", "will", "would", "can", "could", "shall",
+        "should", "may", "might", "must",
+        # determiners / pronouns / prepositions / conjunctions
+        "the", "a", "an", "this", "that", "these", "those", "i", "you", "he",
+        "she", "it", "we", "they", "me", "him", "her", "us", "them", "my",
+        "your", "his", "its", "our", "their", "of", "in", "on", "at", "to",
+        "for", "with", "by", "from", "as", "and", "or", "but", "if", "so",
+        "than", "then", "there", "here", "not", "no", "yes", "what", "which",
+        "who", "how", "when", "where", "why", "all", "some", "any", "each",
+        "more", "most", "much", "many", "very", "just", "also", "too", "only",
+        "own", "same", "such", "one", "two", "first", "second", "now", "up",
+        "out", "about", "into", "over", "after", "before", "again", "once",
+    }
+    out = []
+    for w in getattr(style, "top_function_words", ()) or ():
+        w = str(w).strip().lower()
+        if not w or len(w) > 12 or w in _NOT_MARKERS:
+            continue
+        out.append(w)
+    return out
+
+
+def register_style_markers_for(engine: Any, style: Optional[StyleContext]) -> bool:
+    """Per-engine variant of `register_style_markers`.
+
+    `register_style_markers` writes the MODULE-GLOBAL `_MARKERS` dict, so a
+    marker derived from one user's style leaks into every other engine in the
+    process. CI caught exactly that: `test_marker_lexicon_is_extensible_at_runtime`
+    failed with "restore failed -- the lexicon is not reversible" because a
+    style-conditioning test had already overwritten `related_weak` globally.
+
+    This variant stores the override on the engine (`_style_marker_overrides`)
+    and leaves the global untouched. `hedges.marker_for(engine, state)`
+    resolves it. Fail-open: any error returns False.
+    """
+    if engine is None or style is None or not style.available:
+        return False
+    try:
+        from ravana.chat.hedges import register_marker_scoped
+    except Exception:
+        return False
+    candidates = _plausible_marker_words(style)
+    if not candidates:
+        return False
+    try:
+        return bool(register_marker_scoped(engine, "related_weak", candidates[0]))
+    except Exception:
+        return False
+
+
 # ── Alignment metric ─────────────────────────────────────────────────────────
 
 def function_word_distribution(text: str) -> Dict[str, float]:

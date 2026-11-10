@@ -38,7 +38,7 @@ extend it at runtime from observed user language. Removing a marker degrades
 gracefully to the unhedged frame rather than crashing.
 """
 
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 
 # Modality ∈ {certain, likely, possible, unknown} — set by the generator
@@ -92,12 +92,61 @@ def register_marker(state: str, marker: str) -> None:
     it prefers a different modal tag for a given strength band, online, with
     no retrain and no code change. Unknown states are simply ignored, so a
     bad call degrades to the existing marker rather than breaking callers.
+
+    NOTE (round 2026-11-10): this writes a MODULE-GLOBAL dict. That is right
+    for a single-user desktop process and wrong for anything shared. Callers
+    that derive a marker from a per-user signal should prefer
+    `register_marker_scoped`, which keeps the override on the engine and
+    leaves the global untouched.
     """
     if not state or not isinstance(state, str):
         return
     if not isinstance(marker, str):
         return
     _MARKERS[state] = marker.strip().lower()
+
+
+def register_marker_scoped(engine: Any, state: str, marker: str) -> bool:
+    """Install a per-engine marker override, leaving the global lexicon alone.
+
+    WHY THIS EXISTS (round 2026-11-10). `register_marker` mutates a
+    module-global, so a marker derived from ONE user's style leaks into every
+    other engine in the process -- including other tests. CI caught it:
+    `test_marker_lexicon_is_extensible_at_runtime` failed with "restore failed
+    -- the lexicon is not reversible" because a style-conditioning test had
+    already overwritten `related_weak` globally.
+
+    The override is stored on the engine and consulted by `_marker` via
+    `marker_for(engine, state)`. Returns True when the override changed.
+    """
+    if engine is None or not state or not isinstance(state, str):
+        return False
+    if not isinstance(marker, str):
+        return False
+    store = getattr(engine, "_style_marker_overrides", None)
+    if store is None:
+        store = {}
+        try:
+            engine._style_marker_overrides = store
+        except Exception:
+            return False
+    _m = marker.strip().lower()
+    if store.get(state) == _m:
+        return False
+    store[state] = _m
+    return True
+
+
+def marker_for(engine: Any, state: str) -> str:
+    """Resolve the marker for `state`, honouring a per-engine override.
+
+    Falls back to the global `_MARKERS` table when the engine has no
+    override, so every existing caller keeps working unchanged.
+    """
+    store = getattr(engine, "_style_marker_overrides", None)
+    if isinstance(store, dict) and state in store:
+        return store[state]
+    return _MARKERS.get(state, "")
 
 
 def _marker(state: str) -> str:
@@ -107,7 +156,8 @@ def _marker(state: str) -> str:
 
 def hedge_frame(mechanism: str, modality: str,
                 subj: str = "", rel: str = "",
-                snip: str = "", src: str = "") -> str:
+                snip: str = "", src: str = "",
+                engine: Any = None) -> str:
     """Compose a hedge for (mechanism, modality) from real state.
 
     ``mechanism`` is the speech act being hedged (ignorance / counterfactual
@@ -117,8 +167,13 @@ def hedge_frame(mechanism: str, modality: str,
     retrieved, never a canned phrase. Deterministic and RNG-free: the same
     state always renders the same frame, and the variety across turns comes
     from the retrieved content, not from picking among authored sentences.
+
+    ``engine`` (optional, round 2026-11-10): when given, the marker is
+    resolved through ``marker_for(engine, modality)`` so a per-engine style
+    override is honoured. Omitting it keeps the global table, which is what
+    every pre-existing call site does.
     """
-    _m = _marker(modality)
+    _m = marker_for(engine, modality) if engine is not None else _marker(modality)
     _has_rel = bool(rel)
     _s = (snip or "").strip()
 

@@ -11619,8 +11619,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # markers untouched.
         if not getattr(self, "_style_markers_registered", False):
             try:
-                from ravana.learn.style_conditioning import register_style_markers
-                if register_style_markers(style):
+                from ravana.learn.style_conditioning import register_style_markers_for
+                if register_style_markers_for(self, style):
                     changed = True
                 self._style_markers_registered = True
             except Exception:

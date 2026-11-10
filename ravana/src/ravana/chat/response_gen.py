@@ -7052,15 +7052,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _note = f" — from what i've seen, {_safe_evidence.lower()}"
                 openers = [
                     self._join_clauses(
-                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0),
+                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0, engine=self),
                         _note, sep=" "),
                     self._join_clauses(
-                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0),
+                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0, engine=self),
                         _note, sep=" "),
                 ]
             else:
                 openers = [
-                    hedge_frame("ignorance", _band,
+                    hedge_frame("ignorance", _band, engine=self,
                                 subj=subj, rel=_rel0),
                     f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {_rel0}.",
                     f"i'm still figuring out {subj_cap} — the thread i keep pulling is {_rel0}.",
@@ -7073,15 +7073,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _note = f" — and from what i've seen, {_safe_evidence.lower()}"
                 openers = [
                     self._join_clauses(
-                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + f" and {_rel1}",
+                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0, engine=self) + f" and {_rel1}",
                         _note, sep=" "),
                     self._join_clauses(
-                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0) + f" and maybe {_rel1}",
+                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0, engine=self) + f" and maybe {_rel1}",
                         _note, sep=" "),
                 ]
             else:
                 openers = [
-                    hedge_frame("ignorance", _band,
+                    hedge_frame("ignorance", _band, engine=self,
                                 subj=subj, rel=_rel0) + f" and {_rel1}",
                     f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
                 ]
