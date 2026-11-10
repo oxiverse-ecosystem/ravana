@@ -11594,11 +11594,38 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # the modality conditioning silently never applied.
         self._style_context = style
         self._style_context_turn = int(getattr(self, "turn_count", 0))
+        changed = False
         try:
-            return bool(apply_style_to_realizer(
+            changed = bool(apply_style_to_realizer(
                 getattr(self, "surface_realizer", None), style))
         except Exception:
-            return False
+            changed = False
+        # FUNCTION-WORD CHANNEL (round 2026-11-10).
+        #
+        # `register_style_markers` was defined but NEVER CALLED -- a third
+        # unwired function in this subsystem, after `use_style_conditioning`
+        # (never set, #300) and the length/question channels (never consulted).
+        #
+        # ONCE PER ENGINE, NOT EVERY TURN. `chat/hedges.py`'s `_MARKERS` is a
+        # MODULE-GLOBAL dict, so registering on every turn permanently
+        # overwrites the lexicon entry and leaks across engine instances. CI
+        # caught exactly that: `test_marker_lexicon_is_extensible_at_runtime`
+        # failed with "restore failed -- the lexicon is not reversible"
+        # because an earlier engine had already mutated the global.
+        #
+        # The marker is a property of the USER, not of the turn, so registering
+        # it once when the style context first becomes available is both
+        # sufficient and correct. Fail-open: any error leaves the existing
+        # markers untouched.
+        if not getattr(self, "_style_markers_registered", False):
+            try:
+                from ravana.learn.style_conditioning import register_style_markers_for
+                if register_style_markers_for(self, style):
+                    changed = True
+                self._style_markers_registered = True
+            except Exception:
+                pass
+        return changed
 
     def condition_modality(self, base_modality: str,
                            style: Optional[StyleContext]) -> str:

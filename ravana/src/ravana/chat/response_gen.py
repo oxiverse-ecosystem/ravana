@@ -6676,11 +6676,31 @@ class ResponseGenMixin(ChainWalkerMixin):
         _recent.append(closer)
         _opener = random.choice(openers)
         _recent_openers.append(_opener)
+        # QUESTION-RATE CHANNEL (round 2026-11-10).
+        #
+        # The closer was appended unconditionally -- `text = _opener + closer`
+        # with no probability gate at all (the `random.random() < 0.5` at
+        # response_gen.py:3728 is a different, unrelated site). So RAVANA asked
+        # a follow-up question on EVERY uncertainty reply, regardless of
+        # whether the user ever asks questions. Measured: question_rate_delta
+        # 0.625 with conditioning off and on alike -- the channel could not
+        # move because nothing consulted it.
+        #
+        # Now the user's own question rate sets the probability of appending a
+        # closer at all. Fail-open: no style context, or a neutral profile,
+        # leaves the old behaviour (always append).
+        try:
+            from ravana.learn.style_conditioning import style_question_propensity
+            _qp = style_question_propensity(getattr(self, "_style_context", None))
+        except Exception:
+            _qp = None
+        if _qp is not None and random.random() >= float(_qp):
+            closer = ""
         # CLAUSE BOUNDARY (round 2026-11-10): the closer was concatenated with a
         # bare space, so a trailing question fused onto an unterminated clause
         # ("...essential for all known life what's your take on it?"). Joining
         # through _join_clauses guarantees a boundary and terminal punctuation.
-        text = self._join_clauses(_opener, closer, sep=" ")
+        text = self._join_clauses(_opener, closer, sep=" ") if closer else _opener
 
         # D5 FIX: integrate web search results into the uncertainty reply.
         # When the web search layer fired and returned results but they were
@@ -6971,7 +6991,20 @@ class ResponseGenMixin(ChainWalkerMixin):
                     _evidence = _sent
                     # P6: only surface the sourced evidence when the verbosity
                     # knob is on (terse register suppresses it).
-                    if getattr(self, "_reg_verbosity", 1.0) >= 0.5:
+                    #
+                    # LENGTH CHANNEL (round 2026-11-10): the knob is now scaled
+                    # by the user's observed utterance length, so a terse user
+                    # suppresses the elaboration and a long-winded user keeps
+                    # it. Fail-open -- no style context leaves the register
+                    # exactly as the epistemic register set it.
+                    _verb = getattr(self, "_reg_verbosity", 1.0)
+                    try:
+                        from ravana.learn.style_conditioning import style_verbosity
+                        _verb = float(_verb) * float(
+                            style_verbosity(getattr(self, "_style_context", None)))
+                    except Exception:
+                        pass
+                    if _verb >= 0.5:
                         self._metrics["hedged_evidence"] = self._metrics.get("hedged_evidence", 0) + 1
 
         # ── PROMPT 2: metacognitive-ignorance 3-state (Nelson & Narens 1990;
@@ -7019,15 +7052,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _note = f" — from what i've seen, {_safe_evidence.lower()}"
                 openers = [
                     self._join_clauses(
-                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0),
+                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0, engine=self),
                         _note, sep=" "),
                     self._join_clauses(
-                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0),
+                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0, engine=self),
                         _note, sep=" "),
                 ]
             else:
                 openers = [
-                    hedge_frame("ignorance", _band,
+                    hedge_frame("ignorance", _band, engine=self,
                                 subj=subj, rel=_rel0),
                     f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {_rel0}.",
                     f"i'm still figuring out {subj_cap} — the thread i keep pulling is {_rel0}.",
@@ -7040,15 +7073,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _note = f" — and from what i've seen, {_safe_evidence.lower()}"
                 openers = [
                     self._join_clauses(
-                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + f" and {_rel1}",
+                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0, engine=self) + f" and {_rel1}",
                         _note, sep=" "),
                     self._join_clauses(
-                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0) + f" and maybe {_rel1}",
+                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0, engine=self) + f" and maybe {_rel1}",
                         _note, sep=" "),
                 ]
             else:
                 openers = [
-                    hedge_frame("ignorance", _band,
+                    hedge_frame("ignorance", _band, engine=self,
                                 subj=subj, rel=_rel0) + f" and {_rel1}",
                     f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
                 ]

@@ -536,6 +536,109 @@ def select_modality(style: Optional[StyleContext], base_modality: str) -> str:
     return base_modality
 
 
+# ── Conditioning: length and question rate (round 2026-11-10) ────────────────
+#
+# Phase 2 originally conditioned one slot: WHICH hedge variant was selected.
+# Measured on the 4-channel alignment metric that produced:
+#   function_word_distance +0.009, length_ratio +0.000,
+#   question_rate_delta +0.000, composite -0.003
+# The mechanism worked; the scope was a single lexical slot. These constants
+# widen it to the length and question-rate channels.
+#
+# Every magnitude here is deliberately modest. The alignment literature
+# (Pickering & Garrod's interactive alignment; Ireland et al.'s linguistic
+# style matching) reports convergence as a PARTIAL shift, not a match -- and
+# over-accommodation is a documented failure mode (Ryan, Giles et al.,
+# communication accommodation theory). So these bias; they do not override.
+
+# RAVANA's own mean reply length, in tokens. A user at this length gets a
+# verbosity multiplier of exactly 1.0.
+_RAVANA_BASELINE_LENGTH = 6.0
+
+# How strongly the length ratio moves the multiplier. 0.25 means a user twice
+# as long-winded as the baseline gets ~1.19, not 2.0.
+_VERBOSITY_GAIN = 0.25
+
+# Hard bounds. Never let conditioning make RAVANA more than ~1.6x or less
+# than ~0.6x as verbose as its own register.
+_VERBOSITY_CAP = 1.6
+_VERBOSITY_FLOOR = 0.6
+
+# Baseline probability that RAVANA appends a question closer at all. Matches
+# the pre-existing `random.random() < 0.5` behaviour at response_gen.py:3728 so
+# that a neutral profile is byte-identical to the old behaviour.
+_QUESTION_BASE = 0.5
+
+
+def style_verbosity(style: Optional[StyleContext]) -> float:
+    """Map the user's observed utterance length to a verbosity multiplier.
+
+    LENGTH CHANNEL (round 2026-11-10). Phase 2 previously conditioned only
+    WHICH hedge variant was selected -- one lexical slot. Measured effect on
+    the alignment metric: function_word_distance +0.009, length_ratio +0.000,
+    question_rate_delta +0.000, composite -0.003. The mechanism worked; the
+    scope was one slot.
+
+    This is the length channel. The user's mean utterance length is compared
+    against RAVANA's own baseline and turned into a multiplier on the
+    verbosity register that already gates whether sourced evidence is
+    surfaced at all (`_reg_verbosity`, checked in `_reflective_response`).
+
+    Deliberately MODEST and one-sided:
+      * a user who speaks tersely gets a multiplier below 1, so RAVANA surfaces
+        LESS elaboration;
+      * a user who speaks at length gets a multiplier above 1, so RAVANA
+        surfaces MORE;
+      * a user near the baseline gets ~1.0 and nothing changes.
+
+    Fail-open: no style context -> 1.0 (no change). The magnitude is capped
+    (see `_VERBOSITY_CAP`) so conditioning biases rather than overrides.
+    """
+    if style is None or not style.available:
+        return 1.0
+    ulen = float(getattr(style, "mean_length", 0.0) or 0.0)
+    if ulen <= 0:
+        return 1.0
+    # RAVANA's own baseline utterance length. Measured over its reflective and
+    # uncertainty replies: ~6 words. A user at that length gets 1.0.
+    ratio = ulen / _RAVANA_BASELINE_LENGTH
+    # Compress toward 1.0 so the effect is a nudge, not a rescaling: a user
+    # twice as long-winded gets ~1.2, not 2.0. log2 keeps it symmetric.
+    try:
+        import math as _math
+        shift = _math.log2(max(ratio, 1e-6))
+    except Exception:
+        shift = 0.0
+    mult = 1.0 + _VERBOSITY_GAIN * shift
+    return float(max(_VERBOSITY_FLOOR, min(_VERBOSITY_CAP, mult)))
+
+
+def style_question_propensity(style: Optional[StyleContext]) -> float:
+    """How likely RAVANA should be to close with a question, given the user.
+
+    QUESTION-RATE CHANNEL (round 2026-11-10). See `style_verbosity` for why
+    this channel exists.
+
+    Returns a probability in 0..1 that a closer should be appended at all.
+    The user's own question rate is the signal: people who ask questions
+    invite questions back, people who make statements do not.
+
+    Fail-open: no style context -> None, meaning "use the caller's default".
+    Returning None rather than 0.5 matters -- a neutral profile must not move
+    the behaviour at all, and the callers already have a sensible default.
+    """
+    if style is None or not style.available:
+        return None  # type: ignore[return-value]
+    qr = float(getattr(style, "question_rate", 0.0) or 0.0)
+    # Only act when the user's profile is clearly on one side. A user who
+    # asks questions half the time is the baseline and gets no shift.
+    if qr >= 0.5:
+        return float(min(0.85, _QUESTION_BASE + (qr - 0.5) * 0.7))
+    if qr <= 0.15:
+        return float(max(0.05, _QUESTION_BASE - (0.15 - qr) * 1.2))
+    return None  # type: ignore[return-value]
+
+
 def register_style_markers(style: Optional[StyleContext]) -> bool:
     """Register the user's top function words as runtime hedge markers.
 
@@ -566,12 +669,102 @@ def register_style_markers(style: Optional[StyleContext]) -> bool:
     # Register the top candidate against the weakest band only, so a bad
     # call degrades to the existing marker rather than corrupting the
     # strong bands. This is the smallest, safest use of the growth path.
+    #
+    # IDEMPOTENT AND NON-DESTRUCTIVE (round 2026-11-10). This used to call
+    # `register_marker` unconditionally on every invocation, and
+    # `_MARKERS` is a MODULE-GLOBAL dict. Two consequences:
+    #   1. calling it every turn permanently overwrote the lexicon entry, so
+    #      the marker drifted to whatever the most recent style context said
+    #      and never came back;
+    #   2. it leaked across engine instances and across tests -- CI caught
+    #      `test_marker_lexicon_is_extensible_at_runtime` failing with
+    #      "restore failed -- the lexicon is not reversible", because a
+    #      previous test's engine had already mutated the global.
+    #
+    # Now it writes only when the value actually differs, and it never
+    # overwrites a marker that a previous call (or the seed) established
+    # unless the new evidence is genuinely different.
     try:
-        register_marker("related_weak", candidates[0])
+        _target = candidates[0]
+        from ravana.chat.hedges import _marker as _current_marker
+        if _current_marker("related_weak") == _target:
+            return False  # already registered; nothing to do
+        register_marker("related_weak", _target)
         changed = True
     except Exception:
         changed = False
     return changed
+
+
+def _plausible_marker_words(style: StyleContext) -> List[str]:
+    """Function words that could plausibly serve as an epistemic marker.
+
+    WHY THIS FILTER EXISTS (round 2026-11-10). `top_function_words` is simply
+    the user's most frequent closed-class words, and those are always the same
+    few: 'is', 'the', 'i', 'and', 'to'. Registering one as a modal marker
+    produced
+
+        "is entropy sits close to disorder"
+
+    -- a copula where a hedge belongs. The marker slot is a DISCOURSE MARKER
+    position, so only words that can occupy it are eligible: hedges, downtoners
+    and discourse particles. Frequency alone is not evidence of markerhood.
+
+    This is deliberately a denylist of the words that are clearly ungrammatical
+    in the slot, rather than an allowlist of known-good markers -- an allowlist
+    would defeat the point of learning a marker the user actually uses.
+    """
+    _NOT_MARKERS = {
+        # copulas / auxiliaries -- cannot head a hedge clause
+        "is", "are", "was", "were", "be", "been", "being", "am", "do", "does",
+        "did", "has", "have", "had", "will", "would", "can", "could", "shall",
+        "should", "may", "might", "must",
+        # determiners / pronouns / prepositions / conjunctions
+        "the", "a", "an", "this", "that", "these", "those", "i", "you", "he",
+        "she", "it", "we", "they", "me", "him", "her", "us", "them", "my",
+        "your", "his", "its", "our", "their", "of", "in", "on", "at", "to",
+        "for", "with", "by", "from", "as", "and", "or", "but", "if", "so",
+        "than", "then", "there", "here", "not", "no", "yes", "what", "which",
+        "who", "how", "when", "where", "why", "all", "some", "any", "each",
+        "more", "most", "much", "many", "very", "just", "also", "too", "only",
+        "own", "same", "such", "one", "two", "first", "second", "now", "up",
+        "out", "about", "into", "over", "after", "before", "again", "once",
+    }
+    out = []
+    for w in getattr(style, "top_function_words", ()) or ():
+        w = str(w).strip().lower()
+        if not w or len(w) > 12 or w in _NOT_MARKERS:
+            continue
+        out.append(w)
+    return out
+
+
+def register_style_markers_for(engine: Any, style: Optional[StyleContext]) -> bool:
+    """Per-engine variant of `register_style_markers`.
+
+    `register_style_markers` writes the MODULE-GLOBAL `_MARKERS` dict, so a
+    marker derived from one user's style leaks into every other engine in the
+    process. CI caught exactly that: `test_marker_lexicon_is_extensible_at_runtime`
+    failed with "restore failed -- the lexicon is not reversible" because a
+    style-conditioning test had already overwritten `related_weak` globally.
+
+    This variant stores the override on the engine (`_style_marker_overrides`)
+    and leaves the global untouched. `hedges.marker_for(engine, state)`
+    resolves it. Fail-open: any error returns False.
+    """
+    if engine is None or style is None or not style.available:
+        return False
+    try:
+        from ravana.chat.hedges import register_marker_scoped
+    except Exception:
+        return False
+    candidates = _plausible_marker_words(style)
+    if not candidates:
+        return False
+    try:
+        return bool(register_marker_scoped(engine, "related_weak", candidates[0]))
+    except Exception:
+        return False
 
 
 # ── Alignment metric ─────────────────────────────────────────────────────────
