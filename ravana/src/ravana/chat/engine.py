@@ -306,6 +306,14 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
 # (brain-faithful: the lexicon is derived from the word's distributional
 # profile, not an external file dependency).
 _FUNCTION_WORDS = STOP_WORDS | set(FUNCTION_POS.keys())
+
+
+# Bound on the agentic tool-evidence footnote appended to a reply (round
+# 2026-11-10). The raw payload from tool_registry is a title list that ran to
+# 40+ words and dominated the reply; 140 characters keeps the provenance
+# without letting it become the content. See the append site near the end of
+# `_process_turn_impl`.
+_EVIDENCE_FOOTNOTE_MAX = 140
 from .web_learning import WebLearningMixin
 try:
     from .self_directed_learning import SelfDirectedLearner
@@ -11448,7 +11456,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # only append the grounded evidence; no re-decision, no double execution.
         _ev = getattr(self, "_pending_web_evidence", None)
         if _ev:
-            response = f"{response}\n{_ev}"
+            response = self._footnote_evidence(response, _ev)
+            # Cleared immediately after the append -- a stale payload must not
+            # survive into the next turn (asserted by the adjacency test).
             self._pending_web_evidence = None
         # NOTE: previously this returned ``response.lower()``. That destroyed
         # proper-noun casing in the final output (e.g. "France" -> "france",
@@ -11470,6 +11480,46 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Dialogue-memory recording is done by the process_turn wrapper so
         # EVERY return path (including the ~66 early returns above) is stored.
         return response
+
+    @staticmethod
+    def _footnote_evidence(response: str, payload: Any) -> str:
+        """Append tool evidence to a reply as a BOUNDED FOOTNOTE.
+
+        SURFACE, DON'T DROWN (round 2026-11-10). The raw payload from
+        ``tool_registry`` is a title list, and appending it verbatim made it
+        the reply's main content:
+
+            "the closest i get to heavy rumour is spread and maybe water ...
+             [agentic:web_search] [web:intentforge] Rumour Verification Latest
+             News Reports- NSE India; Rumour Has It - Top Heavy - You"
+
+        Most of the 65 words were metadata. That buried the answer and made
+        the length channel of Phase 2 unable to act -- compressing one
+        evidence clause changes ~5 of 65 words.
+
+        Provenance is the point of the agentic layer, so the payload is kept,
+        but truncated to ``_EVIDENCE_FOOTNOTE_MAX`` and bracketed once (the
+        payload already carries its own brackets; wrapping it again produced
+        ``[[agentic:``). The full payload still goes to
+        ``_record_agent_action``, so nothing is lost.
+
+        Fail-open: an empty or unusable payload returns ``response`` unchanged.
+        """
+        try:
+            _ev = str(payload).strip()
+            if not _ev:
+                return response
+            if _ev.startswith("[") and _ev.endswith("]"):
+                pass
+            elif _ev.startswith("["):
+                _ev = _ev + "]"
+            else:
+                _ev = f"[{_ev}]"
+            if len(_ev) > _EVIDENCE_FOOTNOTE_MAX:
+                _ev = _ev[:_EVIDENCE_FOOTNOTE_MAX].rstrip() + "...]"
+            return f"{response}\n{_ev}"
+        except Exception:
+            return response
 
     # ── Dialogue memory (Phase 1) ────────────────────────────────────────────
     def _record_dialogue_turn(self, user_input: str, response: str,
