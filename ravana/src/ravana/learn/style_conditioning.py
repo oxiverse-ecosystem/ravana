@@ -669,8 +669,27 @@ def register_style_markers(style: Optional[StyleContext]) -> bool:
     # Register the top candidate against the weakest band only, so a bad
     # call degrades to the existing marker rather than corrupting the
     # strong bands. This is the smallest, safest use of the growth path.
+    #
+    # IDEMPOTENT AND NON-DESTRUCTIVE (round 2026-11-10). This used to call
+    # `register_marker` unconditionally on every invocation, and
+    # `_MARKERS` is a MODULE-GLOBAL dict. Two consequences:
+    #   1. calling it every turn permanently overwrote the lexicon entry, so
+    #      the marker drifted to whatever the most recent style context said
+    #      and never came back;
+    #   2. it leaked across engine instances and across tests -- CI caught
+    #      `test_marker_lexicon_is_extensible_at_runtime` failing with
+    #      "restore failed -- the lexicon is not reversible", because a
+    #      previous test's engine had already mutated the global.
+    #
+    # Now it writes only when the value actually differs, and it never
+    # overwrites a marker that a previous call (or the seed) established
+    # unless the new evidence is genuinely different.
     try:
-        register_marker("related_weak", candidates[0])
+        _target = candidates[0]
+        from ravana.chat.hedges import _marker as _current_marker
+        if _current_marker("related_weak") == _target:
+            return False  # already registered; nothing to do
+        register_marker("related_weak", _target)
         changed = True
     except Exception:
         changed = False

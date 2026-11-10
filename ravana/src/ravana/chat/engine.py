@@ -11604,19 +11604,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         #
         # `register_style_markers` was defined but NEVER CALLED -- a third
         # unwired function in this subsystem, after `use_style_conditioning`
-        # (never set) and the length/question channels (never consulted). It
-        # registers the user's most over-represented function words as runtime
-        # modal markers via the growth path `chat/hedges.py` already exposes,
-        # so RAVANA's hedge vocabulary drifts toward the user's with no
-        # retrain and no authored string.
+        # (never set, #300) and the length/question channels (never consulted).
         #
-        # Fail-open: any error leaves the existing markers untouched.
-        try:
-            from ravana.learn.style_conditioning import register_style_markers
-            if register_style_markers(style):
-                changed = True
-        except Exception:
-            pass
+        # ONCE PER ENGINE, NOT EVERY TURN. `chat/hedges.py`'s `_MARKERS` is a
+        # MODULE-GLOBAL dict, so registering on every turn permanently
+        # overwrites the lexicon entry and leaks across engine instances. CI
+        # caught exactly that: `test_marker_lexicon_is_extensible_at_runtime`
+        # failed with "restore failed -- the lexicon is not reversible"
+        # because an earlier engine had already mutated the global.
+        #
+        # The marker is a property of the USER, not of the turn, so registering
+        # it once when the style context first becomes available is both
+        # sufficient and correct. Fail-open: any error leaves the existing
+        # markers untouched.
+        if not getattr(self, "_style_markers_registered", False):
+            try:
+                from ravana.learn.style_conditioning import register_style_markers
+                if register_style_markers(style):
+                    changed = True
+                self._style_markers_registered = True
+            except Exception:
+                pass
         return changed
 
     def condition_modality(self, base_modality: str,
