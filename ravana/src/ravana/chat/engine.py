@@ -32,6 +32,8 @@ socket.setdefaulttimeout(4.0)
 from urllib.error import URLError
 from urllib.parse import quote
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import random
+
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional, Tuple, Set
@@ -910,6 +912,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Seed numpy global RNG too — graph init uses np.random.randn()
         # for GloVe projection. (Round 2026-09-14 fix.)
         np.random.seed(seed)
+        # Seed PYTHON's global RNG as well (round 2026-11-10).
+        #
+        # Several reply paths choose between surface variants with the module-
+        # level `random`: the uncertainty closers (`random.choice(closers)`,
+        # response_gen.py:3728), the opener pick, and the style-conditioned
+        # question gate. None of them used `self.rng`, so their output
+        # depended on whatever the PROCESS RNG state happened to be.
+        #
+        # Measured consequence: `test_rfix01_utterance_log.py` was flaky --
+        # the same engine config (seed=42) produced
+        #     "honestly, friends is a bit outside what i know right now where
+        #      did you hear about that?"
+        # when run alone, and
+        #     "honestly, friends is a bit outside what i know right now. "
+        # when run after another test in the same process. The stored reply
+        # therefore differed from the recalled one and the assertion failed.
+        # `main` failed this test roughly 1 run in 3.
+        #
+        # Seeding here makes a given `seed=` reproducible regardless of what
+        # ran before, which is what the reproducibility contract
+        # (docs/REPRODUCIBILITY.md: same seed + same inputs = same SHA256)
+        # already promises for the numpy side.
+        try:
+            random.seed(seed)
+        except Exception:
+            pass
 
         # Update global STOP_WORDS to filter out conversational filler/debris
         STOP_WORDS.update({"please", "sorry", "thanks", "thank", "hello", "hi", "hey", "bye", "goodbye"})
