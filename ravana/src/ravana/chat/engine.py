@@ -6351,6 +6351,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                          "hi ", "how are you", "what do you care")
                 if any(_s in _q_low for _s in _skip):
                     return
+                # DO NOT KEY A RECALL TURN BY ITS QUERY (round 2026-11-10).
+                #
+                # This fallback takes the LAST content word of the user's
+                # utterance. For a disclosure that is a reasonable topic
+                # ("i love the autumn season" -> "season"). For a RECALL query
+                # it is the word the user is asking ABOUT, and the reply being
+                # stored is RAVANA's answer to it -- so the store ends up
+                # keyed by the queried topic while holding an unrelated reply.
+                #
+                # Measured: after "i think board games are a great way to
+                # bond with friends" stored its reply under
+                # "great bond friends", the turn "earlier you said something
+                # about what season you remind me" had no subject, fell back
+                # to its last content word "friends", and OVERWROTE that entry
+                # with the autumn reply. The board-games reply became
+                # unrecoverable, and a later "remind me what you said about
+                # board games" recalled the autumn text.
+                #
+                # A recall turn adds nothing new to the agent-reply store --
+                # it is RAVANA quoting itself -- so skip it entirely.
+                if self._is_agent_self_recall_query(_q_low):
+                    return
                 _topic = _words[-1]
             if not _topic or _topic in ("hello", "how", "bye"):
                 return
@@ -6364,6 +6386,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"^(i (?:said|told you)|you (?:said|told me)|earlier (?:you said|i said))\s*[:\-]\s*",
                 "", _store_text, flags=re.IGNORECASE).strip()
             if not _store_text:
+                return
+            # DO NOT STORE A REPLY THAT IS ITSELF A RECALL (round 2026-11-10).
+            #
+            # `_record_own_reply` is called from several sites, and one of them
+            # (`notify_user_idle`) reads `_last_responses[-1]` -- the most
+            # recent buffer entry, which is not necessarily this turn's reply.
+            # On a turn that produced no new reply, that is the PREVIOUS
+            # turn's text, and it gets filed under the CURRENT turn's topic.
+            #
+            # Measured: the board-games turn stored
+            #     key='friends' text="i said: good to know -- you love the
+            #                            autumn season..."
+            # -- the autumn reply (already recall-prefixed) filed under a
+            # board-games topic. That entry then won the topical-overlap tie
+            # and "remind me what you said about board games" recalled the
+            # autumn text.
+            #
+            # A reply that is itself a recall frame is RAVANA quoting itself;
+            # it is never a genuine reply to store. Rejecting it here fixes
+            # the corruption at the source rather than at each call site.
+            if re.match(
+                    r"^(i (?:said|told you)|you (?:said|told me)|earlier "
+                    r"(?:you said|i said))\b",
+                    _rt.strip(), flags=re.IGNORECASE):
                 return
             self._own_replies.setdefault(_topic, [])
             # Replace any prior reply on the same topic so re-stating a view keeps
@@ -6384,6 +6430,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 "src_tokens": list(_words),
             }]
             self._own_reply_topic_idx[_topic] = 1
+            # Mark that THIS turn's reply has been recorded, so
+            # notify_user_idle's stale-reply guard (web_learning.py) can tell
+            # a genuine same-turn record from a leftover buffer entry.
+            self._own_reply_turn = int(getattr(self, "turn_count", 0) or 0)
             # RFIX-01: also append to the utterance log ring buffer so a later
             # cued recall can match by direct token overlap with the reply text
             # when the topic-keyed store misses (e.g. topic extraction didn't
@@ -6819,9 +6869,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 _second_best_overlap = _ov
         _min_overlap = 1 if len(_cands) <= 1 else 2
         # Disambiguation: if two stored replies tie on overlap, we cannot
-        # tell which topic the user meant — fail closed (honest uncertainty)
+        # tell which topic the user meant -- fail closed (honest uncertainty)
         # instead of risking a wrong-topic echo.
-        if _best is None or _best_overlap < _min_overlap or _best_overlap == _second_best_overlap:
+        #
+        # SAME UTTERANCE STORED TWICE IS NOT AMBIGUITY (round 2026-11-10).
+        # `_record_own_reply` keys the store by each salient token of the
+        # source utterance, so ONE utterance produces SEVERAL entries with
+        # IDENTICAL src_tokens (measured: keys 'friends' and
+        # 'great bond friends' both carry
+        # ['board','bond','friends','games','great','with']). A tie between
+        # those is the same reply, not two competing topics, and the old rule
+        # failed closed on it -- so "remind me what you said about board
+        # games" returned honest uncertainty instead of the reply the user
+        # was asking for.
+        #
+        # Now a tie is only treated as ambiguous when the tied entries have
+        # DIFFERENT source tokens, which is the case the rule was written for.
+        _tied_srcs = {
+            tuple(sorted((_entries[-1].get("src_tokens", []) or [])))
+            for _k, _entries in _store.items()
+            if _entries and isinstance(_entries[-1], dict)
+            and len(set(_q_set & set(_entries[-1].get("src_tokens", []) or []))) == _best_overlap
+        }
+        _ambiguous = _best_overlap == _second_best_overlap and len(_tied_srcs) > 1
+        if _best is None or _best_overlap < _min_overlap or _ambiguous:
             # RFIX-01: fallback to the utterance log ring buffer. The topic-keyed
             # store missed because topic extraction didn't align (e.g. a query
             # about "season" when the reply was about "autumn season" and the
@@ -7612,6 +7683,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     self.apply_style_conditioning(self._style_context)
         except Exception:
             self._style_context = None  # conditioning must never break a turn
+        # Stamp the turn that is ABOUT to produce a reply, so
+        # notify_user_idle's stale-reply guard (web_learning.py) can tell a
+        # same-turn record from a leftover buffer entry.
+        #
+        # `turn_count` is incremented INSIDE _process_turn_impl (engine.py
+        # ~7782), and notify_user_idle fires from reply-return sites within it
+        # -- after that increment. So the stamp must be derived the same way:
+        # current value + 1. Stamping the raw value leaves the guard one turn
+        # behind and it blocks every record.
+        try:
+            self._last_reply_turn = int(getattr(self, "turn_count", 0) or 0) + 1
+        except Exception:
+            pass
         response = self._process_turn_impl(user_input)
         try:
             self._record_dialogue_turn(
@@ -7891,6 +7975,27 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _cued_self = self._self_cued_episodic(user_input)
         except Exception:
             _cued_self = None
+        # SOURCE MONITORING (round 2026-11-10). This path returns the stored
+        # USER turn, so it must never answer a question about RAVANA's OWN
+        # speech. Before this guard, "remind me what you said about board
+        # games" could be answered with
+        #     'you mentioned: "i think board games are a great way to bond
+        #      with friends"'
+        # -- the user's words attributed to the user, when the question was
+        # about RAVANA's reply. That is a speaker inversion, and it is exactly
+        # what `_is_agent_self_recall_query` exists to prevent elsewhere.
+        #
+        # The predicate is the SINGLE SOURCE OF TRUTH already shared by the
+        # recall gate and the structured-recall top guard; this call site
+        # simply was not consulting it. Failing closed here means the query
+        # falls through to `_route_agent_own_recall`, which answers from the
+        # AgentReplyStore with the real reply.
+        if _cued_self is not None:
+            try:
+                if self._is_agent_self_recall_query(user_input):
+                    _cued_self = None
+            except Exception:
+                pass  # gate unavailable -> keep the existing behaviour
         # Apply the relevance gate at the call site. The gate uses the
         # multi-signal score (not Jaccard overlap) so paraphrased replies
         # that share zero content words with the query still pass — the
@@ -10043,6 +10148,26 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # gist, return it. If it misses, fail closed (no confabulation) rather
         # than fabricating a graph-based/web answer.
         _epi = self._episodic_remember(user_input)
+        # SOURCE MONITORING (round 2026-11-10). `_episodic_remember` returns a
+        # stored USER turn, so it must never answer a question about RAVANA's
+        # OWN speech. Without this guard, "remind me what you said about board
+        # games" was answered with
+        #     'you mentioned: "i think board games are a great way to bond
+        #      with friends"'
+        # -- the user's words, when the question was about RAVANA's reply.
+        # That is a speaker inversion, and `_is_agent_self_recall_query` is
+        # the shared predicate that already prevents it on the other recall
+        # paths; this call site was not consulting it.
+        #
+        # Failing closed lets the query fall through to
+        # `_route_agent_own_recall`, which answers from the AgentReplyStore
+        # with the real reply.
+        if _epi:
+            try:
+                if self._is_agent_self_recall_query(user_input):
+                    _epi = None
+            except Exception:
+                pass  # gate unavailable -> keep the existing behaviour
         if _epi:
             self._last_strategy = "episodic_remember"
             self._last_responses.append(_epi)
