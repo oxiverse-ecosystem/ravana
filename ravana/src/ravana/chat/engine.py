@@ -306,6 +306,14 @@ from .constants import (TEEN_CONCEPTS, WEB_GARBAGE, STOP_WORDS, ConceptPosDict,
 # (brain-faithful: the lexicon is derived from the word's distributional
 # profile, not an external file dependency).
 _FUNCTION_WORDS = STOP_WORDS | set(FUNCTION_POS.keys())
+
+
+# Bound on the agentic tool-evidence footnote appended to a reply (round
+# 2026-11-10). The raw payload from tool_registry is a title list that ran to
+# 40+ words and dominated the reply; 140 characters keeps the provenance
+# without letting it become the content. See the append site near the end of
+# `_process_turn_impl`.
+_EVIDENCE_FOOTNOTE_MAX = 140
 from .web_learning import WebLearningMixin
 try:
     from .self_directed_learning import SelfDirectedLearner
@@ -11448,7 +11456,46 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # only append the grounded evidence; no re-decision, no double execution.
         _ev = getattr(self, "_pending_web_evidence", None)
         if _ev:
-            response = f"{response}\n{_ev}"
+            # SURFACE TOOL EVIDENCE AS A FOOTNOTE, NOT AS PROSE (round
+            # 2026-11-10).
+            #
+            # This block appended the raw tool payload to the reply
+            # unconditionally:
+            #
+            #   "the closest i get to heavy rumour is spread and maybe water
+            #    -- and from what i've seen, spread may refer to.
+            #    [agentic:web_search] [web:intentforge] Rumour Verification
+            #    Latest News Reports- NSE India; Rumour Has It - Top Heavy"
+            #
+            # The intent (per the comment above) is that RAVANA's "hands"
+            # appear on the reply, and that is worth keeping -- provenance is
+            # the point of the agentic layer. But the payload is a raw title
+            # list from tool_registry.py:185, and it dominated the reply: most
+            # of the 65 words were metadata, not prose. That made the length
+            # channel of Phase 2 unable to move (compressing one evidence
+            # clause changes ~5 of 65 words) and made every reply read as a
+            # debug dump.
+            #
+            # Now the payload is truncated to a bounded footnote and marked as
+            # provenance. The full payload stays in `_record_agent_action`, so
+            # nothing is lost -- it just stops being the reply's main content.
+            # Fail-open: an over-long or empty payload is dropped entirely.
+            try:
+                _ev_clean = str(_ev).strip()
+                # The payload already carries its own brackets
+                # ("[agentic:web_search] [web:intentforge] ..."), so wrapping
+                # it again produced "[[agentic:...".
+                if _ev_clean.startswith("[") and _ev_clean.endswith("]"):
+                    pass
+                elif _ev_clean.startswith("["):
+                    _ev_clean = _ev_clean + "]"
+                else:
+                    _ev_clean = f"[{_ev_clean}]"
+                if len(_ev_clean) > _EVIDENCE_FOOTNOTE_MAX:
+                    _ev_clean = _ev_clean[:_EVIDENCE_FOOTNOTE_MAX].rstrip() + "...]"
+                response = f"{response}\n{_ev_clean}"
+            except Exception:
+                pass
             self._pending_web_evidence = None
         # NOTE: previously this returned ``response.lower()``. That destroyed
         # proper-noun casing in the final output (e.g. "France" -> "france",
