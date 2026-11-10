@@ -9923,7 +9923,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self._last_responses = self._last_responses[-10:]
             self.notify_user_idle()
             self._identity_end_of_turn(user_input, quality_score=None)
-            return response.lower()
+            # CASE PRESERVED (round 2026-11-10). This returned
+            # `response.lower()`, which flattened every reply on this path.
+            # That destroys the register signal Phase 2 conditions on: a user
+            # who writes in sentence case gets a reply in lower case, and the
+            # style context then reads as "this user does not use capitals".
+            # The same flattening was removed from the main return path for
+            # exactly this reason (see the NOTE near the end of
+            # _process_turn_impl); this early-return site was missed.
+            return response
 
         # Deferred decoder training on first turn (fast startup)
         if getattr(self, '_needs_seed_training', False):
