@@ -1577,10 +1577,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # ── Style conditioning (Phase 2) ─────────────────────────────────
         # OFF by default: when False, generation is byte-identical to the
         # pre-Phase-2 behaviour (no style context is built, no realizer
-        # weights are touched). Flip on to test interactive alignment.
-        # Fail-open: an unavailable memory yields no style context and every
-        # consumer no-ops, so the flag alone never changes output.
-        self.use_style_conditioning = False
+        # weights are touched).
+        #
+        # PROMOTED FLAG (round 2026-11-10). This used to be a manual switch --
+        # the comment said "flip on to test interactive alignment" and nothing
+        # ever flipped it. Measured: `use_style_conditioning` was False on every
+        # engine instance, so `_style_conditioning_enabled()` returned False,
+        # `build_style_context()` returned None on every turn, and Phase 2 was
+        # inert in production despite being fully wired and tested. The
+        # alignment metric read +0.000 for this reason and not because the
+        # hypothesis failed.
+        #
+        # It is now enabled whenever the machinery is present and the dialogue
+        # memory can serve it -- the same fail-open contract as use_linggen.
+        # When the memory is empty or unavailable the context is None and every
+        # consumer no-ops, so enabling it cannot change output on a cold start.
+        self.use_style_conditioning = self._style_conditioning_available()
         self._style_context: Optional[StyleContext] = None
         self._style_context_turn: int = -1
         # Rolling alignment windows (turn-indexed) so turn 1 vs turn 20 can
@@ -11516,6 +11528,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return []
 
     # ── Style conditioning (Phase 2) ─────────────────────────────────────────
+    def _style_conditioning_available(self) -> bool:
+        """True when the Phase 2 machinery is present and can be served.
+
+        Used to initialise `use_style_conditioning` (see the comment there for
+        why the flag is no longer a manual switch). Fail-closed: any missing
+        import, missing memory object, or unavailable memory yields False, so
+        a cold start behaves exactly as it did before Phase 2.
+        """
+        try:
+            from ravana.learn.style_conditioning import (  # noqa: F401
+                apply_style_to_realizer, derive_style_context,
+                build_style_context_from_memory, select_modality,
+            )
+        except Exception:
+            return False
+        mem = getattr(self, "dialogue_memory", None)
+        return bool(mem is not None and getattr(mem, "available", False))
+
     def _style_conditioning_enabled(self) -> bool:
         """True when style conditioning is on AND the memory can serve it.
 
