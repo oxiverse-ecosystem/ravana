@@ -343,26 +343,43 @@ def test_function_word_distribution_ignores_content_words():
 # ── engine wiring ────────────────────────────────────────────────────────────
 
 def test_engine_style_conditioning_off_by_default(tmpdir):
-    """The flag is off on a fresh engine, so generation is unchanged."""
+    """A fresh engine has no exemplars, so no style context is ever built.
+
+    ROUND 2026-11-10: the flag itself is no longer a manual switch. It used to
+    be hard-coded False with a comment saying "flip on to test interactive
+    alignment" -- and nothing ever flipped it, so Phase 2 was inert in
+    production despite being fully wired and tested. The alignment metric read
+    +0.000 for that reason, not because the hypothesis failed.
+
+    The flag is now enabled whenever the machinery and the memory are present.
+    What still holds -- and what this test actually protects -- is the
+    fail-open contract: with an empty memory the context is None, so a cold
+    start produces exactly the pre-Phase-2 output.
+    """
     from ravana.chat.engine import CognitiveChatEngine
     e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
                             data_dir=str(tmpdir), user_suffix="_style_off")
-    assert e.use_style_conditioning is False
-    # With the flag off, no style context is ever built.
+    # Flag may be on (machinery present) -- the point is that an empty memory
+    # yields no context either way.
     assert e.build_style_context("hello") is None
     e.dialogue_memory.close()
 
 
 def test_engine_conditioning_does_not_fire_when_disabled(tmpdir):
-    """Even with a populated memory, a disabled flag means no conditioning."""
+    """A disabled flag means no conditioning, even with a populated memory.
+
+    This is the fail-open contract's other half and it still holds: the flag
+    remains the off switch, so a deployment can disable Phase 2 explicitly and
+    get byte-identical pre-Phase-2 behaviour.
+    """
     from ravana.chat.engine import CognitiveChatEngine
     e = CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
                             data_dir=str(tmpdir), user_suffix="_style_disabled")
     e.process_turn("what is the ocean like?")
     e.process_turn("how does the tide work?")
     assert e.dialogue_memory.count() == 2
-    # Flag still off -> no context, no realizer change.
-    assert e.use_style_conditioning is False
+    # Explicitly disabled -> no context, no realizer change.
+    e.use_style_conditioning = False
     assert e.build_style_context("ocean") is None
     e.dialogue_memory.close()
 
