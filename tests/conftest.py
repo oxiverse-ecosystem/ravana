@@ -50,6 +50,11 @@ if os.path.isdir(_scripts_dir):
 # instantly to "no GloVe vectors" instead. Opt back in per-run with
 # RAVANA_ALLOW_GLOVE_DOWNLOAD=1 (or by pre-setting RAVANA_OFFLINE=0).
 os.environ.setdefault("RAVANA_OFFLINE", "1")
+# Determinism half of the offline contract: licenses the engine's
+# honest-uncertainty short-circuit so test runs are reproducible. Must be set
+# alongside RAVANA_OFFLINE -- the engine now requires both, so a deployment that
+# sets RAVANA_OFFLINE=1 for network reasons alone still reaches generation.
+os.environ.setdefault("RAVANA_TEST_MODE", "1")
 
 # Numeric libraries must not oversubscribe cores when pytest-xdist already runs
 # N worker processes; unpinned BLAS threads are what made shard runtimes swing

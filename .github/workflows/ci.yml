@@ -25,7 +25,14 @@ env:
   # previously hung the Windows soak job past its timeout with zero test output
   # and made ubuntu shards swing wildly in runtime. With this set a cache miss
   # degrades instantly to "no GloVe vectors" instead of stalling on the network.
+  #
+  # RAVANA_TEST_MODE is the determinism half: it licenses the engine's
+  # offline honest-uncertainty short-circuit (refuse rather than guess, so CI
+  # runs are reproducible). RAVANA_OFFLINE alone no longer triggers it -- that
+  # flag now means only "no network / no GloVe download", which is a legitimate
+  # deployment setting and must not change how RAVANA answers.
   RAVANA_OFFLINE: "1"
+  RAVANA_TEST_MODE: "1"
 
 jobs:
   # ── Warm GloVe cache (built once, shared via actions/cache) ──
