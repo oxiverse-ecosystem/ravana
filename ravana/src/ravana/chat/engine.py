@@ -12325,6 +12325,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'meaning_accumulated': self.meaning.accumulated_meaning,
                 'dim': self.dim,
                 'rng_state': self.rng.get_state(),
+                # Emotional mirror state (round 2026-11-10). ChatInterface
+                # persisted this and CognitiveChatEngine did not, so collapsing
+                # the interface into a thin wrapper over the engine would have
+                # silently dropped it. The engine owns `mirror_engine`
+                # (engine.py:989); it just never saved it.
+                'mirror_state': (
+                    self.mirror_engine.state.to_dict()
+                    if getattr(self, "mirror_engine", None) is not None
+                    and hasattr(self.mirror_engine, "state")
+                    and hasattr(self.mirror_engine.state, "to_dict")
+                    else None
+                ),
                 # Teen additions
                 'sleep_pressure': self._sleep_pressure,
                 'last_sleep_episode': self._last_sleep_episode,
@@ -12892,6 +12904,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 self.rng.set_state(state['rng_state'])
             except Exception as _e:
                 print(f"  [Load partial] rng restore failed: {_e}")
+
+            # Restore the emotional mirror state (round 2026-11-10). Fail-open:
+            # an absent or malformed value leaves the mirror at its defaults,
+            # which is what a fresh engine does anyway.
+            try:
+                _mirror = state.get('mirror_state', None)
+                if _mirror and getattr(self, "mirror_engine", None) is not None \
+                        and hasattr(self.mirror_engine, "state") \
+                        and hasattr(self.mirror_engine.state, "set_state"):
+                    self.mirror_engine.state.set_state(_mirror)
+            except Exception as _e:
+                print(f"  [Load partial] mirror restore failed: {_e}")
 
             # Restore the retirement ledger (round 2026-09-29T1239Z). Without
             # this a correction learned in a previous session is forgotten and
