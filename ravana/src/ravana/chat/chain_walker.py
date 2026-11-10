@@ -568,6 +568,43 @@ class ChainWalkerMixin:
         return best
 
 
+    def _canonicalise_vector(self, vec):
+        """Return ``vec`` at the graph's canonical width.
+
+        The graph enforces one width (``self.dim``) and the stacked similarity
+        matrix is built at that width, so every vector compared against a node
+        vector must match it. ``_glove_vector`` normally honours that, but a
+        fallback path can return the cache's native width; this normalises it.
+
+        Uses the graph's own ``_deterministic_projection`` when available (the
+        same fallback ``add_node`` uses), else a plain resize. Never pads with
+        zeros silently -- the projection is deterministic and unit-norm.
+        """
+        try:
+            v = np.asarray(vec, dtype=np.float32).reshape(-1)
+        except Exception:
+            return vec
+        dim = int(getattr(self.graph, "dim", 0) or 0)
+        if dim <= 0 or v.shape[0] == dim:
+            return v.astype(np.float32)
+        fn = getattr(self.graph, "_deterministic_projection", None)
+        if callable(fn):
+            try:
+                return fn(v, "relation_prototype")
+            except Exception:
+                pass
+        # Last resort: deterministic fold without the graph helper.
+        out = np.zeros(dim, dtype=np.float32)
+        idx = np.arange(v.shape[0]) % dim
+        for k in range(dim):
+            sel = v[idx == k]
+            if sel.size:
+                out[k] = sel.mean()
+        n = float(np.linalg.norm(out))
+        if n > 0:
+            out /= n
+        return out
+
     def _init_relation_prototypes(self):
         """Precompute prototype vectors for ALL relation types.
 
@@ -601,6 +638,20 @@ class ChainWalkerMixin:
                     if self._glove_vector(w) is not None]
             if vecs:
                 proto = np.mean(vecs, axis=0).astype(np.float32)
+                # CANONICAL WIDTH (round 2026-11-10).
+                #
+                # `_glove_vector` returns the GloVe cache's NATIVE width, which
+                # is not necessarily the graph's `dim` -- the cache is
+                # projected to `dim` on load, but a fallback path can still
+                # yield the raw width. At dim=64 the two coincide and this was
+                # invisible; at any other dim the prototype is a different
+                # width from `rel_vec` and `np.dot(rel_vec, proto_vec)`
+                # raises "shapes (32,) and (64,) not aligned".
+                #
+                # Measured: CognitiveChatEngine(dim=32) could not construct at
+                # all. Project to the graph's dim so the comparison is always
+                # well-defined.
+                proto = self._canonicalise_vector(proto)
                 norm = np.linalg.norm(proto)
                 if norm > 0:
                     proto /= norm
@@ -630,6 +681,10 @@ class ChainWalkerMixin:
         target_vec = self._glove_vector(word)
         if target_vec is None:
             return None
+        # CANONICAL WIDTH (round 2026-11-10) -- see `_canonicalise_vector`.
+        # `_glove_vector` can return the cache's native width, which only
+        # coincides with the graph's dim at dim=64.
+        target_vec = self._canonicalise_vector(target_vec)
 
         sims = {}
         for rt, proto_vec in self._relation_prototypes.items():

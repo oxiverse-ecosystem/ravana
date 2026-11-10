@@ -178,6 +178,38 @@ from ravana.learn.consolidation import HippocampalReplay
 from ravana.language.register import RegisterController
 
 
+def _resize_projection(proj: np.ndarray, dim: int) -> np.ndarray:
+    """Return a ``dim x glove_dim`` projection derived from ``proj``.
+
+    The GloVe cache ships a random projection matrix built for the dim it was
+    generated at (64 in the committed artifact). When an engine is constructed
+    at a different ``dim``, using that matrix verbatim produces vectors of the
+    wrong width and every downstream dot product against a node vector raises.
+
+    This derives a same-shaped matrix for the requested width:
+
+      * ``dim`` < source rows -> take the leading rows. The projection is a
+        random basis, so a prefix is still a valid basis and is non-lossy for
+        the channels it keeps.
+      * ``dim`` > source rows -> cycle the rows. Not a fresh random basis, but
+        deterministic, and it keeps the projected width exact so the
+        similarity matrix stays valid.
+
+    Deterministic: no RNG, so a rebuilt engine reproduces itself.
+    """
+    try:
+        p = np.asarray(proj, dtype=np.float32)
+        src = int(p.shape[0])
+    except Exception:
+        return proj
+    if src == dim:
+        return p
+    if dim <= 0:
+        return p
+    if dim < src:
+        return p[:dim].copy()
+    reps = int(np.ceil(dim / float(src)))
+    return np.tile(p, (reps, 1))[:dim].copy()
 
 
 class GraphMixin:
@@ -304,6 +336,21 @@ class GraphMixin:
                 vecs = data['vecs']  # shape (n_words, glove_dim) - RAW vectors
                 proj = data['proj']
                 self._glove_dim = int(data['glove_dim'])
+                # CANONICAL WIDTH (round 2026-11-10).
+                #
+                # The cache's `proj` is a random projection matrix built for
+                # whatever dim the cache was generated at -- 64 in the
+                # committed artifact. Using it verbatim at any other dim
+                # yields vectors of the WRONG WIDTH: measured,
+                # `_glove_vector('water')` returned shape (64,) on a graph
+                # with dim=32, and every downstream `np.dot` against a node
+                # vector raised "shapes (32,) and (64,) not aligned".
+                #
+                # At dim=64 the two coincide, which is why this was invisible.
+                # Slice (or pad) the projection to THIS engine's dim so the
+                # projected width always matches the graph.
+                if int(proj.shape[0]) != int(self.dim):
+                    proj = _resize_projection(proj, int(self.dim))
                 self._glove_proj = proj
 
                 # Memory-efficient GloVe store: keep the raw vectors as a single
