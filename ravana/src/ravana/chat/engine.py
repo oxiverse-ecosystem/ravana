@@ -7578,6 +7578,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         mine_personal_facts) and refreshed after observe_user_query; see
         _record_dialogue_turn.
         """
+        # ── Phase 2: publish the style context BEFORE any early return ──────
+        # _process_turn_impl has ~66 early returns (autobiographical memory,
+        # "i don't know" short-circuits, web, KB, meta-commands, ...), and the
+        # conditioning used to be published inside _generate_response -- behind
+        # all of them. Measured on a 20-turn run: build_style_context was called
+        # ZERO times, so the alignment metric moved +0.000 on every channel.
+        # Publishing here means every downstream path can consult it.
+        try:
+            if self._style_conditioning_enabled():
+                self._style_context = self.build_style_context(user_input)
+                if self._style_context is not None:
+                    self.apply_style_conditioning(self._style_context)
+        except Exception:
+            self._style_context = None  # conditioning must never break a turn
         response = self._process_turn_impl(user_input)
         try:
             self._record_dialogue_turn(
