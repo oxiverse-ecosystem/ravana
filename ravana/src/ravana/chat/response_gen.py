@@ -3738,21 +3738,70 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         The fallback still needs to be permissive (its job is to avoid returning
         None when the topic gate has already vetted the set), so it uses a lower
-        floor rather than none. Returns True when there is no embedding to judge
-        by, so a missing vector never silently drops a candidate.
+        floor rather than none.
+
+        FAILS CLOSED on a missing subject vector (round 2026-11-10). This used to
+        return True, on the reasoning that "a missing vector never silently
+        drops a candidate". That reasoning was backwards: returning True does not
+        preserve a candidate, it ADMITS EVERY CANDIDATE UNCHECKED. Measured
+        consequence -- for the multi-word subject 'heavy rumour',
+        `_glove_vector` returns None (it has no phrase path), so this function
+        returned True for all nine gated candidates, the ranking fell back to
+        raw activation magnitude, and the reply named 'water' and 'light': the
+        high-activation neighbours of the MODIFIER 'heavy', not of 'rumour'.
+
+        A missing vector now means "cannot judge", and the honest outcome is no
+        analogy rather than an unchecked one. Callers that can supply a
+        phrase-aware vector (see `_reflective_response`) do so before reaching
+        here, so this only bites when there is genuinely nothing to judge by.
         """
         if subj_vec is None:
-            return True
+            return False
         v = self._glove_vector(label)
         if v is None:
-            return True
+            return False
         try:
             n = float(np.linalg.norm(v)) * float(np.linalg.norm(subj_vec))
             if n <= 0:
-                return True
+                return False
             return float(np.dot(subj_vec, v)) / n >= floor
         except Exception:
-            return True
+            return False
+
+    @staticmethod
+    def _join_clauses(*parts: str, sep: str = ". ") -> str:
+        """Join clause fragments into one well-formed utterance.
+
+        CLAUSE BOUNDARIES (round 2026-11-10). The reflective path built its
+        output by bare f-string concatenation -- `hedge_frame(...) + _note`,
+        then `random.choice(openers) + random.choice(closers)` -- with no
+        separator and no terminal punctuation. Because the KB evidence had
+        also been `rstrip(".!?")`-ed, two finite clauses fused into one:
+
+            "the closest i get to heavy rumour is water and light -- and water
+             seems to be water is a transparent, tasteless, odourless liquid
+             (h2o) essential for all known life what's your take on it?"
+
+        There was no clause-joining helper anywhere in the codebase. This is
+        deliberately small: strip each fragment's terminal punctuation, join
+        with a real separator, and guarantee the result ends with punctuation.
+        """
+        _clean = []
+        for _p in parts:
+            if not _p:
+                continue
+            _p = str(_p).strip()
+            if not _p:
+                continue
+            _p = _p.rstrip(".!?;,")
+            if _p:
+                _clean.append(_p)
+        if not _clean:
+            return ""
+        _out = _clean[0]
+        for _p in _clean[1:]:
+            _out += sep + _p
+        return _out + "."
 
     def _sentence_is_about_subject(self, subject: str, content_words) -> bool:
         """True when the sentence's content words are the subject's graph neighbours.
@@ -6627,7 +6676,11 @@ class ResponseGenMixin(ChainWalkerMixin):
         _recent.append(closer)
         _opener = random.choice(openers)
         _recent_openers.append(_opener)
-        text = _opener + closer
+        # CLAUSE BOUNDARY (round 2026-11-10): the closer was concatenated with a
+        # bare space, so a trailing question fused onto an unterminated clause
+        # ("...essential for all known life what's your take on it?"). Joining
+        # through _join_clauses guarantees a boundary and terminal punctuation.
+        text = self._join_clauses(_opener, closer, sep=" ")
 
         # D5 FIX: integrate web search results into the uncertainty reply.
         # When the web search layer fired and returned results but they were
@@ -6760,7 +6813,33 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         subj = subject  # lowercase subject used by hedge_frame templates ({subj})
         subj_cap = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject)
+        # PHRASE-AWARE SUBJECT VECTOR (round 2026-11-10).
+        #
+        # `_glove_vector` is whole-string only -- it tries the phrase, then
+        # rstrip('s'), then w[:-1], and never a phrase mean. So a multi-word
+        # subject like 'heavy rumour' returns None, and everything downstream
+        # silently degraded:
+        #   - _topic_set_gate returned its candidate list UNFILTERED
+        #   - the primary cosine filter below was skipped entirely
+        #   - the fallback called _assoc_cos_ok(label, None), which returned
+        #     True unconditionally, admitting every candidate
+        #   - ranking fell back to raw activation magnitude, so the top-2 were
+        #     the highest-activation neighbours of the MODIFIER ('heavy' ->
+        #     water, light) rather than of the subject
+        # Measured: 'the closest i get to heavy rumour is water and light'.
+        #
+        # `_compute_phrase_embedding` already exists and already does the
+        # right thing (mean of the constituent node vectors); _ground_query
+        # uses it. This path did not. Prefer the whole-phrase vector when one
+        # exists, else fall back to the phrase mean.
         subj_vec = self._glove_vector(subject) if hasattr(self, '_glove_vector') else None
+        if subj_vec is None and hasattr(self, '_compute_phrase_embedding'):
+            try:
+                _pe = self._compute_phrase_embedding(subject)
+                if _pe is not None:
+                    subj_vec = _pe
+            except Exception:
+                subj_vec = None
 
         # Subject-verb / pronoun agreement (mirror SurfaceRealizer plural rules).
         sl = subject.lower()
@@ -6928,10 +7007,23 @@ class ResponseGenMixin(ChainWalkerMixin):
                 _safe_evidence = ""
         if len(top) == 1:
             if _safe_evidence:
-                _note = f" — from what i've seen, {_rel0} {_safe_evidence.lower()}"
+                # EVIDENCE IS A FULL SENTENCE (round 2026-11-10).
+                # `_safe_evidence` is the KB definition's first sentence, e.g.
+                # "a rumor, or rumour, is an unverified piece of information
+                # circulating among people". Embedding it after "seems to be"
+                # produces an ungrammatical clause -- "heat seems to be in
+                # thermodynamics, heat is defined as energy in transfer..." --
+                # because the evidence carries its own subject and verb.
+                # The frame must therefore introduce the evidence as a separate
+                # statement, not as the complement of "seems to be".
+                _note = f" — from what i've seen, {_safe_evidence.lower()}"
                 openers = [
-                    hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + _note,
-                    hedge_frame("ignorance", _band, subj=subj, rel=_rel0) + _note,
+                    self._join_clauses(
+                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0),
+                        _note, sep=" "),
+                    self._join_clauses(
+                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0),
+                        _note, sep=" "),
                 ]
             else:
                 openers = [
@@ -6942,10 +7034,17 @@ class ResponseGenMixin(ChainWalkerMixin):
                 ]
         else:
             if _safe_evidence:
-                _note = f" — and {_rel0} seems to be {_safe_evidence.lower()}"
+                # Same fix as the len(top)==1 branch: the evidence is a full
+                # sentence with its own subject, so it cannot be the complement
+                # of "seems to be". Introduce it as a separate statement.
+                _note = f" — and from what i've seen, {_safe_evidence.lower()}"
                 openers = [
-                    hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + f" and {_rel1}" + _note,
-                    hedge_frame("ignorance", _band, subj=subj, rel=_rel0) + f" and maybe {_rel1}" + _note,
+                    self._join_clauses(
+                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0) + f" and {_rel1}",
+                        _note, sep=" "),
+                    self._join_clauses(
+                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0) + f" and maybe {_rel1}",
+                        _note, sep=" "),
                 ]
             else:
                 openers = [
