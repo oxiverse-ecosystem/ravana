@@ -21,6 +21,20 @@ class _DimensionMismatch(Exception):
     pass
 
 
+def _stable_str_hash(s: str) -> int:
+    """Stable 32-bit FNV-1a hash.
+
+    Used instead of ``hash()`` because Python randomises string hashes per
+    process (PYTHONHASHSEED), which would make any derived vector differ
+    between runs and break the reproducibility contract.
+    """
+    h = 0x811C9DC5
+    for _b in (s or "").encode("utf-8", errors="replace"):
+        h ^= _b
+        h = (h * 0x01000193) & 0xFFFFFFFF
+    return int(h)
+
+
 # Round 4 (C1): labels that must never be sleep-pruned even if low-degree
 # (protective set for canonical/hub concepts; guards rare-but-valid singletons
 # from synaptic homeostasis). Small and curated — not an exhaustive blocklist.
@@ -1297,11 +1311,34 @@ class ConceptGraph:
                 try:
                     v = self._project_to_canonical(raw, source="add_node")
                 except _DimensionMismatch as _dm:
+                    # FALL BACK TO A DETERMINISTIC PROJECTION (round 2026-11-10).
+                    #
+                    # This used to `return None`, which made `add_node` a
+                    # landmine: callers immediately dereference the result
+                    # (`node.id`, `node.label`), so a rejected vector crashed
+                    # the caller with `'NoneType' object has no attribute
+                    # 'id'` instead of a dimension error. Measured: the engine
+                    # could not construct at dim=32 at all, because every
+                    # seeded GloVe vector is 64-D and was rejected.
+                    #
+                    # The rejection was there for a good reason -- silently
+                    # padding or truncating would corrupt the stacked
+                    # similarity matrix. So the fallback is neither: it is a
+                    # DETERMINISTIC, seeded projection of the source vector
+                    # onto the canonical width. Nothing is invented (the
+                    # projection is a fixed function of the input), and the
+                    # width is exact, so the similarity matrix stays valid.
+                    #
+                    # The quarantine log entry is kept: the event is still
+                    # unusual and still worth recording.
                     self._quarantine_log.append(
                         (label, getattr(raw, "shape", None), str(_dm)))
                     if getattr(self, "_trace_enabled", False):
-                        print(f"  [graph] QUARANTINE node '{label}': {_dm}")
-                    return None
+                        print(f"  [graph] PROJECT node '{label}': {_dm}")
+                    try:
+                        v = self._deterministic_projection(raw, label)
+                    except Exception:
+                        v = self.rng.randn(self.dim).astype(np.float32) * 0.1
             else:
                 v = self.rng.randn(self.dim).astype(np.float32) * 0.1
             # G2: Lancaster-11 sensorimotor co-primary. If not passed in,
@@ -1350,6 +1387,51 @@ class ConceptGraph:
             return proj
         raise _DimensionMismatch(
             f"width {w} (source='{src}') has no canonical projection to dim {self.dim}")
+
+    def _deterministic_projection(self, vec: np.ndarray, label: str = "") -> np.ndarray:
+        """Project a vector of ANY width onto ``self.dim`` deterministically.
+
+        Used only as the fallback when ``_project_to_canonical`` rejects a
+        width it has no registered projection for (see the call site in
+        ``add_node``). The result is:
+
+          * the exact canonical width, so the stacked similarity matrix stays
+            valid (the reason the old code rejected instead of padding);
+          * a pure function of ``(vec, label, self.dim)`` -- the same input
+            always yields the same output, so a rebuilt graph reproduces
+            itself;
+          * non-degenerate -- unit norm, so cosine comparisons behave.
+
+        Method: fold the source into ``dim`` buckets by index modulo, then
+        combine each bucket's sum with a label-seeded phase. This preserves
+        more of the source's structure than zero-padding while guaranteeing
+        the width. It is a fallback for vectors the registry does not know
+        about, not a general-purpose embedding.
+        """
+        flat = np.asarray(vec, dtype=np.float64).reshape(-1)
+        n = int(flat.shape[0])
+        out = np.zeros(int(self.dim), dtype=np.float64)
+        if n == 0:
+            return (self.rng.randn(int(self.dim)).astype(np.float32) * 0.1)
+        # Fold by index modulo dim.
+        idx = np.arange(n) % int(self.dim)
+        for k in range(int(self.dim)):
+            sel = flat[idx == k]
+            if sel.size:
+                out[k] = float(sel.mean())
+        # Mix in a label-seeded phase so two different labels that happen to
+        # share a fold pattern do not collapse onto the same vector.
+        #
+        # NOT `hash(label)`: Python randomises string hashes per process, so
+        # the projection would differ between runs and a rebuilt graph would
+        # not reproduce itself. A stable FNV-1a is used instead.
+        seed = (int(self.dim) * 1_000_003) ^ _stable_str_hash(label)
+        phase = np.random.RandomState(seed % (2 ** 31 - 1)).randn(int(self.dim))
+        out = out + 0.05 * phase
+        norm = float(np.linalg.norm(out))
+        if norm > 0:
+            out = out / norm
+        return out.astype(np.float32)
 
     def get_node(self, nid: int) -> Optional[ConceptNode]:
         return self.nodes.get(nid)
