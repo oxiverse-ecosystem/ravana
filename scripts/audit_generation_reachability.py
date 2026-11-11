@@ -136,15 +136,18 @@ def trace_last_return(engine, query):
     """
     last = {"line": None}
 
-    impl_file = os.path.abspath(engine._process_turn_impl.__code__.co_filename)
+    impl_code = engine._process_turn_impl.__code__
 
     def local_trace(frame, event, arg):
-        if event == "line" and os.path.abspath(frame.f_code.co_filename) == impl_file:
+        # Match the CODE OBJECT, not the file: process_turn and
+        # _process_turn_impl live in the same file, so a filename filter
+        # traces both and the wrapper's own return (line 7741) wins.
+        if event == "line" and frame.f_code is impl_code:
             last["line"] = frame.f_lineno
         return local_trace
 
     def global_trace(frame, event, arg):
-        if event == "call" and os.path.abspath(frame.f_code.co_filename) == impl_file:
+        if event == "call" and frame.f_code is impl_code:
             return local_trace
         return None
 
