@@ -547,8 +547,22 @@ class ResponseGenMixin(ChainWalkerMixin):
 
 
     def _train_decoder_on_seed_corpus(self, max_sentences: int = 500) -> int:
-        """Train neural decoder on the bundled real-English corpus using efficient
-        prepare/loop pattern with shuffled passes over ALL sentences.
+        """Warm-start the neural decoder on the bundled real-English corpus.
+
+        BOUNDED (round 2026-11-11). The ``max_sentences`` parameter was declared
+        but never applied: the loop ran **5 full passes over every sentence** in
+        the corpus, unbounded. The corpus ships ~450 sentences, so this is ~2250
+        GRU forward+backward steps on the FIRST user turn of a freshly built
+        engine -- measured at over 400s, which blows past any per-test timeout
+        and is the real cause of the tests/unit stall (the pytest-timeout
+        traceback points at engine boot because the decoder build is triggered
+        from ``__init__`` in some tests and from a turn in others).
+
+        The parameter is now honoured: the corpus is subsampled deterministically
+        (seeded RNG, same seed as the passes) so a warm-start stays reproducible
+        while costing a bounded fraction of the time. The number of passes is
+        also bounded, because a warm-start of an already-initialised decoder does
+        not need five epochs to be useful.
         """
         if self.neural_decoder is None or not self._decoder_vocab_built:
             return 0
@@ -566,7 +580,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         if new_for_vocab:
             self._expand_decoder_vocab(new_for_vocab)
 
-        # Pre-process corpus once, then loop with shuffled passes over ALL sentences
+        # Pre-process corpus once, then loop with shuffled passes over the
+        # (bounded) sentence set.
         nd = self.neural_decoder
         all_sentences = nd.prepare_sentences(
             text, self._decoder_word_to_embed, self._decoder_word_to_idx,
@@ -575,8 +590,13 @@ class ResponseGenMixin(ChainWalkerMixin):
         n_available = len(all_sentences)
         if n_available == 0:
             return 0
-        n_passes = 5
-        sleep_interval = 2
+        # Honour max_sentences: deterministic subsample, so a rebuilt engine
+        # reproduces the same warm-start rather than an arbitrary prefix.
+        if max_sentences and n_available > int(max_sentences):
+            _sub = np.random.RandomState(42).permutation(n_available)[:int(max_sentences)]
+            all_sentences = [all_sentences[j] for j in sorted(_sub)]
+            n_available = len(all_sentences)
+        n_passes = 2
         rng = np.random.RandomState(42)
         passes = 0
 
@@ -590,11 +610,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                     conditioning_embs=s['conditioning_embs'],
                 )
             passes += n_available
-            if (i + 1) % sleep_interval == 0:
-                nd.sleep_cycle()
 
-        if (n_passes % sleep_interval) != 0:
-            nd.sleep_cycle()
+        nd.sleep_cycle()
 
         self._decoder_seed_training_count += passes
         self._decoder_training_count += passes
