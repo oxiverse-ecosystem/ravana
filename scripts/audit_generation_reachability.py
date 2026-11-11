@@ -160,6 +160,21 @@ def trace_last_return(engine, query):
     return last["line"], reply
 
 
+def _write_partial(path, hits, per_query, queries, errors, done=False):
+    """Write progress to disk so a crash costs at most one query."""
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("# %s\n" % ("DONE" if done else "PARTIAL -- run in progress"))
+            fh.write("line\thits\tpct\n")
+            for line, n in hits.most_common():
+                fh.write("%s\t%d\t%.1f\n" % (line, n, 100.0 * n / max(1, len(queries))))
+            fh.write("\nquery\tline\treply\n")
+            for q, line, reply, err in per_query:
+                fh.write("%s\t%s\t%s\n" % (q, line, (reply or "").replace("\t", " ")))
+    except Exception:
+        pass  # never let bookkeeping kill the audit
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=200)
@@ -180,6 +195,13 @@ def main():
     per_query = []
     errors = 0
 
+    # Incremental flush. A previous run died at query 193/200 with no traceback
+    # (OOM or hard kill) and lost the whole table, so write progress to disk as
+    # we go. A crash then costs at most one query.
+    out_path = args.out
+    if out_path:
+        _write_partial(out_path, hits, per_query, queries, errors, done=False)
+
     for i, q in enumerate(queries, 1):
         try:
             line, reply = trace_last_return(eng, q)
@@ -189,6 +211,10 @@ def main():
             continue
         hits[line] += 1
         per_query.append((q, line, reply, ""))
+        if out_path and i % 10 == 0:
+            _write_partial(out_path, hits, per_query, queries, errors, done=False)
+        if i % 25 == 0:
+            print("  ... %d/%d queries" % (i, len(queries)), flush=True)
 
     print("=" * 78)
     print("RETURN SITES RANKED BY HIT COUNT")
@@ -208,15 +234,9 @@ def main():
         r = (reply or "").replace("\n", " ")[:70]
         print("%-42s -> %-6s %s" % (q[:42], line, r))
 
-    if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
-            fh.write("line\thits\tpct\n")
-            for line, n in hits.most_common():
-                fh.write("%s\t%d\t%.1f\n" % (line, n, 100.0 * n / len(queries)))
-            fh.write("\nquery\tline\treply\n")
-            for q, line, reply, err in per_query:
-                fh.write("%s\t%s\t%s\n" % (q, line, (reply or "").replace("\t", " ")))
-        print("\nwrote %s" % args.out)
+    if out_path:
+        _write_partial(out_path, hits, per_query, queries, errors, done=True)
+        print("\nwrote %s" % out_path)
 
 
 if __name__ == "__main__":
