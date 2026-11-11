@@ -138,7 +138,13 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if sm is not None:
                     sm = np.asarray(sm, dtype=np.float64)
                     if sm.size == 11:
-                        vec = np.concatenate([vec[:64], sm])
+                        # DIMAGNOSTIC (round 2026-11-11). `vec` is the graph's
+                        # node vector, whose width is the ENGINE's dim -- not
+                        # necessarily 64. The old `vec[:64]` truncated real
+                        # signal above dim=64 and produced a short vector below
+                        # it. The dual-code width is `vec.size + 11`, so keep
+                        # the whole body and append the tail.
+                        vec = np.concatenate([vec.reshape(-1), sm])
                 embeddings[label] = vec
         glove = getattr(self, "_glove_vector", None)
         for sw in ves.step_words:
@@ -152,7 +158,11 @@ class ResponseGenMixin(ChainWalkerMixin):
                         if sm is not None:
                             sm = np.asarray(sm, dtype=np.float64)
                             if sm.size == 11:
-                                v = np.concatenate([v[:64], sm])
+                                # DIMAGNOSTIC (round 2026-11-11) -- see the
+                                # matching note above. `v` is a raw GloVe
+                                # vector; keep its full width rather than
+                                # truncating at 64.
+                                v = np.concatenate([v.reshape(-1), sm])
                         embeddings[wl] = v
         if not embeddings:
             return None
@@ -679,10 +689,11 @@ class ResponseGenMixin(ChainWalkerMixin):
             new_vocab_size = len(self._decoder_word_to_idx)
 
             # Resize decoder embedding table (preserve existing weights).
-            # NOTE: the table dimension MUST be _DECODER_DIM (75), the same
-            # value passed as embed_dim at __init__ — self.dim (64) is the
-            # distributional backbone and would build a 64-D table that the
-            # 75-D weight from the existing decoder cannot broadcast into.
+            # NOTE: the table dimension MUST be _decoder_dim() -- the projected
+            # GloVe width plus the 11-D sensorimotor tail -- which is the value
+            # passed as embed_dim at __init__. self.dim is the distributional
+            # backbone width and is NOT the table width; using it would build a
+            # table the existing decoder's weight cannot broadcast into.
             old_weight = self.neural_decoder.word_embedding.weight.data
             new_weight = np.zeros((new_vocab_size, self._decoder_dim()), dtype=np.float32)
             new_weight[:len(old_weight)] = old_weight
@@ -1465,14 +1476,20 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # Build conditioning from situation vector + top concepts
                 cond_embs = []
 
-                # Align engine-dim state/node vectors to the decoder's 75-D
-                # dual-code space ([GloVe-64 | Lancaster-11]). The situation
-                # vector and graph node vectors live at self.dim (64), while the
-                # decoder conditioning table is always _DECODER_DIM (75). Mixing
-                # the two shapes crashed np.stack (silent fall-through to the
-                # narrative path), so pad the shorter engine-dim vectors with a
-                # zero Lancaster tail.
-                _dec_dim = getattr(self, '_DECODER_DIM', 75)
+                # Align engine-dim state/node vectors to the decoder's
+                # dual-code space ([projected GloVe | Lancaster-11]). The
+                # situation vector and graph node vectors live at self.dim,
+                # while the decoder conditioning table is _decoder_dim() wide.
+                # Mixing the two shapes crashed np.stack (silent fall-through
+                # to the narrative path), so pad the shorter engine-dim
+                # vectors with a zero Lancaster tail.
+                #
+                # DIMAGNOSTIC (round 2026-11-11): this used to read the CLASS
+                # attribute `_DECODER_DIM` (always 75) rather than the
+                # instance method `_decoder_dim()`. At dim=96 the decoder table
+                # is 107-D but every conditioning vector was truncated to 75,
+                # silently discarding 21 dimensions of signal.
+                _dec_dim = self._decoder_dim()
 
                 def _align_to_decoder(v):
                     v = np.asarray(v, dtype=np.float32).reshape(-1)

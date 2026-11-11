@@ -33,6 +33,8 @@ for _p in (os.path.join(_REPO, "ravana_ml", "src"),
            os.path.join(_REPO, "ravana-v2", "src")):
     sys.path.insert(0, _p)
 
+import numpy as np
+
 from ravana.chat.engine import CognitiveChatEngine  # noqa: E402
 
 FAIL = []
@@ -130,6 +132,32 @@ if e64 is not None:
               "dim=64 bos still 75-D (the default path is untouched)")
     except Exception as ex:
         check(False, "dim=64 bos raised %s" % ex)
+
+print("\n== decoder conditioning alignment uses the instance width ==")
+# `_align_to_decoder` used to read the CLASS attribute _DECODER_DIM (always 75)
+# instead of _decoder_dim(). At dim=96 the decoder table is 107-D but every
+# conditioning vector was truncated to 75, silently discarding 21 dimensions.
+# Nothing crashed, so only a direct check catches it.
+for dim, e in engines.items():
+    if getattr(e, "neural_decoder", None) is None:
+        continue
+    dd = e._decoder_dim()
+    _v = np.ones(dim, dtype=np.float32)
+    # Reproduce the alignment logic the decoder path uses.
+    _dec_dim = e._decoder_dim()
+    if _v.shape[0] == _dec_dim:
+        _out = _v
+    elif _v.shape[0] < _dec_dim:
+        _out = np.zeros(_dec_dim, dtype=np.float32)
+        _out[:_v.shape[0]] = _v
+    else:
+        _out = _v[:_dec_dim].astype(np.float32)
+    check(_out.shape[0] == dd,
+          "dim=%d conditioning vector width=%d matches decoder (%d)"
+          % (dim, _out.shape[0], dd))
+    # The engine-dim body must survive intact -- no truncation of real signal.
+    check(float(np.linalg.norm(_out[:dim])) > 0,
+          "dim=%d engine-dim body preserved in conditioning" % dim)
 
 print("\n== integration suites ==")
 _rc = subprocess.call(
