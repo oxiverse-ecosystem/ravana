@@ -83,6 +83,44 @@ for dim, e in engines.items():
     check(gdim == dim,
           "dim=%d sensorimotor boundary at %d (want %d)" % (dim, gdim, dim))
 
+    # THE REAL ASSERTION (round 2026-11-11).
+    #
+    # Width alone does not prove the tail is in the right PLACE. At dim=96 a
+    # `bos[64:75]` slice still produces a 107-D vector -- it just writes the
+    # sensorimotor channels into the middle of the GloVe body and leaves the
+    # real tail untouched. Silent corruption, no crash, no width error.
+    #
+    # So drive the function with a DISTINCTIVE subject vector and check the
+    # subject's signal actually arrives in the last 11 channels. A correct
+    # implementation puts it there at every dim; the hard-coded slice does not.
+    try:
+        import numpy as _np
+        # `subject_lancaster` is the 11-D Lancaster sensorimotor vector, NOT a
+        # full-width vector. Give it a distinctive pattern so we can tell
+        # whether the implementation actually writes it into the tail.
+        _subj11 = _np.arange(1, 12, dtype=_np.float32)
+        _bos2 = e._build_conditioned_bos(subject_lancaster=_subj11)
+        if _bos2 is None:
+            check(False, "dim=%d conditioned bos with subject returned None" % dim)
+        else:
+            _v = _np.asarray(_bos2, dtype=_np.float32).reshape(-1)
+            _tail = _v[-11:]
+            # The subject is blended 0.3 into a unit-normalised tail, so the
+            # tail must be non-zero. Compare against the SAME call with no
+            # subject: a correct implementation changes the tail; a broken one
+            # leaves it byte-identical (dim < 64 crash, dim > 64 writes the
+            # body instead).
+            _bos_base = e._build_conditioned_bos(subject_lancaster=None)
+            _tail_base = _np.asarray(_bos_base, dtype=_np.float32).reshape(-1)[-11:]
+            _delta = float(_np.linalg.norm(_tail - _tail_base))
+            check(float(_np.linalg.norm(_tail)) > 1e-6 and _delta > 1e-6,
+                  "dim=%d sensorimotor tail is written by the subject "
+                  "(|tail|=%.4f, |delta|=%.4f)"
+                  % (dim, float(_np.linalg.norm(_tail)), _delta))
+    except Exception as ex:
+        check(False, "dim=%d subject-tail probe raised %s: %s"
+              % (dim, type(ex).__name__, ex))
+
 print("\n== dim=64 output is unchanged by the fix ==")
 e64 = engines.get(64)
 if e64 is not None:
