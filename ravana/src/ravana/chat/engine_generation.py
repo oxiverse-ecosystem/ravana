@@ -251,6 +251,13 @@ class GenerationMixin:
                 is_follow_up=is_follow_up,
             )
 
+            # Roadmap §7 deliverable A: adaptive verbosity from user familiarity
+            # and arousal. Wired between the plan build above and its consumption
+            # below. Fail-open: with no subject there is no familiarity to infer,
+            # so the plan passes through unchanged.
+            if ctx.subject is not None:
+                discourse_plan = self._adapt_verbosity_for_user(discourse_plan, ctx.subject)
+
             vm = mirror_mod['verbosity_mult']
             target_verbosity = max(1, min(5, int(round(3 * vm))))
             if target_verbosity < len(discourse_plan.intents):
