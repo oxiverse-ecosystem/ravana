@@ -179,6 +179,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--fresh", action="store_true",
+                    help="ignore any existing --out file and start over")
     ap.add_argument("--dim", type=int, default=64)
     args = ap.parse_args()
 
@@ -195,14 +197,47 @@ def main():
     per_query = []
     errors = 0
 
-    # Incremental flush. A previous run died at query 193/200 with no traceback
-    # (OOM or hard kill) and lost the whole table, so write progress to disk as
-    # we go. A crash then costs at most one query.
+    # Resume support. The gateway can restart mid-run and kill the process
+    # (SIGTERM, exit -15), so a long audit must be resumable: read back
+    # whatever the previous run recorded and skip those queries.
     out_path = args.out
+    done_queries = set()
+    if out_path and os.path.exists(out_path) and not args.fresh:
+        try:
+            with open(out_path, "r", encoding="utf-8") as fh:
+                for row in fh:
+                    if row.startswith("query\t"):
+                        continue
+                    parts = row.rstrip("\n").split("\t")
+                    if len(parts) >= 2 and parts[0] and not parts[0].startswith("#"):
+                        done_queries.add(parts[0])
+        except Exception:
+            done_queries = set()
+        # Rebuild the counters from the recorded rows so the ranking is
+        # cumulative across runs rather than restarting from zero.
+        try:
+            with open(out_path, "r", encoding="utf-8") as fh:
+                in_detail = False
+                for row in fh:
+                    if row.startswith("query\t"):
+                        in_detail = True
+                        continue
+                    if not in_detail:
+                        continue
+                    parts = row.rstrip("\n").split("\t")
+                    if len(parts) >= 2 and parts[1].isdigit():
+                        hits[int(parts[1])] += 1
+        except Exception:
+            pass
+        if done_queries:
+            print("resuming: %d queries already recorded, skipping them"
+                  % len(done_queries), flush=True)
+
+    remaining = [q for q in queries if q not in done_queries]
     if out_path:
         _write_partial(out_path, hits, per_query, queries, errors, done=False)
 
-    for i, q in enumerate(queries, 1):
+    for i, q in enumerate(remaining, 1):
         try:
             line, reply = trace_last_return(eng, q)
         except Exception as ex:
@@ -211,10 +246,11 @@ def main():
             continue
         hits[line] += 1
         per_query.append((q, line, reply, ""))
-        if out_path and i % 10 == 0:
+        if i % 10 == 0:
             _write_partial(out_path, hits, per_query, queries, errors, done=False)
         if i % 25 == 0:
-            print("  ... %d/%d queries" % (i, len(queries)), flush=True)
+            print("  ... %d/%d remaining (%d done total)"
+                  % (i, len(remaining), len(done_queries) + i), flush=True)
 
     print("=" * 78)
     print("RETURN SITES RANKED BY HIT COUNT")
