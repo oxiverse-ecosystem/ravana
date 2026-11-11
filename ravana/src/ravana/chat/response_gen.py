@@ -280,17 +280,33 @@ class ResponseGenMixin(ChainWalkerMixin):
             val_dir /= vn
         bias += float(a) * 0.25 * val_dir + float(v) * 0.2 * val_dir
         bos = bos + bias
-        # 2. Sensorimotor grounding: warp the 11-D tail (cols 64:75).
+        # 2. Sensorimotor grounding: warp the 11-D tail.
+        #
+        # DIMAGNOSTIC (round 2026-11-11). This used to hard-code `bos[64:75]`,
+        # which assumes the GloVe body is exactly 64 wide. The dual-code width
+        # is `self._decoder_dim()` = projected GloVe width + 11, so:
+        #   * dim < 64 (e.g. 32 -> 43-D): `bos[64:75]` is an EMPTY slice, the
+        #     `tn > 0` guard skips the normalise, and the assignment raises
+        #     "operands could not be broadcast together with shapes (0,) (11,)"
+        #     -- sensorimotor grounding CRASHES.
+        #   * dim > 64 (e.g. 96 -> 107-D): the slice lands in the MIDDLE of the
+        #     GloVe body, so the subject is written into the body and the real
+        #     tail is left untouched -- silent corruption, no error.
+        #   * dim == 64: correct, which is why this was never seen.
+        #
+        # Derive the boundary from the actual width so the tail is always the
+        # last 11 channels.
         if subject_lancaster is not None:
-            sm = np.asarray(subject_lancaster, dtype=np.float32)[:11]
+            sm = np.asarray(subject_lancaster, dtype=np.float32).reshape(-1)[:11]
             sn = np.linalg.norm(sm)
-            if sn > 0:
+            _gdim = int(bos.shape[0]) - 11
+            if sn > 0 and _gdim >= 0:
                 sm = sm / sn
-                tail = bos[64:75].copy()
+                tail = bos[_gdim:_gdim + 11].copy()
                 tn = np.linalg.norm(tail)
                 if tn > 0:
                     tail = tail / tn
-                bos[64:75] = (0.7 * tail + 0.3 * sm).astype(np.float32)
+                bos[_gdim:_gdim + 11] = (0.7 * tail + 0.3 * sm).astype(np.float32)
         n = np.linalg.norm(bos)
         if n > 0:
             bos = bos / n
