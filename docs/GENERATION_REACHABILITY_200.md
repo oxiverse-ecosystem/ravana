@@ -70,6 +70,41 @@ everything else fails, and on ordinary queries something else always succeeds.
 This is a design decision, not a bug. See the companion research on how the
 brain switches between retrieval and generation.
 
+## The top two "bypasses" are correct routing, not defects
+
+Reading the code at the two biggest non-tail sites:
+
+**8711** — `_consult_internal_knowledge` returned a HIT:
+
+```python
+_intern = self._consult_internal_knowledge(user_input)
+if _intern is not None:
+    self._last_strategy = "internal_knowledge"
+    ...
+    return _intern
+```
+
+The KB answered from consolidated memory. Correct.
+
+**8934** — `_is_abstract_meaning_query` fired:
+
+```python
+if self._is_abstract_meaning_query(user_input):
+    self._last_strategy = "abstract_reflection"
+    resp = self._reflect_on_abstract(user_input)
+    ...
+    return resp
+```
+
+"what's the meaning of life" routing to reflection rather than dumping the
+dictionary entry for "life". Correct — and the comment records that the guard
+had to be moved to the top of the turn because the definition path kept
+bypassing it.
+
+Neither is a defect to fix. They are the hierarchy working as intended, which
+is exactly why the decoder never runs: **something more reliable always
+answers first.**
+
 ## Reproducing
 
 ```
