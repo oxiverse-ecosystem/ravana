@@ -1276,6 +1276,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # When False, generation falls back to _build_conditioned_bos (Lancaster
         # tail) + realize_dim phrase lookup — never emits ungrounded gibberish.
         self.use_linggen = False
+        # ── Retrieval-vs-generation switch (the brain's race) ──────────────
+        # OFF by default. When True, `_rg_decide` computes R(s) and T(s) and,
+        # if no stored candidate clears the bar, lets the decoder compete
+        # BEFORE the stored paths rather than only after all of them fail.
+        # See docs/RETRIEVAL_VS_GENERATION.md §10.8.
+        self._rg_switch_enabled = False
+        self._rg_config = None
+        self._rg_compose_counts = {}
         # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
         try:
             from ravana.chat.generative_emitter import GenerativeEmitter

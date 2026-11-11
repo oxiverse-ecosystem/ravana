@@ -7186,6 +7186,115 @@ class ResponseGenMixin(ChainWalkerMixin):
         ]
         return (random.choice(openers) + random.choice(closers), "reflective_uncertainty")
 
+    def _rg_decide(self, ctx) -> Optional['SwitchDecision']:
+        """Compute the retrieval-vs-generation decision for this turn.
+
+        Gathers the signals the rule needs from live engine state. Fail-open:
+        any missing signal is treated as 0.0 rather than raising, so a partial
+        engine can never take a turn down.
+        """
+        try:
+            from ravana.learn.retrieval_generation import (
+                RetrievalGenerationConfig,
+                compute_retrieval_strength,
+                compute_prediction_error,
+                compute_density,
+                decide,
+            )
+        except Exception:
+            return None
+
+        subject = (getattr(ctx, 'subject', None) or "").strip()
+        if not subject:
+            return None
+
+        cfg = getattr(self, '_rg_config', None) or RetrievalGenerationConfig()
+        key = subject.lower()
+
+        try:
+            has_def = key in (getattr(self, '_definitions', {}) or {})
+        except Exception:
+            has_def = False
+        try:
+            has_web = key in (getattr(self, '_concept_sources', {}) or {})
+        except Exception:
+            has_web = False
+
+        confidence = 0.0
+        stability = 0.0
+        node_pe = None
+        out_d = 0
+        in_d = 0
+        nids = []
+        try:
+            nids = self._concept_keywords.get(key, []) or []
+        except Exception:
+            nids = []
+        if nids:
+            try:
+                node = self.graph.get_node(nids[0])
+                if node is not None:
+                    confidence = float(getattr(node, 'confidence', 0.0) or 0.0)
+                    stability = float(getattr(node, 'stability', 0.0) or 0.0)
+                    node_pe = getattr(node, 'prediction_free_energy', None)
+            except Exception:
+                pass
+            try:
+                out_d = len(self.graph.get_outgoing(nids[0]) or {})
+            except Exception:
+                out_d = 0
+            try:
+                in_d = len(self.graph.get_incoming(nids[0]) or {})
+            except Exception:
+                in_d = 0
+
+        max_d = 1
+        try:
+            max_d = max(1, max(
+                (len(self.graph.get_outgoing(n) or {})
+                 + len(self.graph.get_incoming(n) or {}))
+                for n in list(getattr(self.graph, 'nodes', {}))[:400]))
+        except Exception:
+            max_d = 1
+
+        association = 0.0
+        try:
+            assocs = getattr(ctx, 'associated_concepts', None) or []
+            if assocs:
+                first = assocs[0]
+                association = float(first[1] if isinstance(first, (tuple, list))
+                                    else getattr(first, 'weight', 0.0) or 0.0)
+        except Exception:
+            association = 0.0
+
+        familiarity = 0.0
+        try:
+            familiarity = float(self.user_model.infer_user_knows(subject))
+        except Exception:
+            familiarity = 0.0
+
+        mean_pe = 0.0
+        try:
+            mean_pe = float(getattr(self, '_mean_prediction_error', 0.0) or 0.0)
+        except Exception:
+            mean_pe = 0.0
+
+        strength = compute_retrieval_strength(
+            subject, has_definition=has_def, has_web=has_web,
+            confidence=confidence, stability=stability,
+            association=association, familiarity=familiarity)
+
+        pe = compute_prediction_error(node_pe, [], mean_pe)
+        density = compute_density(out_d, in_d, max_d)
+
+        try:
+            n_compose = int(self._rg_compose_counts.get(key, 0))
+        except Exception:
+            n_compose = 0
+
+        return decide(subject, strength=strength, pe=pe, density=density,
+                      familiarity=familiarity, n_compose=n_compose, cfg=cfg)
+
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Dual-path response generation.
         - Ventral Stream (fast): ATL → IFG — concept retrieval + surface realization.
@@ -7301,6 +7410,41 @@ class ResponseGenMixin(ChainWalkerMixin):
                     print("  [trace]   Counterfactual simulation path")
                 return _sim
         decomposition = getattr(ctx, 'decomposition', None)
+        # ── Retrieval-vs-generation switch (the brain's race) ──────────────
+        # The brain has no binary retrieve-vs-generate switch: it runs a
+        # thresholded race between a fast stored-representation pathway and a
+        # slower compositional one. This gate computes R(s) and T(s) and, when
+        # no stored candidate clears the bar, lets the decoder compete FIRST
+        # rather than only after every other path has failed.
+        #
+        # It is a GATE, not a reordering: the existing chain below still runs
+        # when the switch says RETRIEVE, and the ACC/ERN `_topic_grounded`
+        # monitor still vetoes anything the decoder emits.
+        #
+        # PLACEMENT MATTERS. This must sit above the unconditional
+        # `return self._reflective_response(ctx)` below -- a gate placed
+        # beneath it is unreachable for exactly the turns it is meant to
+        # affect. Verified: with the gate below that return, _rg_decide fired
+        # 0 times across the probe set.
+        #
+        # Fail-open: no subject, or the rule raising, leaves the chain
+        # untouched. See docs/RETRIEVAL_VS_GENERATION.md §10.8.
+        if getattr(self, '_rg_switch_enabled', False) and ctx.subject:
+            try:
+                _rg = self._rg_decide(ctx)
+                if _rg is not None and not _rg.retrieve:
+                    if getattr(self, '_trace_enabled', False):
+                        print("  [rg] COMPOSE subject=%r R=%.3f T=%.3f (%s)"
+                              % (_rg.subject, _rg.strength, _rg.threshold,
+                                 _rg.reason))
+                    _rg_composed = self._generate_with_situation_model(ctx)
+                    if _rg_composed:
+                        return _rg_composed
+                    # Composition failed or failed the grounding gate: fall
+                    # through to the stored paths rather than losing the turn.
+            except Exception:
+                pass  # the switch must never take a turn down
+
         if decomposition and getattr(decomposition, 'sub_questions', None):
             cat = getattr(decomposition, 'category', None)
             # Decomposition-first is reserved for queries that genuinely benefit
