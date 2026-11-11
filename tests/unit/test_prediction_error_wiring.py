@@ -29,6 +29,19 @@ DIM = 64
 
 
 def _engine(**kw):
+    """A fresh engine on an ISOLATED data dir.
+
+    These tests assert properties of a CLEAN graph (no contradiction hotspots,
+    no accumulated prediction error). Constructing the engine without a
+    ``data_dir`` makes it load the developer's live ``weights/ravana_weights.pkl``
+    -- a real, learned snapshot -- which already carries hotspots and
+    contradiction counts from actual use. The assertions then fail on state the
+    test never created (measured: 2 hotspots and 18 nodes with nonzero
+    ``contradiction_count`` in the committed weights). A temp dir gives each
+    test the clean graph it is reasoning about.
+    """
+    import tempfile
+    kw.setdefault("data_dir", tempfile.mkdtemp(prefix="ravana_pew_"))
     return CognitiveChatEngine(dim=DIM, seed=7, baby_mode=True, **kw)
 
 

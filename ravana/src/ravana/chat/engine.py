@@ -8964,8 +8964,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _t = (user_input or "").lower().strip()
             if re.search(r"^\s*(?:why|what|how|who|where|when|which)\b", _t):
                 if not re.search(r"\b(i|me|my|we|our|you|your)\b", _t) and not ((getattr(self, "_seeded_domain_concepts", set()) | getattr(self, "_PROTECTED_CONCEPTS", set()) | set(getattr(self, "_definitions", {}).keys())) & set(_t.split())):
+                    # CONTRACT FIX (round 2026-11-11): this gate used to return
+                    # a bare "i don't really know that yet — i'd have to look
+                    # it up." that names NO topic. That reads as a non-sequitur
+                    # reply to "what is respect" and is a worse failure mode
+                    # than the confabulation the gate exists to prevent: the
+                    # gate's own docstring says the point is to abstain
+                    # *honestly*, and an honest abstention should still be
+                    # about what was asked. Route through the engine's own
+                    # _human_like_uncertainty, which grounds the abstention in
+                    # the subject (same templates the generation path uses),
+                    # falling back to the bare sentence only if that path is
+                    # unavailable. See docs/WRAPPER_CONTRACT_DECISION.md.
                     self._last_strategy = "honest_uncertainty"
-                    _resp = "i don't really know that yet \u2014 i'd have to look it up."
+                    _resp = None
+                    try:
+                        _subj, _conf, _method = self._ground_query(user_input)
+                        _ctx = CognitiveResponseContext(
+                            subject=_subj or "",
+                            raw_input=user_input,
+                        )
+                        _hu = self._human_like_uncertainty(_ctx)
+                        if isinstance(_hu, tuple):
+                            _hu = _hu[0]
+                        if isinstance(_hu, str) and _hu.strip():
+                            _resp = _hu.strip()
+                    except Exception:
+                        _resp = None
+                    if not _resp:
+                        _resp = ("i don't really know that yet \u2014 "
+                                 "i'd have to look it up.")
                     self._last_responses.append(_resp)
                     if len(self._last_responses) > 10:
                         self._last_responses = self._last_responses[-10:]

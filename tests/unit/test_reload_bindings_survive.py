@@ -60,9 +60,10 @@ BINDINGS = ("_glove_vector_fn", "_concept_vocab", "_episodic_index",
             "_episodic_transcript")
 
 
-def _engine(suffix):
+def _engine(suffix, data_dir=None):
     from ravana.chat.engine import CognitiveChatEngine
-    return CognitiveChatEngine(dim=64, seed=42, baby_mode=True, user_suffix=suffix)
+    return CognitiveChatEngine(dim=64, seed=42, baby_mode=True,
+                               user_suffix=suffix, data_dir=data_dir)
 
 
 @pytest.fixture(scope="module")
@@ -71,23 +72,38 @@ def after_reload():
 
     The auto-load branch is the ordinary path for every session after the
     first, so this is the shape that matters.
+
+    ISOLATED (round 2026-11-11): the fixture used to write to the default
+    weights directory under a fixed suffix, and never removed it. The file
+    survived between runs and was auto-loaded by the next one, so the
+    ``UNSEEN`` probe words became *seen* -- a previous run had already judged
+    ``dreadful`` (measured: ``judged=1``, so the geometry path these tests
+    exist to exercise was bypassed and the end-to-end mining test mined
+    nothing). A fresh temp dir per run keeps the probe genuinely unseen and
+    makes the test independent of whatever is on the developer's disk.
     """
+    import shutil
+    import tempfile
     suffix = "test_reload_bindings"
-    first = _engine(suffix)
+    data_dir = tempfile.mkdtemp(prefix="ravana_reload_bindings_")
     try:
-        first.save()
-    finally:
+        first = _engine(suffix, data_dir)
         try:
-            first.stop_background_learning()
+            first.save()
+        finally:
+            try:
+                first.stop_background_learning()
+            except Exception:
+                pass
+            del first
+        second = _engine(suffix, data_dir)
+        yield second
+        try:
+            second.stop_background_learning()
         except Exception:
             pass
-        del first
-    second = _engine(suffix)
-    yield second
-    try:
-        second.stop_background_learning()
-    except Exception:
-        pass
+    finally:
+        shutil.rmtree(data_dir, ignore_errors=True)
 
 
 class TestBindingsSurviveReload:
