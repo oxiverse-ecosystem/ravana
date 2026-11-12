@@ -1005,6 +1005,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--cpg-relation", action="store_true",
                     help="with --cpg, also gate on the committed RELATION "
                          "(relation_words), not just the target")
+    ap.add_argument("--cpg-theta", type=float, default=None,
+                    help="with --cpg, override theta_base (the ACC conflict "
+                         "criterion). Higher demands more evidence before "
+                         "committing; default 0.30")
     args = ap.parse_args(argv)
 
     print("=" * 78)
@@ -1033,7 +1037,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "related_to": ("like", "connected", "linked"),
             }
         cpg_config = CPGConfig(relation_words=rel)
-        print(f"  cpg           : on (relation_gating={args.cpg_relation})")
+        if args.cpg_theta is not None:
+            cpg_config.theta_base = args.cpg_theta
+        print(f"  cpg           : on (relation_gating={args.cpg_relation}, "
+              f"theta_base={cpg_config.theta_base})")
     else:
         print(f"  cpg           : off")
 
