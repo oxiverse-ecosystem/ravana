@@ -76,6 +76,31 @@ def _is_prose(text, min_words=6):
     return True
 
 
+_NOUN_CACHE = {}
+_NOUN_CACHE_PATH = os.path.join(PROJ, "data", "corpora", ".noun_cache.json")
+
+
+def _load_noun_cache():
+    global _NOUN_CACHE
+    if os.path.exists(_NOUN_CACHE_PATH):
+        try:
+            import json
+            with open(_NOUN_CACHE_PATH, encoding="utf-8") as fh:
+                _NOUN_CACHE = {k: bool(v) for k, v in json.load(fh).items()}
+        except Exception:
+            _NOUN_CACHE = {}
+
+
+def _save_noun_cache():
+    try:
+        import json
+        os.makedirs(os.path.dirname(_NOUN_CACHE_PATH), exist_ok=True)
+        with open(_NOUN_CACHE_PATH, "w", encoding="utf-8") as fh:
+            json.dump(_NOUN_CACHE, fh)
+    except Exception:
+        pass
+
+
 def _strong_noun(word):
     """True when `word`'s most frequent WordNet sense is a noun and it has at
     least two noun senses.
@@ -91,9 +116,14 @@ def _strong_noun(word):
         then    first=n noun_count=1 strong=False
         time    first=n noun_count=10 strong=True
 
+    Results are memoised: a WordNet lookup costs ~1.0s (the corpus scan asks
+    about 2000 words, so an uncached scan is ~34 min and gets killed).
+
     Returns False when NLTK/WordNet is unavailable -- the caller then falls
     back to frequency-only selection rather than harvesting nothing.
     """
+    if word in _NOUN_CACHE:
+        return _NOUN_CACHE[word]
     try:
         import nltk
         from nltk.corpus import wordnet as wn
@@ -103,10 +133,12 @@ def _strong_noun(word):
             nltk.download("wordnet", quiet=True)
         syns = wn.synsets(word)
     except Exception:
+        _NOUN_CACHE[word] = False
         return False
-    if not syns or syns[0].pos() != "n":
-        return False
-    return sum(1 for s in syns if s.pos() == "n") >= 2
+    result = bool(syns) and syns[0].pos() == "n" and \
+        sum(1 for s in syns if s.pos() == "n") >= 2
+    _NOUN_CACHE[word] = result
+    return result
 
 
 def _corpus_concepts(top_n=150, noun_filter=True):
@@ -148,10 +180,14 @@ def _corpus_concepts(top_n=150, noun_filter=True):
                     counts[w] += 1
     ranked = [w for w, _ in counts.most_common()]
     if noun_filter:
-        # WordNet lookups dominate the cost here, so scan more of the ranked
-        # list than we need: many high-frequency words are not strong nouns.
+        # WordNet lookups dominate the cost here (~1.0s each), so the results
+        # are cached on disk: the first run pays, later runs are instant.
+        _load_noun_cache()
+        # Scan more of the ranked list than we need -- many high-frequency
+        # words are not strong nouns.
         scanned = ranked[:max(top_n * 20, 2000)]
         picked = [w for w in scanned if _strong_noun(w)]
+        _save_noun_cache()
         return picked[:top_n]
     return ranked[:top_n]
 
