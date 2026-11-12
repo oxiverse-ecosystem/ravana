@@ -76,8 +76,49 @@ def _is_prose(text, min_words=6):
     return True
 
 
-def _corpus_concepts(top_n=150):
-    """High-frequency content words from the cleaned corpus."""
+def _strong_noun(word):
+    """True when `word`'s most frequent WordNet sense is a noun and it has at
+    least two noun senses.
+
+    WordNet alone is weak evidence -- "have", "there" and "then" all have a
+    marginal noun sense. Requiring the FIRST (most frequent) synset to be a
+    noun AND >= 2 noun synsets rejects those while keeping real concepts:
+
+        gravity first=n noun_count=3 strong=True
+        ocean   first=n noun_count=2 strong=True
+        have    first=n noun_count=1 strong=False
+        there   first=n noun_count=1 strong=False
+        then    first=n noun_count=1 strong=False
+        time    first=n noun_count=10 strong=True
+
+    Returns False when NLTK/WordNet is unavailable -- the caller then falls
+    back to frequency-only selection rather than harvesting nothing.
+    """
+    try:
+        import nltk
+        from nltk.corpus import wordnet as wn
+        try:
+            nltk.data.find("corpora/wordnet")
+        except LookupError:
+            nltk.download("wordnet", quiet=True)
+        syns = wn.synsets(word)
+    except Exception:
+        return False
+    if not syns or syns[0].pos() != "n":
+        return False
+    return sum(1 for s in syns if s.pos() == "n") >= 2
+
+
+def _corpus_concepts(top_n=150, noun_filter=True):
+    """High-frequency content words from the cleaned corpus.
+
+    With `noun_filter` (the default) a word must also be a strong noun in
+    WordNet. Frequency alone cannot separate concepts from function words:
+    the raw top-N from this corpus is "which, there, when, been, very, more"
+    -- harvesting those teaches the decoder to describe "which". The strict
+    noun test yields real concepts (time, thought, hand, night, house, life)
+    at a measured 100% Wikipedia hit rate.
+    """
     if not os.path.exists(CORPUS_PATH):
         return []
     from collections import Counter
@@ -105,13 +146,24 @@ def _corpus_concepts(top_n=150):
             for w in re.findall(r"[a-z']+", line.lower()):
                 if len(w) >= 4 and w not in stop:
                     counts[w] += 1
-    return [w for w, _ in counts.most_common(top_n)]
+    ranked = [w for w, _ in counts.most_common()]
+    if noun_filter:
+        # WordNet lookups dominate the cost here, so scan more of the ranked
+        # list than we need: many high-frequency words are not strong nouns.
+        scanned = ranked[:max(top_n * 20, 2000)]
+        picked = [w for w in scanned if _strong_noun(w)]
+        return picked[:top_n]
+    return ranked[:top_n]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--extra", type=int, default=150,
                     help="extra corpus concepts to look up beyond _definitions")
+    ap.add_argument("--no-noun-filter", action="store_true",
+                    help="skip the WordNet strong-noun test and take the "
+                         "top-N by frequency (not recommended: the raw top-N "
+                         "is function words like 'which, there, when')")
     ap.add_argument("--out", default=OUT_PATH)
     args = ap.parse_args()
 
@@ -136,7 +188,8 @@ def main():
     cn = getattr(eng, "describe_from_cn", None)
     if args.extra > 0 and callable(kb):
         added = 0
-        for word in _corpus_concepts(args.extra):
+        for word in _corpus_concepts(args.extra,
+                                     noun_filter=not args.no_noun_filter):
             if word in seen:
                 continue
             try:
