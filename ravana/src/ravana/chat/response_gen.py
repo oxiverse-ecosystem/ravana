@@ -1578,15 +1578,38 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # token_boost empty, which is exactly the pre-CPG behaviour.
                 _cpg_boost = {}
                 _cpg_suppress = {}
+                _cpg_committed = True
                 if getattr(self, '_cpg_enabled', False) and ctx.subject:
                     try:
                         _cpg = self._cpg_token_boost(ctx)
                         if _cpg is not None:
                             _cpg_boost = _cpg.token_boost
                             _cpg_suppress = _cpg.token_suppress
+                            _cpg_committed = _cpg.committed
                     except Exception:
                         _cpg_boost = {}
                         _cpg_suppress = {}
+                        _cpg_committed = True
+
+                # Escalation (docs/GROUNDING_MECHANISM.md step 3): when NO
+                # proposition clears the criterion, the brain declines to
+                # compose and escalates to honest uncertainty. CPG previously
+                # returned no commitment and the caller generated anyway --
+                # which is exactly the unguided behaviour the criterion is
+                # meant to prevent.
+                #
+                # Only fires when CPG is on AND the graph had something to
+                # commit to but nothing cleared. Fail-open: any doubt
+                # (exception, no subject, no edges) leaves generation alone.
+                if (getattr(self, '_cpg_enabled', False)
+                        and not _cpg_committed
+                        and getattr(self, '_cpg_escalate', False)):
+                    if getattr(self, '_trace_enabled', False):
+                        print("  [cpg] no proposition cleared theta -- "
+                              "escalating to honest uncertainty")
+                    _hon = self._human_like_uncertainty(ctx)
+                    if _hon:
+                        return _hon
 
                 generated = self.neural_decoder.generate(
                     conditioning_embs=conditioning_embs,

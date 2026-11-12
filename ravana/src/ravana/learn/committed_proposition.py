@@ -53,7 +53,12 @@ class CPGConfig:
     section 3. They are judgment, not fitted.
     """
 
-    theta_base: float = 0.30
+    # MEASURED (docs/THETA_LOWER_IS_BETTER.md): 0.15 beats 0.30 on on-topic,
+    # supported assertions AND unsupported assertions simultaneously. The
+    # criterion is a COVERAGE knob (how many propositions are available to
+    # steer generation), not a conservatism knob -- raising it leaves the
+    # decoder unguided rather than more careful.
+    theta_base: float = 0.15
     alpha_pe: float = 0.5        # prediction error RAISES the criterion
     beta_fe: float = 0.3         # graph free energy RAISES the criterion
 
@@ -267,7 +272,14 @@ def decide(
     # Attempt 0 uses the un-relaxed criterion; each subsequent attempt relaxes
     # once. So max_retries is the number of RELAXATIONS, and the loop runs at
     # most max_retries + 1 times.
+    #
+    # The relaxation FLOOR is theta_base, not 0. Relaxing to 0 let every
+    # proposition commit eventually -- measured: edge=0.001 (strength 0.00065)
+    # committed after 2 relaxations, so the criterion never declined and the
+    # escalation path could never fire. The floor keeps `theta_base` as a real
+    # lower bound: below it, the graph genuinely declines to commit.
     gave_up = True
+    floor = cfg.theta_base
     for attempt in range(cfg.max_retries + 1):
         admissible = [p for p in propositions if p.strength >= theta]
         if admissible:
@@ -275,7 +287,7 @@ def decide(
             gave_up = False
             break
         if attempt < cfg.max_retries:
-            theta = max(0.0, theta - cfg.relax_step)
+            theta = max(floor, theta - cfg.relax_step)
             retries = attempt + 1
     if gave_up:
         admissible = []

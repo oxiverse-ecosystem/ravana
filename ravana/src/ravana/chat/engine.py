@@ -1290,6 +1290,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # them. See docs/GROUNDING_MECHANISM.md.
         self._cpg_enabled = False
         self._cpg_config = None
+        # Escalation: when no proposition clears the criterion, decline to
+        # compose and fall back to honest uncertainty instead of generating
+        # unguided. OFF by default; measured separately.
+        self._cpg_escalate = False
         # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
         try:
             from ravana.chat.generative_emitter import GenerativeEmitter

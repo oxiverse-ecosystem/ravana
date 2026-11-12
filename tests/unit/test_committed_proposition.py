@@ -92,8 +92,11 @@ class TestDecide:
         assert d.admissible_targets[0].target == "fire"
 
     def test_weak_proposition_does_not_commit(self):
+        """Below theta_base the graph genuinely declines -- the relaxation
+        floor is theta_base, not 0, so a near-zero proposition cannot commit."""
         d = decide("x", _props([("related_to", "zzz", 0.01, 0.01)]))
         assert not d.committed
+        assert d.retries_used == CPGConfig().max_retries
 
     def test_no_propositions_is_not_committed(self):
         d = decide("x", [])
@@ -110,11 +113,20 @@ class TestDecide:
         assert uncertain.committed == bool(uncertain.admissible_targets)
 
     def test_retry_relaxes_the_criterion(self):
-        """Conduit d'approche: retry with a relaxed bar, do not fall through."""
-        cfg = CPGConfig(theta_base=0.9, relax_step=0.2, max_retries=3)
-        d = decide("x", _props([("causes", "fire", 0.5, 0.5)]), cfg=cfg)
+        """Conduit d'approche: retry with a relaxed bar, do not fall through.
+
+        The relaxation floor is theta_base, so a case that needs relaxing
+        must start ABOVE theta_base -- which happens when prediction error
+        raises the criterion (alpha_pe). pe=1.0 lifts theta from 0.15 to
+        0.65, and the retries then relax it back toward the floor.
+        """
+        cfg = CPGConfig(theta_base=0.15, alpha_pe=0.5, relax_step=0.08,
+                        max_retries=3)
+        ps = commit("x", [("causes", "fire", 0.5, 0.5)], prediction_error=1.0)
+        d = decide("x", ps, cfg=cfg)
         assert d.retries_used > 0
         assert d.final_theta < d.theta
+        assert d.final_theta >= cfg.theta_base
 
     def test_retry_gives_up_after_max_retries(self):
         cfg = CPGConfig(theta_base=1.0, relax_step=0.01, max_retries=2)
@@ -178,6 +190,7 @@ class TestDecide:
         d = decide("x", ps, token_for_target={"zzz": 22}, cfg=cfg)
         assert not d.committed
         assert not d.token_suppress
+        assert not d.token_boost
 
     def test_weaker_inadmissible_target_is_suppressed_harder(self):
         cfg = CPGConfig(suppress=2.0)
@@ -258,3 +271,25 @@ class TestUpdateCommitment:
         before = acc_criterion(p.prediction_error, 0.0)
         after = acc_criterion(pe_after, 0.0)
         assert after > before
+
+
+class TestThetaDefault:
+    """The measured default (docs/THETA_LOWER_IS_BETTER.md)."""
+
+    def test_default_theta_is_the_measured_optimum(self):
+        assert CPGConfig().theta_base == pytest.approx(0.15)
+
+    def test_lower_theta_admits_more_propositions(self):
+        ps = _props([("causes", "fire", 0.25, 0.25)])
+        low = decide("x", ps, cfg=CPGConfig(theta_base=0.15))
+        high = decide("x", ps, cfg=CPGConfig(theta_base=0.45))
+        assert len(low.admissible_targets) >= len(high.admissible_targets)
+
+    def test_theta_monotonicity(self):
+        ps = _props([("causes", "fire", 0.2, 0.2),
+                     ("causes", "smoke", 0.4, 0.4),
+                     ("causes", "ash", 0.6, 0.6)])
+        counts = [len(decide("x", ps, cfg=CPGConfig(theta_base=t)).admissible_targets)
+                  for t in (0.15, 0.30, 0.45)]
+        assert counts[0] >= counts[1] >= counts[2]
+

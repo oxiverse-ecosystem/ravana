@@ -82,7 +82,12 @@ def test_disable_grounding_gate_bypasses_dispatch():
     # Isolate the flag at the REAL call site (response_gen.py:1633). Force the
     # grounding gate to block (returns False) and the neural decoder to emit
     # garbage; neutralize the salad pre-check so we test ONLY the flag.
-    _GEN_STRATEGIES = ("situation_model_decoder", "situation_model_narrative")
+    # All three are GENERATED strategies (surface realization, not a
+    # template lookup): the decoder, the narrative paragraph, and the
+    # syntax path. The flag's job is to stop the grounding gate from
+    # withholding generated text, so any of them proves the bypass.
+    _GEN_STRATEGIES = ("situation_model_decoder", "situation_model_narrative",
+                       "situation_model_syntax")
     with mock.patch.object(eng, "_sm_response_grounded", return_value=False), \
          mock.patch("ravana.chat.response_gen._is_word_salad", return_value=False), \
          mock.patch("ravana.chat.response_gen._is_word_salad_any_sentence", return_value=False), \
