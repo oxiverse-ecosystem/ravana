@@ -210,6 +210,23 @@ def main():
     pairs = []
     seen = set()
 
+    # Resume support: a previous run may have already written pairs. Load them
+    # so a restarted harvest skips what it already fetched instead of paying
+    # for the same Wikipedia lookups again.
+    if os.path.exists(args.out):
+        with open(args.out, encoding="utf-8") as fh:
+            for line in fh:
+                if "\t" not in line:
+                    continue
+                c, d = line.rstrip("\n").split("\t", 1)
+                c = c.strip().lower()
+                if c and c not in seen and _is_prose(d):
+                    pairs.append((c, d.strip()))
+                    seen.add(c)
+        if pairs:
+            print(f"  resumed: {len(pairs)} pairs already in "
+                  f"{os.path.basename(args.out)}")
+
     # 1. Everything already in _definitions.
     defs = getattr(eng, "_definitions", {}) or {}
     for concept, desc in defs.items():
@@ -220,14 +237,22 @@ def main():
     print(f"  {len(pairs)} pairs from engine._definitions")
 
     # 2. Top corpus concepts not yet covered.
+    #
+    # RESUMABLE: each pair is appended to the output file as it is fetched, so
+    # a run killed mid-way (the gateway restarts long jobs on this host) keeps
+    # everything it already got. On the next run the existing file is loaded
+    # into `seen` and the loop skips those words.
     kb = getattr(eng, "kb_describe", None)
     cn = getattr(eng, "describe_from_cn", None)
     if args.extra > 0 and callable(kb):
+        os.makedirs(os.path.dirname(args.out), exist_ok=True)
         added = 0
+        attempted = 0
         for word in _corpus_concepts(args.extra,
                                      noun_filter=not args.no_noun_filter):
             if word in seen:
                 continue
+            attempted += 1
             try:
                 desc = kb(word) or (cn(word) if callable(cn) else None)
             except Exception:
@@ -236,13 +261,21 @@ def main():
                 pairs.append((word, desc.strip()))
                 seen.add(word)
                 added += 1
-        print(f"  +{added} pairs from kb_describe/describe_from_cn")
+                # Append immediately: the fetch is the expensive part, so
+                # persist every success rather than losing the whole run.
+                with open(args.out, "a", encoding="utf-8") as fh:
+                    fh.write(f"{word}\t{desc.strip()}\n")
+        print(f"  +{added} pairs from kb_describe/describe_from_cn "
+              f"(attempted {attempted})")
 
     if not pairs:
         print("  ERROR: no usable pairs harvested", file=sys.stderr)
         return 1
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    # Rewrite the file from `pairs` so the final output is ordered and free of
+    # duplicates. `pairs` already contains every pair this run appended plus
+    # the KB definitions, and `seen` was seeded from any pre-existing file.
     with open(args.out, "w", encoding="utf-8") as fh:
         for concept, desc in pairs:
             fh.write(f"{concept}\t{desc}\n")
