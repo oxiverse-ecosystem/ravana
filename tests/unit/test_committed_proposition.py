@@ -140,6 +140,54 @@ class TestDecide:
         d = decide("x", ps, token_for_target={"fire": 11, "smoke": 22})
         assert d.token_boost[11] > d.token_boost[22]
 
+    def test_no_suppression_by_default(self):
+        """suppress=0.0 is the pre-NoGo behaviour: boost only."""
+        ps = _props([("causes", "fire", 0.9, 0.9),
+                     ("related_to", "zzz", 0.05, 0.05)])
+        d = decide("x", ps, token_for_target={"fire": 11, "zzz": 22})
+        assert d.token_boost and not d.token_suppress
+
+    def test_nogo_suppresses_inadmissible_targets(self):
+        cfg = CPGConfig(suppress=2.0)
+        ps = _props([("causes", "fire", 0.9, 0.9),
+                     ("related_to", "zzz", 0.02, 0.02)])
+        d = decide("x", ps, token_for_target={"fire": 11, "zzz": 22}, cfg=cfg)
+        assert 11 in d.token_boost
+        assert 22 not in d.token_boost
+        assert 22 in d.token_suppress
+
+    def test_nogo_spares_near_misses(self):
+        """A target close to the weakest admissible one is not suppressed --
+        suppressing it would trade real signal for marginal purity.
+
+        fire=0.585 and smoke=0.422 are 0.163 apart, inside the 0.3 margin, so
+        smoke must be spared.
+        """
+        cfg = CPGConfig(suppress=2.0, suppress_margin=0.3)
+        ps = _props([("causes", "fire", 0.9, 0.9),
+                     ("causes", "smoke", 0.55, 0.55)])
+        d = decide("x", ps, token_for_target={"fire": 11, "smoke": 22}, cfg=cfg)
+        assert 11 in d.token_boost
+        assert 22 not in d.token_suppress
+
+    def test_nogo_does_not_suppress_when_nothing_is_admissible(self):
+        """If no proposition clears theta there is nothing to prefer, so
+        suppression is meaningless and must not fire."""
+        cfg = CPGConfig(suppress=2.0)
+        ps = _props([("related_to", "zzz", 0.01, 0.01)])
+        d = decide("x", ps, token_for_target={"zzz": 22}, cfg=cfg)
+        assert not d.committed
+        assert not d.token_suppress
+
+    def test_weaker_inadmissible_target_is_suppressed_harder(self):
+        cfg = CPGConfig(suppress=2.0)
+        ps = _props([("causes", "fire", 0.9, 0.9),
+                     ("related_to", "a", 0.2, 0.2),
+                     ("related_to", "b", 0.02, 0.02)])
+        d = decide("x", ps, token_for_target={"fire": 11, "a": 22, "b": 33},
+                   cfg=cfg)
+        assert d.token_suppress[33] > d.token_suppress[22]
+
     def test_decision_is_explainable(self):
         d = decide("x", _props([("causes", "fire", 0.9, 0.9)]))
         out = d.as_dict()

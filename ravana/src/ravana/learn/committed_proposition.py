@@ -71,6 +71,14 @@ class CPGConfig:
     # Token boost applied to admissible tokens.
     token_boost: float = 2.5
 
+    # NoGo: penalty applied to content words that are NOT admissible. 0
+    # disables suppression (boost-only, the pre-NoGo behaviour).
+    suppress: float = 0.0
+    # A content word this close (in commitment strength) to the weakest
+    # admissible proposition is treated as admissible too, so the NoGo
+    # pathway does not suppress near-misses.
+    suppress_margin: float = 0.05
+
     def strength_weights_sum(self) -> float:
         return self.w_edge + self.w_conf + self.w_node + self.w_stab
 
@@ -108,6 +116,7 @@ class CPGDecision:
     final_theta: float
     reason: str
     token_boost: Dict[int, float] = field(default_factory=dict)
+    token_suppress: Dict[int, float] = field(default_factory=dict)
 
     @property
     def committed(self) -> bool:
@@ -261,13 +270,24 @@ def decide(
         admissible = []
 
     boost: Dict[int, float] = {}
+    suppress: Dict[int, float] = {}
     if admissible and token_for_target:
-        for p in admissible:
+        # Every target the graph proposes, admissible or not.
+        for p in propositions:
             tid = token_for_target.get(p.target.lower())
-            if tid is not None:
+            if tid is None:
+                continue
+            if p in admissible:
                 # Stronger commitment -> stronger boost, so the gate prefers
                 # the proposition the graph actually supports.
                 boost[tid] = cfg.token_boost * max(0.25, p.strength)
+            elif cfg.suppress > 0.0:
+                # NoGo. A near-miss (within suppress_margin of the weakest
+                # admissible proposition) is left alone -- suppressing it
+                # would trade real signal for a marginal gain in purity.
+                weakest = min(admissible, key=lambda q: q.strength).strength
+                if p.strength < weakest - cfg.suppress_margin:
+                    suppress[tid] = cfg.suppress * max(0.25, 1.0 - p.strength)
 
     if admissible:
         reason = ("%d proposition(s) clear theta=%.3f (relaxed %d time(s) from "
@@ -279,7 +299,7 @@ def decide(
     return CPGDecision(
         subject=subject, admissible_targets=admissible,
         theta=initial_theta, retries_used=retries, final_theta=theta,
-        reason=reason, token_boost=boost)
+        reason=reason, token_boost=boost, token_suppress=suppress)
 
 
 def update_commitment(

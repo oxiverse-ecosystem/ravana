@@ -1577,11 +1577,16 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # Fail-open: no subject, no graph edges, or a rule error leaves
                 # token_boost empty, which is exactly the pre-CPG behaviour.
                 _cpg_boost = {}
+                _cpg_suppress = {}
                 if getattr(self, '_cpg_enabled', False) and ctx.subject:
                     try:
-                        _cpg_boost = self._cpg_token_boost(ctx)
+                        _cpg = self._cpg_token_boost(ctx)
+                        if _cpg is not None:
+                            _cpg_boost = _cpg.token_boost
+                            _cpg_suppress = _cpg.token_suppress
                     except Exception:
                         _cpg_boost = {}
+                        _cpg_suppress = {}
 
                 generated = self.neural_decoder.generate(
                     conditioning_embs=conditioning_embs,
@@ -1594,6 +1599,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                     basal_ganglia=self.basal_ganglia,
                     content_word_ids=content_word_ids,
                     token_boost=_cpg_boost if _cpg_boost else None,
+                    token_suppress=_cpg_suppress if _cpg_suppress else None,
                 )
 
                 if generated and len(generated) >= 5:
@@ -7386,10 +7392,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         d = decide(subject, props, free_energy=mean_pe,
                    token_for_target=token_for_target, cfg=cfg)
         if getattr(self, '_trace_enabled', False):
-            print("  [cpg] %s theta=%.3f retries=%d admissible=%d %s"
+            print("  [cpg] %s theta=%.3f retries=%d admissible=%d "
+                  "boost=%d suppress=%d %s"
                   % (subject, d.theta, d.retries_used,
-                     len(d.admissible_targets), d.reason))
-        return d.token_boost
+                     len(d.admissible_targets), len(d.token_boost),
+                     len(d.token_suppress), d.reason))
+        return d
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Dual-path response generation.
