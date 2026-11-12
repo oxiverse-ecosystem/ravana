@@ -79,6 +79,17 @@ class CPGConfig:
     # pathway does not suppress near-misses.
     suppress_margin: float = 0.05
 
+    # ── Relation-level gating ───────────────────────────────────────────
+    # A committed proposition is (subject, relation, target). Boosting the
+    # target alone constrains the ARGUMENT but leaves the relation free, and an
+    # unsupported assertion is precisely a relation the graph does not support.
+    #
+    # `relation_words` maps a graph relation_type to the surface words that can
+    # realize it. When non-empty, only those words are boosted -- so the
+    # decoder is pushed toward the committed RELATION, not just its target.
+    # Empty (the default) keeps target-only behaviour.
+    relation_words: Dict[str, Tuple[str, ...]] = field(default_factory=dict)
+
     def strength_weights_sum(self) -> float:
         return self.w_edge + self.w_conf + self.w_node + self.w_stab
 
@@ -288,6 +299,19 @@ def decide(
                 weakest = min(admissible, key=lambda q: q.strength).strength
                 if p.strength < weakest - cfg.suppress_margin:
                     suppress[tid] = cfg.suppress * max(0.25, 1.0 - p.strength)
+
+        # Relation-level gating. The committed proposition is
+        # (subject, relation, target); boosting only the target constrains the
+        # argument while leaving the relation free, and an unsupported
+        # assertion is exactly a relation the graph does not support.
+        if cfg.relation_words:
+            for p in admissible:
+                for word in cfg.relation_words.get(p.relation, ()):
+                    rid = token_for_target.get(word)
+                    if rid is not None:
+                        boost[rid] = max(
+                            boost.get(rid, 0.0),
+                            cfg.token_boost * max(0.25, p.strength))
 
     if admissible:
         reason = ("%d proposition(s) clear theta=%.3f (relaxed %d time(s) from "

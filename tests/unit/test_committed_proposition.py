@@ -188,6 +188,40 @@ class TestDecide:
                    cfg=cfg)
         assert d.token_suppress[33] > d.token_suppress[22]
 
+    def test_relation_gating_boosts_the_committed_relation_word(self):
+        """A committed proposition is (subject, relation, target). Boosting
+        only the target leaves the relation free -- and an unsupported
+        assertion is exactly a relation the graph does not support."""
+        cfg = CPGConfig(relation_words={"causes": ("leads", "causes")})
+        ps = _props([("causes", "fire", 0.9, 0.9)])
+        d = decide("x", ps, token_for_target={"fire": 11, "leads": 33},
+                   cfg=cfg)
+        assert 11 in d.token_boost      # target
+        assert 33 in d.token_boost      # relation word
+
+    def test_relation_gating_does_not_boost_uncommitted_relations(self):
+        cfg = CPGConfig(relation_words={"causes": ("leads",),
+                                        "temporal": ("follows",)})
+        ps = _props([("causes", "fire", 0.9, 0.9),
+                     ("temporal", "zzz", 0.02, 0.02)])
+        d = decide("x", ps, token_for_target={"fire": 11, "leads": 33,
+                                              "follows": 44}, cfg=cfg)
+        assert 33 in d.token_boost
+        assert 44 not in d.token_boost
+
+    def test_relation_gating_off_by_default(self):
+        ps = _props([("causes", "fire", 0.9, 0.9)])
+        d = decide("x", ps, token_for_target={"fire": 11, "leads": 33})
+        assert 11 in d.token_boost
+        assert 33 not in d.token_boost
+
+    def test_relation_word_absent_from_vocab_is_skipped(self):
+        cfg = CPGConfig(relation_words={"causes": ("versus",)})
+        ps = _props([("causes", "fire", 0.9, 0.9)])
+        d = decide("x", ps, token_for_target={"fire": 11}, cfg=cfg)
+        assert 11 in d.token_boost
+        assert len(d.token_boost) == 1
+
     def test_decision_is_explainable(self):
         d = decide("x", _props([("causes", "fire", 0.9, 0.9)]))
         out = d.as_dict()
