@@ -353,6 +353,7 @@ class NeuralDecoder(Module):
                  basal_ganglia=None,
                  content_word_ids: Optional[Set[int]] = None,
                  token_boost: Optional[Dict[int, float]] = None,
+                 token_suppress: Optional[Dict[int, float]] = None,
                  initial_emb: Optional[np.ndarray] = None,
                  persistent_emb: Optional[np.ndarray] = None) -> List[int]:
         """Generate a sequence autoregressively conditioned on concept embeddings.
@@ -459,6 +460,24 @@ class NeuralDecoder(Module):
                 for tid, tboost in token_boost.items():
                     if tid < len(logits) and tid not in seen_counts:
                         logits[tid] += tboost
+
+            # ── NoGo: suppress tokens that are NOT admissible ──────────────
+            # The Go pathway (token_boost) raises admissible tokens; this is
+            # the NoGo pathway that lowers the rest. Both are needed: boosting
+            # alone leaves the decoder free to emit unsupported content words,
+            # which is exactly what the CPG measurement showed (unsupported
+            # assertions flat at ~1.19 while on-topic rose 4.5x).
+            #
+            # Suppression is applied to CONTENT words only -- function words
+            # carry syntax, and suppressing them would break fluency rather
+            # than grounding. That mirrors the brain's division: the formulator
+            # needs its syntactic frame; the semantic store constrains the
+            # content that fills it.
+            if token_suppress is not None and content_word_ids:
+                for tid, tsup in token_suppress.items():
+                    if tid < len(logits) and tid not in seen_counts \
+                            and tid in content_word_ids:
+                        logits[tid] -= tsup
 
             # ── Neuromodulator-aware repetition penalty ──
             if len(generated) > 1:
