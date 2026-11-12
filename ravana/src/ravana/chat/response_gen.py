@@ -1567,6 +1567,22 @@ class ResponseGenMixin(ChainWalkerMixin):
                         if word not in function_words_set and not word.startswith("<")
                     }
 
+                # ── Committed-Proposition Gating (CPG) ──────────────────────
+                # Commit to graph propositions BEFORE decoding, then boost only
+                # the tokens that realize them. This is the production-side
+                # conflict monitor: the brain commits to a lexical-semantic
+                # plan before form encoding, rather than generating fluently
+                # and checking afterwards.
+                #
+                # Fail-open: no subject, no graph edges, or a rule error leaves
+                # token_boost empty, which is exactly the pre-CPG behaviour.
+                _cpg_boost = {}
+                if getattr(self, '_cpg_enabled', False) and ctx.subject:
+                    try:
+                        _cpg_boost = self._cpg_token_boost(ctx)
+                    except Exception:
+                        _cpg_boost = {}
+
                 generated = self.neural_decoder.generate(
                     conditioning_embs=conditioning_embs,
                     max_steps=24,
@@ -1577,6 +1593,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                     idx_to_word=self._decoder_idx_to_word,
                     basal_ganglia=self.basal_ganglia,
                     content_word_ids=content_word_ids,
+                    token_boost=_cpg_boost if _cpg_boost else None,
                 )
 
                 if generated and len(generated) >= 5:
@@ -7294,6 +7311,85 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         return decide(subject, strength=strength, pe=pe, density=density,
                       familiarity=familiarity, n_compose=n_compose, cfg=cfg)
+
+    def _cpg_token_boost(self, ctx) -> Dict[int, float]:
+        """Commit to graph propositions for this turn and return a token boost.
+
+        Implements steps 1-3 of docs/GROUNDING_MECHANISM.md. Reads only
+        existing graph fields; returns an empty dict when the subject has no
+        usable edges, which the caller treats as "no gating".
+        """
+        from ravana.learn.committed_proposition import (
+            CPGConfig, commit, decide,
+        )
+
+        subject = (getattr(ctx, 'subject', None) or '').strip()
+        if not subject:
+            return {}
+        key = subject.lower()
+
+        nids = []
+        try:
+            nids = self._concept_keywords.get(key, []) or []
+        except Exception:
+            nids = []
+        if not nids:
+            return {}
+        nid = nids[0]
+
+        candidates = []
+        try:
+            node = self.graph.get_node(nid)
+            node_conf = float(getattr(node, 'confidence', 0.0) or 0.0)
+            node_stab = float(getattr(node, 'stability', 0.0) or 0.0)
+        except Exception:
+            node_conf = node_stab = 0.0
+
+        try:
+            for tgt, ed in (self.graph.get_outgoing(nid) or []):
+                tnode = self.graph.get_node(tgt)
+                tlabel = (getattr(tnode, 'label', '') or '').strip()
+                if not tlabel:
+                    continue
+                candidates.append((
+                    getattr(ed, 'relation_type', 'related_to') or 'related_to',
+                    tlabel,
+                    float(getattr(ed, 'weight', 0.0) or 0.0),
+                    float(getattr(ed, 'confidence', 0.0) or 0.0),
+                ))
+        except Exception:
+            candidates = []
+        if not candidates:
+            return {}
+
+        try:
+            mean_pe = float(getattr(self, '_mean_prediction_error', 0.0) or 0.0)
+        except Exception:
+            mean_pe = 0.0
+
+        cfg = getattr(self, '_cpg_config', None) or CPGConfig()
+        props = commit(subject, candidates,
+                       node_confidence=node_conf, node_stability=node_stab,
+                       prediction_error=mean_pe, cfg=cfg)
+
+        token_for_target = {}
+        try:
+            for tgt, _ed in (self.graph.get_outgoing(nid) or []):
+                tnode = self.graph.get_node(tgt)
+                tlabel = (getattr(tnode, 'label', '') or '').strip().lower()
+                tid = self._decoder_word_to_idx.get(tlabel)
+                if tid is not None and tlabel not in token_for_target:
+                    token_for_target[tlabel] = tid
+        except Exception:
+            token_for_target = {}
+
+        d = decide(subject, props, free_energy=mean_pe,
+                   token_for_target=token_for_target, cfg=cfg)
+        if getattr(self, '_trace_enabled', False):
+            print("  [cpg] %s theta=%.3f retries=%d admissible=%d %s"
+                  % (subject, d.theta, d.retries_used,
+                     len(d.admissible_targets), d.reason))
+        return d.token_boost
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Dual-path response generation.

@@ -591,7 +591,8 @@ class SubjectResult:
 
 
 def measure_subject(eng: CognitiveChatEngine, engine_label: str,
-                    subject: str, raw_input: str) -> SubjectResult:
+                    subject: str, raw_input: str,
+                    use_cpg: bool = False) -> SubjectResult:
     t0 = time.time()
     res = SubjectResult(engine=engine_label, subject=subject, raw_input=raw_input)
     try:
@@ -608,11 +609,15 @@ def measure_subject(eng: CognitiveChatEngine, engine_label: str,
 
         # ── UNGATED: the decoder's own output ────────────────────────────
         prev_gate = getattr(eng, "_disable_grounding_gate", False)
+        prev_cpg = getattr(eng, "_cpg_enabled", False)
         try:
             eng._disable_grounding_gate = True
+            if use_cpg:
+                eng._cpg_enabled = True
             out = eng._generate_with_situation_model(ctx)
         finally:
             eng._disable_grounding_gate = prev_gate
+            eng._cpg_enabled = prev_cpg
         if out:
             res.ungated_text, res.ungated_strategy = out[0], out[1]
             res.ungated_ok = True
@@ -989,6 +994,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--raw-input", choices=["what_is", "tell_me", "both"],
                     default="both",
                     help="which synthetic raw_input to use per subject")
+    ap.add_argument("--cpg", action="store_true",
+                    help="enable Committed-Proposition Gating while measuring "
+                         "(default: off, the production default)")
     args = ap.parse_args(argv)
 
     print("=" * 78)
@@ -1113,7 +1121,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     all_results.append(r)
                     continue
 
-                r = measure_subject(eng, label, subject, raw)
+                r = measure_subject(eng, label, subject, raw, use_cpg=args.cpg)
                 all_results.append(r)
                 row = result_to_row(r)
                 new_rows.append(row)
