@@ -1052,7 +1052,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
               f"theta_base={cpg_config.theta_base}, "
               f"escalate={args.cpg_escalate})")
     else:
-        print(f"  cpg           : off")
+        # Print the config even when CPG is off. A no-flag run is otherwise
+        # indistinguishable from a CPG run in the summary, which produced a
+        # confounded comparison (see docs/ESCALATION_MEASUREMENT_CONFOUND.md).
+        print(f"  cpg           : off (escalate={args.cpg_escalate})")
 
     existing = read_existing(args.out) if args.out else {}
     if existing:
