@@ -593,7 +593,8 @@ class SubjectResult:
 def measure_subject(eng: CognitiveChatEngine, engine_label: str,
                     subject: str, raw_input: str,
                     use_cpg: bool = False,
-                    cpg_config=None) -> SubjectResult:
+                    cpg_config=None,
+                    escalate: bool = False) -> SubjectResult:
     t0 = time.time()
     res = SubjectResult(engine=engine_label, subject=subject, raw_input=raw_input)
     try:
@@ -612,17 +613,20 @@ def measure_subject(eng: CognitiveChatEngine, engine_label: str,
         prev_gate = getattr(eng, "_disable_grounding_gate", False)
         prev_cpg = getattr(eng, "_cpg_enabled", False)
         prev_cfg = getattr(eng, "_cpg_config", None)
+        prev_esc = getattr(eng, "_cpg_escalate", False)
         try:
             eng._disable_grounding_gate = True
             if use_cpg:
                 eng._cpg_enabled = True
                 if cpg_config is not None:
                     eng._cpg_config = cpg_config
+                eng._cpg_escalate = escalate
             out = eng._generate_with_situation_model(ctx)
         finally:
             eng._disable_grounding_gate = prev_gate
             eng._cpg_enabled = prev_cpg
             eng._cpg_config = prev_cfg
+            eng._cpg_escalate = prev_esc
         if out:
             res.ungated_text, res.ungated_strategy = out[0], out[1]
             res.ungated_ok = True
@@ -1008,7 +1012,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--cpg-theta", type=float, default=None,
                     help="with --cpg, override theta_base (the ACC conflict "
                          "criterion). Higher demands more evidence before "
-                         "committing; default 0.30")
+                         "committing; default 0.15")
+    ap.add_argument("--cpg-escalate", action="store_true",
+                    help="with --cpg, when no proposition clears the criterion, "
+                         "decline to compose and escalate to honest uncertainty "
+                         "instead of generating unguided (default: off, the "
+                         "production default)")
     args = ap.parse_args(argv)
 
     print("=" * 78)
@@ -1040,7 +1049,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.cpg_theta is not None:
             cpg_config.theta_base = args.cpg_theta
         print(f"  cpg           : on (relation_gating={args.cpg_relation}, "
-              f"theta_base={cpg_config.theta_base})")
+              f"theta_base={cpg_config.theta_base}, "
+              f"escalate={args.cpg_escalate})")
     else:
         print(f"  cpg           : off")
 
@@ -1159,7 +1169,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     continue
 
                 r = measure_subject(eng, label, subject, raw, use_cpg=args.cpg,
-                                    cpg_config=cpg_config)
+                                    cpg_config=cpg_config,
+                                    escalate=args.cpg_escalate)
                 all_results.append(r)
                 row = result_to_row(r)
                 new_rows.append(row)
