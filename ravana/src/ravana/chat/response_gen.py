@@ -1611,6 +1611,43 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if _hon:
                         return _hon
 
+                # LingGen P6: inject the fitted angular-gyrus projection W_sm
+                # as the BOS initiation state and the per-step concept bias.
+                #
+                # train.py fits W_sm (65->75) on (binder, embed75) pairs and
+                # trains with sensorimotor_conditioning=av, which
+                # train_on_sentence projects internally. generate() has no
+                # such parameter -- it takes the projected embeddings
+                # directly -- so the caller must do the projection. It never
+                # did: the fitted matrix was loaded (PR #318) but inert at
+                # inference. See docs/WSM_CONDITIONER_DEAD_AT_GENERATION.md.
+                #
+                # Fail-open: no encoder, no GloVe vector, no W_sm, or a shape
+                # mismatch leaves both as None, which is exactly the
+                # pre-existing behaviour.
+                _init_emb = None
+                _persist_emb = None
+                try:
+                    _enc = getattr(self, '_combined_attr_encoder', None)
+                    _gvec = getattr(self, '_glove_vector', None)
+                    _Wsm = getattr(self.neural_decoder, '_linggen_W_sm', None)
+                    if _enc is not None and _gvec is not None and _Wsm is not None:
+                        _gv = _gvec(ctx.subject) if ctx.subject else None
+                        if _gv is not None:
+                            _sig = np.asarray(
+                                _enc.attribute_vector(
+                                    np.asarray(_gv, dtype=np.float64)),
+                                dtype=np.float32).reshape(-1)[:65]
+                            if _sig.shape[0] == 65:
+                                _proj = np.asarray(_Wsm, dtype=np.float32) @ _sig
+                                _n = np.linalg.norm(_proj)
+                                if _n > 0:
+                                    _init_emb = (_proj / _n).astype(np.float32)
+                                    _persist_emb = _init_emb
+                except Exception:
+                    _init_emb = None
+                    _persist_emb = None
+
                 generated = self.neural_decoder.generate(
                     conditioning_embs=conditioning_embs,
                     max_steps=24,
@@ -1623,6 +1660,8 @@ class ResponseGenMixin(ChainWalkerMixin):
                     content_word_ids=content_word_ids,
                     token_boost=_cpg_boost if _cpg_boost else None,
                     token_suppress=_cpg_suppress if _cpg_suppress else None,
+                    initial_emb=_init_emb,
+                    persistent_emb=_persist_emb,
                 )
 
                 if generated and len(generated) >= 5:
