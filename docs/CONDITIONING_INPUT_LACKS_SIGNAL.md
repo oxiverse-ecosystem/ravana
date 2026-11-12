@@ -89,3 +89,50 @@ relations, not its surface attributes.
 - `docs/GROUNDING_MECHANISM.md` — the runtime mechanism, which bypasses this
   entirely by committing to graph propositions rather than projecting
   attributes
+
+---
+
+## Update: the sensorimotor-tail hypothesis is disproved
+
+The most testable candidate from the list above was: the target is
+`[GloVe | Lancaster-11]`, so 11 of 75 dimensions are sensorimotor and the
+Binder input has no sensorimotor content — capping R².
+
+Tested by fitting the same ridge to each part separately:
+
+```
+R² full target (75-D)      0.21838
+R² body only (first 64-D)  0.22842
+R² tail only (last 11-D)   0.18254
+
+target variance  body 0.009431   tail 0.015377
+tail norm mean 1.0000   body norm mean 1.0000
+```
+
+**The tail is no harder to predict than the body** (0.183 vs 0.228, and the
+difference is within noise). So the missing 78% is *not* the sensorimotor
+channels.
+
+Also note both parts are unit-norm (1.0000) — the target is normalised, so
+neither block dominates by scale.
+
+## What remains
+
+The two surviving candidates:
+
+1. **The attribute encoder is lossy.** `_combined_attr_encoder` compresses a
+   64-D GloVe vector into 65 attributes. The compression may discard exactly
+   the dimensions the target needs — in which case the fix is to condition on
+   the raw GloVe vector, or on richer graph context.
+2. **The target contains graph-derived structure.** If `_embed_75d`
+   incorporates neighbours or edges, that is not recoverable from a single
+   word's surface vector by construction.
+
+Both point the same way: **condition on the concept's graph neighbourhood,
+not its surface attributes.** That is also the most brain-faithful option — a
+concept's semantic identity is its relations.
+
+And it is exactly what `docs/GROUNDING_MECHANISM.md` proposes independently:
+Committed-Proposition Gating commits to graph propositions rather than
+projecting attributes. Two independent lines of evidence now converge on the
+same design.
