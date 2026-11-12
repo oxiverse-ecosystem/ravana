@@ -1284,6 +1284,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._rg_switch_enabled = False
         self._rg_config = None
         self._rg_compose_counts = {}
+        # ── Committed-Proposition Gating (CPG) ────────────────────────────
+        # OFF by default. When True, `_cpg_token_boost` commits to graph
+        # propositions before decoding and boosts only the tokens that realize
+        # them. See docs/GROUNDING_MECHANISM.md.
+        self._cpg_enabled = False
+        self._cpg_config = None
         # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
         try:
             from ravana.chat.generative_emitter import GenerativeEmitter
