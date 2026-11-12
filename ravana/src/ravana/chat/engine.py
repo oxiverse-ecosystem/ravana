@@ -2120,6 +2120,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self._saved_decoder_state = {}
                     except Exception:
                         self._saved_decoder_state = {}
+                # Attach the fitted LingGen conditioner (data/linggen_wsm.npz).
+                # Must run AFTER load_state_dict, which rebuilds the read-out
+                # and would discard an earlier attachment. Without this the
+                # grounding pass from training never reaches the decoder at
+                # boot, so every run is unconditioned.
+                try:
+                    self._restore_linggen_conditioner()
+                except Exception:
+                    pass
                 # Decoder loaded successfully — skip seed training if already done
                 needs_train = self._decoder_training_count < 1000
                 self._needs_seed_training = needs_train
@@ -2177,6 +2186,20 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
         self._build_decoder_vocab()
+        # The fitted LingGen conditioner (data/linggen_wsm.npz) maps the 65-D
+        # Binder vector to the 75-D dual-code embedding. train.py fits and
+        # saves it, but nothing loaded it back at boot -- so every run after
+        # training ran UNCONDITIONED and the grounding pass was discarded.
+        # Same class of bug as the trained-decoder restore above.
+        #
+        # MUST run after _build_decoder_vocab(): that method constructs a fresh
+        # NeuralDecoder, so attaching the projection before it is silently
+        # discarded. Verified -- attaching before the rebuild leaves
+        # `_linggen_W_sm` absent; after it, the restore returns True.
+        try:
+            self._restore_linggen_conditioner()
+        except Exception:
+            pass
         # Skip initial corpus training during cold start — the training
         # script (train.py) handles it separately with more control.
         # This shaves ~hours off first-time initialization.
