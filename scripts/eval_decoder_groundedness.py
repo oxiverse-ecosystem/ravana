@@ -592,7 +592,8 @@ class SubjectResult:
 
 def measure_subject(eng: CognitiveChatEngine, engine_label: str,
                     subject: str, raw_input: str,
-                    use_cpg: bool = False) -> SubjectResult:
+                    use_cpg: bool = False,
+                    cpg_config=None) -> SubjectResult:
     t0 = time.time()
     res = SubjectResult(engine=engine_label, subject=subject, raw_input=raw_input)
     try:
@@ -610,14 +611,18 @@ def measure_subject(eng: CognitiveChatEngine, engine_label: str,
         # ── UNGATED: the decoder's own output ────────────────────────────
         prev_gate = getattr(eng, "_disable_grounding_gate", False)
         prev_cpg = getattr(eng, "_cpg_enabled", False)
+        prev_cfg = getattr(eng, "_cpg_config", None)
         try:
             eng._disable_grounding_gate = True
             if use_cpg:
                 eng._cpg_enabled = True
+                if cpg_config is not None:
+                    eng._cpg_config = cpg_config
             out = eng._generate_with_situation_model(ctx)
         finally:
             eng._disable_grounding_gate = prev_gate
             eng._cpg_enabled = prev_cpg
+            eng._cpg_config = prev_cfg
         if out:
             res.ungated_text, res.ungated_strategy = out[0], out[1]
             res.ungated_ok = True
@@ -997,6 +1002,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--cpg", action="store_true",
                     help="enable Committed-Proposition Gating while measuring "
                          "(default: off, the production default)")
+    ap.add_argument("--cpg-relation", action="store_true",
+                    help="with --cpg, also gate on the committed RELATION "
+                         "(relation_words), not just the target")
     args = ap.parse_args(argv)
 
     print("=" * 78)
@@ -1006,6 +1014,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"  engine(s)     : {args.engine}")
     print(f"  out TSV       : {args.out or '(none -- not resumable)'}")
     print(f"  raw_input(s)  : {args.raw_input}")
+
+    # CPG configuration for this run. `--cpg` alone is target-only (the
+    # configuration that measurably worked); `--cpg-relation` adds the
+    # relation_words map so the committed RELATION is gated too.
+    cpg_config = None
+    if args.cpg:
+        from ravana.learn.committed_proposition import CPGConfig
+        rel = None
+        if args.cpg_relation:
+            rel = {
+                "causal": ("leads", "causes", "makes", "creates", "gives"),
+                "causes": ("leads", "causes", "makes", "creates", "gives"),
+                "temporal": ("follows", "precedes", "comes"),
+                "semantic": ("like", "is", "are", "becomes"),
+                "is_a": ("is", "are", "becomes"),
+                "part_of": ("part", "contains", "includes"),
+                "related_to": ("like", "connected", "linked"),
+            }
+        cpg_config = CPGConfig(relation_words=rel)
+        print(f"  cpg           : on (relation_gating={args.cpg_relation})")
+    else:
+        print(f"  cpg           : off")
 
     existing = read_existing(args.out) if args.out else {}
     if existing:
@@ -1121,7 +1151,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     all_results.append(r)
                     continue
 
-                r = measure_subject(eng, label, subject, raw, use_cpg=args.cpg)
+                r = measure_subject(eng, label, subject, raw, use_cpg=args.cpg,
+                                    cpg_config=cpg_config)
                 all_results.append(r)
                 row = result_to_row(r)
                 new_rows.append(row)
