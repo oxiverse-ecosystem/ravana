@@ -115,8 +115,20 @@ class CaseDistributionStore:
         path = path or _CASE_JSON
         if not os.path.exists(path):
             return cls()
-        with open(path, encoding="utf-8") as f:
-            d = json.load(f)
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError, IOError):
+            # A corrupt or truncated store must not take down every caller.
+            # This file is runtime-generated and gitignored; a partial write
+            # (observed: 73 NUL bytes) made json.load raise, and kb_describe's
+            # `except Exception: continue` swallowed it -- so a good Wikipedia
+            # description was DISCARDED and the whole harvest silently produced
+            # nothing. Degrade to the empty store instead: casing falls back to
+            # the sentence-initial positional route only.
+            return cls()
+        if not isinstance(d, dict):
+            return cls()
         store = cls(d.get("cap", {}))
         store._default = float(d.get("default", _DEFAULT_CAP_PROB))
         store._fb = {k: list(v) for k, v in (d.get("fb") or {}).items()}

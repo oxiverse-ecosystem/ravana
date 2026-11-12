@@ -2774,8 +2774,14 @@ class GenerationMixin:
                 if clean:
                     if not clean.endswith((".", "!", "?")):
                         clean += "."
-                    from ravana.chat.case_distribution import case_infer
-                    clean = case_infer(clean) if clean else clean
+                    try:
+                        from ravana.chat.case_distribution import case_infer
+                        clean = case_infer(clean) if clean else clean
+                    except Exception:
+                        # Casing is cosmetic. Never discard a good description
+                        # because the case store failed to load -- that is what
+                        # silently emptied the LingGen harvest.
+                        pass
                     return clean
             except Exception:
                 continue
