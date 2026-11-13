@@ -110,8 +110,29 @@ class NeuralDecoder(Module):
         # GRU for sequence processing (temporal cortex)
         self.gru = TracedGRUCell(hidden_dim, hidden_dim)
 
-        # Attention over conditioning context
+        # Attention over conditioning context.
+        #
+        # BUG (docs/CODEBASE_DECODER_AUDIT.md finding 3): this was constructed as
+        # ConceptAttentionHead(hidden_dim, hidden_dim), so `vocab_size` was 256 --
+        # the head's output_proj was Linear(256, 256) and returned a HIDDEN-SPACE
+        # vector, not vocab logits. `_readout` then blended it 50/50 with h and
+        # applied output_proj again (a double projection), and the head's own
+        # output_proj was weight-decayed to fro 1.16 (vs 9.24 at init) while
+        # W_q/W_k/W_v sat at exact random init (fro 22.57/22.64/22.70 vs 22.63
+        # expected) -- the attention contributed ~0.6% of readout variance.
+        #
+        # The head must emit vocab logits so it can be blended with the GRU
+        # readout in LOGIT space (a proper mixture of two distributions), not
+        # hidden space. vocab_size is not known until the weights are loaded, so
+        # the head is rebuilt by `_align_attention_head()` once vocab_size_actual
+        # is known.
         self.attention = ConceptAttentionHead(hidden_dim, hidden_dim, n_heads=n_attention_heads)
+
+        # Logit-space mixture gate between the GRU readout and the attention
+        # readout. 0.5 = equal mixture (the historical 50/50 blend, now applied
+        # in logit space rather than hidden space). Learnable; see the update
+        # step in train_on_sentence.
+        self.attn_gate = 0.5
 
         # Output projection: hidden state → logits over vocabulary
         self.output_proj = Linear(hidden_dim, vocab_size)
@@ -311,6 +332,7 @@ class NeuralDecoder(Module):
 
         # Only compute conditioning projection for attention if not precomputed
         if precomputed_attn_logits is None:
+            self._align_attention_head()
             cond_proj_tensor = self.condition_proj(StateTensor(conditioning_embs))
             cond_proj = cond_proj_tensor.data
 
@@ -331,17 +353,58 @@ class NeuralDecoder(Module):
                 attn_logits = precomputed_attn_logits
             else:
                 attn_logits = self.attention.forward_raw(cond_proj)
-            combined = h * 0.5 + attn_logits * 0.5
+            # Logit-space mixture (docs/CODEBASE_DECODER_AUDIT.md finding 3):
+            # both terms are vocab logits, so the blend is a convex combination
+            # of two distributions rather than a projection of a hidden-space
+            # blend.
+            gru_logits = self.output_proj.forward_raw(h[np.newaxis, :])[0]
+            combined = ((1.0 - self.attn_gate) * gru_logits
+                        + self.attn_gate * attn_logits)
             if self.training and self.dropout.p > 0:
                 mask = np.random.binomial(1, 1.0 - self.dropout.p, combined.shape).astype(combined.dtype)
                 combined = combined * mask / (1.0 - self.dropout.p)
 
-            # Use forward for trace storage at output projection
-            out_tensor = self.output_proj(StateTensor(combined[np.newaxis, :]))
-            logits_t = out_tensor.data[0]
+            # `combined` is already vocab logits (logit-space mixture) -- no
+            # second projection through output_proj.
+            logits_t = combined
             logits_list.append(logits_t)
 
         return np.stack(logits_list, axis=0), h
+
+    def _align_attention_head(self):
+        """Rebuild the attention head so its output_proj emits VOCAB logits.
+
+        The head is constructed as ConceptAttentionHead(hidden_dim, hidden_dim)
+        because vocab_size is not known until the checkpoint is loaded. Left
+        alone, its output_proj is Linear(hidden_dim, hidden_dim) and the readout
+        blends a hidden-space vector with h -- a double projection that carries
+        no vocabulary information (docs/CODEBASE_DECODER_AUDIT.md finding 3).
+
+        Rebuilding here (idempotent) makes the head emit vocab logits so it can
+        be mixed with the GRU readout in logit space. The existing W_q/W_k/W_v
+        weights are preserved; only output_proj is resized, seeded from the
+        current (near-zero) matrix where the shapes overlap.
+        """
+        vocab_size_actual = self.output_proj.weight.data.shape[0]
+        if self.attention.vocab_size == vocab_size_actual:
+            return
+        old = self.attention.output_proj
+        new_head = ConceptAttentionHead(
+            self.hidden_dim, vocab_size_actual, n_heads=self.attention.n_heads)
+        new_head.W_q.weight.data[:] = self.attention.W_q.weight.data
+        new_head.W_k.weight.data[:] = self.attention.W_k.weight.data
+        new_head.W_v.weight.data[:] = self.attention.W_v.weight.data
+        new_head.W_q.bias.data[:] = self.attention.W_q.bias.data
+        new_head.W_k.bias.data[:] = self.attention.W_k.bias.data
+        new_head.W_v.bias.data[:] = self.attention.W_v.bias.data
+        old_w = old.weight.data
+        new_w = new_head.output_proj.weight.data
+        k = min(old_w.shape[0], new_w.shape[0])
+        new_w[:k, :] = old_w[:k, :]
+        if new_head.output_proj.bias is not None and old.bias is not None:
+            kb = min(old.bias.data.shape[0], new_head.output_proj.bias.data.shape[0])
+            new_head.output_proj.bias.data[:kb] = old.bias.data[:kb]
+        self.attention = new_head
 
     def generate(self, conditioning_embs: np.ndarray,
                  max_steps: int = 20,
@@ -383,6 +446,7 @@ class NeuralDecoder(Module):
             self.rebuild_vocab_cache()
 
         h = np.zeros(self.hidden_dim, dtype=np.float32)
+        self._align_attention_head()
         cond_proj = self.condition_proj.forward_raw(conditioning_embs)
         precomputed_attn = self.attention.forward_raw(cond_proj)
 
@@ -417,8 +481,10 @@ class NeuralDecoder(Module):
                     np.asarray(persistent_emb, dtype=np.float32)[:self.embed_dim][np.newaxis, :])[0]
                 h = h + self.W_h_bias.forward_raw(pproj[np.newaxis, :])[0]
 
-            combined = h * 0.5 + precomputed_attn * 0.5
-            logits = self.output_proj.forward_raw(combined[np.newaxis, :])[0]
+            gru_logits = self.output_proj.forward_raw(h[np.newaxis, :])[0]
+            combined = ((1.0 - self.attn_gate) * gru_logits
+                        + self.attn_gate * precomputed_attn)
+            logits = combined
 
             # ── Neuromodulator modulation ──
             nm_temp_mod = 1.0
@@ -635,6 +701,7 @@ class NeuralDecoder(Module):
             conditioning_embs = np.zeros((1, self.embed_dim), dtype=np.float32)
         # Project FIRST, then attend: the attention head reads hidden_dim space,
         # so an unprojected embed_dim vector is a shape error, not a zero context.
+        self._align_attention_head()
         cond_proj = self.condition_proj.forward_raw(
             np.asarray(conditioning_embs, dtype=np.float32))
         cached_attn = self.attention(StateTensor(cond_proj)).data[0]
@@ -672,7 +739,9 @@ class NeuralDecoder(Module):
             proj_emb = self.condition_proj.forward_raw(
                 embs[pos][np.newaxis, :])[0]
             h = self.gru(proj_emb, h)
-            combined = h * 0.5 + cached_attn * 0.5
+            gru_logits = self.output_proj.forward_raw(h[np.newaxis, :])[0]
+            combined = ((1.0 - self.attn_gate) * gru_logits
+                        + self.attn_gate * cached_attn)
 
             if target_idx >= vocab_size_actual:
                 total_ce += 9.0          # same penalty training uses for OOV
@@ -682,7 +751,9 @@ class NeuralDecoder(Module):
             if target_idx in shared_negatives:
                 neg_idx = shared_negatives[shared_negatives != target_idx]
             all_idx = np.concatenate([[target_idx], neg_idx])
-            logit_t = combined @ out_weight[all_idx].T
+            # `combined` is already a vocab-logit vector (logit-space mixture),
+            # so the sampled logits are a plain gather -- no second projection.
+            logit_t = combined[all_idx]
             if out_bias is not None:
                 logit_t = logit_t + out_bias[all_idx]
             logit_stable = logit_t - np.max(logit_t)
@@ -857,6 +928,7 @@ class NeuralDecoder(Module):
         if len(word_indices) < 2:
             return 0.0
 
+        self._align_attention_head()
         cond_proj = self.condition_proj.forward_raw(conditioning_embs)
         cached_attn_tensor = self.attention(StateTensor(cond_proj))
         cached_attn_logits = cached_attn_tensor.data[0]
@@ -898,6 +970,8 @@ class NeuralDecoder(Module):
         max_T = len(word_indices) - 1
         all_combined = [None] * max_T
         all_err_stored = [None] * max_T
+        all_gru_logits = [None] * max_T
+        all_attn_logits = [None] * max_T
         all_idx_stored = [None] * max_T
         all_word_emb = [None] * max_T
         all_input_idx = [None] * max_T
@@ -984,8 +1058,15 @@ class NeuralDecoder(Module):
             all_gru_r[pos] = r
             h = h_new
 
-            # Attention + output (keep ratio consistent with generate: 0.5 each)
-            combined_vec = h * 0.5 + cached_attn_logits * 0.5
+            # Attention + output. The attention head now emits VOCAB logits
+            # (docs/CODEBASE_DECODER_AUDIT.md finding 3), so the mixture is a
+            # convex combination of two logit vectors -- a proper mixture of two
+            # distributions. Previously this blended h (hidden space) with a
+            # hidden-space attention vector and projected the result, which is a
+            # double projection carrying no vocabulary information.
+            gru_logits = self.output_proj.forward_raw(h[np.newaxis, :])[0]
+            combined_vec = ((1.0 - self.attn_gate) * gru_logits
+                            + self.attn_gate * cached_attn_logits)
             if self.training and self.dropout.p > 0:
                 mask = np.random.binomial(1, 1.0 - self.dropout.p, combined_vec.shape).astype(combined_vec.dtype)
                 combined_vec = combined_vec * mask / (1.0 - self.dropout.p)
@@ -999,7 +1080,9 @@ class NeuralDecoder(Module):
                     neg_idx = shared_negatives
                 all_idx = np.concatenate([[target_idx], neg_idx])
 
-                logit_t = combined_vec @ out_weight[all_idx].T
+                # `combined_vec` is already a vocab-logit vector (logit-space
+                # mixture), so the sampled logits are a plain gather.
+                logit_t = combined_vec[all_idx]
                 if out_bias is not None:
                     logit_t += out_bias[all_idx]
 
@@ -1026,6 +1109,8 @@ class NeuralDecoder(Module):
 
             all_combined[pos] = combined_vec
             all_err_stored[pos] = err
+            all_gru_logits[pos] = gru_logits
+            all_attn_logits[pos] = cached_attn_logits
             all_idx_stored[pos] = all_idx
             all_word_emb[pos] = word_emb
             all_input_idx[pos] = input_idx
@@ -1049,20 +1134,44 @@ class NeuralDecoder(Module):
         # ── Per-sentence Hebbian updates (SGD-style with weight decay) ──
         T = len(all_combined)
 
-        # 1. output_proj: sparse Hebbian update (sampled softmax, only K+1 rows)
+        # 1. output_proj: sparse Hebbian update (sampled softmax, only K+1 rows).
+        #    combined = (1-g)*W_out*h + g*attn  =>  dL/dW_out[idx] = err (x) h.
         for pos in range(T):
-            h_vec = all_combined[pos]
+            h_vec = all_h[pos]
             err = all_err_stored[pos]
             idx = all_idx_stored[pos]
-            hebb = np.outer(err, h_vec) / T
+            hebb = np.outer(err, h_vec) / T * (1.0 - self.attn_gate)
             out_weight[idx] += hebb * lr_proj - out_weight[idx] * wd
 
-        # 2. Error backprop to hidden (sparse: only sampled rows)
+        # 2. Error backprop to hidden (sparse: only sampled rows).
+        #    dL/dh = (1-g) * W_out[idx]^T @ err
         error_h_all = np.zeros((T, self.hidden_dim), dtype=np.float32)
         for pos in range(T):
             err = all_err_stored[pos]
             idx = all_idx_stored[pos]
-            error_h_all[pos] = err @ out_weight[idx]
+            error_h_all[pos] = (1.0 - self.attn_gate) * (err @ out_weight[idx])
+
+        # Logit-space stacks for the attention head and the mixture gate.
+        # `err` is (K+1)-wide over the sampled indices `all_idx_stored[pos]`, so
+        # the gate gradient is computed against the SAME sampled logits -- not
+        # the full vocab (which would be both expensive and a different
+        # objective than the one actually optimised).
+        # Ragged-safe stacks: when the target is drawn into the shared
+        # negatives, that position's error vector is one shorter. Pad to the
+        # max width so np.stack succeeds; the gate gradient below only uses the
+        # sampled-index gathers, which are always well-defined.
+        _max_k = max(len(all_err_stored[p]) for p in range(T))
+        error_logits_all = np.zeros((T, _max_k), dtype=np.float32)
+        for p in range(T):
+            e = all_err_stored[p]
+            error_logits_all[p, :len(e)] = e
+        gru_sampled_all = np.zeros((T, _max_k), dtype=np.float32)
+        attn_sampled_all = np.zeros((T, _max_k), dtype=np.float32)
+        for p in range(T):
+            idx = all_idx_stored[p]
+            k = len(idx)
+            gru_sampled_all[p, :k] = all_gru_logits[p][idx]
+            attn_sampled_all[p, :k] = all_attn_logits[p][idx]
 
         # 2b. P6 auxiliary "load-bearing" loss (research item #9, "Cosine
         # Misleads"). Reconstruct av (65-D Binder attributes) from the mean
@@ -1132,10 +1241,35 @@ class NeuralDecoder(Module):
             self.gru.W_h.weight.data += np.clip(fe_wh.T, -clip_val, clip_val) * lr_other - self.gru.W_h.weight.data * wd
 
         # 6. attention output_proj (only if not frozen)
+        #
+        # The attention head now emits VOCAB logits and is mixed with the GRU
+        # readout in logit space (docs/CODEBASE_DECODER_AUDIT.md finding 3), so
+        # its gradient is the LOGIT error scaled by the gate -- not error_h_all
+        # (which is the hidden-space error). Using error_h_all here was a
+        # shape-carrying no-op that weight-decayed the head to fro 1.16.
         if not freeze_core:
-            attn_error_all = np.clip(error_h_all * 0.1, -1.0, 1.0)
-            total_attn_err = np.sum(attn_error_all, axis=0)
-            self.attention.output_proj.weight.data += (total_attn_err / T) * lr_attn - self.attention.output_proj.weight.data * wd
+            # combined = (1-g)*W_out*h + g*attn, so dL/dattn = g * err.
+            # The head's output_proj maps hidden -> vocab, so its gradient is
+            # err (x) head_input over ALL vocab rows. `err` is (K+1)-wide over
+            # the sampled indices, so scatter it into a full-vocab vector.
+            attn_err = np.zeros(self.attention.vocab_size, dtype=np.float32)
+            for pos in range(T):
+                idx = all_idx_stored[pos]
+                attn_err[idx] += all_err_stored[pos]
+            attn_err *= self.attn_gate / T
+            head_in = np.asarray(cond_proj, dtype=np.float32).mean(axis=0)
+            self.attention.output_proj.weight.data += (
+                np.outer(attn_err, head_in) * lr_attn
+                - self.attention.output_proj.weight.data * wd)
+
+        # 6b. logit-space mixture gate. dE/dgate = (attn_logits - gru_logits) .
+        #     err, averaged over positions. Clipped to [0, 1] so the mixture
+        #     stays a convex combination.
+        if not freeze_core:
+            gate_grad = float(np.mean(np.sum(
+                (attn_sampled_all - gru_sampled_all) * error_logits_all, axis=1)))
+            self.attn_gate = float(np.clip(
+                self.attn_gate + lr_other * gate_grad, 0.0, 1.0))
 
         # Skip attention W_q/W_k/W_v (traces are sentence-specific, unreliable)
 

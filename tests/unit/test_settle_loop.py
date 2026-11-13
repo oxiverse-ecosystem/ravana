@@ -42,14 +42,19 @@ def _settle(nd, gen, traj_words, emb):
         tgt_emb = emb[traj_words[pos]]
         proj_tgt = nd.condition_proj.forward_raw(tgt_emb.reshape(1, -1))[0]
         h_star = gen._gru_step(proj_tgt, h)
-        attn = np.zeros(nd.hidden_dim, dtype=np.float32)
+        # The readout now mixes in LOGIT space (docs/CODEBASE_DECODER_AUDIT.md
+        # finding 3), so "no attention" is a zero VOCAB-width vector, not a
+        # hidden-width one.
+        attn = np.zeros(nd.output_proj.weight.data.shape[0], dtype=np.float32)
         logits_target = gen._readout(h_star, attn)
         e0 = float(np.linalg.norm(logits_target - gen._readout(h, attn)))
         prev_h = h.copy()
         W_out = nd.output_proj.weight.data
+        gate = float(getattr(nd, "attn_gate", 0.5))
         for _ in range(gen.settle_steps):
             err = logits_target - gen._readout(h, attn)
-            grad = (err @ W_out) * 0.5 / max(1, err.shape[0])
+            # dE/dh = J^T err with J = d readout / d h = (1-gate) * W_out
+            grad = (err @ W_out) * (1.0 - gate) / max(1, err.shape[0])
             h = h + gen.settle_lr * grad
             if np.linalg.norm(h - prev_h) < gen.settle_tol:
                 break

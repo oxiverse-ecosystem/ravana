@@ -96,13 +96,24 @@ class PredictiveCodingGenerator:
 
     def _attention_logits(self, conditioning_embs: np.ndarray) -> np.ndarray:
         nd = self.decoder
+        nd._align_attention_head()
         cond_proj = nd.condition_proj.forward_raw(conditioning_embs)
         return nd.attention.forward_raw(cond_proj)  # (vocab_size,)
 
     def _readout(self, h: np.ndarray, attn_logits: np.ndarray) -> np.ndarray:
+        """Mix the GRU readout with the attention readout in LOGIT space.
+
+        Previously `combined = h*0.5 + attn*0.5` then output_proj -- a blend of
+        two HIDDEN-space vectors followed by a projection (a double
+        projection). The attention head now emits vocab logits
+        (docs/CODEBASE_DECODER_AUDIT.md finding 3), so the mixture is a convex
+        combination of two distributions, which is the correct way to combine a
+        linguistic prior with a concept prior.
+        """
         nd = self.decoder
-        combined = h * 0.5 + attn_logits * 0.5
-        return nd.output_proj.forward_raw(combined[np.newaxis, :])[0]  # (vocab_size,)
+        gru_logits = nd.output_proj.forward_raw(h[np.newaxis, :])[0]
+        gate = float(getattr(nd, "attn_gate", 0.5))
+        return (1.0 - gate) * gru_logits + gate * attn_logits
 
     # ── internal: one-shot recovery of the word-embedding trajectory ────────
     @staticmethod
