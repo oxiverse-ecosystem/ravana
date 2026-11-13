@@ -512,6 +512,20 @@ _QUESTION_WORDS = {
     "should", "will", "has", "have", "explain", "describe", "define",
 }
 
+# Discourse connectives and meta-phrasing that mark a TEMPLATE frame rather
+# than a concept. Measured in the persisted graph (2026-11-14): 72 phrases of
+# >=4 words such as 'archived versus sea comparison',
+# 'philosophy versus archived comparison', 'so far say confidence' were minted
+# as concept nodes by the comparison/decompose path. A person cannot have a
+# fact about 'X versus Y comparison' -- the system generated the phrasing
+# itself, so storing it as a concept is self-referential pollution.
+_DISCOURSE_MARKERS = {
+    "versus", "vs", "comparison", "compare", "compared",
+    "so", "far", "say", "said", "according", "edit", "usage",
+    "definition", "meaning", "overview", "example", "examples",
+    "question", "answer", "problem", "analysis", "domains", "academics",
+}
+
 
 def _is_question_phrase(phrase: str) -> bool:
     """True if `phrase` is a question/sentence frame rather than a concept.
@@ -530,6 +544,14 @@ def _is_question_phrase(phrase: str) -> bool:
     # Phrases long enough to be full sentences (>=5 words) are almost never
     # atomic concepts worth storing.
     if len(toks) >= 5:
+        return True
+    # DISCOURSE FRAMES (measured 2026-11-14): the comparison/decompose path
+    # builds topic strings like 'archived versus sea comparison' or
+    # 'philosophy versus archived comparison'. These are TEMPLATE artifacts --
+    # the system's own comparison phrasing -- not concepts a person could have
+    # a fact about. 72 such >=4-word phrases were found in the persisted graph.
+    # A genuine concept phrase does not contain a discourse connective.
+    if len(toks) >= 4 and any(t in _DISCOURSE_MARKERS for t in toks):
         return True
     return False
 
