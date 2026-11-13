@@ -110,7 +110,29 @@ def load_corpus(engine, extra_corpora=None):
         words_in_corpus = set(re.findall(r"[a-zA-Z\']{3,}", text.lower()))
         new_for_vocab = [w for w in words_in_corpus if w not in engine._decoder_word_to_idx]
         if new_for_vocab:
-            engine._expand_decoder_vocab(new_for_vocab)
+            # The vocab is frozen by default (inference must not grow it) and
+            # capped at MAX_DECODER_VOCAB_SIZE. Training is exactly the case
+            # where it SHOULD grow, so lift both gates here.
+            #
+            # Measured: the persisted vocab is exactly 15000 (at the cap) and
+            # covers 61% of the Gutenberg top-5000. Training needs every word
+            # of a sentence, so at 61% per-word coverage only 7-11% of the
+            # harvested descriptions were representable. Raising the cap and
+            # expanding on the description corpus took coverage to 100% with
+            # just 374 new words. See docs/VOCAB_BLOCKS_TRAINING.md.
+            _unfroze = getattr(engine, "_freeze_decoder_vocab", False)
+            _old_cap = getattr(engine, "MAX_DECODER_VOCAB_SIZE", None)
+            try:
+                engine._freeze_decoder_vocab = False
+                if _old_cap is not None:
+                    engine.MAX_DECODER_VOCAB_SIZE = max(
+                        _old_cap, len(engine._decoder_word_to_idx)
+                        + len(new_for_vocab) + 1000)
+                engine._expand_decoder_vocab(new_for_vocab)
+            finally:
+                engine._freeze_decoder_vocab = _unfroze
+                if _old_cap is not None:
+                    engine.MAX_DECODER_VOCAB_SIZE = _old_cap
         print(f"  [corpus] loaded {os.path.relpath(path, _proj_root)} "
               f"({len(words_in_corpus)} word-types, +{len(new_for_vocab)} new vocab)")
 
@@ -308,6 +330,35 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
           f"held-out {len(cond_pairs)}")
 
     # Train decoder on the grounded descriptions (conditioning override).
+    #
+    # Expand the vocabulary to cover the description corpus FIRST. The training
+    # loop below skips any sentence with an out-of-vocab word, and the
+    # persisted vocab covers only 61% of common words -- so 93% of the corpus
+    # was being silently skipped. Measured: expanding on this corpus took
+    # in-vocab coverage from 11% to 100% with 374 new words.
+    # See docs/VOCAB_BLOCKS_TRAINING.md.
+    _missing = set()
+    for _c, _d in sentences:
+        for _w in _d.split():
+            _wl = _w.lower().strip(".,!?").strip("'")
+            if len(_wl) >= 2 and _wl not in engine._decoder_word_to_idx:
+                _missing.add(_wl)
+    if _missing:
+        _unfroze = getattr(engine, "_freeze_decoder_vocab", False)
+        _old_cap = engine.MAX_DECODER_VOCAB_SIZE
+        try:
+            engine._freeze_decoder_vocab = False
+            engine.MAX_DECODER_VOCAB_SIZE = max(
+                _old_cap, len(engine._decoder_word_to_idx) + len(_missing) + 1000)
+            engine._expand_decoder_vocab(sorted(_missing))
+            print(f"  [LingGen] vocab +{len(_missing)} words for the "
+                  f"description corpus (-> {len(engine._decoder_word_to_idx)})")
+        except Exception as _e:
+            print(f"  [LingGen] vocab expansion failed: {_e}")
+        finally:
+            engine._freeze_decoder_vocab = _unfroze
+            engine.MAX_DECODER_VOCAB_SIZE = _old_cap
+
     W_sm = conditioner._W
     total = 0
     baseline_ce = float(getattr(nd, "_avg_cross_entropy", 3.0))
@@ -753,10 +804,33 @@ def _mode_linggen(args):
     eng = CognitiveChatEngine(dim=args.dim, seed=args.seed, baby_mode=True)
     nd = eng.neural_decoder
 
-    # 1) Larger grounded harvest from local books (clean, deterministic).
-    n_harvest = eng.harvest_grounded_corpus(
-        max_concepts=2000, local_books=True, force=True)
-    report = [f"[harvest] local_books concepts written: {n_harvest}"]
+    # 1) Grounded harvest.
+    #
+    # local_books is 40x faster than the Wikipedia harvest (20s for 200 vs
+    # ~14 min for 1000) but its output is USAGE sentences -- dialogue and
+    # chapter headings -- not descriptions:
+    #
+    #   psychology  "That's a simple point in psychology
+    #   life        I almost wish I hadn't gone down that rabbit-hole—and yet—
+    #   human       CHAPTER IV Human nature is so well disposed towards those
+    #
+    # The Wikipedia harvest produces real definitions. Since only ~10% of
+    # either is trainable before the vocab fix (and 100% after), the speed
+    # gain buys nothing and the quality loss is real. Prefer the descriptions
+    # file when it is present and non-trivial; fall back to local books.
+    desc_path = os.path.join(_proj_root, "data", "corpora",
+                             "grounded_descriptions.txt")
+    n_desc = 0
+    if os.path.exists(desc_path):
+        with open(desc_path, encoding="utf-8") as fh:
+            n_desc = sum(1 for line in fh if "\t" in line)
+    if n_desc >= 50:
+        print(f"  [harvest] using existing descriptions: {n_desc} pairs")
+        report = [f"[harvest] existing descriptions: {n_desc} pairs"]
+    else:
+        n_harvest = eng.harvest_grounded_corpus(
+            max_concepts=2000, local_books=True, force=True)
+        report = [f"[harvest] local_books concepts written: {n_harvest}"]
 
     # 2) Longer grounded training. freeze_core=True protects the seed-language
     #    core from drift; scheduled sampling + aux lambda close the exposure
