@@ -38,6 +38,27 @@ class TestIsQuestionPhrase:
         assert not _is_question_phrase("trust")
         assert not _is_question_phrase("what")  # no space -> not a phrase
 
+    def test_discourse_frames_are_rejected(self):
+        """Template comparison/meta phrasing is not a concept.
+
+        Measured in the persisted graph (2026-11-14): 72 phrases of >=4 words
+        minted by the comparison/decompose path, e.g.
+        'archived versus sea comparison'. A person cannot have a fact about
+        'X versus Y comparison' -- the system generated the phrasing itself, so
+        storing it as a concept is self-referential pollution.
+        """
+        assert _is_question_phrase("archived versus sea comparison")
+        assert _is_question_phrase("philosophy versus archived comparison")
+        assert _is_question_phrase("general usage edit comparison")
+        assert _is_question_phrase("so far say confidence")
+
+    def test_discourse_filter_does_not_reject_real_concepts(self):
+        """The filter must not over-reach: genuine 4-word concepts pass."""
+        for phrase in ("natural language processing",
+                       "artificial intelligence research",
+                       "climate change mitigation"):
+            assert not _is_question_phrase(phrase), phrase
+
 
 class TestSanitizeGraph:
     def test_prunes_question_phrase_nodes_and_self_loops(self):
