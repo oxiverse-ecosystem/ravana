@@ -18,27 +18,34 @@ So the gate was withholding ~77% of the subjects RAVANA had actually been
 taught, purely because the harvested knowledge never crossed the consolidation
 threshold.
 
-WHY TWO SOURCES
-===============
-`_learn_from_text` routes every non-junk token through a provisional buffer
-(the hippocampus analog, `web_learning.py:786`) and promotes it to the permanent
-graph only after reactivation across `_promote_min_sources` DISTINCT sources
-(default 2, `engine.py:2028`). A single harvest gives each concept one source,
-so it sits in the buffer forever.
+WHY THE GATE CHANGED
+====================
+`_learn_from_text` routes non-junk tokens through a provisional buffer (the
+hippocampus analog, `web_learning.py:786`) and used to promote them only after
+reactivation across `_promote_min_sources` DISTINCT sources (default 2,
+`engine.py:2028`). A single harvest gives each concept one source, so every
+subject sat in the buffer forever.
 
-The brain-faithful fix is NOT to lower k. Complementary Learning Systems
-(McClelland, McNaughton & O'Reilly 1995) predicts exactly this: a one-shot
-buffer must exist to protect the neocortex from interference, and consolidation
-happens when the same representation is reactivated across distinct contexts.
-A harvested description is reactivated in a second context when the concept is
-encountered again -- so the script presents each pair twice under two distinct
-source ids, which is the same event the theory requires, not a bypass of it.
+That flat corroboration counter was standing in for a schema-consistency
+judgement. The brain's rule is not "one source = junk, two sources = knowledge":
+a fact that fills slots which ALREADY exist is learned in ONE trial (Tse et al.,
+Science 2011, 333:891-895; Kumaran, Hassabis & McClelland, TiCS 2016,
+20(7):512-534), and only schema-inconsistent material must be interleaved
+(McClelland, JEP:General 2013, 142(4):1190-1210). RAVANA's fact gate already
+implements this (`intake.py:370` `SchemaConsistencyGate.consistency()`), but the
+node gate ignored it.
 
-Lowering k to 1 would instead admit every one-shot scrape, including the junk
-the filter exists to reject. That is the failure mode the buffer is designed to
-prevent, and it was measured: a single ingestion pass added 1791 nodes, many of
-them composite question-frames (`'sky appears blue because molecules'`) rather
-than concepts.
+`_learn_from_text` now routes a text's OWN SUBJECT through that fast-mapping
+case -- the text supplies the slot the subject fills -- while co-occurring tokens
+still require corroboration. So this script is a SINGLE pass per pair; it no
+longer manufactures a synthetic second source.
+
+An earlier version replayed each pair under k distinct source ids to clear the
+old counter. That compensated for the gate's wrong grain rather than fixing it.
+Lowering k to 1 was rejected for the same reason: a single pass then minted 1791
+nodes, many of them composite question-frames (`'sky appears blue because
+molecules'`) rather than concepts -- an extraction-quality problem, not a reason
+to keep a corroboration counter.
 
 USAGE
 -----
@@ -118,21 +125,15 @@ def main():
         print("[consolidate] dry run -- no changes")
         return 0
 
-    added = 0
     promoted = 0
     for concept, desc in pairs:
         if is_known(engine, concept):
             continue
-        # Present the same harvested description under k distinct source ids.
-        # This is reactivation across distinct contexts -- the consolidation
-        # event the provisional buffer is designed to detect -- not a lowering
-        # of the threshold.
-        for i in range(k):
-            try:
-                engine._learn_from_text(desc, concept,
-                                        source_url=f"harvest:{concept}:s{i}")
-            except Exception as exc:  # noqa: BLE001 - never abort the batch
-                print(f"[consolidate]   {concept!r} source {i}: {exc}")
+        try:
+            engine._learn_from_text(desc, concept,
+                                    source_url=f"harvest:{concept}")
+        except Exception as exc:  # noqa: BLE001 - never abort the batch
+            print(f"[consolidate]   {concept!r}: {exc}")
         if is_known(engine, concept):
             promoted += 1
 

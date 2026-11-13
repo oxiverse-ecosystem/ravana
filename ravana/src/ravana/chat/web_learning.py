@@ -733,6 +733,18 @@ class WebLearningMixin(ResponseGenMixin):
         # Add new concepts (locked to prevent graph mutation during save iteration)
         _theta = getattr(self, "_junk_theta", 0.5)
         _k = getattr(self, "_promote_min_sources", 2)
+        # The TOPIC of a harvested/ingested text is not a co-occurring token -- it
+        # is the subject the text is ABOUT. Such a token arrives with its own
+        # definition attached, which is the schema-consistent fast-mapping case
+        # (Tse et al. 2011; Kumaran et al. 2016): the fact fills a slot that the
+        # text itself supplies. Requiring k corroborating sources for it is a
+        # corroboration heuristic standing in for the schema-consistency
+        # judgement the fact gate already makes (intake.py:370 consistency()).
+        # Measured: with a flat k=2 counter, 384 of 512 harvested subjects sat in
+        # the provisional buffer forever and the grounding gate withheld them.
+        _topic_lower = topic.lower().strip()
+        _topic_words = set(w for w in re.findall(r"[a-zA-Z']{3,}", _topic_lower)
+                           if w not in STOP_WORDS)
         for word in important_words:
             # Belt-and-suspenders: never mint a graph node for a question/
             # sentence frame, even if the phrase appeared verbatim in fetched
@@ -750,6 +762,10 @@ class WebLearningMixin(ResponseGenMixin):
                         for tid, edge in self.graph.get_outgoing(nid):
                             edge.confidence = min(0.8, edge.confidence + 0.05)
                 continue
+            # Schema-consistent fast mapping: the text's own subject is admitted
+            # on first sight, because the text supplies the slot it fills.
+            # Corroboration remains the route for every other token.
+            _fast_map = word.lower() in _topic_words
             # Round 4 (C1): write-time consolidation gate (hippocampal filter).
             # A scraped token is NOT admitted to the permanent graph on first
             # sight. It must clear the learned/structural junk_score AND be
@@ -787,6 +803,31 @@ class WebLearningMixin(ResponseGenMixin):
             _prov = getattr(self, "_provisional_nodes", None)
             if _prov is None:
                 self._provisional_nodes = _prov = {}
+            if _fast_map:
+                # Schema-consistent fast mapping (Tse et al. 2011): the token is
+                # the subject this very text describes, so the slot it fills is
+                # supplied by the text itself. Admit on first sight; the junk
+                # pre-filter above still applies, so unambiguous junk is never
+                # admitted by this route.
+                with self._graph_lock:
+                    node = self.graph.add_node(vector=vec, label=word)
+                if node is None:
+                    continue
+                label_to_id[word] = node.id
+                self._concept_keywords[word] = self._concept_keywords.get(word, []) + [node.id]
+                self._concept_labels.add(word.lower())
+                existing_labels.add(word)
+                self._concept_sources.setdefault(word, set()).add(source_id)
+                _prov.pop(word, None)
+                new_count += 1
+                try:
+                    from ravana.chat.junk_scorer import record_label
+                    record_label(word, "promoted", glove_mag=_mag,
+                                 meta={"degree": 1, "source_count": 1,
+                                       "glove_mag": _mag, "route": "fast_map"})
+                except Exception:
+                    pass
+                continue
             if word in _prov:
                 _prov[word].add(source_id)
                 # Reactivation across >= k distinct sources -> promote to the
