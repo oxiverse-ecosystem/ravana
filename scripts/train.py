@@ -844,6 +844,50 @@ def _mode_linggen(args):
     report.append(
         f"[train] W_sm saved="
         f"{os.path.exists(os.path.join(_proj_root, 'data', 'linggen_wsm.npz'))}")
+
+    # Persist the TRAINED decoder. Without this the whole run is lost if it is
+    # killed -- and at ~296s per pass, 40 passes is ~3.3 hours, far longer than
+    # any process window on this host. _mode_full already saves here
+    # (scripts/train.py:744); _mode_linggen did not.
+    dec_path = os.path.join(_proj_root, "data", "neural_decoder.npz")
+    vocab_path = os.path.join(_proj_root, "data", "neural_decoder_vocab.json")
+    try:
+        ok = nd.save_to(dec_path)
+        report.append(f"[decoder] weights saved={ok}")
+        print(f"  [decoder] weights -> {os.path.relpath(dec_path, _proj_root)}: {ok}")
+        if ok:
+            import json
+            with open(vocab_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "word_to_idx": {w: int(i)
+                                    for w, i in eng._decoder_word_to_idx.items()},
+                    "idx_to_word": {str(i): w
+                                    for i, w in eng._decoder_idx_to_word.items()},
+                    "vocab_size": int(len(eng._decoder_word_to_idx)),
+                    "embed_dim": int(getattr(eng, "_DECODER_DIM", 75)),
+                    "final_ce": float(getattr(nd, "_avg_cross_entropy", 0.0) or 0.0),
+                    "final_top1": float(getattr(nd, "_avg_top1_acc", 0.0) or 0.0),
+                    "training_examples": int(
+                        getattr(nd, "_total_training_examples", 0) or 0),
+                }, f)
+            report.append("[decoder] vocab saved=True")
+    except Exception as _e:
+        report.append(f"[decoder] save FAILED: {_e}")
+        print(f"  [decoder] save failed: {_e}")
+
+    # Promote use_linggen only when the run earned it. The gate inside
+    # train_decoder_grounded already measured free-form coherence against a
+    # floor; persist the result so the runtime picks it up.
+    try:
+        if use_ling:
+            eng.use_linggen = True
+            eng.save()
+            report.append("[promote] use_linggen=True persisted")
+        else:
+            report.append("[promote] use_linggen=False (gate not met)")
+    except Exception as _e:
+        report.append(f"[promote] save failed: {_e}")
+
     report.append(f"[elapsed] {_time.time()-t0:.1f}s")
 
     out = os.path.join(_proj_root, "data", "linggen_train_report.txt")
