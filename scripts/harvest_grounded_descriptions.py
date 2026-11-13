@@ -52,6 +52,17 @@ _JUNK = re.compile(
     r"Instagram|RELATED TOPICS|Subjects:|Tags:|Librarian|Copyright|"
     r"All rights reserved|Privacy Policy|Terms of Use)\b", re.I)
 _CITE = re.compile(r"^\s*[↑↓]|\(\w+ \d{4}\)|et al\.?\s*$")
+# Wikipedia disambiguation / set-index pages. Anchored so a real definition
+# containing "may refer to" mid-sentence is not rejected -- measured: 200 of
+# 685 harvested pairs (29%) were this junk.
+_DISAMBIG = re.compile(
+    r"^\s*(topics referred to by the same term"
+    r"|.{0,40}?\s+(most often|often|commonly|usually|also|normally|"
+    r"generally)\s+refers to\b[:.]?"
+    r"|.{0,40}?\s+may refer to\b[:.]?"
+    r")",
+    re.I | re.S,
+)
 
 
 def _is_prose(text, min_words=6):
@@ -61,6 +72,12 @@ def _is_prose(text, min_words=6):
     if len(text) < 20:
         return False
     if _JUNK.search(text) or _CITE.search(text):
+        return False
+    # Reject Wikipedia disambiguation pages FIRST, before the word-count gate:
+    # "Topics referred to by the same term." is 7 words but is navigation, not
+    # description, and shorter variants fall below the prose threshold anyway.
+    # Measured: 200 of 685 harvested pairs (29%) were this junk.
+    if _DISAMBIG.search(text):
         return False
     words = re.findall(r"[a-zA-Z']+", text)
     if len(words) < min_words:
