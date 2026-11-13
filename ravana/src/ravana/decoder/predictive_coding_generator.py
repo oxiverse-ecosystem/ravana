@@ -178,7 +178,13 @@ class PredictiveCodingGenerator:
         # gradient-free error-minimisation steps (predictive coding), (3) pick
         # the actual word from a BOUNDED softmax over the settled logits.
         emitted_idx = [first_idx]
-        for pos in range(first_pos + 1, len(traj_embs)):
+        # BUG (found while testing the settle loop): `traj_idx` is FILTERED
+        # (specials/<unk> dropped) but this loop was bounded by the UNFILTERED
+        # `len(traj_embs)`. Any attractor containing a word outside the decoder
+        # vocab made `traj_idx[pos]` raise IndexError -- a hard crash in
+        # production, not a graceful skip. Bound by the filtered length and
+        # skip positions that were dropped.
+        for pos in range(first_pos + 1, len(traj_idx)):
             tgt_idx = traj_idx[pos]
             if tgt_idx is None:
                 continue
@@ -197,16 +203,31 @@ class PredictiveCodingGenerator:
             logits_target = self._readout(h_star, attn_logits)
 
             # Local predictive-coding settle: move h to reduce the prediction
-            # error between h's readout and the target's readout. This is energy
-            # minimisation over K steps, no teacher forcing.
+            # error between h's readout and the target's readout.
+            #
+            # BLOCKER (docs/CODEBASE_DECODER_AUDIT.md finding 2): the previous
+            # code computed `err = logits_target - logits_h` and then DISCARDED
+            # it, taking a fixed step `h += settle_lr * (h_star - h)`. That is
+            # not predictive coding -- it is a linear interpolation toward
+            # h_star. After `settle_steps` steps h is ~90% of the way there, so
+            # the emitted word is readout(h_star): the attractor's own word,
+            # copied rather than generated.
+            #
+            # Real gradient descent on the prediction energy E = 1/2 ||err||^2:
+            #   dE/dh = J^T err,  where J = d readout / d h.
+            # `_readout` is LINEAR in the blended state (h*0.5 + attn*0.5), so
+            # J = 0.5 * W_out exactly -- no finite differences needed. This is
+            # the brain-faithful "settle then read out": h moves along the
+            # direction that actually reduces the error, and the step size
+            # shrinks as the error shrinks (the fixed step never did).
             prev_h = h.copy()
+            W_out = nd.output_proj.weight.data  # (vocab, hidden)
             for _ in range(self.settle_steps):
                 logits_h = self._readout(h, attn_logits)
                 err = logits_target - logits_h
-                # Gradient of |err|^2 wrt the readout is 2*err; push h along the
-                # direction that increases alignment with h_star. Use a simple
-                # fixed-point update toward h_star scaled by error magnitude:
-                step = self.settle_lr * (h_star - h)
+                # normalise by vocab so the step is scale-stable across vocab sizes
+                grad = (err @ W_out) * 0.5 / max(1, err.shape[0])
+                step = self.settle_lr * grad
                 h = h + step
                 if np.linalg.norm(h - prev_h) < self.settle_tol:
                     break
