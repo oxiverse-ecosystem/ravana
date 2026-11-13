@@ -59,6 +59,46 @@ _FUNCTION_WORDS = frozenset({
     "what", "who", "where", "which", "whether", "rather", "either",
 })
 
+# Pronouns, determiners and other non-referring tokens. These cannot serve as
+# grounding evidence: their presence in a sentence says nothing about what the
+# sentence is about.
+_NON_CONTENT_PRONOUNS = frozenset({
+    "i", "me", "my", "mine", "myself",
+    "you", "your", "yours", "yourself", "yourselves",
+    "he", "him", "his", "himself",
+    "she", "her", "hers", "herself",
+    "it", "its", "itself",
+    "we", "us", "our", "ours", "ourselves",
+    "they", "them", "their", "theirs", "themselves",
+    "this", "that", "these", "those",
+    "the", "a", "an", "some", "any", "all", "each", "every", "both",
+    "no", "none", "nobody", "nothing", "neither", "either",
+    "one", "ones", "another", "other", "others", "such",
+    "who", "whom", "whose", "which", "what",
+    "here", "there", "where", "when", "then", "than",
+})
+
+# High-frequency adverbs, degree modifiers and discourse fillers. These are
+# content-word-shaped (they are not stop words) but they do not refer to
+# anything, so their presence in a sentence is not evidence of aboutness.
+# Measured: 'often' was in the associate set for 'blue' and let the word salad
+# "Such there like many used often other." pass the grounding gate.
+_DEGREE_ADVERBS = frozenset({
+        "often", "many", "much", "used", "use", "using", "also", "very", "really",
+        "quite", "rather", "just", "only", "even", "still", "always", "never",
+        "sometimes", "usually", "generally", "particularly", "especially",
+        "basically", "actually", "literally", "simply", "mostly", "mainly",
+        "largely", "partly", "fully", "highly", "greatly", "deeply", "widely",
+        "commonly", "frequently", "rarely", "seldom", "likely", "maybe", "perhaps",
+        "possibly", "probably", "certainly", "definitely", "clearly", "obviously",
+        "however", "therefore", "thus", "hence", "instead", "otherwise", "meanwhile",
+        "anyway", "anyhow", "somehow", "somewhat", "somewhere", "anywhere",
+        "everywhere", "nowhere", "else", "away", "together", "apart", "alone",
+        "ago", "ahead", "along", "around", "away", "back", "below", "beside",
+        "between", "beyond", "down", "forward", "inside", "outside", "toward",
+        "towards", "upon", "within", "without", "per", "via", "etc", "ie", "eg",
+    })
+
 # Compute project root (same logic as engine.py)
 _proj_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
@@ -3981,6 +4021,39 @@ class ResponseGenMixin(ChainWalkerMixin):
             _out += sep + _p
         return _out + "."
 
+    @staticmethod
+    def _is_content_word(label: str) -> bool:
+        """True if `label` is a content word, i.e. usable as grounding evidence.
+
+        The grounding gate's reference check treats an associate appearing in the
+        emitted text as evidence that the sentence is about the subject. That is
+        only sound for CONTENT words. Function and common words ('often',
+        'there', 'such', 'many', 'used') appear everywhere, so their presence
+        carries no information about aboutness -- measured: the word salad
+        "Such there like many used often other." passed the gate for 'blue'
+        purely because 'often' was in the associate set.
+
+        A content word here is: at least 3 characters, not a stop word, not web
+        garbage, not a pronoun/determiner, and not a high-frequency adverb or
+        degree modifier. Multi-word associates are kept only when every
+        constituent is a content word -- a phrase like 'black holes' is
+        evidence, 'the same' is not.
+        """
+        if not label:
+            return False
+        toks = re.findall(r"[a-z']+", str(label).lower())
+        if not toks:
+            return False
+        for t in toks:
+            t = t.strip("'")
+            if len(t) < 3 or t in STOP_WORDS or t in WEB_GARBAGE:
+                return False
+            if t in _FUNCTION_WORDS or t in _NON_CONTENT_PRONOUNS:
+                return False
+            if t in _DEGREE_ADVERBS:
+                return False
+        return True
+
     def _sentence_is_about_subject(self, subject: str, content_words) -> bool:
         """True when the sentence's content words are the subject's graph neighbours.
 
@@ -4432,7 +4505,25 @@ class ResponseGenMixin(ChainWalkerMixin):
         # substance check humans are "skilled and unaware" of.
         resp_lower = response_text.lower()
         resp_words = set(re.findall(r"[a-z']+", resp_lower))
-        assoc_set = {label.lower() for label, _ in (ctx.associated_concepts or [])[:8]}
+        # REFERENCE-CHECK ASSOCIATES must be CONTENT words.
+        #
+        # BUG (measured 2026-11-14): `ctx.associated_concepts` is the query's
+        # own neighbourhood, and it contains function/common words -- for
+        # 'blue' it includes 'often'. The reference check below accepts ANY
+        # associate appearing in the emitted text, so the pure word salad
+        # "Such there like many used often other." PASSED the gate on the
+        # strength of the word 'often'. That is exactly the failure the step-1
+        # GloVe check already guards against ("Function words are excluded:
+        # 'there' (0.355) and 'i' (0.302) were passing the check as evidence,
+        # which is noise, not grounding") -- but that exclusion was never
+        # applied here.
+        #
+        # A function word is not evidence that a sentence is about the subject.
+        # Filter the associate set to content words before using it as evidence.
+        assoc_set = {
+            label.lower() for label, _ in (ctx.associated_concepts or [])[:8]
+            if self._is_content_word(label)
+        }
         defn = getattr(self, "_definitions", {}).get(subject)
         defn_words = ({w for w in re.findall(r"[a-z']+", defn.lower())
                        if w not in STOP_WORDS and len(w) >= 3}
