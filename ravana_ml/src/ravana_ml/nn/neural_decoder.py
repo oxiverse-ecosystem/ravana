@@ -1087,6 +1087,7 @@ class NeuralDecoder(Module):
                 self.av_head.bias.data -= lr_other * av_diff - self.av_head.bias.data * wd
 
         # 3. condition_proj (only if not frozen — protects learned language patterns)
+        if not freeze_core:
             emb_stack = np.stack(all_word_emb)
             error_proj_all = np.clip(error_h_all * 0.5, -1.0, 1.0)
             hebbian_proj = (emb_stack.T @ error_proj_all) / T
