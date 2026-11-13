@@ -208,7 +208,8 @@ def train_seed_corpus(engine, nd, all_sentences, n_passes=200, pp=2000, si=10, p
 
 def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
                            desc_path=None, freeze_core=False,
-                           scheduled_eps=0.0, aux_lambda=0.0):
+                           scheduled_eps=0.0, aux_lambda=0.0,
+                           checkpoint_path=None):
     """LingGen P6 — train the decoder on web-harvested grounded descriptions.
 
     Reads data/corpora/grounded_descriptions.txt (concept<TAB>human description),
@@ -389,6 +390,15 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
                 aux_lambda=aux_lambda)
             total += 1
         nd.sleep_cycle()
+        # Checkpoint after EVERY pass. A pass is ~296s, so a 40-pass run is
+        # ~3.3 hours -- far longer than the process window on this host, where
+        # the gateway restarts long jobs. Without a per-pass checkpoint a kill
+        # at pass 39 loses the whole run.
+        if checkpoint_path:
+            try:
+                nd.save_to(checkpoint_path)
+            except Exception as _e:
+                print(f"  [LingGen] checkpoint failed: {_e}")
         if (i + 1) % si == 0:
             print(f"  [LingGen] pass {i+1}/{n_passes}: CE={nd._avg_cross_entropy:.3f} "
                   f"aux={getattr(nd, '_last_aux_loss', 0.0):.3f}")
@@ -837,10 +847,28 @@ def _mode_linggen(args):
     #    gap and force the concept pointer through the network.
     SCHEDULED_EPS = 0.25
     AUX_LAMBDA = 0.5
+    # Resume support: load the last checkpoint if there is one, so a run
+    # killed by a gateway restart continues instead of starting over.
+    # A pass is ~296s, so 40 passes is ~3.3 hours -- many restarts.
+    ckpt = os.path.join(_proj_root, "data", "linggen_checkpoint.npz")
+    _resumed = False
+    if os.path.exists(ckpt):
+        try:
+            _loaded, _vs = nd.load_from(ckpt)
+            if _loaded is not None:
+                # Restore the checkpoint's parameters into the live decoder.
+                nd.load_state_dict(_loaded.state_dict())
+                _resumed = True
+                print(f"  [LingGen] resumed from checkpoint "
+                      f"({os.path.getsize(ckpt)} bytes)")
+        except Exception as _e:
+            print(f"  [LingGen] checkpoint load failed: {_e}")
     trained, use_ling = train_decoder_grounded(
         eng, nd, n_passes=40, pp=200, si=4, freeze_core=True,
-        scheduled_eps=SCHEDULED_EPS, aux_lambda=AUX_LAMBDA)
-    report.append(f"[train] trained={trained} use_linggen={use_ling}")
+        scheduled_eps=SCHEDULED_EPS, aux_lambda=AUX_LAMBDA,
+        checkpoint_path=ckpt)
+    report.append(f"[train] trained={trained} use_linggen={use_ling} "
+                  f"resumed={_resumed}")
     report.append(
         f"[train] W_sm saved="
         f"{os.path.exists(os.path.join(_proj_root, 'data', 'linggen_wsm.npz'))}")
