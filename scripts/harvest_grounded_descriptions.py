@@ -76,8 +76,81 @@ def _is_prose(text, min_words=6):
     return True
 
 
-def _corpus_concepts(top_n=150):
-    """High-frequency content words from the cleaned corpus."""
+_NOUN_CACHE = {}
+_NOUN_CACHE_PATH = os.path.join(PROJ, "data", "corpora", ".noun_cache.json")
+
+
+def _load_noun_cache():
+    global _NOUN_CACHE
+    if os.path.exists(_NOUN_CACHE_PATH):
+        try:
+            import json
+            with open(_NOUN_CACHE_PATH, encoding="utf-8") as fh:
+                _NOUN_CACHE = {k: bool(v) for k, v in json.load(fh).items()}
+        except Exception:
+            _NOUN_CACHE = {}
+
+
+def _save_noun_cache():
+    try:
+        import json
+        os.makedirs(os.path.dirname(_NOUN_CACHE_PATH), exist_ok=True)
+        with open(_NOUN_CACHE_PATH, "w", encoding="utf-8") as fh:
+            json.dump(_NOUN_CACHE, fh)
+    except Exception:
+        pass
+
+
+def _strong_noun(word):
+    """True when `word`'s most frequent WordNet sense is a noun and it has at
+    least two noun senses.
+
+    WordNet alone is weak evidence -- "have", "there" and "then" all have a
+    marginal noun sense. Requiring the FIRST (most frequent) synset to be a
+    noun AND >= 2 noun synsets rejects those while keeping real concepts:
+
+        gravity first=n noun_count=3 strong=True
+        ocean   first=n noun_count=2 strong=True
+        have    first=n noun_count=1 strong=False
+        there   first=n noun_count=1 strong=False
+        then    first=n noun_count=1 strong=False
+        time    first=n noun_count=10 strong=True
+
+    Results are memoised: a WordNet lookup costs ~1.0s (the corpus scan asks
+    about 2000 words, so an uncached scan is ~34 min and gets killed).
+
+    Returns False when NLTK/WordNet is unavailable -- the caller then falls
+    back to frequency-only selection rather than harvesting nothing.
+    """
+    if word in _NOUN_CACHE:
+        return _NOUN_CACHE[word]
+    try:
+        import nltk
+        from nltk.corpus import wordnet as wn
+        try:
+            nltk.data.find("corpora/wordnet")
+        except LookupError:
+            nltk.download("wordnet", quiet=True)
+        syns = wn.synsets(word)
+    except Exception:
+        _NOUN_CACHE[word] = False
+        return False
+    result = bool(syns) and syns[0].pos() == "n" and \
+        sum(1 for s in syns if s.pos() == "n") >= 2
+    _NOUN_CACHE[word] = result
+    return result
+
+
+def _corpus_concepts(top_n=150, noun_filter=True):
+    """High-frequency content words from the cleaned corpus.
+
+    With `noun_filter` (the default) a word must also be a strong noun in
+    WordNet. Frequency alone cannot separate concepts from function words:
+    the raw top-N from this corpus is "which, there, when, been, very, more"
+    -- harvesting those teaches the decoder to describe "which". The strict
+    noun test yields real concepts (time, thought, hand, night, house, life)
+    at a measured 100% Wikipedia hit rate.
+    """
     if not os.path.exists(CORPUS_PATH):
         return []
     from collections import Counter
@@ -105,13 +178,28 @@ def _corpus_concepts(top_n=150):
             for w in re.findall(r"[a-z']+", line.lower()):
                 if len(w) >= 4 and w not in stop:
                     counts[w] += 1
-    return [w for w, _ in counts.most_common(top_n)]
+    ranked = [w for w, _ in counts.most_common()]
+    if noun_filter:
+        # WordNet lookups dominate the cost here (~1.0s each), so the results
+        # are cached on disk: the first run pays, later runs are instant.
+        _load_noun_cache()
+        # Scan more of the ranked list than we need -- many high-frequency
+        # words are not strong nouns.
+        scanned = ranked[:max(top_n * 20, 2000)]
+        picked = [w for w in scanned if _strong_noun(w)]
+        _save_noun_cache()
+        return picked[:top_n]
+    return ranked[:top_n]
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--extra", type=int, default=150,
                     help="extra corpus concepts to look up beyond _definitions")
+    ap.add_argument("--no-noun-filter", action="store_true",
+                    help="skip the WordNet strong-noun test and take the "
+                         "top-N by frequency (not recommended: the raw top-N "
+                         "is function words like 'which, there, when')")
     ap.add_argument("--out", default=OUT_PATH)
     args = ap.parse_args()
 
@@ -121,6 +209,23 @@ def main():
 
     pairs = []
     seen = set()
+
+    # Resume support: a previous run may have already written pairs. Load them
+    # so a restarted harvest skips what it already fetched instead of paying
+    # for the same Wikipedia lookups again.
+    if os.path.exists(args.out):
+        with open(args.out, encoding="utf-8") as fh:
+            for line in fh:
+                if "\t" not in line:
+                    continue
+                c, d = line.rstrip("\n").split("\t", 1)
+                c = c.strip().lower()
+                if c and c not in seen and _is_prose(d):
+                    pairs.append((c, d.strip()))
+                    seen.add(c)
+        if pairs:
+            print(f"  resumed: {len(pairs)} pairs already in "
+                  f"{os.path.basename(args.out)}")
 
     # 1. Everything already in _definitions.
     defs = getattr(eng, "_definitions", {}) or {}
@@ -132,13 +237,22 @@ def main():
     print(f"  {len(pairs)} pairs from engine._definitions")
 
     # 2. Top corpus concepts not yet covered.
+    #
+    # RESUMABLE: each pair is appended to the output file as it is fetched, so
+    # a run killed mid-way (the gateway restarts long jobs on this host) keeps
+    # everything it already got. On the next run the existing file is loaded
+    # into `seen` and the loop skips those words.
     kb = getattr(eng, "kb_describe", None)
     cn = getattr(eng, "describe_from_cn", None)
     if args.extra > 0 and callable(kb):
+        os.makedirs(os.path.dirname(args.out), exist_ok=True)
         added = 0
-        for word in _corpus_concepts(args.extra):
+        attempted = 0
+        for word in _corpus_concepts(args.extra,
+                                     noun_filter=not args.no_noun_filter):
             if word in seen:
                 continue
+            attempted += 1
             try:
                 desc = kb(word) or (cn(word) if callable(cn) else None)
             except Exception:
@@ -147,13 +261,21 @@ def main():
                 pairs.append((word, desc.strip()))
                 seen.add(word)
                 added += 1
-        print(f"  +{added} pairs from kb_describe/describe_from_cn")
+                # Append immediately: the fetch is the expensive part, so
+                # persist every success rather than losing the whole run.
+                with open(args.out, "a", encoding="utf-8") as fh:
+                    fh.write(f"{word}\t{desc.strip()}\n")
+        print(f"  +{added} pairs from kb_describe/describe_from_cn "
+              f"(attempted {attempted})")
 
     if not pairs:
         print("  ERROR: no usable pairs harvested", file=sys.stderr)
         return 1
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    # Rewrite the file from `pairs` so the final output is ordered and free of
+    # duplicates. `pairs` already contains every pair this run appended plus
+    # the KB definitions, and `seen` was seeded from any pre-existing file.
     with open(args.out, "w", encoding="utf-8") as fh:
         for concept, desc in pairs:
             fh.write(f"{concept}\t{desc}\n")
