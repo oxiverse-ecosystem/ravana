@@ -962,7 +962,24 @@ class NeuralDecoder(Module):
             # Ensure numerical stability
             neg_probs = np.clip(neg_probs, 1e-10, None)
             neg_probs /= neg_probs.sum()
-            shared_negatives = self._neg_rng.choice(non_special_idx, n_neg, replace=False, p=neg_probs)
+
+            # MIXED NEGATIVE SAMPLING (docs/CODEBASE_DECODER_AUDIT.md finding 4).
+            # Drawing negatives purely by output-row norm is a rich-get-richer
+            # loop: high-norm rows are disproportionately function words (the
+            # frequent, high-confidence predictions), so content words rarely
+            # appear as negatives and receive almost no gradient. Half the
+            # negatives are therefore drawn UNIFORMLY, which guarantees every
+            # word -- including rare content words -- is occasionally
+            # contrasted against the target.
+            n_uniform = n_neg // 2
+            n_focused = n_neg - n_uniform
+            uniform_probs = np.ones(len(non_special_idx), dtype=np.float64)
+            uniform_probs /= uniform_probs.sum()
+            negs_focused = self._neg_rng.choice(
+                non_special_idx, n_focused, replace=False, p=neg_probs)
+            negs_uniform = self._neg_rng.choice(
+                non_special_idx, n_uniform, replace=False, p=uniform_probs)
+            shared_negatives = np.concatenate([negs_focused, negs_uniform])
         else:
             shared_negatives = np.array([], dtype=np.intp)
 
@@ -1007,8 +1024,10 @@ class NeuralDecoder(Module):
             # distributions so a single early error can't cascade into salad.
             if (scheduled_eps > 0.0 and pos > 0 and all_combined[pos - 1] is not None
                     and self._sched_rng.rand() < scheduled_eps):
-                logits_prev = self.output_proj.forward_raw(
-                    all_combined[pos - 1][np.newaxis, :])[0]
+                # `all_combined` holds VOCAB LOGITS (logit-space mixture), so
+                # the model's own previous prediction is a direct argmax -- no
+                # second projection through output_proj.
+                logits_prev = all_combined[pos - 1]
                 own_pred = int(np.argmax(logits_prev))
                 word_emb = self.word_embedding.embed_batch_raw(
                     np.array([own_pred], dtype=np.intp))[0]
