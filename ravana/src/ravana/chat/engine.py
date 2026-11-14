@@ -1301,6 +1301,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # measurement is re-runnable and so a future mechanism that conditions
         # LINEARIZATION rather than word selection can reuse the wiring.
         self._anchor_boost_enabled = False
+        # Plan-prefix linearization: the decoder continues from an ordered
+        # surface plan instead of starting from a bare <bos>. OFF by default;
+        # prototype measured in docs/LINEARIZATION_PROTOTYPE.md.
+        self._plan_prefix_enabled = False
         # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
         try:
             from ravana.chat.generative_emitter import GenerativeEmitter

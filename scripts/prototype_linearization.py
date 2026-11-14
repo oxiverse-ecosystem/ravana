@@ -83,58 +83,12 @@ def _arm_word_boost(eng, ctx, strength=9.0):
 
 
 def _arm_plan(eng, ctx):
-    """Condition on a linearized plan.
-
-    The plan's tokens are fed to the decoder as a PREFIX the model must
-    continue from, rather than as a logit bias over the whole vocabulary.
-    """
-    from ravana.learn.macroplanning import build_message
-    from ravana.learn.linearization import message_to_plan
-
-    subj = (getattr(ctx, "subject", None) or "").strip()
-    if not subj:
-        return None
-    nids = eng._concept_keywords.get(subj.lower(), [])
-    if not nids:
-        return None
-    nid = nids[0]
-    cands = []
-    for tgt, ed in (eng.graph.get_outgoing(nid) or []):
-        tn = eng.graph.get_node(tgt)
-        lab = (getattr(tn, "label", "") or "").strip()
-        if lab:
-            cands.append((getattr(ed, "relation_type", "related_to")
-                          or "related_to", lab,
-                          float(getattr(ed, "weight", 0.0) or 0.0),
-                          float(getattr(ed, "confidence", 0.0) or 0.0)))
-    msg = build_message(subj, cands)
-    plan = message_to_plan(msg, subject=subj)
-    if plan is None:
-        return None
-    print(f"    [plan] {plan.construction}: {' '.join(plan.tokens)}")
-    # Feed the plan as conditioning: its tokens' embeddings become the
-    # conditioning set, so the decoder elaborates FROM the ordered plan.
-    return _generate_with_plan_prefix(eng, ctx, plan)
-
-
-def _generate_with_plan_prefix(eng, ctx, plan):
-    """Run the decoder with the plan's tokens as a prefix to continue from."""
-    nd = getattr(eng, "neural_decoder", None)
-    if nd is None:
-        return None
-    iw = getattr(eng, "_decoder_idx_to_word", {}) or {}
-    w2i = getattr(eng, "_decoder_word_to_idx", {}) or {}
-    prefix = [w2i[t] for t in plan.tokens if t in w2i]
-    if not prefix:
-        return None
-    # Use the production entry point; the plan prefix is passed by temporarily
-    # seeding the decoder's recent-prediction buffer, which the generate loop
-    # reads as the emitted-so-far context.
-    nd._recent_predictions.extend(prefix)
+    """Condition on a linearized plan, via the decoder's prefix path."""
+    eng._plan_prefix_enabled = True
     try:
         return eng._generate_with_situation_model(ctx)
     finally:
-        del nd._recent_predictions[-len(prefix):]
+        eng._plan_prefix_enabled = False
 
 
 def main(subjects):

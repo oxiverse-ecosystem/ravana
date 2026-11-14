@@ -1723,6 +1723,50 @@ class ResponseGenMixin(ChainWalkerMixin):
                                                   _val)
                 _cpg_boost = _anchor_boost
 
+                # ── Plan prefix (linearization path) ────────────────────────
+                # When a committed surface plan exists, the decoder CONTINUES
+                # from it instead of starting from a bare <bos>. The plan's
+                # grammatical frame is then in the GRU's hidden state at the
+                # first free step -- which is what a word-list boost cannot
+                # supply (docs/ANCHOR_BOOST_DESTROYS_SYNTAX.md).
+                #
+                # Off by default (_plan_prefix_enabled); see
+                # docs/LINEARIZATION_PROTOTYPE.md for the measurement.
+                _plan_prefix = None
+                if getattr(self, '_plan_prefix_enabled', False) and ctx.subject:
+                    try:
+                        from ravana.learn.macroplanning import build_message
+                        from ravana.learn.linearization import (
+                            message_to_plan, plan_is_committed)
+                        _sk = ctx.subject.lower()
+                        _nids = self._concept_keywords.get(_sk, [])
+                        if _nids:
+                            _cands = []
+                            for _tgt, _ed in (self.graph.get_outgoing(_nids[0])
+                                              or []):
+                                _tn = self.graph.get_node(_tgt)
+                                _lab = (getattr(_tn, 'label', '') or '').strip()
+                                if _lab:
+                                    _cands.append((
+                                        getattr(_ed, 'relation_type', 'related_to')
+                                        or 'related_to', _lab,
+                                        float(getattr(_ed, 'weight', 0.0) or 0.0),
+                                        float(getattr(_ed, 'confidence', 0.0) or 0.0)))
+                            _msg = build_message(ctx.subject, _cands)
+                            _plan = message_to_plan(_msg, subject=ctx.subject)
+                            if plan_is_committed(_plan):
+                                _pfx = [self._decoder_word_to_idx.get(t)
+                                        for t in _plan.tokens]
+                                _pfx = [t for t in _pfx if t is not None]
+                                if _pfx:
+                                    _plan_prefix = _pfx
+                                    if getattr(self, '_trace_enabled', False):
+                                        print("  [plan] %s: %s"
+                                              % (_plan.construction,
+                                                 " ".join(_plan.tokens)))
+                    except Exception:
+                        _plan_prefix = None
+
                 # Escalation (docs/GROUNDING_MECHANISM.md step 3): when NO
                 # proposition clears the criterion, the brain declines to
                 # compose and escalates to honest uncertainty. CPG previously
@@ -1806,10 +1850,18 @@ class ResponseGenMixin(ChainWalkerMixin):
                     token_suppress=_cpg_suppress if _cpg_suppress else None,
                     initial_emb=_init_emb,
                     persistent_emb=_persist_emb,
+                    prefix=_plan_prefix,
                 )
 
                 if generated and len(generated) >= 5:
                     words = []
+                    # The plan prefix is part of the utterance: the decoder
+                    # continued from it, so the surface form is plan + continuation.
+                    if _plan_prefix:
+                        for idx in _plan_prefix:
+                            word = self._decoder_idx_to_word.get(idx, "")
+                            if word and not word.startswith("<"):
+                                words.append(word)
                     for idx in generated:
                         word = self._decoder_idx_to_word.get(idx, "")
                         if word and not word.startswith("<"):

@@ -418,7 +418,8 @@ class NeuralDecoder(Module):
                  token_boost: Optional[Dict[int, float]] = None,
                  token_suppress: Optional[Dict[int, float]] = None,
                  initial_emb: Optional[np.ndarray] = None,
-                 persistent_emb: Optional[np.ndarray] = None) -> List[int]:
+                 persistent_emb: Optional[np.ndarray] = None,
+                 prefix: Optional[List[int]] = None) -> List[int]:
         """Generate a sequence autoregressively conditioned on concept embeddings.
 
         Optionally uses cerebellar n-gram bias and basal ganglia gating
@@ -457,6 +458,31 @@ class NeuralDecoder(Module):
         seen_bigrams: Set[Tuple[int, int]] = set()
         seen_trigrams: Set[Tuple[int, int, int]] = set()
         top_p = 0.92
+
+        # PREFIX CONTINUATION (linearization path). When the caller supplies an
+        # ordered surface plan, the decoder CONTINUES from it rather than
+        # starting from a bare <bos>. The prefix is fed through the GRU
+        # teacher-forced, so the hidden state at the first free step encodes
+        # the plan's grammatical frame -- which is exactly what a word-list
+        # boost cannot supply.
+        #
+        # The prefix tokens are NOT re-emitted: the returned sequence is the
+        # continuation, and the caller concatenates. This is why the plan is a
+        # prefix and not a bias.
+        if prefix:
+            for pid in prefix:
+                if pid is None or pid < 0 or pid >= self.vocab_size:
+                    continue
+                p_emb = self.word_embedding.embed_raw(int(pid))
+                p_proj = self.condition_proj.forward_raw(
+                    np.asarray(p_emb, dtype=np.float32)[np.newaxis, :])[0]
+                h = self.gru(p_proj, h)
+                seen_counts[int(pid)] = seen_counts.get(int(pid), 0) + 1
+                generated.append(int(pid))
+                if len(generated) >= 3:
+                    seen_bigrams.add((generated[-2], generated[-1]))
+                if len(generated) >= 4:
+                    seen_trigrams.add((generated[-3], generated[-2], generated[-1]))
 
         for step in range(max_steps):
             word_emb = self.word_embedding.embed_raw(generated[-1])
@@ -627,7 +653,8 @@ class NeuralDecoder(Module):
             # ── Force first word to be a content word ──
             # This prevents the decoder from defaulting to function words ("in", "the")
             # at the start of generation, a common failure mode from BOS → function-word bias.
-            if step == 0 and content_word_ids is not None and len(content_word_ids) > 0:
+            if (step == 0 and not prefix and content_word_ids is not None
+                    and len(content_word_ids) > 0):
                 content_mask = np.full(len(logits), -np.inf, dtype=np.float32)
                 for cid in content_word_ids:
                     if cid < len(logits):
@@ -676,7 +703,8 @@ class NeuralDecoder(Module):
             if len(generated) >= 4:
                 seen_trigrams.add((generated[-3], generated[-2], generated[-1]))
 
-        return generated[1:]
+        # Drop the prefix: the caller supplied it and concatenates it back.
+        return generated[1 + len(prefix):] if prefix else generated[1:]
 
     # ── Scoring (read-only; used by the LingGen promotion harness) ────────────
 
