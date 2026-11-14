@@ -7677,6 +7677,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             pass
 
+    # Words that can follow `function`/`class` in a request without being the
+    # target name. Without this the extractor captures `that` from "a function
+    # that adds two numbers" and the pre-pass silently resolves nothing.
+    _CODE_TARGET_STOPWORDS = {
+        'that', 'to', 'which', 'who', 'and', 'or', 'for', 'of', 'in', 'on',
+        'from', 'with', 'by', 'at', 'as', 'is', 'are', 'will', 'would',
+        'should', 'can', 'could', 'adds', 'reverses', 'returns', 'takes',
+        'uses', 'makes', 'does', 'has', 'have', 'had', 'me', 'you', 'it',
+        'a', 'an', 'the', 'my', 'your', 'two', 'three', 'string', 'number',
+        'numbers', 'list', 'value', 'values', 'data', 'file', 'user',
+    }
+
     def _maybe_code_learn_or_generate(self, user_input: str):
         """Code pre-pass (pivot task #104). Returns a reply string when the turn
         is genuinely about code, else None (normal path continues).
@@ -7726,23 +7738,70 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         ))
         if not gen_intent:
             return None
-        # extract the target name (first identifier-looking token after the verb)
+        # extract the target name.
+        #
+        # The first version used
+        #   r"\b(?:function|class|for|of|named|called|to)\s+([A-Za-z_]\w*)"
+        # which matched the KEYWORD ITSELF when the keyword was `to`/`called`
+        # and captured `that` when the phrase was "a function that adds ...".
+        # Measured on four phrasings:
+        #   write a function that adds two numbers -> 'that'   (wrong)
+        #   write a function to add two numbers    -> 'to'     (wrong)
+        #   generate a function called add         -> 'called' (wrong)
+        #   write a class called Foo               -> 'called' (wrong)
+        # So the pre-pass never resolved a target, never found a learned
+        # function, and the turn fell through to a generic refusal
+        # ("i wish i could write that, but i don't have a way to act on your
+        # system") -- a CAPABILITY refusal for what is a KNOWLEDGE gap.
+        #
+        # Now: take the identifier after `called`/`named`, else the identifier
+        # after `function`/`class`, skipping stopwords (`that`, `to`, `which`,
+        # `which`, `and`). Falls back to None so the caller can decline
+        # honestly rather than guessing.
         import re as _re
-        m = _re.search(r"\b(?:function|class|for|of|named|called|to)\s+([A-Za-z_][A-Za-z0-9_]*)", low)
-        target = m.group(1) if m else None
+        target = None
+        m = _re.search(r"\b(?:called|named)\s+([A-Za-z_][A-Za-z0-9_]*)", low)
+        if m:
+            target = m.group(1)
+        else:
+            m = _re.search(r"\b(?:function|class)\s+([A-Za-z_][A-Za-z0-9_]*)",
+                           low)
+            if m:
+                target = m.group(1)
+        if target in self._CODE_TARGET_STOPWORDS:
+            target = None
         want_class = ("write a class" in low or "generate class" in low
                       or "generate a class" in low)
         known = learner.known_classes() if want_class else learner.known_functions()
         # case-insensitive target match (queries are lowercased, stored names are not)
         known_lookup = {n.lower(): n for n in known}
         resolved = known_lookup.get(target) if target else None
-        if target is None:
-            # no explicit target: offer the first learned one, or decline honestly
-            if not known:
-                return None
+        if target is None and known:
+            # no explicit target but we know something: offer the first learned
             resolved = known[0]
         if resolved is None:
-            return None  # not learned yet — fall through to normal path
+            # NOT LEARNED YET. Previously this returned None and the turn fell
+            # through to a generic reply that read as a CAPABILITY refusal
+            # ("i wish i could write that, but i don't have a way to act on
+            # your system"). That is wrong: the capability exists and is
+            # wired; what is missing is the knowledge. Saying so is both more
+            # honest and teachable -- it tells the user what to teach.
+            #
+            # `target` may be None when the request has no extractable name
+            # ("write a function that adds two numbers"). That is a naming gap,
+            # not a knowledge gap, and it gets a different reply -- asking for
+            # the name rather than claiming a function was not learned.
+            try:
+                _kind = "class" if want_class else "function"
+                if target:
+                    return (f"i haven't learned a {_kind} called `{target}` "
+                            "yet, so i can't generate it. paste the code and "
+                            "i'll learn it from what you share.")
+                return (f"i can build a {_kind} from code you've shared, but "
+                        f"this request doesn't name one. tell me the {_kind} "
+                        "name and paste the code.")
+            except Exception:
+                return None
         try:
             kind = "class" if want_class else "function"
             code = learner.generate(resolved, kind=kind)
