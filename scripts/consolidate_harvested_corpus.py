@@ -137,6 +137,36 @@ def main():
         if is_known(engine, concept):
             promoted += 1
 
+    # ── Seed _definitions from the corpus ──────────────────────────────────
+    # The graph and _definitions are DIFFERENT indexes, and production's
+    # dispatcher (`consult_internal`, brain_regions.py:471) reads _definitions
+    # FIRST. A subject can be graph-known (so the grounding gate accepts it) but
+    # still MISS the dispatcher, in which case production falls through to the
+    # decoder -- which produces salad -- or to a live Wikipedia lookup.
+    #
+    # Measured before this step: 303/512 corpus subjects had a stored definition
+    # and 209 did not, so consult_internal MISSED 26% of the corpus.
+    #
+    # The corpus IS the harvested knowledge; seeding it locally removes both the
+    # gap and the network dependency. Never overwrite an existing definition:
+    # a curated or already-learned one outranks a corpus line.
+    seeded = 0
+    skipped_protected = 0
+    protected = getattr(engine, "_PROTECTED_CONCEPTS", set())
+    for concept, desc in pairs:
+        key = concept.lower().strip()
+        if not key or not desc.strip():
+            continue
+        if key in getattr(engine, "_definitions", {}):
+            continue
+        if key in protected:
+            skipped_protected += 1
+            continue
+        engine._definitions[key] = desc.strip()
+        seeded += 1
+    print(f"[consolidate] seeded {seeded} definitions from the corpus "
+          f"(skipped {skipped_protected} protected)")
+
     known_after = sum(1 for c, _ in pairs if is_known(engine, c))
     print(f"[consolidate] subjects graph-known after: "
           f"{known_after}/{len(pairs)}")
