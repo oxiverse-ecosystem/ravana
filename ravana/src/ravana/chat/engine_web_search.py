@@ -440,6 +440,27 @@ class WebSearchMixin:
                           f"embedding -- refusing to define a non-word")
                 return None
 
+        # FUNCTION-WORD GUARD: a closed-class item cannot be the subject of a
+        # definitional question. Measured: `what is like` returned a web snippet
+        # defining a DIFFERENT sense ("If you are like your mother, you are
+        # similar to her..."), because 'like' is in the concept graph and so the
+        # web path treated it as answerable. Pronouns, auxiliaries and
+        # prepositions carry grammatical relations, not referential content
+        # (Lyons 1977) -- there is no fact to retrieve about them.
+        _NON_REFERRING = set(STOP_WORDS)
+        try:
+            # The grounding gate's non-referring set (pronouns, determiners).
+            from .response_gen import _NON_CONTENT_PRONOUNS as _NCP
+            _NON_REFERRING |= set(_NCP)
+        except Exception:  # noqa: BLE001 - degrade to STOP_WORDS only
+            pass
+        for _tok in {_subj_head, _raw_cand}:
+            if _tok and _tok in _NON_REFERRING:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] subject token {_tok!r} is a function "
+                          f"word -- refusing to define it")
+                return None
+
         # ── Answer-usefulness monitor (N400 plausibility / reality monitoring) ──
         # We "see" the candidate answer and check whether it actually serves the
         # question before speaking it (metacognitive monitoring; Nelson & Narens;

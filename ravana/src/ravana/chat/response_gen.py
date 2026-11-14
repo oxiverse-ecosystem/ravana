@@ -1909,6 +1909,51 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not t:
             return None
 
+        # ── DEFINITIONAL-QUERY PRE-FILTER (measured 2026-11-14) ──────────────
+        # A "what is X" question is a REQUEST FOR A DEFINITION, not a social
+        # speech act. The prototype classifier over-triggers on short inputs:
+        #   "what is like"  -> invite    (should ABSTAIN)
+        #   "what is being" -> greeting  (should ABSTAIN)
+        # Both then produced decoder salad from the chitchat path, because the
+        # factual path (which correctly answers "what is gravity") never ran.
+        #
+        # The brain does not mentalize a definitional question: there is no
+        # addressee to model. Social intent requires either a social token
+        # (greeting/wellbeing/farewell/thanks) or an addressee+act (you/we/I
+        # talking, asking, wanting). A bare "what is/are/does X" has neither, so
+        # it is routed to the factual path -- where a MISS degrades to honest
+        # uncertainty rather than to salad.
+        #
+        # Only the EXACT definitional frame is filtered; "what is up" (a greeting)
+        # is preserved because it carries the social token 'up'.
+        _DEFINAL = re.compile(
+            r"^(?:what|which|who|where|when|why|how)\s+"
+            r"(?:is|are|was|were|does|do|did|can|could|would|should|will|has|have)\s+"
+            r"(?P<obj>.+)$")
+        _m_def = _DEFINAL.match(t)
+        if _m_def:
+            _obj = _m_def.group("obj").strip()
+            # a social token anywhere in the object means it is NOT a request
+            # for a definition ("what is love" stays factual too -- the abstract
+            # path handles it; "what is up" is a greeting).
+            _SOCIAL_TOKENS = (
+                "up", "going on", "happening", "new", "wrong", "the matter",
+                "your name", "your deal", "your problem", "your story",
+            )
+            # A PRONOUN object is an addressee, not a thing being defined:
+            # "how are you" / "what do you want" / "who are you" are social acts.
+            _PRONOUN_OBJ = {
+                "i", "me", "you", "he", "him", "she", "her", "it", "we", "us",
+                "they", "them", "yourself", "myself", "itself", "themselves",
+                "your", "my", "his", "her", "our", "their", "mine", "yours",
+            }
+            _obj_first = re.findall(r"[a-z']+", _obj)
+            _obj_first = _obj_first[0] if _obj_first else ""
+            if _obj_first in _PRONOUN_OBJ:
+                pass  # social -- let the classifier decide
+            elif not any(s in _obj for s in _SOCIAL_TOKENS):
+                return None
+
         # Social-intent detection via the prototype bank (TPJ/DMN mentalizing
         # analog). This REPLACES the duplicated inline regex copy that drifted
         # from detect_question_type -- one learned classifier now owns social
