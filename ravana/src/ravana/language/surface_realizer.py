@@ -419,7 +419,12 @@ class SurfaceRealizer:
             subject_phrase = subject_phrase[0].upper() + subject_phrase[1:]
 
         object_phrase = self._build_noun_phrase(
-            obj, art_obj, is_subject=False, dopamine_tone=dopamine_tone
+            obj, art_obj, is_subject=False, dopamine_tone=dopamine_tone,
+            # Look the POS up LIVE: `ConceptPosDict` is a lazy dict that
+            # classifies on first access, so a map captured at construction
+            # time is empty and every word falls through to the abstract /
+            # uncountable heuristics (measured: "gravity is force").
+            pos_map=self._pos_lookup(),
         )
 
         if discourse_context.discourse_type == "explain" and len(obj) > 15:
@@ -429,6 +434,16 @@ class SurfaceRealizer:
             verb = self._select_verb_phrase(verb_phrase, relation,
                                              dopamine_tone, cerebellar_ngram,
                                              subject=sl, object=tl)
+
+        # The frame's verb_phrase is authoritative when the relation is one of
+        # the TYPED constructions (is_a / has_property / part_of / used_for /
+        # capable_of). The copula branch above and `_select_verb_phrase` both
+        # re-derive a verb from the relation, which discarded a verb the plan
+        # had already chosen -- measured as "gravity contributes to force" for
+        # an is_a plan, and "ocean are salt" from a stale agreement pass.
+        if relation in ("is_a", "isa", "has_property", "property",
+                        "part_of", "used_for", "capable_of") and verb_phrase:
+            verb = verb_phrase
 
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
         verb = self._apply_tense(verb, frame.tense)
@@ -1019,8 +1034,23 @@ class SurfaceRealizer:
             return ["it", "this"]
         return ["it"]
 
+    def _pos_lookup(self):
+        """The live learned POS map, or a lazy ConceptPosDict if none is set.
+
+        `ConceptPosDict` classifies on first access, so the map must be read
+        at call time rather than captured -- a snapshot taken at construction
+        is empty and every word falls through to the abstract/uncountable
+        heuristics (measured: "gravity is force").
+        """
+        pm = getattr(self, '_concept_pos', None)
+        if pm is not None:
+            return pm
+        from ravana.chat.constants import ConceptPosDict
+        return ConceptPosDict()
+
     def _build_noun_phrase(self, concept: str, article: str,
-                            is_subject: bool, dopamine_tone: float) -> str:
+                            is_subject: bool, dopamine_tone: float,
+                            pos_map: Optional[Dict[str, str]] = None) -> str:
         cl = concept.lower()
 
         # Safety net: function words should never become noun phrases with articles
@@ -1053,17 +1083,40 @@ class SurfaceRealizer:
             return concept
 
         proper_nouns = getattr(self, 'proper_nouns', set())
-        if cl in proper_nouns or any(p in cl for p in ("poirot", "marple", "carroll", "holmes")):
+        # `proper_nouns` holds 7,889 entries including 'force', 'unit', 'salt',
+        # 'sound', 'body', 'time', 'love', 'water' -- it is seeded from every
+        # capitalized word mid-sentence in teen_seeds.txt, which catches
+        # sentence-initial common nouns. A learned common-noun POS tag is
+        # stronger evidence than that set, so it overrides it for the ARTICLE
+        # (capitalization still uses the set).
+        # NOTE: `pos_map or {}` is WRONG for ConceptPosDict -- it is a lazy dict
+        # whose __len__ is 0 until a key is touched, so `or` discards it and
+        # every word falls through to the abstract/uncountable heuristics.
+        # Use an explicit None check.
+        _pos_early = (pos_map.get(cl) if pos_map is not None else None)
+        _override_proper = _pos_early in ('noun', 'n')
+        if ((cl in proper_nouns and not _override_proper)
+                or any(p in cl for p in ("poirot", "marple", "carroll", "holmes"))):
             return concept
 
         if cl in ('i', 'you', 'we', 'they', 'he', 'she', 'it', 'me', 'him', 'her'):
             return concept
 
-        if self._is_abstract_noun(cl):
-            return concept
-
-        if self._is_uncountable_noun(cl):
-            return concept
+        # MEASURED (docs/DEFINITION_PROPOSITION.md): `_is_abstract_noun` and
+        # `_is_uncountable_noun` are broad hand-written sets that classify
+        # 'force', 'progression' and 'descendant' as abstract, so the article
+        # was suppressed and an is_a plan realized as "gravity is force".
+        #
+        # A POS map that says the word is a learned common noun is stronger
+        # evidence than a lexical heuristic, so it overrides both sets. Only
+        # the article is affected -- abstraction still modulates hedging
+        # elsewhere in the realizer.
+        _pos = (pos_map.get(cl) if pos_map is not None else None)
+        if _pos not in ('noun', 'n'):
+            if self._is_abstract_noun(cl):
+                return concept
+            if self._is_uncountable_noun(cl):
+                return concept
 
         if cl in ('someone', 'anyone', 'everyone', 'nobody', 'somebody', 'anybody', 'everybody',
                   'something', 'anything', 'everything', 'nothing', 'no one'):

@@ -59,6 +59,29 @@ _FUNCTION_WORDS = frozenset({
     "what", "who", "where", "which", "whether", "rather", "either",
 })
 
+# Confidence threshold for typing an untyped ('semantic') edge ONLINE.
+#
+# MEASURED (docs/ONLINE_RELATION_TYPING.md): `_infer_relation_type` recovers
+# 75.5% of known typed edges, and its accuracy is monotone in its own
+# confidence -- 0.600 below 0.30, 0.839 at 0.30-0.45, 1.000 above 0.45. Below
+# 0.30 it is barely better than chance over five relation types, so a weak
+# inference is skipped and the baseline path handles the subject rather than
+# asserting a relation the evidence does not support.
+#
+# 0.35 is the measured knee: 29/40 subjects commit at unsupported=0.000,
+# versus 25/40 at 0.45 (more conservative, no precision gain) and 30/40 at
+# 0.00 (one more firing, but unsupported rises to 0.033).
+_PLAN_INFER_THRESHOLD = 0.35
+
+# Whether the plan route may type an untyped ('semantic') edge online.
+#
+# MEASURED AND DISABLED (docs/TYPING_ACCURACY_IS_CIRCULAR.md): the typing
+# mechanism scores 59.4% on independent hand-labelled pairs and 0/13 on the
+# relation types that require real discrimination. The earlier 75.5% was
+# circular. An inferred relation is not evidence, and a clause built on one is
+# a fluent falsehood the grounding metric cannot detect.
+_PLAN_INFER_ENABLED = False
+
 # Pronouns, determiners and other non-referring tokens. These cannot serve as
 # grounding evidence: their presence in a sentence says nothing about what the
 # sentence is about.
@@ -1723,6 +1746,50 @@ class ResponseGenMixin(ChainWalkerMixin):
                                                   _val)
                 _cpg_boost = _anchor_boost
 
+                # ── Plan prefix (linearization path) ────────────────────────
+                # When a committed surface plan exists, the decoder CONTINUES
+                # from it instead of starting from a bare <bos>. The plan's
+                # grammatical frame is then in the GRU's hidden state at the
+                # first free step -- which is what a word-list boost cannot
+                # supply (docs/ANCHOR_BOOST_DESTROYS_SYNTAX.md).
+                #
+                # Off by default (_plan_prefix_enabled); see
+                # docs/LINEARIZATION_PROTOTYPE.md for the measurement.
+                _plan_prefix = None
+                if getattr(self, '_plan_prefix_enabled', False) and ctx.subject:
+                    try:
+                        from ravana.learn.macroplanning import build_message
+                        from ravana.learn.linearization import (
+                            message_to_plan, plan_is_committed)
+                        _sk = ctx.subject.lower()
+                        _nids = self._concept_keywords.get(_sk, [])
+                        if _nids:
+                            _cands = []
+                            for _tgt, _ed in (self.graph.get_outgoing(_nids[0])
+                                              or []):
+                                _tn = self.graph.get_node(_tgt)
+                                _lab = (getattr(_tn, 'label', '') or '').strip()
+                                if _lab:
+                                    _cands.append((
+                                        getattr(_ed, 'relation_type', 'related_to')
+                                        or 'related_to', _lab,
+                                        float(getattr(_ed, 'weight', 0.0) or 0.0),
+                                        float(getattr(_ed, 'confidence', 0.0) or 0.0)))
+                            _msg = build_message(ctx.subject, _cands)
+                            _plan = message_to_plan(_msg, subject=ctx.subject)
+                            if plan_is_committed(_plan):
+                                _pfx = [self._decoder_word_to_idx.get(t)
+                                        for t in _plan.tokens]
+                                _pfx = [t for t in _pfx if t is not None]
+                                if _pfx:
+                                    _plan_prefix = _pfx
+                                    if getattr(self, '_trace_enabled', False):
+                                        print("  [plan] %s: %s"
+                                              % (_plan.construction,
+                                                 " ".join(_plan.tokens)))
+                    except Exception:
+                        _plan_prefix = None
+
                 # Escalation (docs/GROUNDING_MECHANISM.md step 3): when NO
                 # proposition clears the criterion, the brain declines to
                 # compose and escalates to honest uncertainty. CPG previously
@@ -1806,10 +1873,18 @@ class ResponseGenMixin(ChainWalkerMixin):
                     token_suppress=_cpg_suppress if _cpg_suppress else None,
                     initial_emb=_init_emb,
                     persistent_emb=_persist_emb,
+                    prefix=_plan_prefix,
                 )
 
                 if generated and len(generated) >= 5:
                     words = []
+                    # The plan prefix is part of the utterance: the decoder
+                    # continued from it, so the surface form is plan + continuation.
+                    if _plan_prefix:
+                        for idx in _plan_prefix:
+                            word = self._decoder_idx_to_word.get(idx, "")
+                            if word and not word.startswith("<"):
+                                words.append(word)
                     for idx in generated:
                         word = self._decoder_idx_to_word.get(idx, "")
                         if word and not word.startswith("<"):
@@ -1857,6 +1932,34 @@ class ResponseGenMixin(ChainWalkerMixin):
             except Exception as e:
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   SM decoder error: {e}")
+
+        # Attempt 1b: PLAN-DRIVEN narrative (precision route).
+        # When a committed SurfacePlan exists, the symbolic formulator realizes
+        # it directly. Measured (docs/PLAN_NARRATIVE_POSITIVE.md): on the 7/40
+        # subjects with a committed plan, unsupported assertions go to ZERO
+        # (paired d_on_topic +0.076, d_unsupported -2.143) because the plan's
+        # content is graph-supported by construction. The baseline narrative
+        # path handles everything else -- this is a precision route, not a
+        # replacement.
+        #
+        # Off by default (_plan_narrative_enabled). Fail-open: no plan, or any
+        # error, falls through to the baseline narrative attempt below.
+        if (getattr(self, '_plan_narrative_enabled', False)
+                and ctx.subject
+                and hasattr(self, 'syntactic_assembly')
+                and hasattr(self, 'surface_realizer')):
+            try:
+                _plan_txt = self._plan_narrative_sentence(ctx)
+                if (_plan_txt and len(_plan_txt) > 8
+                        and not _is_word_salad(_plan_txt, subject=ctx.subject)
+                        and (getattr(self, "_disable_grounding_gate", False)
+                             or self._sm_response_grounded(ctx, _plan_txt))):
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [trace]   SM plan-narrative: {_plan_txt}")
+                    return (_plan_txt, "situation_model_plan")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   SM plan-narrative error: {e}")
 
         # Attempt 2: Narrative paragraph generation
         # Uses Event Schemas + situation-modulated verbs + paragraph structure
@@ -7619,6 +7722,156 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         return decide(subject, strength=strength, pe=pe, density=density,
                       familiarity=familiarity, n_compose=n_compose, cfg=cfg)
+
+    def _plan_narrative_sentence(self, ctx) -> Optional[str]:
+        """Realize a committed SurfacePlan through the symbolic formulator.
+
+        The precision route (docs/PLAN_NARRATIVE_POSITIVE.md): the plan's
+        content is graph-supported by construction, so the realized clause
+        carries no unsupported assertions. Returns None when no plan commits,
+        so the caller falls through to the baseline narrative path.
+
+        Steps: graph edges -> macroplanning message -> SurfacePlan ->
+        ``bind_to_sentence`` -> ``SurfaceRealizer.realize``. The last two are
+        the formulator the narrative path already uses; the plan only supplies
+        its (subject, relation, target) triple.
+        """
+        from ravana.learn.macroplanning import message_from_best_edge
+        from ravana.learn.linearization import (
+            VACUOUS_RELATIONS, message_to_plan, plan_is_committed)
+        from ravana.language.surface_realizer import DiscourseState
+
+        subject = (getattr(ctx, 'subject', None) or '').strip()
+        if not subject:
+            return None
+        nids = self._concept_keywords.get(subject.lower(), [])
+        if not nids:
+            return None
+
+        self._graph_lock.acquire()
+        try:
+            cands = []
+            for tgt, ed in (self.graph.get_outgoing(nids[0]) or []):
+                tnode = self.graph.get_node(tgt)
+                label = (getattr(tnode, 'label', '') or '').strip()
+                if not label:
+                    continue
+                cands.append((
+                    getattr(ed, 'relation_type', 'related_to') or 'related_to',
+                    label,
+                    float(getattr(ed, 'weight', 0.0) or 0.0),
+                    float(getattr(ed, 'confidence', 0.0) or 0.0),
+                ))
+        except Exception:
+            cands = []
+        finally:
+            self._graph_lock.release()
+
+        if not cands:
+            return None
+        # Prefer TYPED edges: the measured failure was a plan built on the
+        # vacuous 'related_to' fallback ("gravity is related to two").
+        #
+        # Untyped ('semantic') edges are not discarded -- they are TYPED ONLINE.
+        # The brain does not have a concept-acquisition problem: it meets a
+        # novel concept and computes what kind of relation holds, from the
+        # concept's structure rather than a stored label. RAVANA's equivalent
+        # is `_infer_relation_type`, which compares the relational direction
+        # vector against learned relation prototypes.
+        #
+        # MEASURED (docs/ONLINE_RELATION_TYPING.md): the mechanism recovers
+        # 75.5% of KNOWN typed edges, with accuracy monotone in its confidence
+        # (0.600 below 0.30, 0.839 at 0.30-0.45). So a weak inference is
+        # skipped rather than asserted -- the brain hedges rather than
+        # committing at chance. At TH=0.35 the plan route fires on 29/40
+        # subjects at unsupported=0.000, up from 15/40.
+        typed = [c for c in cands if c[0] not in VACUOUS_RELATIONS]
+        # ONLINE TYPING IS MEASURED AND DISABLED.
+        #
+        # The idea: type an untyped ('semantic') edge at query time with
+        # `_infer_relation_type`, instead of treating it as untypeable. That is
+        # what the brain does -- it computes a relation from structure rather
+        # than retrieving a stored label.
+        #
+        # MEASURED AND REJECTED (docs/TYPING_ACCURACY_IS_CIRCULAR.md): on 32
+        # hand-labelled pairs, `_infer_relation_type` scores 59.4% overall and
+        # 0/13 on causal/temporal/analogical/contrastive. The earlier 75.5% was
+        # circular -- `_correct_relation_types` produced the labels using the
+        # same prototypes. Adding the graph's typed vocabulary made it 0/32
+        # (prototypes mutually correlated 0.44-0.85); estimating prototypes
+        # from the graph's own edges gave 2/31 = 6.5%.
+        #
+        # So an inferred type is not evidence, and asserting a clause built on
+        # one would produce fluent falsehoods -- worse than word salad, because
+        # the grounding metric cannot see them (the words are still graph
+        # neighbours). Kept behind the flag so the measurement is re-runnable.
+        if _PLAN_INFER_ENABLED and len(typed) < len(cands):
+            inferred = []
+            for rel, lab, w, cf in cands:
+                if rel not in VACUOUS_RELATIONS:
+                    inferred.append((rel, lab, w, cf))
+                    continue
+                try:
+                    # `_infer_relation_type` lives on ChainWalkerMixin, which
+                    # ResponseGenMixin inherits -- so it is on the engine
+                    # itself. There is no `self.chain_walker` attribute (that
+                    # name appears only in comments); looking for it returned
+                    # None and silently skipped every inference.
+                    irt, icf = self._infer_relation_type(subject, lab)
+                except Exception:
+                    continue
+                if icf < _PLAN_INFER_THRESHOLD:
+                    continue
+                inferred.append((irt, lab, w, max(cf, icf)))
+            if inferred:
+                typed = inferred
+        plan = None
+        for pool in (typed, cands):
+            if not pool:
+                continue
+            plan = message_to_plan(
+                message_from_best_edge(subject, pool), subject=subject)
+            if plan_is_committed(plan):
+                break
+            plan = None
+        if plan is None:
+            return None
+
+        target = None
+        for role in ('ground', 'relation', 'theme'):
+            val = plan.fill.get(role)
+            if val and val.lower() != subject.lower():
+                target = val
+                break
+        if target is None:
+            return None
+
+        rel_map = {
+            'categorize': 'is_a', 'cause': 'causes', 'attribute': 'has_property',
+            'locate': 'located_in', 'relate': 'related_to',
+            'temporal': 'temporal', 'analogy': 'analogical',
+            'contrast': 'contrastive', 'infer': 'inferred', 'episodic': 'episodic',
+        }
+        relation = rel_map.get(plan.construction, 'related_to')
+
+        frame = self.syntactic_assembly.bind_to_sentence(
+            subject=subject, relation=relation, target=target,
+            pos_map=getattr(self, '_concept_pos', {}),
+        )
+        sent = self.surface_realizer.realize(
+            frame=frame,
+            discourse_context=DiscourseState(
+                sentence_index=0, discourse_type='explain',
+                total_sentences=1, free_energy=0.3),
+            dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+        )
+        if not sent:
+            return None
+        sent = re.sub(r'\s+', ' ', sent).strip()
+        if not sent.endswith(('.', '?', '!')):
+            sent += '.'
+        return sent
 
     def _cpg_token_boost(self, ctx):
         """Commit to graph propositions for this turn and return a token boost.

@@ -248,6 +248,80 @@ def select_lexical_concepts(
     return out
 
 
+def select_target(
+    subject: str,
+    candidates: Iterable[Tuple[str, str, float, float]],
+    *,
+    cfg: Optional[MacroplanConfig] = None,
+    exclude: Optional[Sequence[str]] = None,
+) -> Optional[Tuple[str, str, float, float]]:
+    """Pick the single best (relation, target) EDGE for the message.
+
+    Why this exists: ``spreading_activation`` builds a FIELD over targets and
+    then redistributes a fraction of the total field to every candidate. A hub
+    target therefore wins on connectivity rather than on the quality of its own
+    edge -- measured on the persisted graph as ``water leads to heavy``,
+    ``light leads to soft`` and ``trust is like management``, where the winning
+    target was a high-degree neighbour with a weak edge, and the relation
+    attached to it was not the strongest relation the graph offered.
+
+    The brain's lemma selection is competitive, but it competes among LEMMAS
+    for a role the message has already committed to -- not among every
+    neighbour for the whole message. So the target is chosen by EDGE strength
+    (weight and confidence), and the relation comes from that same edge. This
+    keeps the (subject, relation, target) triple mutually consistent, which is
+    what makes the realized clause assert one graph-supported claim.
+
+    Returns the winning ``(relation, target, weight, confidence)`` or None.
+    """
+    cfg = cfg or MacroplanConfig()
+    skipped = {s.lower() for s in (exclude or ())}
+    # The subject is never its own target: "gravity leads to gravity" is a
+    # tautology, and the plan gate would pass it because both words are
+    # graph-supported. Always excluded, whether or not the caller passes it.
+    skipped.add((subject or "").lower())
+    best = None
+    best_score = -1.0
+    for rel, tgt, w, c in candidates:
+        if not tgt:
+            continue
+        if tgt.lower() in skipped:
+            continue
+        score = _clamp01(w) * 0.7 + _clamp01(c) * 0.3
+        if score > best_score:
+            best_score = score
+            best = (rel, tgt, _clamp01(w), _clamp01(c))
+    return best
+
+
+def message_from_best_edge(
+    subject: str,
+    candidates: Iterable[Tuple[str, str, float, float]],
+    *,
+    cfg: Optional[MacroplanConfig] = None,
+) -> Optional[Message]:
+    """Build a message from the single strongest edge.
+
+    Used by the plan route, where the requirement is one committed,
+    graph-supported proposition rather than a competitive field. The relation
+    and target come from the SAME edge, so the resulting clause cannot assert a
+    relation the graph does not support for that target.
+    """
+    if not subject:
+        return None
+    best = select_target(subject, candidates, cfg=cfg, exclude=(subject,))
+    if best is None:
+        return None
+    rel, tgt, w, c = best
+    role = _role_for_relation(rel)
+    binding = RoleBinding(role=role, concept=tgt,
+                          activation=_clamp01(w) * 0.7 + _clamp01(c) * 0.3,
+                          relation=rel)
+    return Message(subject=subject, goal="characterize", bindings=[binding],
+                   competitors=[(tgt, binding.activation)],
+                   selection_ratio=1.0)
+
+
 def _role_for_relation(relation: str) -> str:
     """Map a graph relation type to a thematic role.
 

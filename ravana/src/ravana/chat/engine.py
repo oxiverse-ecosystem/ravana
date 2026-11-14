@@ -1301,6 +1301,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # measurement is re-runnable and so a future mechanism that conditions
         # LINEARIZATION rather than word selection can reuse the wiring.
         self._anchor_boost_enabled = False
+        # Plan-prefix linearization: the decoder continues from an ordered
+        # surface plan instead of starting from a bare <bos>. OFF by default;
+        # prototype measured in docs/LINEARIZATION_PROTOTYPE.md.
+        self._plan_prefix_enabled = False
+        # Plan-driven narrative (precision route): realize a committed
+        # SurfacePlan through the SYMBOLIC formulator. Measured
+        # (docs/PLAN_NARRATIVE_POSITIVE.md): unsupported assertions -> 0 on the
+        # subjects where a plan commits. Falls back to the baseline narrative
+        # path otherwise. OFF by default.
+        self._plan_narrative_enabled = False
         # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
         try:
             from ravana.chat.generative_emitter import GenerativeEmitter
@@ -1930,9 +1940,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Phase E: Syntactic cell assemblies — Hebbian role learning with seeded priors
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
         self.syntactic_assembly.proper_nouns = self._proper_nouns
+        # The assembly needs the engine's learned POS map: `_determine_article`
+        # uses it to decide whether a word in the (over-inclusive) proper-noun
+        # set is really a common noun. MEASURED: without it, 'force'/'unit'/
+        # 'salt' were treated as proper nouns and realized with no article
+        # ("gravity is force"). See docs/DEFINITION_PROPOSITION.md.
+        self.syntactic_assembly._concept_pos = self._concept_pos
         # Phase F: Surface realizer — rule-governed English morphology with dopamine modulation
         self.surface_realizer = SurfaceRealizer()
         self.surface_realizer.proper_nouns = self._proper_nouns
+        # The realizer's `_build_noun_phrase` consults the learned POS map to
+        # decide whether a word in its broad abstract/uncountable sets is really
+        # a common noun. MEASURED: without it, 'force'/'progression'/
+        # 'descendant' were treated as abstract and the article was suppressed
+        # ("gravity is force"). See docs/DEFINITION_PROPOSITION.md.
+        self.surface_realizer._concept_pos = self._concept_pos
         # Phase 5 (casing): cached set of graph concepts that are STRONG named
         # entities (country/city/company/person/... via ConceptNet IsA). Fed to
         # case_infer so mid-sentence entities not in SUBTLEX still capitalize.
@@ -12433,6 +12455,9 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'cpg_enabled': getattr(self, '_cpg_enabled', False),
                 'cpg_escalate': getattr(self, '_cpg_escalate', False),
                 'anchor_boost_enabled': getattr(self, '_anchor_boost_enabled', False),
+                'plan_prefix_enabled': getattr(self, '_plan_prefix_enabled', False),
+                'plan_narrative_enabled': getattr(
+                    self, '_plan_narrative_enabled', False),
                 # Phase 2 (style conditioning): the flag and the derived
                 # style context. The context is a pure function of the
                 # dialogue memory, so it could be rebuilt, but persisting it
@@ -12937,6 +12962,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._cpg_escalate = bool(state.get('cpg_escalate', False))
             self._anchor_boost_enabled = bool(
                 state.get('anchor_boost_enabled', False))
+            self._plan_prefix_enabled = bool(
+                state.get('plan_prefix_enabled', False))
+            self._plan_narrative_enabled = bool(
+                state.get('plan_narrative_enabled', False))
             seq = state.get('linggen_genconf_seq', [])
             self._linggen_genconf_seq = list(seq) if isinstance(seq, (list, tuple)) else []
 
