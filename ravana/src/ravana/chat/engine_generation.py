@@ -2057,9 +2057,46 @@ class GenerationMixin:
             return ("", 0.0, "no_pattern")
 
         # Normalize query_phrase by stripping performative/directive speech-act prefixes
+        #
+        # MEASURED DEFECT: the alternation ended with `tell\s+me\s+about|tell\s+me`,
+        # and the trailing `tell\s+me` (no `about`) matched FIRST for
+        # "tell me a sentence about water", leaving "a sentence about water".
+        # The subject then resolved to "sentence water" -- a phrase that is not
+        # in the definition store, so a topic that HAS a definition
+        # (`what is water` works) fell through to the reflective path and
+        # answered "the closest i get to sentence water is life and maybe
+        # person". Front 6 (speaking) measured 0/100 on exactly this.
+        #
+        # The fix is to strip the whole directive frame, including the
+        # noun-phrase head (`sentence|example|paragraph|story|poem|line...`),
+        # and then any residual `about|of|on` preposition. Ordering matters:
+        # the longer, more specific patterns must be tried before the bare
+        # `tell me`, which is why this is a sequence of re.sub calls rather
+        # than one alternation.
+        _DIRECTIVE = (r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?"
+                      r"(?:explain|describe|define|clarify|elucidate|outline|"
+                      r"summarize|discuss|give\s+(?:an?\s+)?overview\s+(?:of|about)?|"
+                      r"overview|search\s+(?:for)?|look\s*up|tell\s+me)\s+")
+        query_phrase = re.sub(_DIRECTIVE, "", query_phrase,
+                              flags=re.IGNORECASE).strip() or query_phrase
+        # Residual frame: "a sentence about X" / "an example of X" / "a story on X"
+        # The trailing-frame form ("describe gravity in one sentence") is
+        # handled by the second pattern below.
         query_phrase = re.sub(
-            r"^(?:can\s+you\s+|could\s+you\s+|please\s+)?(?:explain|describe|define|clarify|elucidate|outline|summarize|discuss|give\s+(?:an?\s+)?overview\s+(?:of|about)?|overview|search\s+(?:for)?|look\s*up|tell\s+me\s+about|tell\s+me)\s+(?:of\s+|about\s+)?",
+            r"^(?:a|an|the|one|some)?\s*"
+            r"(?:sentence|example|paragraph|story|poem|line|phrase|passage|"
+            r"summary|overview|description|definition|explanation)"
+            r"\s+(?:about|of|on|for|regarding|concerning)\s+",
             "", query_phrase, flags=re.IGNORECASE).strip() or query_phrase
+        # Trailing form: "X in one sentence" / "X in a paragraph".
+        query_phrase = re.sub(
+            r"\s+in\s+(?:a|an|one|single)?\s*"
+            r"(?:sentence|example|paragraph|story|poem|line|phrase|passage|"
+            r"summary|overview|description|definition|explanation)\s*$",
+            "", query_phrase, flags=re.IGNORECASE).strip() or query_phrase
+        # Bare trailing/leading preposition left by either strip.
+        query_phrase = re.sub(r"^(?:about|of|on)\s+", "", query_phrase,
+                              flags=re.IGNORECASE).strip() or query_phrase
 
         # Strategy A2: Exact multi-word phrase match (domain concepts, seeded multi-word)
         phrase_clean = query_phrase.strip(".,!?")
