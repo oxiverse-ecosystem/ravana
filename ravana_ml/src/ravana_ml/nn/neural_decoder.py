@@ -522,9 +522,20 @@ class NeuralDecoder(Module):
                         if seen_counts.get(cid, 0) == 0:
                             logits[cid] += boost * 0.5
 
+            # token_boost is a per-step bias toward the committed/retrieved
+            # content words. It used to apply only to tokens NOT yet in
+            # seen_counts, which meant it shaped the opening of the utterance
+            # and then let the model run free -- measured in
+            # docs/BOOST_STRENGTH_NOT_THE_LEVER.md ("It only affects the first
+            # occurrence"). A boost that expires on first use cannot hold an
+            # utterance on subject; the repetition penalty below already
+            # discourages re-emitting a token, so applying the boost every step
+            # does not produce verbatim repetition (the sweep in
+            # docs/ANCHOR_TOKEN_BOOST_MEASURED.md records repetition 0.000 at
+            # the 9.0 knee).
             if token_boost is not None:
                 for tid, tboost in token_boost.items():
-                    if tid < len(logits) and tid not in seen_counts:
+                    if tid < len(logits):
                         logits[tid] += tboost
 
             # ── NoGo: suppress tokens that are NOT admissible ──────────────
@@ -623,7 +634,7 @@ class NeuralDecoder(Module):
                         content_mask[cid] = logits[cid]
                 if token_boost is not None:
                     for tid, tboost in token_boost.items():
-                        if tid < len(logits) and tid not in seen_counts:
+                        if tid < len(logits):
                             content_mask[tid] += tboost * 2.0
                 logits = content_mask
 

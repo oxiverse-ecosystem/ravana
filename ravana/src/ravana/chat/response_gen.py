@@ -1634,22 +1634,94 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # plan before form encoding, rather than generating fluently
                 # and checking afterwards.
                 #
-                # Fail-open: no subject, no graph edges, or a rule error leaves
-                # token_boost empty, which is exactly the pre-CPG behaviour.
+                # Fail-open on ERROR only: a rule exception leaves
+                # token_boost empty, which is the pre-CPG behaviour. A clean
+                # "no proposition" answer is NOT an error -- it is the graph
+                # declining to commit, and the escalation branch must see it.
                 _cpg_boost = {}
                 _cpg_suppress = {}
                 _cpg_committed = True
                 if getattr(self, '_cpg_enabled', False) and ctx.subject:
                     try:
                         _cpg = self._cpg_token_boost(ctx)
-                        if _cpg is not None:
-                            _cpg_boost = _cpg.token_boost
-                            _cpg_suppress = _cpg.token_suppress
-                            _cpg_committed = _cpg.committed
                     except Exception:
-                        _cpg_boost = {}
-                        _cpg_suppress = {}
-                        _cpg_committed = True
+                        _cpg = None
+                        _cpg_error = True
+                    else:
+                        _cpg_error = False
+                    if _cpg is not None:
+                        _cpg_boost = _cpg.token_boost
+                        _cpg_suppress = _cpg.token_suppress
+                        _cpg_committed = _cpg.committed
+                    elif not _cpg_error:
+                        # Clean None: the graph has no proposition for this
+                        # subject. That is a non-commitment, not a pass -- so
+                        # escalation can fire. (Previously the AttributeError
+                        # path set committed=True here, making escalation
+                        # unreachable: docs/ESCALATION_INERT.md.)
+                        _cpg_committed = False
+
+                # ── Anchor boost (retrieve-then-elaborate) ──────────────────
+                # MEASURED AND REJECTED -- kept off by default.
+                #
+                # The idea was sound: the conditioning path is near-null
+                # (docs/CONDITIONING_COLLAPSES_TO_A_POINT.md), and the one
+                # intervention with a dose-response curve was a logit boost on
+                # the retrieved definition's content words at the 9.0 knee.
+                #
+                # Measured on the PRODUCTION path
+                # (docs/ANCHOR_BOOST_DESTROYS_SYNTAX.md): every strength from
+                # 2.0 up gives on-topic 1.00 and unsupported 0 -- and every one
+                # of them is a WORD LIST, not a sentence:
+                #
+                #   "Other earth body objects gives centre planet force gravity
+                #    moon other orbit weight toward keeps objects body earth."
+                #
+                # The 9.0 knee was fitted on a metric that cannot see syntax
+                # (scripts/train.py:559 -- invocab * distinct-1 * on-topic,
+                # where distinct-1 is the type-token ratio). A boost at any
+                # strength that moves the output REPLACES the decoder's
+                # distribution with a uniform draw over the anchor's content
+                # words; it supplies concepts with no thematic roles and no
+                # linearization order.
+                #
+                # Off by default. The flag exists so the measurement can be
+                # re-run without editing code, and so a future mechanism that
+                # conditions LINEARIZATION (not word selection) can reuse the
+                # wiring. Fail-open: no definition, no vocab, or a lookup error
+                # leaves the boost empty.
+                _anchor_boost = {}
+                if getattr(self, '_anchor_boost_enabled', False):
+                    try:
+                        # The anchor boost is a COMMITMENT mechanism, so it must
+                        # not fire when the graph has declined to commit.
+                        # Emitting a fluent utterance with no committed
+                        # proposition behind it is the semantic-dementia
+                        # signature (docs/BRAIN_NOVEL_SUBJECT_GROUNDING.md
+                        # §1.3). CPG off means the commitment step is not in
+                        # use, so the anchor boost is the commitment.
+                        _may_commit = (not getattr(self, '_cpg_enabled', False)
+                                       or _cpg_committed)
+                        _anchor_desc = None
+                        _subj_key = (ctx.subject or '').lower()
+                        _defs = getattr(self, '_definitions', {}) or {}
+                        if _may_commit and _subj_key and _subj_key in _defs:
+                            _anchor_desc = _defs[_subj_key]
+                        if _anchor_desc:
+                            from ravana.learn.anchor_boost import anchor_token_boost
+                            _anchor_boost = anchor_token_boost(
+                                _anchor_desc, self._decoder_word_to_idx) or {}
+                    except Exception:
+                        _anchor_boost = {}
+
+                # CPG's boost (when enabled) is merged over the anchor boost;
+                # both are per-step biases toward graph-supported content, so
+                # the stronger of the two wins per token.
+                if _cpg_boost:
+                    for _tid, _val in _cpg_boost.items():
+                        _anchor_boost[_tid] = max(_anchor_boost.get(_tid, 0.0),
+                                                  _val)
+                _cpg_boost = _anchor_boost
 
                 # Escalation (docs/GROUNDING_MECHANISM.md step 3): when NO
                 # proposition clears the criterion, the brain declines to
@@ -7548,12 +7620,20 @@ class ResponseGenMixin(ChainWalkerMixin):
         return decide(subject, strength=strength, pe=pe, density=density,
                       familiarity=familiarity, n_compose=n_compose, cfg=cfg)
 
-    def _cpg_token_boost(self, ctx) -> Dict[int, float]:
+    def _cpg_token_boost(self, ctx):
         """Commit to graph propositions for this turn and return a token boost.
 
         Implements steps 1-3 of docs/GROUNDING_MECHANISM.md. Reads only
-        existing graph fields; returns an empty dict when the subject has no
-        usable edges, which the caller treats as "no gating".
+        existing graph fields.
+
+        Returns ``None`` (never ``{}``) when the graph has no proposition for
+        the subject -- no node, or a node with no usable edges. The caller
+        distinguishes the two: ``None`` means "no commitment", ``{}`` means
+        "committed, nothing to boost". Previously this returned ``{}`` on the
+        no-node/no-edges path, and the caller's ``except AttributeError`` turned
+        that into ``committed=True`` -- so the escalation branch was
+        unreachable (docs/ESCALATION_INERT.md measured ``decline=0`` on 20
+        probes). ``docs/BRAIN_NOVEL_SUBJECT_GROUNDING.md`` §5.1.
         """
         from ravana.learn.committed_proposition import (
             CPGConfig, commit, decide,
@@ -7561,7 +7641,7 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         subject = (getattr(ctx, 'subject', None) or '').strip()
         if not subject:
-            return {}
+            return None
         key = subject.lower()
 
         nids = []
@@ -7570,7 +7650,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         except Exception:
             nids = []
         if not nids:
-            return {}
+            return None
         nid = nids[0]
 
         candidates = []
@@ -7596,7 +7676,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         except Exception:
             candidates = []
         if not candidates:
-            return {}
+            return None
 
         try:
             mean_pe = float(getattr(self, '_mean_prediction_error', 0.0) or 0.0)
