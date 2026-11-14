@@ -409,6 +409,11 @@ class ChainWalkerMixin:
                         weight = min(0.6, sim * 0.6)
                         other_node = self.graph.get_node(other_nid)
                         other_label = other_node.label if other_node else word
+                        # DEPRECATED MEASUREMENT (docs/TYPING_ACCURACY_IS_CIRCULAR.md):
+                        # this label is a semantic-direction proxy scored 0/32 on
+                        # independent labels. Kept so existing wiring stays
+                        # reproducible; it is NOT evidence and must not be
+                        # asserted as a committed relation.
                         inf_type, _ = self._infer_relation_type(word, other_label, "semantic")
                         self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
                         wired_11 += 1
@@ -421,6 +426,11 @@ class ChainWalkerMixin:
                     weight = min(0.6, sim * 0.6)
                     other_node = self.graph.get_node(other_nid)
                     other_label = other_node.label if other_node else word
+                    # DEPRECATED MEASUREMENT (docs/TYPING_ACCURACY_IS_CIRCULAR.md):
+                    # this label is a semantic-direction proxy scored 0/32 on
+                    # independent labels. Kept so existing wiring stays
+                    # reproducible; it is NOT evidence and must not be
+                    # asserted as a committed relation.
                     inf_type, _ = self._infer_relation_type(word, other_label, "semantic")
                     self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
 
@@ -1422,9 +1432,37 @@ class ChainWalkerMixin:
     def _infer_relation_type(self, src_label: str, tgt_label: str,
                               current_type: str = "semantic") -> Tuple[str, float]:
         """Infer nearest relation type using relational direction vector.
+
+        .. deprecated:: 2026-11-14
+            MEASURED AS NOT RELIABLE -- do not use this to type an edge you are
+            about to assert. See `docs/TYPING_ACCURACY_IS_CIRCULAR.md`.
+
+            On 32 hand-labelled (subject, target, relation) pairs it scores
+            0/32. An earlier 75.5% figure was circular: `_correct_relation_types`
+            produced the labels using this same mechanism. Two attempted fixes
+            also failed (0/32 with an expanded inventory; 2/31 = 6.5% with
+            graph-estimated prototypes).
+
+            WHY IT FAILS: every prototype is unit-normalized and mutually
+            correlated 0.44-0.85, so with ten near-parallel directions the
+            argmax is noise and `semantic` (the mean of ten words, i.e. the
+            average direction) wins everything. More fundamentally, a
+            relation's DIRECTION is a semantic-similarity proxy, and the
+            evidence says relational categories are defined by fit to a
+            relational structure, not by feature or direction overlap
+            (Popov et al. 2020, cited in docs/BRAIN_RELATION_TYPING_SPEC.md).
+
+            KEPT, NOT REMOVED: it is retained for research reproducibility and
+            because two call sites still use it (`web_learning.py` when typing
+            a newly learned edge, `chain_walker.py` during chain walking). New
+            code should read the relation from the DEFINITION text instead --
+            see `docs/DEFINITION_PROPOSITION.md`, which recovers a proposition
+            from a stored definition at on-topic 0.944 / unsupported 0.000.
+
         Relation types are purely DESCRIPTIVE labels, not functional categories.
         Edge weight (learned from prediction error) determines strength.
-        Returns (inferred_type, confidence)."""
+        Returns (inferred_type, confidence).
+        """
         sl = src_label.lower()
         tl = tgt_label.lower()
         src_nids = self._concept_keywords.get(sl, [])

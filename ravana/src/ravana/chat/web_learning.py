@@ -931,6 +931,14 @@ class WebLearningMixin(ResponseGenMixin):
                     for existing_nid, sim, label in candidates[:8]:
                         if self.graph.get_edge(nid, existing_nid) is None:
                             weight = max(0.25, min(0.5, sim * 0.5))
+                            # DEPRECATED MEASUREMENT (docs/TYPING_ACCURACY_IS_CIRCULAR.md):
+                            # `_infer_relation_type` is a semantic-direction proxy
+                            # scored 0/32 on independent labels. It is kept here
+                            # only so existing learned edges stay reproducible;
+                            # the label it produces is not evidence and must not be
+                            # treated as a committed relation. New typed edges
+                            # should come from the definition text
+                            # (docs/DEFINITION_PROPOSITION.md).
                             inf_type, _ = self._infer_relation_type(word, label, "semantic")
                             self.graph.add_edge(nid, existing_nid, weight=weight,
                                                 relation_type=inf_type)
@@ -951,6 +959,8 @@ class WebLearningMixin(ResponseGenMixin):
                                 best_label = existing_node.label
                     if best_nid is not None and best_label is not None:
                         weight = max(0.25, min(0.4, best_sim * 0.5))
+                        # DEPRECATED MEASUREMENT -- see the note above.
+                        # Label is not evidence; kept for reproducibility.
                         inf_type, _ = self._infer_relation_type(word, best_label, "semantic")
                         self.graph.add_edge(nid, best_nid, weight=weight, relation_type=inf_type)
 
