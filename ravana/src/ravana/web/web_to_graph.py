@@ -54,7 +54,15 @@ class WebToGraph:
         "has_property": "has_property",
         "located_in": "located_in",
         "part_of": "part_of",
-        "causes": "causes",
+        # MEASURED DEFECT: this was "causes", but `ConceptEdge`'s relation
+        # table (`ravana_ml/src/ravana_ml/graph.py:168`) has no "causes" key --
+        # only "causal". Every web-extracted causal fact was therefore written
+        # under a relation type the rest of the system does not recognise:
+        # `VACUOUS_RELATIONS` / the plan route look for "causal", the
+        # relation-typing prototypes have no "causes" entry, and the graph's
+        # own weight table gives an unknown type no default. So web learning
+        # silently produced edges that causal reasoning could not use.
+        "causes": "causal",
         "related_to": "semantic",
     }
 
