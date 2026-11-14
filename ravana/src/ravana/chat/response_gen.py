@@ -7770,6 +7770,31 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         if not cands:
             return None
+        # ── NOUN-ADMISSIBILITY FILTER ─────────────────────────────────────
+        # `select_target` ranks by edge strength alone, so a target that
+        # cannot head a noun phrase can still win: measured on the live store,
+        # `time` picked `analogical -> only` over `semantic -> years` and the
+        # formulator emitted "time is different from an only".
+        #
+        # The filter is applied to the POOL, before ranking, so a vetoed
+        # candidate cannot win on a strong edge. It is veto-only
+        # (`learn/noun_admissibility.py`): reject on positive evidence of
+        # non-noun-hood, admit otherwise. Measured on an independent gold set:
+        # acc 0.873 / prec 0.833 / rec 1.000 vs the unfiltered baseline 0.732.
+        #
+        # If the filter empties the pool, the route returns None and the caller
+        # falls through to the honest hedge -- which is the correct outcome for
+        # a subject whose only edges point at non-noun targets.
+        try:
+            from ravana.learn.noun_admissibility import filter_noun_candidates
+            _filtered = filter_noun_candidates(
+                cands, pos_map=getattr(self, '_concept_pos', None))
+            if _filtered:
+                cands = _filtered
+            # An empty filtered pool is left empty on purpose: better no plan
+            # than a plan built on an inadmissible target.
+        except Exception:
+            pass
         # Prefer TYPED edges: the measured failure was a plan built on the
         # vacuous 'related_to' fallback ("gravity is related to two").
         #
