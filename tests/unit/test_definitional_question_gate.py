@@ -23,14 +23,23 @@ class TestDefinitionalShape:
         "what causes rain",
         "who is meera",
         "what are clouds",
-        "why does it rain",
-        "how does a battery work",
-        "when does the sun rise",
         "tell me about the ocean",
         "explain gravity",
     ])
     def test_world_questions_are_definitional(self, q):
         assert _is_definitional_question(q), q
+
+    @pytest.mark.parametrize("q", [
+        # wh-words that take a complement clause are NOT definitional: they are
+        # disclosure follow-ups, and test_self_cued_episodic_recall pins that
+        # "where does meera restore clocks" must recall.
+        "why does it rain",
+        "how does a battery work",
+        "when does the sun rise",
+        "where does meera restore clocks",
+    ])
+    def test_complement_wh_questions_are_not_definitional(self, q):
+        assert not _is_definitional_question(q), q
 
     @pytest.mark.parametrize("q", [
         # not a question about the world

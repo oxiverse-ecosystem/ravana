@@ -115,18 +115,22 @@ _SELF_OPINION_SHAPE = (
 # you about water" is a genuine recall request and must reach the recall path.
 # Callers exempt queries containing i/me/my/mine/we/our.
 _DEFINITIONAL_QUESTION = re.compile(
+    # `what/who/which` + copula or auxiliary: "what is water", "what causes
+    # rain", "who is meera".
     r"^(?:what|who|which)\s+"
     r"(?:is|are|was|were|does|do|did|can|could|should|would|will|has|have|"
     r"happens?|causes?|makes?|means?|works?)\b"
-    # `where`/`when`/`why`/`how` are included ONLY with a copula or an
-    # auxiliary that takes a subject complement. "where does meera restore
-    # clocks" is a follow-up about a DISCLOSURE, not a world question, and the
-    # first version of this pattern wrongly gated it -- measured as a
-    # regression from "meera restores clocks in pune" to "restore is a bit
-    # outside what i know right now".
-    r"|^(?:where|when|why|how)\s+(?:is|are|was|were|does|do|did)\b"
-    r"|^(?:define|explain|describe|tell me about|talk about|give me|show me|"
-    r"teach me|what about|how about)\b"
+    # `where/when/why/how` are NOT treated as definitional on their own.
+    #
+    # MEASURED: an earlier version included them with any auxiliary, which
+    # broke the disclosure follow-up that this module exists to serve --
+    # `where does meera restore clocks` after "my cousin meera restores antique
+    # clocks in pune" must recall, and `tests/unit/
+    # test_self_cued_episodic_recall.py` pins exactly that. A wh-question about
+    # a disclosed entity is a follow-up, not a world question; the cue match
+    # decides, and a generic question with no cue fails closed anyway.
+    r"|^(?:define|explain|describe|tell me about|talk about|what about|"
+    r"how about)\b"
 )
 
 
@@ -973,8 +977,13 @@ class MemoryMixin:
         # genuine recall request and must still reach this path.
         #
         # Shared with `_retrieve_episodic` so the two recall paths cannot drift.
-        if _is_definitional_question(qn):
-            return None
+        #
+        # First-person framing is exempt: "what did i tell you about the harbour
+        # radio" is a genuine RECOLLECTION request, not a world question, and
+        # `tests/unit/test_recall_evidence_fusion.py` pins that it must recall.
+        if not re.search(r"\b(i|me|my|mine|we|our)\b", qn):
+            if _is_definitional_question(qn):
+                return None
         store = self._episodic_transcript or []
         if not store:
             try:
