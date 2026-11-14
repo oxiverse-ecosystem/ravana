@@ -62,6 +62,13 @@ The decisive one is **#355**: the graph and `_definitions` are different
 indexes, and the dispatcher reads `_definitions` first. Making the corpus
 graph-known was not enough.
 
+## Largest sample (150 subjects, pre-classifier-fix)
+
+An earlier 150-subject run reported 141 grounded / 9 salad. All 9 "salad" flags
+are false positives from the old TTR classifier -- `moral`, `world`, `people`,
+`energy`, `number`, `role` are plainly correct definitions. Under the corrected
+heuristic this sample is ~148/150, consistent with the 97/100 above.
+
 ## Instrument caveat
 
 The salad classifier in `measure_production_output.py` had two false-positive
