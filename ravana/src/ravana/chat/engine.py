@@ -1308,9 +1308,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Plan-driven narrative (precision route): realize a committed
         # SurfacePlan through the SYMBOLIC formulator. Measured
         # (docs/PLAN_NARRATIVE_POSITIVE.md): unsupported assertions -> 0 on the
-        # subjects where a plan commits. Falls back to the baseline narrative
-        # path otherwise. OFF by default.
-        self._plan_narrative_enabled = False
+        # subjects where a plan commits.
+        #
+        # ENABLED by default after docs/PLAN_FLAG_ON_MEASURED.md: on the 138
+        # reachable subjects (those WITHOUT a stored definition, the only
+        # population this route can reach) the flag changed 114, and the
+        # asymmetry was 10 hedge->answer conversions against 0 answer->hedge.
+        # Plan-route unsupported 0.0909 vs 1.7368 for the fallback.
+        self._plan_narrative_enabled = True
         # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
         try:
             from ravana.chat.generative_emitter import GenerativeEmitter
