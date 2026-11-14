@@ -248,12 +248,17 @@ certain other another such same different first second last next
 def plan_is_committed(plan: Optional[SurfacePlan]) -> bool:
     """True when a plan asserts a real, contentful proposition.
 
-    Rejects two measured failure shapes:
+    Rejects three measured failure shapes:
 
     1. a vacuous relation -- the ``relate`` fallback construction, which
        asserts proximity rather than a predicate;
     2. a non-concept FILLER -- a numeral or function word that makes the clause
-       grammatical and empty (``gravity is related to two``).
+       grammatical and empty (``gravity is related to two``);
+    3. a TAUTOLOGY -- the target is the subject itself
+       (``abstraction precedes a abstract``). This passed the first two checks
+       because both words are graph-supported, so the grounding metric cannot
+       see it; the plan route measured it as a live failure in
+       ``docs/PROPOSITION_UNION.md``.
 
     Only the plan's FILLERS are checked, not its frame: ``is a`` / ``located
     in`` are the construction's own words and are always legitimate. Checking
@@ -267,9 +272,23 @@ def plan_is_committed(plan: Optional[SurfacePlan]) -> bool:
         # relation was genuinely typed as related_to AND the filler is a real
         # concept -- otherwise it is proximity with a frame around it.
         return False
-    for val in plan.fill.values():
+    subj = (plan.subject or "").lower().strip()
+    # The slot that legitimately holds the subject. `categorize` / `attribute`
+    # / `locate` / `relate` bind it as `theme`; `cause` binds it as `agent`.
+    # Any OTHER slot repeating the subject is a tautology.
+    topic_roles = {"theme", "agent"}
+    seen_topic = False
+    for role, val in plan.fill.items():
         if not val or val.lower() in _NON_CONCEPT:
             return False
+        if not subj:
+            continue
+        if val.lower().strip() != subj:
+            continue
+        if role in topic_roles and not seen_topic:
+            seen_topic = True          # the legitimate subject slot
+            continue
+        return False                   # a second slot repeating the subject
     return True
 
 

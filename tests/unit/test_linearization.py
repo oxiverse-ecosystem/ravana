@@ -237,6 +237,22 @@ class TestCommitmentGate:
     def test_none_is_not_committed(self):
         assert not plan_is_committed(None)
 
+    def test_tautology_is_not_committed(self):
+        """The measured failure: 'abstraction precedes a abstract'.
+
+        Both words are graph-supported, so the grounding metric cannot see the
+        error -- the commitment gate has to catch it."""
+        p = SurfacePlan(subject="abstraction", construction="attribute",
+                        tokens=["abstraction", "has", "abstraction"],
+                        roles=["theme", "relation"],
+                        fill={"theme": "abstraction", "relation": "abstraction"})
+        assert not plan_is_committed(p)
+
+    def test_real_proposition_still_commits(self):
+        p = message_to_plan(_msg("music", [("theme", "sound", "is_a")]),
+                            subject="music")
+        assert plan_is_committed(p)
+
 
 class TestInventory:
     def test_constructions_are_few_and_closed(self):
