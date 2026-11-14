@@ -482,7 +482,30 @@ class SyntacticCellAssembly:
         # / contrastive relations take a complement, not a predicate nominal,
         # and forcing an article there would give "leads to a fire".
         if pos in ('noun', 'n'):
-            return "a"
+            # a/an agreement. Returning "a" unconditionally produced
+            # "gravity brings about a earth", "a only", "a environment" once
+            # the plan route started feeding it graph targets -- measured on
+            # the live store (3 of 22 plan outputs).
+            #
+            # The rule is phonetic, not orthographic: "a university" and
+            # "an hour" are correct. The common cases are covered by the
+            # initial-letter test plus a short exception list.
+            _AN_INITIAL = set('aeiou')
+            _A_DESPITE_VOWEL = {
+                # starts with a vowel LETTER but a /j/ or /w/ sound
+                'university', 'uniform', 'unique', 'union', 'unit', 'united',
+                'universal', 'use', 'used', 'user', 'usual', 'european',
+                'europe', 'one', 'once', 'europa', 'eucalyptus',
+            }
+            _AN_DESPITE_CONSONANT = {
+                # silent h, or an acronym pronounced letter-by-letter
+                'hour', 'honest', 'honour', 'honor', 'heir', 'hourly',
+            }
+            if cl in _AN_DESPITE_CONSONANT:
+                return "an"
+            if cl in _A_DESPITE_VOWEL:
+                return "a"
+            return "an" if cl[:1] in _AN_INITIAL else "a"
         return ""
 
     def _determine_tense(self, relation: str) -> str:
