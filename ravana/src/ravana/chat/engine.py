@@ -1294,6 +1294,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # compose and fall back to honest uncertainty instead of generating
         # unguided. OFF by default; measured separately.
         self._cpg_escalate = False
+        # Anchor-token boost (retrieve-then-elaborate). OFF by default and
+        # MEASURED as the wrong level of intervention: it selects the right
+        # content words and destroys the sentence's syntax
+        # (docs/ANCHOR_BOOST_DESTROYS_SYNTAX.md). The flag is kept so the
+        # measurement is re-runnable and so a future mechanism that conditions
+        # LINEARIZATION rather than word selection can reuse the wiring.
+        self._anchor_boost_enabled = False
         # GenerativeEmitter: compose surface form from cognitive state (online-expandable).
         try:
             from ravana.chat.generative_emitter import GenerativeEmitter
@@ -12419,6 +12426,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 'use_beliefs': getattr(self, 'use_beliefs', True),
                 'use_cerebellar_snippet': getattr(self, 'use_cerebellar_snippet', False),
                 'use_linggen': getattr(self, 'use_linggen', False),
+                # CPG / anchor-boost flags. A promoted flag that does not
+                # survive a reload is not promoted (the same class of bug as
+                # the adaptive baselines note below). All three default False,
+                # so an older snapshot without the keys loads unchanged.
+                'cpg_enabled': getattr(self, '_cpg_enabled', False),
+                'cpg_escalate': getattr(self, '_cpg_escalate', False),
+                'anchor_boost_enabled': getattr(self, '_anchor_boost_enabled', False),
                 # Phase 2 (style conditioning): the flag and the derived
                 # style context. The context is a pure function of the
                 # dialogue memory, so it could be rebuilt, but persisting it
@@ -12917,6 +12931,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # decoder-CE <= template-CE). Persists across loads so free-form
             # generation stays enabled once earned.
             self.use_linggen = bool(state.get('use_linggen', False))
+            # CPG / anchor-boost flags. Restored with a default of False so a
+            # snapshot written before these keys existed loads unchanged.
+            self._cpg_enabled = bool(state.get('cpg_enabled', False))
+            self._cpg_escalate = bool(state.get('cpg_escalate', False))
+            self._anchor_boost_enabled = bool(
+                state.get('anchor_boost_enabled', False))
             seq = state.get('linggen_genconf_seq', [])
             self._linggen_genconf_seq = list(seq) if isinstance(seq, (list, tuple)) else []
 

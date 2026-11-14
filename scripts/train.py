@@ -285,6 +285,7 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
         return False, False
 
     pairs = []  # (binder65, embed75)
+    idents = []  # (glove64,) -- identity-bearing component for the fit
     sentences = []  # (concept, description_text)
     for concept, desc in src_pairs:
         gv = glove_fn(concept)
@@ -302,6 +303,7 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
         except Exception:
             continue
         pairs.append((av, np.asarray(emb75, dtype=np.float64)))
+        idents.append(np.asarray(gv, dtype=np.float64).reshape(-1))
         sentences.append((concept, desc))
 
     if len(pairs) < _MIN_PAIRS:
@@ -321,7 +323,9 @@ def train_decoder_grounded(engine, nd, n_passes=30, pp=500, si=5,
 
     conditioner = LingGenConditioner.fit(
         np.stack([p[0] for p in train_pairs], axis=0),
-        np.stack([p[1] for p in train_pairs], axis=0))
+        np.stack([p[1] for p in train_pairs], axis=0),
+        identity_vecs=np.stack([idents[i] for i in range(len(pairs))
+                                if i not in hold], axis=0))
     if not conditioner.trained:
         print("  [LingGen] W_sm fit failed (too few/ill-formed) — skip")
         return False, False
