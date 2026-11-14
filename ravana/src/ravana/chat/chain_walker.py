@@ -621,17 +621,29 @@ class ChainWalkerMixin:
         """
         proto_map = {
             "causal": ["cause", "lead", "trigger", "produce", "result",
-                        "because", "therefore", "hence", "consequently", "effect",
-                        "causal"],
+                       "because", "therefore", "hence", "consequently", "effect",
+                       "causal"],
             "contrastive": ["but", "however", "unlike", "opposite", "differ",
-                             "contrast", "instead", "although", "yet", "versus"],
+                            "contrast", "instead", "although", "yet", "versus"],
             "temporal": ["when", "after", "before", "during", "while", "then",
-                          "until", "since", "sequence", "subsequent"],
+                         "until", "since", "sequence", "subsequent"],
             "analogical": ["like", "similar", "analogous", "metaphor", "compare",
-                            "parallel", "resemble", "likewise", "correspond"],
+                           "parallel", "resemble", "likewise", "correspond"],
             "semantic": ["relate", "connect", "associate", "refer", "meaning",
-                          "define", "describe", "denote", "signify"],
+                         "define", "describe", "denote", "signify"],
         }
+        # MEASURED AND REJECTED: adding the graph's typed vocabulary
+        # (isa / has_property / capable_of / used_for / part_of) to this
+        # inventory made independent accuracy 0/32, because every prototype is
+        # unit-normalized and mutually correlated 0.44-0.85 -- with ten
+        # near-parallel directions the argmax is noise and 'semantic' (the
+        # mean of ten words, i.e. the average direction) wins everything.
+        #
+        # Estimating the prototypes from the graph's own typed edges instead
+        # (docs/TYPING_ACCURACY_IS_CIRCULAR.md) gives near-orthogonal
+        # prototypes (cosines -0.64..+0.47) but only 2/31 = 6.5% accuracy on
+        # independent labels -- worse than chance. Vector-direction relation
+        # typing does not work on this graph. Reverted to the original five.
         self._relation_prototypes = {}
         for rel_type, seeds in proto_map.items():
             vecs = [self._glove_vector(w) for w in seeds

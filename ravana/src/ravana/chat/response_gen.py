@@ -73,6 +73,15 @@ _FUNCTION_WORDS = frozenset({
 # 0.00 (one more firing, but unsupported rises to 0.033).
 _PLAN_INFER_THRESHOLD = 0.35
 
+# Whether the plan route may type an untyped ('semantic') edge online.
+#
+# MEASURED AND DISABLED (docs/TYPING_ACCURACY_IS_CIRCULAR.md): the typing
+# mechanism scores 59.4% on independent hand-labelled pairs and 0/13 on the
+# relation types that require real discrimination. The earlier 75.5% was
+# circular. An inferred relation is not evidence, and a clause built on one is
+# a fluent falsehood the grounding metric cannot detect.
+_PLAN_INFER_ENABLED = False
+
 # Pronouns, determiners and other non-referring tokens. These cannot serve as
 # grounding evidence: their presence in a sentence says nothing about what the
 # sentence is about.
@@ -7777,18 +7786,38 @@ class ResponseGenMixin(ChainWalkerMixin):
         # committing at chance. At TH=0.35 the plan route fires on 29/40
         # subjects at unsupported=0.000, up from 15/40.
         typed = [c for c in cands if c[0] not in VACUOUS_RELATIONS]
-        if len(typed) < len(cands):
+        # ONLINE TYPING IS MEASURED AND DISABLED.
+        #
+        # The idea: type an untyped ('semantic') edge at query time with
+        # `_infer_relation_type`, instead of treating it as untypeable. That is
+        # what the brain does -- it computes a relation from structure rather
+        # than retrieving a stored label.
+        #
+        # MEASURED AND REJECTED (docs/TYPING_ACCURACY_IS_CIRCULAR.md): on 32
+        # hand-labelled pairs, `_infer_relation_type` scores 59.4% overall and
+        # 0/13 on causal/temporal/analogical/contrastive. The earlier 75.5% was
+        # circular -- `_correct_relation_types` produced the labels using the
+        # same prototypes. Adding the graph's typed vocabulary made it 0/32
+        # (prototypes mutually correlated 0.44-0.85); estimating prototypes
+        # from the graph's own edges gave 2/31 = 6.5%.
+        #
+        # So an inferred type is not evidence, and asserting a clause built on
+        # one would produce fluent falsehoods -- worse than word salad, because
+        # the grounding metric cannot see them (the words are still graph
+        # neighbours). Kept behind the flag so the measurement is re-runnable.
+        if _PLAN_INFER_ENABLED and len(typed) < len(cands):
             inferred = []
             for rel, lab, w, cf in cands:
                 if rel not in VACUOUS_RELATIONS:
                     inferred.append((rel, lab, w, cf))
                     continue
                 try:
-                    _cw = getattr(self, 'chain_walker', None)
-                    _infer = getattr(_cw, '_infer_relation_type', None)
-                    if _infer is None:
-                        continue
-                    irt, icf = _infer(subject, lab)
+                    # `_infer_relation_type` lives on ChainWalkerMixin, which
+                    # ResponseGenMixin inherits -- so it is on the engine
+                    # itself. There is no `self.chain_walker` attribute (that
+                    # name appears only in comments); looking for it returned
+                    # None and silently skipped every inference.
+                    irt, icf = self._infer_relation_type(subject, lab)
                 except Exception:
                     continue
                 if icf < _PLAN_INFER_THRESHOLD:
