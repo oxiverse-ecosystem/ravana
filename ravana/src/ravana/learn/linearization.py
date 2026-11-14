@@ -135,6 +135,37 @@ CONSTRUCTIONS: Dict[str, Construction] = {
         pattern=("{theme}", "is", "related", "to", "{ground}"),
         slots=("theme", "ground"),
     ),
+    # "<theme> follows <ground>" -- temporal succession.
+    "temporal": Construction(
+        name="temporal",
+        pattern=("{theme}", "follows", "{ground}"),
+        slots=("theme", "ground"),
+    ),
+    # "<theme> is like <ground>" -- analogy. Distinct from categorization:
+    # an analogy asserts resemblance, not membership.
+    "analogy": Construction(
+        name="analogy",
+        pattern=("{theme}", "is", "like", "{ground}"),
+        slots=("theme", "ground"),
+    ),
+    # "<theme> contrasts with <ground>" -- contrast.
+    "contrast": Construction(
+        name="contrast",
+        pattern=("{theme}", "contrasts", "with", "{ground}"),
+        slots=("theme", "ground"),
+    ),
+    # "<theme> is inferred from <ground>" -- inference.
+    "infer": Construction(
+        name="infer",
+        pattern=("{theme}", "is", "inferred", "from", "{ground}"),
+        slots=("theme", "ground"),
+    ),
+    # "<theme> happened in <ground>" -- episodic grounding.
+    "episodic": Construction(
+        name="episodic",
+        pattern=("{theme}", "happened", "in", "{ground}"),
+        slots=("theme", "ground"),
+    ),
 }
 
 
@@ -157,11 +188,21 @@ def _construction_for(relation: str) -> Optional[Construction]:
              "created_by", "from", "has_agent"):
         return CONSTRUCTIONS["cause"]
     if r in ("location", "located_in", "in", "at", "place", "time",
-             "temporal", "part", "contains", "within"):
+             "part", "contains", "within"):
         return CONSTRUCTIONS["locate"]
     if r in ("has_property", "property", "attribute", "has", "capable_of",
              "used_for", "function", "purpose"):
         return CONSTRUCTIONS["attribute"]
+    if r == "temporal":
+        return CONSTRUCTIONS["temporal"]
+    if r == "analogical":
+        return CONSTRUCTIONS["analogy"]
+    if r == "contrastive":
+        return CONSTRUCTIONS["contrast"]
+    if r == "inferred":
+        return CONSTRUCTIONS["infer"]
+    if r == "episodic":
+        return CONSTRUCTIONS["episodic"]
     return CONSTRUCTIONS["relate"]
 
 

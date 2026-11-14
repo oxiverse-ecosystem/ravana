@@ -69,6 +69,56 @@ class TestConstructionChoice:
         assert p.construction == "categorize"
 
 
+class TestExtendedInventory:
+    """The graph's non-typed relation vocabulary (temporal / analogical /
+    contrastive / inferred / episodic) each get their own construction."""
+
+    def test_temporal(self):
+        p = message_to_plan(_msg("winter", [("ground", "spring", "temporal")]),
+                            subject="winter")
+        assert p.construction == "temporal"
+        assert p.tokens == ["winter", "follows", "spring"]
+
+    def test_analogical(self):
+        p = message_to_plan(_msg("heart", [("ground", "pump", "analogical")]),
+                            subject="heart")
+        assert p.construction == "analogy"
+        assert p.tokens == ["heart", "is", "like", "pump"]
+
+    def test_contrastive(self):
+        p = message_to_plan(_msg("hot", [("ground", "cold", "contrastive")]),
+                            subject="hot")
+        assert p.construction == "contrast"
+        assert p.tokens == ["hot", "contrasts", "with", "cold"]
+
+    def test_inferred(self):
+        p = message_to_plan(_msg("rain", [("ground", "clouds", "inferred")]),
+                            subject="rain")
+        assert p.construction == "infer"
+
+    def test_episodic(self):
+        p = message_to_plan(_msg("coronation", [("ground", "2023", "episodic")]),
+                            subject="coronation")
+        assert p.construction == "episodic"
+
+    def test_new_constructions_are_committed(self):
+        """A typed relation with a real concept filler must pass the gate."""
+        for rel, subj, tgt in [("temporal", "winter", "spring"),
+                               ("analogical", "heart", "pump"),
+                               ("contrastive", "hot", "cold"),
+                               ("inferred", "rain", "clouds")]:
+            p = message_to_plan(_msg(subj, [("ground", tgt, rel)]), subject=subj)
+            assert plan_is_committed(p), (rel, p)
+
+    def test_causal_temporal_distinct_from_analogy(self):
+        """'leads to' asserts causation; 'is like' asserts resemblance."""
+        c = message_to_plan(_msg("fire", [("ground", "smoke", "causes")]),
+                            subject="fire")
+        a = message_to_plan(_msg("fire", [("ground", "smoke", "analogical")]),
+                            subject="fire")
+        assert c.construction != a.construction
+
+
 class TestSubjectLeads:
     def test_subject_is_first_token(self):
         p = message_to_plan(_msg("gravity", [("theme", "force", "is_a")]),
@@ -143,7 +193,10 @@ class TestCommitmentGate:
 
 class TestInventory:
     def test_constructions_are_few_and_closed(self):
-        assert len(CONSTRUCTIONS) <= 8
+        """One construction per relation family in the graph's vocabulary
+        (graph_typing.TYPED_RELATION_TYPES plus the learned relation types:
+        temporal, causal, analogical, contrastive, inferred, episodic)."""
+        assert len(CONSTRUCTIONS) <= 12
 
     def test_every_construction_renders(self):
         for c in CONSTRUCTIONS.values():

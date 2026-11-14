@@ -1910,6 +1910,34 @@ class ResponseGenMixin(ChainWalkerMixin):
                 if getattr(self, '_trace_enabled', False):
                     print(f"  [trace]   SM decoder error: {e}")
 
+        # Attempt 1b: PLAN-DRIVEN narrative (precision route).
+        # When a committed SurfacePlan exists, the symbolic formulator realizes
+        # it directly. Measured (docs/PLAN_NARRATIVE_POSITIVE.md): on the 7/40
+        # subjects with a committed plan, unsupported assertions go to ZERO
+        # (paired d_on_topic +0.076, d_unsupported -2.143) because the plan's
+        # content is graph-supported by construction. The baseline narrative
+        # path handles everything else -- this is a precision route, not a
+        # replacement.
+        #
+        # Off by default (_plan_narrative_enabled). Fail-open: no plan, or any
+        # error, falls through to the baseline narrative attempt below.
+        if (getattr(self, '_plan_narrative_enabled', False)
+                and ctx.subject
+                and hasattr(self, 'syntactic_assembly')
+                and hasattr(self, 'surface_realizer')):
+            try:
+                _plan_txt = self._plan_narrative_sentence(ctx)
+                if (_plan_txt and len(_plan_txt) > 8
+                        and not _is_word_salad(_plan_txt, subject=ctx.subject)
+                        and (getattr(self, "_disable_grounding_gate", False)
+                             or self._sm_response_grounded(ctx, _plan_txt))):
+                    if getattr(self, '_trace_enabled', False):
+                        print(f"  [trace]   SM plan-narrative: {_plan_txt}")
+                    return (_plan_txt, "situation_model_plan")
+            except Exception as e:
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [trace]   SM plan-narrative error: {e}")
+
         # Attempt 2: Narrative paragraph generation
         # Uses Event Schemas + situation-modulated verbs + paragraph structure
         if ctx.subject and hasattr(self, 'syntactic_assembly') and hasattr(self, 'surface_realizer'):
@@ -7671,6 +7699,102 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         return decide(subject, strength=strength, pe=pe, density=density,
                       familiarity=familiarity, n_compose=n_compose, cfg=cfg)
+
+    def _plan_narrative_sentence(self, ctx) -> Optional[str]:
+        """Realize a committed SurfacePlan through the symbolic formulator.
+
+        The precision route (docs/PLAN_NARRATIVE_POSITIVE.md): the plan's
+        content is graph-supported by construction, so the realized clause
+        carries no unsupported assertions. Returns None when no plan commits,
+        so the caller falls through to the baseline narrative path.
+
+        Steps: graph edges -> macroplanning message -> SurfacePlan ->
+        ``bind_to_sentence`` -> ``SurfaceRealizer.realize``. The last two are
+        the formulator the narrative path already uses; the plan only supplies
+        its (subject, relation, target) triple.
+        """
+        from ravana.learn.macroplanning import build_message
+        from ravana.learn.linearization import (
+            VACUOUS_RELATIONS, message_to_plan, plan_is_committed)
+        from ravana.language.surface_realizer import DiscourseState
+
+        subject = (getattr(ctx, 'subject', None) or '').strip()
+        if not subject:
+            return None
+        nids = self._concept_keywords.get(subject.lower(), [])
+        if not nids:
+            return None
+
+        self._graph_lock.acquire()
+        try:
+            cands = []
+            for tgt, ed in (self.graph.get_outgoing(nids[0]) or []):
+                tnode = self.graph.get_node(tgt)
+                label = (getattr(tnode, 'label', '') or '').strip()
+                if not label:
+                    continue
+                cands.append((
+                    getattr(ed, 'relation_type', 'related_to') or 'related_to',
+                    label,
+                    float(getattr(ed, 'weight', 0.0) or 0.0),
+                    float(getattr(ed, 'confidence', 0.0) or 0.0),
+                ))
+        except Exception:
+            cands = []
+        finally:
+            self._graph_lock.release()
+
+        if not cands:
+            return None
+        # Prefer TYPED edges: the measured failure was a plan built on the
+        # vacuous 'related_to' fallback ("gravity is related to two").
+        typed = [c for c in cands if c[0] not in VACUOUS_RELATIONS]
+        plan = None
+        for pool in (typed, cands):
+            if not pool:
+                continue
+            plan = message_to_plan(build_message(subject, pool), subject=subject)
+            if plan_is_committed(plan):
+                break
+            plan = None
+        if plan is None:
+            return None
+
+        target = None
+        for role in ('ground', 'relation', 'theme'):
+            val = plan.fill.get(role)
+            if val and val.lower() != subject.lower():
+                target = val
+                break
+        if target is None:
+            return None
+
+        rel_map = {
+            'categorize': 'is_a', 'cause': 'causes', 'attribute': 'has_property',
+            'locate': 'located_in', 'relate': 'related_to',
+            'temporal': 'temporal', 'analogy': 'analogical',
+            'contrast': 'contrastive', 'infer': 'inferred', 'episodic': 'episodic',
+        }
+        relation = rel_map.get(plan.construction, 'related_to')
+
+        frame = self.syntactic_assembly.bind_to_sentence(
+            subject=subject, relation=relation, target=target,
+            pos_map=getattr(self, '_concept_pos', {}),
+        )
+        sent = self.surface_realizer.realize(
+            frame=frame,
+            discourse_context=DiscourseState(
+                sentence_index=0, discourse_type='explain',
+                total_sentences=1, free_energy=0.3),
+            dopamine_tone=getattr(self, '_dopamine_tone', 0.5),
+            cerebellar_ngram=getattr(self, 'cerebellar_ngram', None),
+        )
+        if not sent:
+            return None
+        sent = re.sub(r'\s+', ' ', sent).strip()
+        if not sent.endswith(('.', '?', '!')):
+            sent += '.'
+        return sent
 
     def _cpg_token_boost(self, ctx):
         """Commit to graph propositions for this turn and return a token boost.
