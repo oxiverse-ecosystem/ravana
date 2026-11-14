@@ -181,12 +181,31 @@ def _construction_for(relation: str) -> Optional[Construction]:
     if r in ("is_a", "isa", "type", "kind", "category", "instance_of",
              "subclass", "part_of", "member_of"):
         return CONSTRUCTIONS["categorize"]
+    # The graph's learned relation types are ADJECTIVAL ('causal',
+    # 'analogical', 'contrastive', 'temporal', 'episodic', 'inferred'), while
+    # graph_typing.TYPED_RELATION_TYPES are VERBAL ('causes', 'is_a',
+    # 'has_property'). Both spellings occur in the persisted graph, so both
+    # must map. Missing the adjectival forms silently demoted every causal and
+    # analogical edge to the 'relate' fallback, which plan_is_committed then
+    # rejected -- measured as 7/19 typed-edge subjects failing to commit
+    # ("gravity is related to earth" from a CAUSAL edge).
     if r in ("causes", "cause", "produces", "produces_cause", "leads_to",
-             "results_in", "effect", "affects", "influences", "enables"):
+             "results_in", "effect", "affects", "influences", "enables",
+             "causal"):
         return CONSTRUCTIONS["cause"]
     if r in ("agent", "by", "author", "creator", "source", "origin",
              "created_by", "from", "has_agent"):
         return CONSTRUCTIONS["cause"]
+    if r == "temporal":
+        return CONSTRUCTIONS["temporal"]
+    if r in ("analogical", "analogy", "analog"):
+        return CONSTRUCTIONS["analogy"]
+    if r in ("contrastive", "contrast", "opposition"):
+        return CONSTRUCTIONS["contrast"]
+    if r in ("inferred", "inference", "implies"):
+        return CONSTRUCTIONS["infer"]
+    if r in ("episodic", "episode"):
+        return CONSTRUCTIONS["episodic"]
     if r in ("location", "located_in", "in", "at", "place", "time",
              "part", "contains", "within"):
         return CONSTRUCTIONS["locate"]

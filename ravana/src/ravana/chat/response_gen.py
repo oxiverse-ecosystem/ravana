@@ -7713,7 +7713,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         the formulator the narrative path already uses; the plan only supplies
         its (subject, relation, target) triple.
         """
-        from ravana.learn.macroplanning import build_message
+        from ravana.learn.macroplanning import message_from_best_edge
         from ravana.learn.linearization import (
             VACUOUS_RELATIONS, message_to_plan, plan_is_committed)
         from ravana.language.surface_realizer import DiscourseState
@@ -7753,7 +7753,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         for pool in (typed, cands):
             if not pool:
                 continue
-            plan = message_to_plan(build_message(subject, pool), subject=subject)
+            plan = message_to_plan(
+                message_from_best_edge(subject, pool), subject=subject)
             if plan_is_committed(plan):
                 break
             plan = None

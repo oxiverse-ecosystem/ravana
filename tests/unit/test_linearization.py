@@ -69,6 +69,53 @@ class TestConstructionChoice:
         assert p.construction == "categorize"
 
 
+class TestBestEdgeSelection:
+    """The plan route needs one committed proposition, not a field.
+
+    Measured failure: spreading_activation redistributes a fraction of the
+    total field to every candidate, so a hub target wins on connectivity
+    rather than on its own edge -- 'water leads to heavy', 'light leads to
+    soft', 'trust is like management'.
+    """
+
+    def test_picks_the_strongest_edge(self):
+        from ravana.learn.macroplanning import select_target
+        cands = [("causal", "earth", 0.9, 0.9), ("is_a", "force", 0.3, 0.3)]
+        rel, tgt, w, c = select_target("gravity", cands)
+        assert (rel, tgt) == ("causal", "earth")
+
+    def test_relation_and_target_come_from_the_same_edge(self):
+        from ravana.learn.macroplanning import message_from_best_edge
+        m = message_from_best_edge(
+            "gravity", [("causal", "earth", 0.9, 0.9),
+                        ("is_a", "force", 0.3, 0.3)])
+        (b,) = m.bindings
+        assert b.concept == "earth"
+        assert b.relation == "causal"
+
+    def test_subject_is_excluded_as_its_own_target(self):
+        from ravana.learn.macroplanning import select_target
+        assert select_target("gravity", [("is_a", "gravity", 0.9, 0.9)]) is None
+
+    def test_empty_candidates(self):
+        from ravana.learn.macroplanning import select_target, message_from_best_edge
+        assert select_target("x", []) is None
+        assert message_from_best_edge("x", []) is None
+
+    def test_no_subject(self):
+        from ravana.learn.macroplanning import message_from_best_edge
+        assert message_from_best_edge("", [("is_a", "y", 0.9, 0.9)]) is None
+
+    def test_best_edge_plan_is_committed(self):
+        from ravana.learn.macroplanning import message_from_best_edge
+        from ravana.learn.linearization import message_to_plan
+        m = message_from_best_edge(
+            "gravity", [("causal", "orbit", 0.9, 0.9)])
+        p = message_to_plan(m, subject="gravity")
+        assert plan_is_committed(p)
+        assert p.tokens == ["gravity", "leads", "to", "orbit"]
+
+
 class TestExtendedInventory:
     """The graph's non-typed relation vocabulary (temporal / analogical /
     contrastive / inferred / episodic) each get their own construction."""
