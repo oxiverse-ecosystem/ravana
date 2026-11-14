@@ -61,6 +61,18 @@ computed, not retrieved, it is separable from the words that fill it, and a
 small model must condition on the frame — not on the word set — to emit
 grammatical order.*
 
+**Status as of this writing.** The design in §7 is implemented in prototype
+(commit `057bbae`: `ravana/src/ravana/learn/linearization.py` plus a `prefix=`
+continuation path in `NeuralDecoder.generate`, wired behind
+`_plan_prefix_enabled`). Two measurements now exist
+(`docs/LINEARIZATION_PROTOTYPE.md`, `docs/PLAN_PREFIX_MEASURED_NEGATIVE.md`):
+the plans are grammatical but rest on a message layer that selects noise edges,
+and with good plans the prefix **still loses to the decoder's own
+distribution** — the GRU receives the frame and cannot continue it. §7.4
+records the negative, §7.5 gives the revised recommendation (use the
+narrative/syntax path as the formulator; condition *it* on the plan), and
+§7.6 retains the falsifiable prediction in its falsified form.
+
 ---
 
 ## 1. Levelt's grammatical encoding: from message to surface order
@@ -573,7 +585,8 @@ linearization is upstream of it.**
 | Syntactic frame with function order | `ravana/src/ravana/language/syntactic_cell_assembly.py` — `SyntacticFrame`, `bind_to_sentence`, `SEQUENCE_PRIORS` | Implemented; `SEQUENCE_PRIORS` is a static dict, not learned from the message |
 | Surface realization from the frame | `ravana/src/ravana/language/surface_realizer.py` — `realize`, `_build_noun_phrase`, `_apply_variant`, `_apply_agreement` | Implemented and **used by the narrative path** (`response_gen.py:1114`) |
 | Competitive lemma selection | `VerbLexicon.select_verb` (`verb_lexicon.py:500`), `BasalGangliaGate.select_concept` | Implemented; the gate selects concepts, not tokens |
-| **Linearization conditioned on the message** | — | **Absent** |
+| **Linearization conditioned on the message** | `ravana/src/ravana/learn/linearization.py` — `SurfacePlan`, `CONSTRUCTIONS`, `message_to_plan`, `plan_is_committed` | **Implemented** (commit `057bbae`); wired behind `_plan_prefix_enabled` (`engine.py:1304`, `response_gen.py:1726-1767`), off by default |
+| **Decoder continuation from the plan** | `NeuralDecoder.generate(prefix=...)` (`neural_decoder.py:421`, `462-486`) | **Implemented** (commit `057bbae`); prefix is teacher-forced through the GRU and stripped from the returned continuation |
 
 The narrative path (`_generate_narrative_paragraph`, `response_gen.py:987`)
 already does the right thing for the subjects it handles: it calls
@@ -582,8 +595,14 @@ sentences. It scores on-topic 0.242 vs the decoder's 0.069
 (`docs/DECODER_ONLY_NUMBERS.md`). The decoder path does not do this; it calls
 `NeuralDecoder.generate` with a token boost.
 
-**The gap is not a missing component. It is a missing conditioning
-representation.** The decoder is never given the frame.
+**As of commit `057bbae` the gap is closed in prototype.** `linearization.py`
+builds the plan, `NeuralDecoder.generate(prefix=...)` continues from it, and
+`response_gen.py` wires the two behind `_plan_prefix_enabled` (off by default).
+What remains open is the *measurement*: whether the plan path beats the
+word-boost on the axes that matter has not been run at scale. The blocking
+finding (§7.3) is that the plan is currently only as good as
+`build_message`, and on the persisted graph `build_message` selects noise
+edges for several high-degree subjects.
 
 ---
 
@@ -744,10 +763,119 @@ the first and third; the second (prefer typed edges) is not yet implemented.
 
 Note the resonance with the measured decoder failure: the decoder emits a word
 list because it has no message; the plan path emits grammatical falsehoods
-because it has a bad one. Both are upstream of the formulator. Neither is a
-decoder-capacity problem.
+because it has a bad one. Both are upstream of the formulator.
 
-### 7.4 The minimal falsifiable prediction
+**And the follow-up measurement adds a third layer.** With the message fixed
+enough to produce good plans (`music has rhythm`, `ocean is located in sea`),
+the plan prefix still loses to the decoder's own distribution
+(`docs/PLAN_PREFIX_MEASURED_NEGATIVE.md`, §7.4 below): the GRU receives the
+frame but cannot continue it. So the causal chain is: message → frame →
+continuation, and **two of the three links have now been measured as failure
+points.** Only the middle one (the frame representation) is sound.
+
+### 7.4 The measured result: the plan prefix is a negative
+
+`scripts/measure_plan_vs_boost.py` — 30 graph-discovered subjects, persisted
+engine, three arms, paired (`docs/PLAN_PREFIX_MEASURED_NEGATIVE.md`):
+
+```
+arm             n  on_topic   unsup   func   verb   frame
+----------------------------------------------------------------
+baseline       10    0.4592   1.400  0.437   1.00   0.900
+word_boost      7    0.4082   0.714  0.391   0.71   0.714
+plan           11    0.4153   1.091  0.442   0.82   0.758
+----------------------------------------------------------------
+delta vs baseline
+word_boost          -0.0510  -0.686 -0.046  -0.29  -0.186
+plan                -0.0439  -0.309 +0.005  -0.18  -0.142
+```
+
+`n` differs per arm because an arm that returns no output is not counted
+(baseline 10/30, plan 11/30, word_boost 7/30).
+
+**Both steering mechanisms lose to the decoder's own distribution.** The plan
+arm is worse than baseline on on-topic (−0.044), no better on frame (0.758 vs
+0.900), and worse on verb rate. The word boost reduces unsupported assertions
+(−0.686) but at a cost to every other axis.
+
+**What the samples show.** The prefix does what it was designed to do — the
+plan leads:
+
+```
+music    PLAN: "Music has rhythm one there refer other used such."
+ocean    PLAN: "Ocean is located in sea other such often there like."
+```
+
+The frame is there (`Music has rhythm`), and the continuation is salad. The
+decoder cannot **continue** a grammatical frame; it can only be *started* by
+one. Feeding the plan teacher-forced through the GRU puts the frame in the
+hidden state, but the model has no learned mapping from "I am mid-frame" to
+"the next word should be a determiner or a preposition."
+
+**This is F2 from §7.6, but not as written.** F2 predicted "if function-word
+share does not rise, the decoder is ignoring the conditioning." Here
+`func_share` *did* rise (+0.005, and the plan's own frame words are visibly in
+the output), and the continuation still failed. So the mechanism is not being
+ignored — **it is being unable to use.** The correct reading is a capacity /
+training limitation: a 256-hidden GRU trained on 512 short definitions has not
+learned grammatical continuation under an externally-imposed frame. The same
+argument §7.2 makes about the logit boost applies to the prefix.
+
+**What this rules out.** Three interventions on the decoder's output, all
+measured:
+
+| intervention | on-topic | unsupported | frame | verdict |
+|---|---|---|---|---|
+| baseline | 0.459 | 1.400 | 0.900 | — |
+| word boost (9.0) | 0.408 | 0.714 | 0.714 | worse on 4 of 5 axes |
+| plan prefix | 0.415 | 1.091 | 0.758 | worse on 3 of 5 axes |
+
+**There is no decoder-side intervention that improves on the decoder's own
+distribution.** That is a strong result, and it moves the lever: not *how* the
+decoder is steered, but *whether the decoder should be generating at all*.
+
+**Honest correction to §6.4 and §7.8.** §6.4 says "do not treat this as a
+decoder-capacity problem." This measurement partly contradicts that, and the
+contradiction should be recorded rather than smoothed over. The spec is right
+that the deficit is not in the *message* — the plans are good (`music has
+rhythm`, `ocean is located in sea`), and the failure is downstream of the
+message layer. But "not a capacity problem" is too strong: a 256-hidden GRU
+trained on 512 definitions has not learned to continue an externally-imposed
+frame, and that *is* a capacity/training limitation. The defensible reading is
+the narrower one: **do not expect decoder-side steering to fix it.** §7.8's
+"What NOT to do" already says "do not treat this as a decoder-capacity
+problem"; the measurement says that was too strong, and §7.5 above is the
+revised version.
+
+### 7.5 The revised recommendation
+
+Given the measured negative, the design in §7.1–7.2 should be read as
+**diagnostic, not shippable**. The recommendation that survives measurement:
+
+1. **Leave the decoder as a fallback, and stop trying to make it good.** Keep
+   `_plan_prefix_enabled` and `_anchor_boost_enabled` off (`engine.py:1303`,
+   `:1304`). Both are measured worse than the decoder's own distribution.
+2. **Use the narrative/syntax path as the formulator.** It already produces
+   grammatical text with no neural network — `bind_to_sentence` →
+   `SurfaceRealizer.realize` (`response_gen.py:1102-1118`) — and it scores
+   on-topic 0.242 vs the decoder's 0.069 (`docs/DECODER_ONLY_NUMBERS.md`).
+   This is the brain-faithful option: the brain's conservative response to
+   uncertainty is to fall back on the most-practiced **stored** form, not to
+   compose something novel.
+3. **Condition the narrative path on the plan, not the GRU.** The
+   `SurfacePlan` representation is good (`music has rhythm`, `ocean is located
+   in sea`) and the narrative path is a compositional realizer that can
+   consume a frame. This is the one remaining untested brain-faithful option,
+   and it is cheap: `message_to_plan` already exists, and
+   `SurfaceRealizer.realize` already takes a frame.
+4. **Invest in retrieval and concept acquisition.** The 99/100 production
+   number is the real capability; extending the ~325 stored definitions is
+   worth more than any decoder work.
+5. **If generation is ever needed**, it requires a decoder trained *with*
+   conditioning on a message — not a fitted projection bolted onto a
+   CE-trained GRU. That is a retraining project, not a wiring project.
+
+### 7.6 The falsifiable prediction (retained, now partly falsified)
 
 **Prediction P1.** Conditioning the decoder on the plan prefix (a) will raise
 the **function-word share** and the **frame rate** of decoder output from the
@@ -764,16 +892,25 @@ original 9.0-knee sweep could not see**, because its metric
 (`scripts/train.py:559`: `in-vocab × distinct-1 × on-topic`) uses the type-token
 ratio, which is 1.0 for both a word list and a sentence.
 
+**P1 is falsified as stated.** `func_share` rose (+0.005) but `frame` fell
+(0.900 → 0.758) and on-topic fell (0.459 → 0.415). The plan prefix is not an
+improvement over the decoder's own distribution. The instrument worked — it
+detected the failure on the syntactic axis, which is exactly what it was built
+to do.
+
 **Falsifier F1.** If function-word share rises but on-topic collapses below
 0.10, the frame is over-constraining: the prefix is rejecting the content
 words the graph supports. Fix by relaxing the prefix to a weighted prior rather
-than a fixed continuation.
+than a fixed continuation. *(Not the observed failure — on-topic fell only
+0.044.)*
 
 **Falsifier F2.** If function-word share does not rise, the decoder is ignoring
 the conditioning — which is the `W_sm` collapse all over again, and the fix is
 to bypass the attribute encoder entirely (condition on the raw GloVe vector +
 the categorical frame, per `docs/CONDITIONING_COLLAPSES_TO_A_POINT.md`
-candidate fix 1).
+candidate fix 1). *(Not the observed failure either — `func_share` rose. The
+actual failure is the stronger version: the conditioning is received but
+cannot be used.)*
 
 **Falsifier F3.** If the output becomes grammatical but *templated* (the same
 construction for every subject, no variation), the model has over-fit to the
@@ -788,15 +925,23 @@ the function assignment is right and the relation binding is wrong — which is
 the `CPGConfig.relation_words` failure mode, not a linearization failure. Keep
 the two measurements separate.
 
-**Falsifier F5 (the prototype's finding, and the one most likely to fire).**
-If the plan is grammatical but its filler is a non-concept (`gravity is related
-to two`) or rests on a vacuous `related_to` edge, the failure is in
-`build_message`, not in `message_to_plan`. The fix is upstream: gate the plan
-on the edge being **typed**, not on its activation rank. `plan_is_committed`
-rejects the vacuous relation and the non-concept filler, so this falsifier
-should be caught before emission — but only if the guard is not bypassed.
+**Falsifier F5 (the prototype's finding).** If the plan is grammatical but its
+filer is a non-concept (`gravity is related to two`) or rests on a vacuous
+`related_to` edge, the failure is in `build_message`, not in `message_to_plan`.
+The fix is upstream: gate the plan on the edge being **typed**, not on its
+activation rank. `plan_is_committed` rejects the vacuous relation and the
+non-concept filler, so this falsifier should be caught before emission — but
+only if the guard is not bypassed. *(Partly observed: `gravity is related to
+two` and `time is related to making` in the prototype run; `plan_is_committed`
+now rejects them.)*
 
-### 7.5 What to measure, and how to avoid the anchor-boost mistake
+**Falsifier F6 (new, from the measurement).** If the plan prefix produces a
+good frame and a salad continuation, the limitation is the decoder's learned
+continuation mapping, not the plan. The fix is not better conditioning — it is
+a different formulator (the narrative path), or a decoder trained with message
+conditioning from the start. **This is the falsifier that fired.**
+
+### 7.7 What to measure, and how to avoid the anchor-boost mistake
 
 `docs/ANCHOR_BOOST_DESTROYS_SYNTAX.md` is the cautionary tale: the 9.0 knee was
 fitted on `in-vocab ratio × distinct-1 × on-topic` (`scripts/train.py:559`),
@@ -818,7 +963,7 @@ result that improves `func_share` and `frame` while `plan_skeleton_match` is
 at chance means the decoder is ignoring the plan and the framing is
 decorative.
 
-### 7.6 What NOT to do
+### 7.8 What NOT to do
 
 - **Do not raise the logit boost.** Measured flat-to-negative at 2.5 → 5.0
   (`docs/BOOST_STRENGTH_NOT_THE_LEVER.md`) and syntax-destroying at 2.0–12.0
@@ -836,7 +981,11 @@ decorative.
   sentences.
 - **Do not treat this as a decoder-capacity problem.** The GRU is 256-hidden,
   vocab 15 000, embed 75; the narrative path produces grammatical text with no
-  neural network at all. The deficit is upstream.
+  neural network at all. **Measured correction (§7.4): this was too strong.**
+  The plan-prefix result shows the GRU *cannot continue* an externally-imposed
+  frame, which is a capacity/training limitation. The defensible version: do
+  not expect *decoder-side steering* — boost, mask, or prefix — to fix it. All
+  three are now measured, and all three lose to the decoder's own distribution.
 
 ---
 
@@ -909,11 +1058,17 @@ decorative.
    comprehension model. The anatomy transfers; the milliseconds do not.
 8. **Whether the decoder's failure is a capacity failure or a conditioning
    failure.** The evidence here (`docs/CONDITIONING_COLLAPSES_TO_A_POINT.md`,
-   `docs/WHAT_THE_DECODER_ROWS_CONTAIN.md`) strongly favours conditioning, but
-   the two are not fully dissociated: a 256-hidden GRU trained on 512 short
-   definitions may also lack the capacity to represent a frame. The design in §7
-   is testable either way — if the frame conditioning fails, capacity is the
-   next hypothesis.
+   `docs/WHAT_THE_DECODER_ROWS_CONTAIN.md`) strongly favours conditioning, and
+   the plan-prefix measurement (`docs/PLAN_PREFIX_MEASURED_NEGATIVE.md`) shows
+   the conditioning *is* received — `func_share` rises and the plan's frame
+   words appear in the output — but the continuation is still salad. That is a
+   capacity/training limitation, not a conditioning one: a 256-hidden GRU
+   trained on 512 short definitions has not learned to continue an
+   externally-imposed frame. **This one is now settled by measurement, and
+   against the earlier reading.** The remaining live question is whether a
+   decoder trained *with* message conditioning from the start would behave
+   differently — which is a retraining question, not answerable from the
+   current checkpoint.
 
 ---
 
@@ -939,12 +1094,12 @@ decorative.
 - **Bock, J. K., & Levelt, W. J. M.** (1994). Language production: Grammatical
   encoding. In M. A. Gernsbacher (Ed.), *Handbook of Psycholinguistics*
   (pp. 945–984). Academic Press.
-- **Bock, J. K., Loebell, H., & Morey, R.** (1992). From conceptual roles to
-  structural relations: Bridging the syntactic cleft. *Psychological Review*,
-  99(1), 150–171.
 - **Bock, J. K., & Warren, R. K.** (1985). Conceptual accessibility and
   syntactic structure in sentence formulation. *Cognition*, 21(1), 47–67.
   doi:10.1016/0010-0277(85)90023-X
+- **Bock, J. K., Loebell, H., & Morey, R.** (1992). From conceptual roles to
+  structural relations: Bridging the syntactic cleft. *Psychological Review*,
+  99(1), 150–171.
 - **Bornkessel, I., & Schlesewsky, M.** (2006). The extended Argument
   Dependency Model: A neurocognitive approach to sentence comprehension across
   languages. *Psychological Review*, 113(4), 787–821.
@@ -1045,6 +1200,7 @@ decorative.
 - **Pawley, A., & Syder, F. H.** (1983). Two puzzles for linguistic theory:
   Nativelike selection and nativelike fluency. In J. C. Richards & R. W.
   Schmidt (Eds.), *Language and Communication* (pp. 191–227). Longman.
+  (Some citations give pp. 191–226 and a Routledge imprint; cite the chapter.)
 - **Shetreet, E., & Friedmann, N.** (2014). The processing of different
   syntactic structures: Word order vs. verb movement. (Hebrew OSV/VSO; LIFG and
   bilateral posterior temporal.)
@@ -1096,7 +1252,15 @@ prepositions from. The design is to condition the decoder on an explicit
 **ordered role sequence** (`LinearizationFrame`): seed the GRU with a
 frame embedding rather than the collapsed subject signature, mask the
 candidate set to the open slots in order, and condition the transition prior on
-the role sequence. The falsifiable prediction is that function-word ratio and
-skeleton match rise while on-topic stays at or above the CPG baseline and
-unsupported assertions fall — and the metric must include a syntactic term,
-because the anchor-boost sweep was fitted on one that could not see syntax.
+the role sequence.
+
+**That design was built and measured, and it is a negative.** The plan
+representation is sound — `music has rhythm`, `ocean is located in sea` — but
+the plan prefix loses to the decoder's own distribution on on-topic (0.415 vs
+0.459), frame (0.758 vs 0.900), and verb rate, while the word boost loses on
+four of five axes (`docs/PLAN_PREFIX_MEASURED_NEGATIVE.md`). The GRU receives
+the frame (function-word share rises) and cannot continue it. So the
+falsifiable prediction is retained in its falsified form, and the surviving
+recommendation is to condition the **narrative/syntax path** — which already
+produces grammatical text with no neural network — on the plan, and to stop
+trying to make the decoder good.
