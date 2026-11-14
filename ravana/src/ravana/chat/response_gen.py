@@ -1043,7 +1043,27 @@ class ResponseGenMixin(ChainWalkerMixin):
             # Handle article: if definition starts with 'a', 'an', or 'the',
             # use "X is Y" directly. Otherwise, add "about" for flow.
             def_first_word = def_text.split()[0].lower() if def_text.split() else ''
-            if def_first_word in ('a', 'an', 'the'):
+            # STUTTER GUARD (measured 2026-11-14). When the stored definition
+            # already opens with the subject ("A cat is a small domesticated
+            # mammal"), prefixing "{subject} is" produces
+            # "Cat is A cat is a small ..." -- the correct answer with a
+            # duplicated subject. The clause monitor then withholds it as a
+            # truncated-subject conflict, so RAVANA discards a correct, grounded
+            # answer over a surface artifact. This was 17 of 33 withheld cases
+            # in a 40-subject diagnostic. `_definition_response` already guards
+            # this; the narrative path did not.
+            _defn_l = def_text.lower()
+            _subj_l = subject.strip().lower().split()[0] if subject.strip() else ""
+            _already_leads = (
+                _defn_l.startswith(subject.strip().lower())
+                or (_subj_l and (_defn_l.startswith(_subj_l + " ")
+                                 or _defn_l.startswith("a " + _subj_l + " ")
+                                 or _defn_l.startswith("an " + _subj_l + " ")
+                                 or _defn_l.startswith("the " + _subj_l + " ")))
+            )
+            if _already_leads:
+                s1 = def_text.rstrip('.') + '.'
+            elif def_first_word in ('a', 'an', 'the'):
                 s1 = f"{subject} is {def_text}."
             else:
                 s1 = f"{subject} is about {def_text}."
