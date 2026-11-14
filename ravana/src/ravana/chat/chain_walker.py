@@ -163,6 +163,10 @@ class ChainWalkerMixin:
             self.cerebellar_ngram.seed_from_pos(self._concept_pos)
         if hasattr(self, 'syntactic_assembly') and hasattr(self, '_concept_pos'):
             self.syntactic_assembly.seed_from_pos(self._concept_pos)
+            # Keep the assembly's POS view in sync with the engine's learned map
+            # (it is rebuilt by _build_concept_pos, so a stale copy would let
+            # `_determine_article` mis-classify common nouns as proper).
+            self.syntactic_assembly._concept_pos = self._concept_pos
         extra = f", {migrated} reclassified" if migrated else ""
         print(f"  [PMI] Seeded {len(self.graph.nodes)} concepts, {len(self.graph.edges)} connections"
               f" ({auto_count} PMI-wired, {gwired} GloVe-wired){extra}")

@@ -256,8 +256,10 @@ class SyntacticCellAssembly:
                      'pron': 'pron', 'interj': 'interj', 'conj': 'conj', 'prep': 'prep', 'det': 'det', 'num': 'num'}
         subj_pos_short = pos_short.get(subj_pos, subj_pos)
         obj_pos_short = pos_short.get(obj_pos, obj_pos)
-        art_subj = self._determine_article(subject, subj_pos_short, is_subject=True)
-        art_obj = self._determine_article(target, obj_pos_short, is_subject=False)
+        art_subj = self._determine_article(subject, subj_pos_short, is_subject=True,
+                                           pos_map=pos_map)
+        art_obj = self._determine_article(target, obj_pos_short, is_subject=False,
+                                          pos_map=pos_map)
 
         # Pronoun for subject (used in subsequent sentences)
         pronoun = self._pronoun_map.get(sl, '')
@@ -342,7 +344,8 @@ class SyntacticCellAssembly:
         )
 
     def _determine_article(self, concept: str, pos: str,
-                            is_subject: bool) -> str:
+                            is_subject: bool,
+                            pos_map: Optional[Dict[str, str]] = None) -> str:
         """Determine the appropriate article for a concept.
 
         Rules:
@@ -391,8 +394,25 @@ class SyntacticCellAssembly:
             return ""
 
         # Proper nouns -> no article
+        #
+        # MEASURED (docs/DEFINITION_PROPOSITION.md): `_proper_nouns` holds 7,889
+        # entries including 'force', 'unit', 'salt', 'sound', 'body', 'time',
+        # 'love', 'water', 'light' -- it is seeded from every capitalized word
+        # mid-sentence in teen_seeds.txt, which catches sentence-initial common
+        # nouns. Suppressing the article for those gave "gravity is force"
+        # instead of "gravity is a force".
+        #
+        # The POS map is the better authority: if it says the word is a common
+        # noun, it is not a proper noun for article purposes. Proper-noun
+        # CAPITALIZATION still uses the set (response_gen._capitalize_subject),
+        # so this only affects the article.
         proper_nouns = getattr(self, 'proper_nouns', set())
-        if cl in proper_nouns or any(p in cl for p in ("poirot", "marple", "carroll", "holmes")):
+        # `pos_map` is passed by bind_to_sentence and is authoritative; the
+        # instance attribute is only a fallback for direct callers.
+        pos_map = pos_map or getattr(self, '_concept_pos', {}) or {}
+        _is_common_noun = pos_map.get(cl) in ('noun', 'n')
+        if (cl in proper_nouns and not _is_common_noun) or any(
+                p in cl for p in ("poirot", "marple", "carroll", "holmes")):
             return ""
         # Non-noun POS → no article
         if pos in ('pron', 'interj', 'conj', 'prep', 'det', 'adj', 'verb', 'v'):
@@ -452,7 +472,17 @@ class SyntacticCellAssembly:
         if is_subject:
             # Skip article for most concept labels — they're generic/abstract
             return ""
-        # For objects: skip article — concept labels are generic/abstract
+        # Object of a CATEGORIZING / ATTRIBUTIVE relation: the copula frame
+        # needs an indefinite article ("gravity is a force", "a species is a
+        # unit"). This function previously returned "" unconditionally for
+        # objects, so every typed is_a claim was realized as "gravity is
+        # force" -- grammatical-ish but not English.
+        #
+        # Only for the relations that take a predicate noun. Causal / temporal
+        # / contrastive relations take a complement, not a predicate nominal,
+        # and forcing an article there would give "leads to a fire".
+        if pos in ('noun', 'n'):
+            return "a"
         return ""
 
     def _determine_tense(self, relation: str) -> str:

@@ -129,6 +129,24 @@ class VerbLexicon:
             "build on", "stem from", "spring from",
             "open up", "reach into", "flow into",
         ],
+        # The copula is not a verb -- it is the frame that carries a
+        # categorizing or attributive claim. It needs its own morpheme category
+        # because `is_a` / `has_property` / `part_of` / `used_for` /
+        # `capable_of` are absent from COMPOSITION_RULES and were falling back
+        # to the vague "semantic" verbs (a typed is_a edge became
+        # "gravity contributes to force").
+        #
+        # MEASURED: docs/DEFINITION_PROPOSITION.md.
+        "copula": [
+            # Present tense only. `was`/`were`/`been` leaked in here and were
+            # conjugated to "weres" / "has been"; a definitional claim is
+            # present-tense ("gravity is a force"), and the frame's tense is
+            # already chosen by `_determine_tense`.
+            "is", "am", "are",
+        ],
+        "quantifiers": [
+            "a", "an", "the", "any", "some",
+        ],
     }
 
     SUBCAT_FRAMES = {
@@ -249,6 +267,42 @@ class VerbLexicon:
             ("roots",),                    # "borrows" → "lends"
             ("adjectives", "prepositions"),  # "is opposite to"
             ("roots", "prepositions"),     # "differs from"
+        ],
+        # ── The graph's TYPED vocabulary ────────────────────────────────────
+        # These were absent, so every typed edge fell back to the "semantic"
+        # rules and was realized with a vague associative verb -- a typed
+        # `is_a` edge became "gravity contributes to force" instead of
+        # "gravity is a force". MEASURED: the plan route's plans were correct
+        # but the formulator overrode the relation
+        # (docs/DEFINITION_PROPOSITION.md).
+        #
+        # Each maps to the construction that asserts what the relation MEANS:
+        # `is_a` is a copula, not a verb, so its rule is the copula frame.
+        "is_a": [
+            ("copula",),                   # "is a", "was a"
+        ],
+        "isa": [
+            ("copula",),
+        ],
+        "part_of": [
+            ("copula", "prepositions"),    # "is part of", "forms part of"
+        ],
+        "has_property": [
+            ("copula", "prepositions"),    # "is characterized by"
+            ("copula",),                   # "is" + adjective
+        ],
+        "property": [
+            ("copula", "prepositions"),
+            ("copula",),
+        ],
+        "capable_of": [
+            ("copula", "prepositions"),    # "is capable of"
+        ],
+        "used_for": [
+            ("copula", "prepositions"),    # "is used for", "is used to"
+        ],
+        "part_of": [
+            ("copula", "prepositions"),    # "is part of", "forms part of"
         ],
     }
 
@@ -382,6 +436,15 @@ class VerbLexicon:
                     cls._refractory_counts = {}
                 cls._refractory_counts[word] = cls._refractory_counts.get(word, 0) + 2
 
+    # Irregular verbs the naive "+s" rule mangles. MEASURED: `is` -> `iss`,
+    # `was` -> `wass`, `am` -> `ams`, `are` -> `ares`, which is what a typed
+    # is_a edge was realized as before the copula category existed.
+    _IRREGULAR_THIRD_PERSON = {
+        "is": "is", "was": "was", "am": "is", "are": "are",
+        "be": "is", "been": "has been", "being": "is",
+        "have": "has", "do": "does", "go": "goes",
+    }
+
     @classmethod
     def _conjugate_root(cls, root: str, subject: str = "") -> str:
         """Apply minimal conjugation to verb root based on subject."""
@@ -389,14 +452,19 @@ class VerbLexicon:
             return "relates"
         if subject and subject.lower() in ("they", "we", "you", "people"):
             return root  # plural: bare root
+        # The copula is irregular and must not be suffix-inflected. It is the
+        # frame for a categorizing claim, so it agrees with the SUBJECT:
+        # "gravity is a force", "birds are a kind".
+        if root in cls._IRREGULAR_THIRD_PERSON:
+            if subject and subject.lower() in ("they", "we", "you", "people"):
+                return {"is": "are", "was": "were", "am": "are"}.get(root, root)
+            return cls._IRREGULAR_THIRD_PERSON[root]
         if root.endswith("y") and len(root) > 2 and root[-2] not in "aeiou":
             return root[:-1] + "ies"
         if root.endswith("ch") or root.endswith("sh") or root.endswith("ss") or root.endswith("x"):
             return root + "es"
         if root.endswith("e"):
-            return root + "s" if root[-2] in "aeiou" else root + "s"
-        if root in ("have", "do", "go"):
-            return {"have": "has", "do": "does", "go": "goes"}.get(root, root + "s")
+            return root + "s"
         return root + "s"
 
     @classmethod

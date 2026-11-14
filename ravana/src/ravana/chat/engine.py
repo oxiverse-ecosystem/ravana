@@ -1940,9 +1940,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Phase E: Syntactic cell assemblies — Hebbian role learning with seeded priors
         self.syntactic_assembly = SyntacticCellAssembly(learning_rate=0.05)
         self.syntactic_assembly.proper_nouns = self._proper_nouns
+        # The assembly needs the engine's learned POS map: `_determine_article`
+        # uses it to decide whether a word in the (over-inclusive) proper-noun
+        # set is really a common noun. MEASURED: without it, 'force'/'unit'/
+        # 'salt' were treated as proper nouns and realized with no article
+        # ("gravity is force"). See docs/DEFINITION_PROPOSITION.md.
+        self.syntactic_assembly._concept_pos = self._concept_pos
         # Phase F: Surface realizer — rule-governed English morphology with dopamine modulation
         self.surface_realizer = SurfaceRealizer()
         self.surface_realizer.proper_nouns = self._proper_nouns
+        # The realizer's `_build_noun_phrase` consults the learned POS map to
+        # decide whether a word in its broad abstract/uncountable sets is really
+        # a common noun. MEASURED: without it, 'force'/'progression'/
+        # 'descendant' were treated as abstract and the article was suppressed
+        # ("gravity is force"). See docs/DEFINITION_PROPOSITION.md.
+        self.surface_realizer._concept_pos = self._concept_pos
         # Phase 5 (casing): cached set of graph concepts that are STRONG named
         # entities (country/city/company/person/... via ConceptNet IsA). Fed to
         # case_infer so mid-sentence entities not in SUBTLEX still capitalize.
