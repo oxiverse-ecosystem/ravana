@@ -67,11 +67,22 @@ class LingGenConditioner:
     # ── fit ────────────────────────────────────────────────────────────────
     @classmethod
     def fit(cls, binder_vecs: np.ndarray, embed_vecs: np.ndarray,
-            lam: float = 1.0) -> "LingGenConditioner":
+            lam: float = 1.0,
+            identity_vecs: Optional[np.ndarray] = None) -> "LingGenConditioner":
         """Ridge-regress embed_vecs <- W_sm @ binder_vecs.
 
         Solves (X^T X + lam I) w = X^T y per target column. X is (n, binder_dim),
         y is (n, embed_dim). Closed-form, no external deps.
+
+        identity_vecs: optional (n, k) array concatenated to the binder vectors
+        before fitting. The 65-D Binder signature encodes TYPICALITY, not
+        identity -- measured: pairwise cosine of projected conditioning vectors
+        across unrelated subjects is 0.9990, so the signature alone cannot
+        separate the subjects the projection is supposed to condition on
+        (docs/CONDITIONING_COLLAPSES_TO_A_POINT.md). Supplying the subject's own
+        GloVe vector here gives the regression an identity-bearing component.
+        The forward pass (`condition`) must be given the same concatenation, so
+        `identity_dim` is stored on the instance.
         """
         X = np.asarray(binder_vecs, dtype=np.float64)
         Y = np.asarray(embed_vecs, dtype=np.float64)
@@ -80,7 +91,13 @@ class LingGenConditioner:
         if Y.ndim == 1:
             Y = Y.reshape(1, -1)
         n = X.shape[0]
-        if n < _MIN_PAIRS or X.shape[1] != _BINDER_DIM or Y.shape[1] != _EMBED_DIM:
+        if identity_vecs is not None:
+            Iv = np.asarray(identity_vecs, dtype=np.float64)
+            if Iv.ndim == 1:
+                Iv = Iv.reshape(1, -1)
+            if Iv.shape[0] == n:
+                X = np.concatenate([X, Iv], axis=1)
+        if n < _MIN_PAIRS or X.shape[1] < _BINDER_DIM or Y.shape[1] != _EMBED_DIM:
             # Not enough / malformed — return an untrained conditioner.
             c = cls(lam=lam)
             c._n_fit = max(0, n)
@@ -91,20 +108,26 @@ class LingGenConditioner:
         Ym = Y.mean(axis=0)
         Xc = X - Xm
         Yc = Y - Ym
-        XtX = Xc.T @ Xc + lam * np.eye(_BINDER_DIM, dtype=np.float64)
+        XtX = Xc.T @ Xc + lam * np.eye(X.shape[1], dtype=np.float64)
         XtY = Xc.T @ Yc
-        W = np.linalg.solve(XtX, XtY)          # (binder_dim, embed_dim)
-        # Store as (embed_dim, binder_dim) for the forward pass: out = W_sm @ x.
+        W = np.linalg.solve(XtX, XtY)          # (in_dim, embed_dim)
+        # Store as (embed_dim, in_dim) for the forward pass: out = W_sm @ x.
         Wt = W.T.copy()
-        c = cls(W_sm=Wt, lam=lam)
+        c = cls(W_sm=Wt, lam=lam, binder_dim=X.shape[1])
         c._n_fit = n
         c._Xm = Xm
         c._Ym = Ym
         return c
 
     # ── forward ──────────────────────────────────────────────────────────────
-    def condition(self, binder65: np.ndarray) -> Optional[np.ndarray]:
+    def condition(self, binder65: np.ndarray,
+                  identity_vec: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
         """Map a 65-D Binder vector to a 75-D initiation embedding.
+
+        identity_vec: optional (k,) array concatenated after the binder vector,
+        matching the `identity_vecs` supplied at fit time. REQUIRED when the
+        projection was fitted with one -- otherwise the widths mismatch and the
+        caller gets None (fail-soft).
 
         Returns None when untrained (fail-soft: caller uses the Lancaster warp).
         """
@@ -113,8 +136,20 @@ class LingGenConditioner:
         x = np.asarray(binder65, dtype=np.float64)[:_BINDER_DIM]
         if x.shape[0] != _BINDER_DIM:
             return None
+        in_dim = self._W.shape[1]
+        if in_dim > _BINDER_DIM:
+            # fitted with an identity component
+            if identity_vec is None:
+                return None
+            iv = np.asarray(identity_vec, dtype=np.float64).reshape(-1)
+            if iv.shape[0] != in_dim - _BINDER_DIM:
+                return None
+            x = np.concatenate([x, iv])
+        Xm = getattr(self, "_Xm", None)
+        if Xm is None or Xm.shape[0] != x.shape[0]:
+            Xm = np.zeros(x.shape[0], dtype=np.float64)
         # Apply the same centering learned at fit time (if any).
-        xc = x - getattr(self, "_Xm", np.zeros(_BINDER_DIM, dtype=np.float64))
+        xc = x - Xm
         out = self._W @ xc
         out = out + getattr(self, "_Ym", np.zeros(_EMBED_DIM, dtype=np.float64))
         out = np.asarray(out, dtype=np.float32)

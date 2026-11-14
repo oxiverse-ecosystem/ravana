@@ -1699,6 +1699,18 @@ class ResponseGenMixin(ChainWalkerMixin):
                                     np.asarray(_gv, dtype=np.float64)),
                                 dtype=np.float32).reshape(-1)[:65]
                             if _sig.shape[0] == 65:
+                                # W_sm may have been fitted with an identity
+                                # component concatenated after the 65-D binder
+                                # signature (docs/CONDITIONING_COLLAPSES_TO_A_POINT.md:
+                                # the signature alone has pairwise cosine 0.999
+                                # across subjects). Concatenate the subject's own
+                                # GloVe vector when the matrix is wider.
+                                _in_dim = int(np.asarray(_Wsm).shape[1])
+                                if _in_dim > 65:
+                                    _sig = np.concatenate([
+                                        _sig,
+                                        np.asarray(_gv, dtype=np.float32).reshape(-1)
+                                    ])[:_in_dim]
                                 _proj = np.asarray(_Wsm, dtype=np.float32) @ _sig
                                 _n = np.linalg.norm(_proj)
                                 if _n > 0:
