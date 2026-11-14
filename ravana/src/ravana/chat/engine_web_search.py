@@ -399,6 +399,47 @@ class WebSearchMixin:
                         "so I'll be honest rather than guess.", "web_unverified")
             return None
 
+        # ── REAL-WORD GUARD (measured 2026-11-14) ────────────────────────────
+        # A nonsense subject must never receive a confident web-sourced
+        # definition. Observed: `what is zzzunknownqqq` returned
+        #   "according to a web source, KNOWN meaning is - Recognized or
+        #    established as a fact or truth."
+        # The query was tokenized, matched the word "known", and the snippet
+        # passed every downstream check because those checks ask whether the
+        # SNIPPET is coherent -- not whether the SUBJECT is a real lexical item.
+        #
+        # The brain does not retrieve a fact about a non-word: lexical access
+        # fails first, and the result is "I don't know that word", not a
+        # confident definition assembled from partial matches. GloVe coverage is
+        # the cheapest available proxy for lexical existence -- a string with no
+        # embedding is not a word the language system has ever represented.
+        #
+        # Check BOTH the ctx subject and the raw input's head token: the ctx
+        # subject can be rewritten upstream (observed: ctx.subject='known' for
+        # the raw query 'what is zzzunknownqqq'), so trusting it alone is not
+        # enough. Fail closed: return None so the caller degrades to honest
+        # uncertainty.
+        def _has_embedding(tok: str) -> bool:
+            if not tok:
+                return True
+            fn = getattr(self, "_glove_vector", None)
+            if not callable(fn):
+                return True
+            return fn(tok) is not None
+
+        _subj_head = (ctx.subject or "").strip().lower().split()[0] if ctx.subject else ""
+        _raw_head = (ctx.raw_input or "").strip().lower()
+        # the last content token of the raw query is the candidate subject
+        _raw_tokens = [w for w in re.findall(r"[a-z']+", _raw_head)
+                       if w not in STOP_WORDS and len(w) >= 3]
+        _raw_cand = _raw_tokens[-1] if _raw_tokens else ""
+        for _tok in {_subj_head, _raw_cand}:
+            if _tok and not _has_embedding(_tok):
+                if getattr(self, '_trace_enabled', False):
+                    print(f"  [webans] subject token {_tok!r} has no lexical "
+                          f"embedding -- refusing to define a non-word")
+                return None
+
         # ── Answer-usefulness monitor (N400 plausibility / reality monitoring) ──
         # We "see" the candidate answer and check whether it actually serves the
         # question before speaking it (metacognitive monitoring; Nelson & Narens;

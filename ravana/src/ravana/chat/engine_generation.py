@@ -2445,6 +2445,35 @@ class GenerationMixin:
         if topic and method != "all_unknown" and method != "no_pattern" and method != "no_match":
             return (topic, text)
 
+        # ── UNCONNECTED-SUBJECT GUARD (measured 2026-11-14) ──────────────────
+        # `_ground_query` reports method="multi_word_unconnected" when it found
+        # no known word in the query -- i.e. the subject is not something the
+        # system has a concept for. That is a legitimate answer for a genuinely
+        # novel term, and the caller should be told so rather than handed a
+        # DIFFERENT subject.
+        #
+        # Observed failure: `what is zzzunknownqqq` was grounded to the subject
+        # 'known' (a real word, pulled from the graph's activated neighbours by a
+        # later fallback), and the engine then answered with the stored
+        # definition of 'knowledge':
+        #   "Knowledge is an awareness of facts, a familiarity with..."
+        # A nonsense string must not be silently re-pointed at a real concept --
+        # that is confabulation with a confident surface.
+        #
+        # The general principle: the extracted subject must APPEAR IN THE INPUT.
+        # If the grounder could not connect the query to a concept, and the only
+        # candidate subjects are graph neighbours that the user never typed, the
+        # honest subject is the input's own head token (or ""), never a
+        # substitute. Downstream guards then see a token with no lexical
+        # embedding and abstain.
+        if topic and method in ("multi_word_unconnected", "no_match", "all_unknown",
+                                "no_pattern"):
+            _input_tokens = set(re.findall(r"[a-z']+", text.lower()))
+            _topic_tokens = set(re.findall(r"[a-z']+", (topic or "").lower()))
+            if _topic_tokens and not (_topic_tokens & _input_tokens):
+                return ("", text)
+            return (topic, text)
+
         # Fallback: best activated concept (skip question, topic-skip, and short words)
         # Prefer nouns over adjectives/verbs using POS tags
         # CRITICAL: Prefer labels that actually appear in the user's input text
@@ -2465,7 +2494,16 @@ class GenerationMixin:
                             and lbl not in self.TOPIC_SKIP_WORDS):
                         pos = self._concept_pos.get(lbl, 'noun')
                         # Prioritize: input-text words > arbitrary GloVe neighbors
-                        appears_in_input = lbl in input_words or any(lbl in w for w in input_words)
+                        # WORD-BOUNDARY match, not substring (measured 2026-11-14):
+                        # `any(lbl in w for w in input_words)` matched the label
+                        # 'known' INSIDE the nonsense token 'zzzunknownqqq', so the
+                        # activated fallback returned 'known' as an "input-matching"
+                        # concept and the engine answered from the definition of
+                        # 'knowledge'. Substring matching on a token the user typed
+                        # is not evidence that the concept was mentioned.
+                        appears_in_input = (lbl in input_words
+                                            or any(re.search(r"\b" + re.escape(lbl) + r"\b", w)
+                                                   for w in input_words))
                         if appears_in_input and pos == 'noun' and in_input_noun is None:
                             in_input_noun = (node.label, text)
                         if appears_in_input and in_input_real is None:
@@ -2490,6 +2528,16 @@ class GenerationMixin:
                 input_vs = ', '.join(sorted(input_words)) if input_words else '(empty)'
                 print(f"  [trace]   no input-match in activated â€” falling through to raw text (input_words={{{input_vs}}})")
             # Fall through to raw text processing below (don't use best_noun/best_real)
+            #
+            # NEVER substitute a graph neighbour for a token the user did not
+            # type. If the input's own content words are all unknown (a nonsense
+            # string, a neologism), the honest subject is that token -- not an
+            # activated neighbour that happens to be a real word. Returning a
+            # substitute here is what let `what is zzzunknownqqq` answer from the
+            # definition of 'knowledge'. The raw-text branch below derives the
+            # subject from the input only, which is the fail-closed behaviour.
+            best_noun = None
+            best_real = None
 
         # Fallback: find meaningful words
         words = [w.strip(".,!?") for w in text.lower().split()
