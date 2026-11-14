@@ -36,16 +36,42 @@ def load_subjects(path, limit=0):
     return subs[:limit] if limit else subs
 
 
-def looks_like_salad(text, subject):
-    """Cheap structural salad check: no content word shared with the subject's
-    definition, and a low type-token ratio."""
+def looks_like_salad(text, subject, engine=None):
+    """Structural salad check for a production answer.
+
+    NOTE (measured 2026-11-14): two earlier heuristics produced false positives
+    on CORRECT long definitions -- a type-token-ratio cutoff flagged
+    "A moral is a message that is conveyed or a lesson to be learned from a
+    story or event...", and the codebase's `_is_word_salad` is not reachable from
+    the engine object (it is imported into the response_gen mixin), so a
+    hasattr-guarded delegation silently fell through.
+
+    The signal that actually separates a definition from salad: a definition
+    states a predicate about its subject. Require the subject (or its head word)
+    to appear AND at least one content word beyond the subject.
+    """
     if not text:
         return True
     words = re.findall(r"[a-z']+", text.lower())
     if len(words) < 3:
         return True
-    uniq = len(set(words)) / len(words)
-    return uniq < 0.6
+    head = re.findall(r"[a-z']+", subject.lower())
+    head = [w for w in head if len(w) >= 3]
+    if head and not any(w in words for w in head):
+        return True
+    content = [w for w in words
+               if len(w) >= 4 and w not in _SALAD_STOP
+               and w not in (head or [])]
+    return len(content) < 2
+
+
+_SALAD_STOP = frozenset({
+    "that", "this", "with", "from", "which", "what", "when", "where", "while",
+    "their", "there", "these", "those", "about", "into", "than", "then",
+    "also", "such", "some", "more", "most", "many", "much", "very", "just",
+    "like", "have", "has", "had", "been", "were", "are", "was", "is", "the",
+    "and", "for", "not", "but", "may", "can", "its",
+})
 
 
 def main():
@@ -86,7 +112,7 @@ def main():
         if not text:
             stats["empty"] += 1
             continue
-        if looks_like_salad(text, s):
+        if looks_like_salad(text, s, eng):
             stats["salad"] += 1
             if len(salad_samples) < 6:
                 salad_samples.append((s, text[:100]))
