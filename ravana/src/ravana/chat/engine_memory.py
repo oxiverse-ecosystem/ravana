@@ -102,7 +102,39 @@ _SELF_OPINION_SHAPE = (
     r"|what\s+do\s+you\s+make\s+of\b)"
 )
 
-# Closed-class + recall-scaffold vocabulary used to reduce a recall query to
+# ── DEFINITIONAL / INFORMATIONAL QUESTION SHAPE ─────────────────────────────
+# A question about the WORLD, as opposed to a question about what the USER
+# said. Both episodic recall paths (`_retrieve_episodic`,
+# `_self_cued_episodic`) must consult this BEFORE matching on content cues:
+# retrieval-by-cue fires on lexical overlap, so "what is water" matched a
+# stored turn containing "water" and replayed it instead of answering.
+#
+# One definition, two call sites, so the paths cannot drift.
+#
+# First-person recollection framing is NOT definitional -- "what did i tell
+# you about water" is a genuine recall request and must reach the recall path.
+# Callers exempt queries containing i/me/my/mine/we/our.
+_DEFINITIONAL_QUESTION = re.compile(
+    r"^(?:what|who|which)\s+"
+    r"(?:is|are|was|were|does|do|did|can|could|should|would|will|has|have|"
+    r"happens?|causes?|makes?|means?|works?)\b"
+    # `where`/`when`/`why`/`how` are included ONLY with a copula or an
+    # auxiliary that takes a subject complement. "where does meera restore
+    # clocks" is a follow-up about a DISCLOSURE, not a world question, and the
+    # first version of this pattern wrongly gated it -- measured as a
+    # regression from "meera restores clocks in pune" to "restore is a bit
+    # outside what i know right now".
+    r"|^(?:where|when|why|how)\s+(?:is|are|was|were|does|do|did)\b"
+    r"|^(?:define|explain|describe|tell me about|talk about|give me|show me|"
+    r"teach me|what about|how about)\b"
+)
+
+
+def _is_definitional_question(q: str) -> bool:
+    """True when `q` asks about the world rather than about a past turn."""
+    return bool(_DEFINITIONAL_QUESTION.match((q or "").strip().lower()))
+
+
 # its CONTENT CUE. This is a grammatical/scaffolding class, not a topic table:
 # it is identical in kind to the per-call _RECALL_SCAFFOLD / _GENERIC_CUE sets
 # already used by _retrieve_episodic, hoisted to module scope so every recall
@@ -922,6 +954,27 @@ class MemoryMixin:
         # two routers cannot drift apart.
         if re.search(_SELF_OPINION_SHAPE, qn):
             return None
+        # ── DEFINITIONAL-QUESTION GATE ───────────────────────────────────────
+        # This path is retrieval-BY-CUE: it fires when the query shares a
+        # content word with a stored user turn. That is right for a follow-up
+        # about a disclosure ("my cousin meera restores clocks" -> "where does
+        # meera restore clocks") and wrong for a question about the WORLD.
+        #
+        # MEASURED: after the turn "tell me a sentence about water", the query
+        # "what is water" returned `you mentioned: "tell me a sentence about
+        # water"` instead of the definition -- the cue `water` matched a stored
+        # turn, and the definitional intent was never consulted.
+        #
+        # The brain routes these differently: a definitional/informational
+        # question goes to semantic memory, a recollection question to episodic
+        # (Tulving's encoding specificity; SQR2/SPAR model of recall vs
+        # answer). The discriminator is the question's own framing, not lexical
+        # overlap. First-person recollection framing is exempt -- that is a
+        # genuine recall request and must still reach this path.
+        #
+        # Shared with `_retrieve_episodic` so the two recall paths cannot drift.
+        if _is_definitional_question(qn):
+            return None
         store = self._episodic_transcript or []
         if not store:
             try:
@@ -1132,6 +1185,26 @@ class MemoryMixin:
         turn for a "remember what I told you" query) instead of the live store.
         """
         store = transcript if transcript is not None else self._episodic_transcript
+        # ── DIRECT-QUESTION GUARD ────────────────────────────────────────────
+        # A wh-question about a TOPIC is a request for an answer, not a request
+        # to replay a past turn. This path matches on shared content words, so
+        # "what is water" after any turn mentioning water used to return
+        # `you mentioned: "tell me a sentence about water"` instead of the
+        # definition -- measured on the live engine.
+        #
+        # The brain separates the two by the QUESTION's intent, not by lexical
+        # overlap: a definitional query routes to semantic memory, a
+        # recollection query ("what did I tell you about X") to episodic. The
+        # marker is first-person recollection framing, which the
+        # autobiographical path already detects; here we only need to exclude
+        # the definitional/ informational forms.
+        #
+        # Fail-open: an unrecognised question shape still reaches recall, so
+        # genuine recollection is unaffected.
+        _q = (query or "").strip().lower()
+        if _q and not re.search(r"\b(i|me|my|mine|we|our)\b", _q):
+            if _is_definitional_question(_q):
+                return None
         if not store:
             # Post-load: the transcript is NOT persisted, so after a reload it
             # is empty and cued recall would silently no-op. Rebuild a working
