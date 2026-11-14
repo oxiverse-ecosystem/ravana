@@ -59,6 +59,20 @@ _FUNCTION_WORDS = frozenset({
     "what", "who", "where", "which", "whether", "rather", "either",
 })
 
+# Confidence threshold for typing an untyped ('semantic') edge ONLINE.
+#
+# MEASURED (docs/ONLINE_RELATION_TYPING.md): `_infer_relation_type` recovers
+# 75.5% of known typed edges, and its accuracy is monotone in its own
+# confidence -- 0.600 below 0.30, 0.839 at 0.30-0.45, 1.000 above 0.45. Below
+# 0.30 it is barely better than chance over five relation types, so a weak
+# inference is skipped and the baseline path handles the subject rather than
+# asserting a relation the evidence does not support.
+#
+# 0.35 is the measured knee: 29/40 subjects commit at unsupported=0.000,
+# versus 25/40 at 0.45 (more conservative, no precision gain) and 30/40 at
+# 0.00 (one more firing, but unsupported rises to 0.033).
+_PLAN_INFER_THRESHOLD = 0.35
+
 # Pronouns, determiners and other non-referring tokens. These cannot serve as
 # grounding evidence: their presence in a sentence says nothing about what the
 # sentence is about.
@@ -7748,7 +7762,40 @@ class ResponseGenMixin(ChainWalkerMixin):
             return None
         # Prefer TYPED edges: the measured failure was a plan built on the
         # vacuous 'related_to' fallback ("gravity is related to two").
+        #
+        # Untyped ('semantic') edges are not discarded -- they are TYPED ONLINE.
+        # The brain does not have a concept-acquisition problem: it meets a
+        # novel concept and computes what kind of relation holds, from the
+        # concept's structure rather than a stored label. RAVANA's equivalent
+        # is `_infer_relation_type`, which compares the relational direction
+        # vector against learned relation prototypes.
+        #
+        # MEASURED (docs/ONLINE_RELATION_TYPING.md): the mechanism recovers
+        # 75.5% of KNOWN typed edges, with accuracy monotone in its confidence
+        # (0.600 below 0.30, 0.839 at 0.30-0.45). So a weak inference is
+        # skipped rather than asserted -- the brain hedges rather than
+        # committing at chance. At TH=0.35 the plan route fires on 29/40
+        # subjects at unsupported=0.000, up from 15/40.
         typed = [c for c in cands if c[0] not in VACUOUS_RELATIONS]
+        if len(typed) < len(cands):
+            inferred = []
+            for rel, lab, w, cf in cands:
+                if rel not in VACUOUS_RELATIONS:
+                    inferred.append((rel, lab, w, cf))
+                    continue
+                try:
+                    _cw = getattr(self, 'chain_walker', None)
+                    _infer = getattr(_cw, '_infer_relation_type', None)
+                    if _infer is None:
+                        continue
+                    irt, icf = _infer(subject, lab)
+                except Exception:
+                    continue
+                if icf < _PLAN_INFER_THRESHOLD:
+                    continue
+                inferred.append((irt, lab, w, max(cf, icf)))
+            if inferred:
+                typed = inferred
         plan = None
         for pool in (typed, cands):
             if not pool:
