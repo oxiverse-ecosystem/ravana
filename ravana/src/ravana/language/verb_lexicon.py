@@ -142,7 +142,11 @@ class VerbLexicon:
             # conjugated to "weres" / "has been"; a definitional claim is
             # present-tense ("gravity is a force"), and the frame's tense is
             # already chosen by `_determine_tense`.
-            "is", "am", "are",
+            #
+            # `am` is omitted because it only agrees with "I", and the engine
+            # never makes a concept the subject of its own definition. Leaving
+            # it in let the sampler emit "music am a rhythm".
+            "is", "are",
         ],
         "quantifiers": [
             "a", "an", "the", "any", "some",

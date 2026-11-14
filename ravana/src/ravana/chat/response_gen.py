@@ -7737,6 +7737,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         its (subject, relation, target) triple.
         """
         from ravana.learn.macroplanning import message_from_best_edge
+        from ravana.learn.definition_proposition import proposition_from_definition
         from ravana.learn.linearization import (
             VACUOUS_RELATIONS, message_to_plan, plan_is_committed)
         from ravana.language.surface_realizer import DiscourseState
@@ -7834,6 +7835,41 @@ class ResponseGenMixin(ChainWalkerMixin):
             if plan_is_committed(plan):
                 break
             plan = None
+        if plan is None:
+            # ── Source B: the stored DEFINITION ────────────────────────────
+            # MEASURED (docs/PROPOSITION_UNION.md): on the 324 stored
+            # definitions the typed-edge route covers 83.0% and the definition
+            # route 68.5%; the UNION is 94.4%. The two are complementary -- 84
+            # subjects have only a typed edge, 37 have only a definition.
+            #
+            # The relation is read off the definition's own copula rather than
+            # inferred from a vector direction, because the vector proxy is
+            # measured at 0/32 on independent labels
+            # (docs/TYPING_ACCURACY_IS_CIRCULAR.md).
+            try:
+                _def = (getattr(self, '_definitions', {}) or {}).get(subject.lower())
+                _prop = proposition_from_definition(
+                    _def, pos_map=getattr(self, '_concept_pos', {}) or {})
+                if _prop is not None:
+                    _rel, _tgt = _prop
+                    _neigh = set()
+                    for _nid in nids:
+                        for _t, _e in (self.graph.get_outgoing(_nid) or []):
+                            _tn = self.graph.get_node(_t)
+                            if _tn is not None and _tn.label:
+                                _neigh.add(_tn.label.lower())
+                    # The target must be a graph concept, or the claim is not
+                    # graph-supported and the grounding metric cannot vouch
+                    # for it.
+                    if _tgt in _neigh or _tgt in self._concept_keywords:
+                        _dplan = message_to_plan(
+                            message_from_best_edge(
+                                subject, [(_rel, _tgt, 0.9, 0.8)]),
+                            subject=subject)
+                        if plan_is_committed(_dplan):
+                            plan = _dplan
+            except Exception:
+                plan = None
         if plan is None:
             return None
 

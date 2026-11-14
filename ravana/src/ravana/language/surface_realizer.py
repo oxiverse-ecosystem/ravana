@@ -445,6 +445,21 @@ class SurfaceRealizer:
                         "part_of", "used_for", "capable_of") and verb_phrase:
             verb = verb_phrase
 
+        # Copula agreement. The verb lexicon SAMPLES the copula from a pool
+        # ("is" / "are"), so a singular subject could be paired with "are" --
+        # measured as "music are a rhythm". The subject is known here, so the
+        # copula is resolved deterministically rather than sampled.
+        if verb in ("is", "are", "was", "were"):
+            _plural = (display_subj.lower() in ("they", "we", "you", "people")
+                       or (display_subj.lower().endswith("s")
+                           and not display_subj.lower().endswith("ss")
+                           and display_subj.lower() not in self.SINGULAR_ENDING_IN_S
+                           and display_subj.lower() not in ("this", "is", "has", "was", "its")))
+            verb = {"is": "are" if _plural else "is",
+                    "are": "is" if not _plural else "are",
+                    "was": "were" if _plural else "was",
+                    "were": "was" if not _plural else "were"}[verb]
+
         verb = self._apply_agreement(verb, subject_phrase, display_subj.lower())
         verb = self._apply_tense(verb, frame.tense)
         
