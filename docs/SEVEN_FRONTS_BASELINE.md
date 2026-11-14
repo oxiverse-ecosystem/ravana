@@ -36,7 +36,35 @@ noun-suffix table (0.803 → 0.608).
 | 6 | speaking / surface realization | grammatical, non-degenerate surface form |
 | 7 | code generation | emits a real function AND has learned functions |
 
-## Baseline (first run, pre-tightening)
+## Corrected baseline (tightened probes, `fronts2.txt`)
+
+```
+100/100  language understanding / conversation
+100/100  grounded factual answers        <- STRUCTURAL only; see caveat
+ 67/100  opinions / stance
+ 33/100  thinking / reasoning
+  0/100  speaking / surface realization
+  0/100  code generation
+ 40/100  language learning (online)
+ 49/100  MEAN
+```
+
+The tightened probes moved three scores: opinions 100 → 67, speaking 100 → 0,
+and the mean 68 → 49. Each change was a probe that had been passing defective
+output:
+
+- **speaking 100 → 0**: both probes returned "the closest i get to X is Y and
+  maybe Z" — a degenerate association template. The old probe only checked
+  for ≥4 words and a verb.
+- **opinions 100 → 67**: "i'm still forming a view ... what's your take?" now
+  counts as deflection.
+- **grounded stays 100 but is STRUCTURAL, not truthful.** `what causes rain`
+  still returns "Rain leads to heat, and that in turn leads to climate" — a
+  wrong causal claim. No regex can judge truth, so this score measures
+  subject+predicate structure and the truth defect is tracked separately as
+  graph defect #4. **Do not read 100/100 here as "answers are correct".**
+
+## Baseline (first run, pre-tightening) — superseded
 
 ```
 100/100  language understanding / conversation
@@ -48,9 +76,6 @@ noun-suffix table (0.803 → 0.608).
  40/100  language learning (online)
  68/100  MEAN
 ```
-
-Three of those 100s are artefacts of weak probes. The tightened run supersedes
-them; the corrected baseline is recorded below when it lands.
 
 ## What the live probes actually show
 
