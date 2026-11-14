@@ -2036,8 +2036,23 @@ class PrefrontalWorkspace:
             return True
         return False
 
-    def _has_causal_hint(self, label: str) -> bool:
-        """Check if a label has causal semantics."""
+    def _has_causal_hint(self, label: str, relation_type: str = "") -> bool:
+        """Check if a label has causal semantics.
+
+        `relation_type` is accepted so a caller that holds the EDGE can pass the
+        authoritative type, and it is consulted first when given. The only
+        current call site (`_pick_best_association`) receives `(label, score)`
+        pairs with no edge, so it passes nothing and the label heuristic runs --
+        recorded rather than pretended otherwise. Wiring the edge's type
+        through that path needs the association list to carry it, which is a
+        larger change than this defect.
+        """
+        rt = (relation_type or "").strip().lower()
+        if rt in ("causal", "physical_cause", "cause", "causes"):
+            return True
+        if rt:
+            # An explicit non-causal type is authoritative negative evidence.
+            return False
         ll = label.lower()
         causal_words = {
             "cause", "effect", "result", "consequence", "impact", "influence",

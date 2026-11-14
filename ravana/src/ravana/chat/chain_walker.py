@@ -777,14 +777,37 @@ class ChainWalkerMixin:
 
         for sentence in sentences:
             # Skip individual interrogative sentences (questions), but process assertions!
-            if sentence.endswith("?") or (
-                re.match(
-                    r'^(what|who|where|why|how|which|whose|whom|'
-                    r'do(es|id)?|is|are|was|were|can|could|will|would|'
-                    r'shall|should)\b', sentence
-                )
-                and not (sentence.endswith(".") or sentence.endswith("!"))
-            ):
+            #
+            # MEASURED DEFECT: this skipped EVERY interrogative, so a user
+            # asking "why does it rain" taught the graph nothing. A question is
+            # not noise -- it is an explicit signal of the relation the user
+            # wants, and the wh-word itself names it. Skipping it meant the
+            # online learner could only ever learn from statements, which is
+            # the opposite of "learns as the conversation goes on".
+            #
+            # Now a question is converted to its declarative content before the
+            # skip test: the wh-word and auxiliary are dropped, leaving the
+            # asserted clause ("why does it rain" -> "it rain", "what causes
+            # rain" -> "rain"). The causal-verb scan below then sees the same
+            # evidence it would see in a statement.
+            _q = sentence
+            _is_question = _q.endswith("?") or bool(re.match(
+                r'^(what|who|where|why|how|which|whose|whom|'
+                r'do(es|id)?|is|are|was|were|can|could|will|would|'
+                r'shall|should)\b', _q))
+            if _is_question:
+                _decl = re.sub(
+                    r'^(?:why|what|who|where|when|which|whose|whom|how)\s+'
+                    r'(?:do(?:es)?|did|is|are|was|were|can|could|will|would|'
+                    r'shall|should|happens?|causes?|makes?)\s+', '', _q)
+                _decl = re.sub(
+                    r'^(?:do(?:es)?|did|is|are|was|were|can|could|will|would|'
+                    r'shall|should)\s+', '', _decl).rstrip('?').strip()
+                if _decl and _decl != _q:
+                    sentence = _decl
+                else:
+                    continue
+            if not sentence:
                 continue
             words = list(re.finditer(r'[A-Za-z]+', sentence))
             for match in words:
