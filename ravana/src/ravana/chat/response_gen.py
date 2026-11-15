@@ -6602,6 +6602,16 @@ class ResponseGenMixin(ChainWalkerMixin):
                 # knock-on "consequences".
                 if getattr(edge, "confidence", 1.0) < 0.5:
                     continue
+                # MEASURED DEFECT: confidence is not provenance. The learned
+                # edge `gravity -> earth` (w=0.85, conf=0.9, no provenance)
+                # passed this gate and surfaced as the false knock-on
+                # "gravity would lead to earth". Confidence says how STRONG the
+                # system's belief is; provenance says whether the relation was
+                # ever STATED by a source. Only the latter makes a causal claim
+                # assertable -- the same standard `learn/explanation.py`
+                # applies, and the one `_structured_fact_answer` now applies.
+                if not _edge_provenanced(edge):
+                    continue
                 nbr_node = self.graph.get_node(nbr)
                 if nbr_node is None or not nbr_node.label:
                     continue
@@ -6614,8 +6624,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                     paths.append(new_path)
                 q.append((nbr, new_path))
         if not paths:
-            return [f"everything that depends on {_s} would shift",
-                    "other systems would scramble to fill the gap"]
+            # MEASURED DEFECT: with no provenance-backed causal chain the caller
+            # fell back to a generic template -- "everything that depends on
+            # moon would shift; other systems would scramble to fill the gap".
+            # That is fluent but EMPTY: it asserts nothing checkable and is the
+            # same for every subject. Emitting it is worse than saying the
+            # system does not know.
+            #
+            # Return [] so the caller's honest-uncertainty path runs instead.
+            return []
 
         lines = []
         # Intervention-cue / verb-block words must never surface as a knock-on
