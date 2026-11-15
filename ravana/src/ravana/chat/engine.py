@@ -2661,6 +2661,105 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             groups.append(set(_INTRANSITIVE_PREDICATE_SEED))
         return self._learn_predicates_from(*groups)
 
+    def learn_novel_term_from_turn(self, user_input: str) -> int:
+        """Learn a DEFINITION the user just stated for a term RAVANA doesn't know.
+
+        MEASURED GAP: teaching "a zorblat is a small blue device that measures
+        air pressure" was not learned. The definition extractor itself is fine
+        (`_extract_heuristic_definition` returns the right text, quality 1.5,
+        acceptable, clean key) but the chat turn never calls it -- grounding
+        latched onto "measures air pressure" as the subject, and the statement
+        was acknowledged as chitchat.
+
+        So the user cannot extend RAVANA's vocabulary by example, which is the
+        most basic form of language learning. This scans the turn for the
+        definitional copula ("X is/are Y", "X refers to Y", "X means Y") and,
+        when X is NOT already a known concept, stores Y as X's definition.
+
+        Fail-closed:
+          * only fires when the term is unknown (never overwrites a real
+            definition the user might be correcting -- that path is separate);
+          * reuses the existing quality/acceptability/clean-key gates, so a
+            junk sentence cannot be stored;
+          * requires the term to be a plausible single concept key.
+
+        Returns the number of definitions stored (0 or 1).
+        """
+        if not user_input:
+            return 0
+        try:
+            text = user_input.strip()
+            # Only a STATEMENT can define a term -- skip questions and
+            # imperatives, which are requests rather than information.
+            if text.endswith("?"):
+                return 0
+            low = text.lower()
+            if low.startswith(("what ", "why ", "how ", "when ", "who ",
+                              "tell me", "define ", "explain ", "describe ")):
+                return 0
+
+            # Candidate definitional frames. Order matters: the more specific
+            # participle forms first, then the bare copula.
+            frames = (
+                r"^(?P<t>[A-Za-z][A-Za-z0-9_\- ]{1,40}?)\s+"
+                r"(?:is|are|was|were)\s+(?:described|defined|known)\s+as\s+"
+                r"(?P<d>.+)$",
+                r"^(?P<t>[A-Za-z][A-Za-z0-9_\- ]{1,40}?)\s+"
+                r"(?:refers to|means)\s+(?P<d>.+)$",
+                r"^(?P<t>[A-Za-z][A-Za-z0-9_\- ]{1,40}?)\s+"
+                r"(?:is|are|was|were)\s+(?P<d>.+)$",
+            )
+            term = definition = None
+            for pat in frames:
+                m = re.match(pat, text, re.IGNORECASE)
+                if not m:
+                    continue
+                cand = m.group("t").strip().strip(".,:;!")
+                defn = m.group("d").strip().strip(".,:;!")
+                # MEASURED: the copula frame captures the LEADING ARTICLE --
+                # "a zorblat is ..." yields term "a zorblat", which
+                # `_is_clean_concept_key` rejects, so nothing was ever stored.
+                cand = re.sub(r"^(?:a|an|the)\s+", "", cand,
+                              flags=re.IGNORECASE).strip()
+                # The term must be a plausible concept key: short, no
+                # sentence punctuation, and not a bare pronoun.
+                if (not cand or len(cand) > 40 or len(defn) < 8
+                        or not self._is_clean_concept_key(cand)):
+                    continue
+                term, definition = cand, defn
+                break
+            if not term:
+                return 0
+
+            known = getattr(self, "_definitions", {}) or {}
+            if term.lower() in known:
+                return 0                      # never overwrite a real definition
+            if not self._definition_acceptable(term, definition, False,
+                                               pattern_matched=True):
+                return 0
+            if not self._definition_looks_clean(definition):
+                return 0
+            if self._definition_quality(definition) <= 0.0:
+                return 0
+
+            known[term.lower()] = definition[:200]
+            # Index the new term so grounding can reach it on later turns.
+            try:
+                vec = self._glove_vector(term)
+                if vec is not None:
+                    node = self.graph.add_node(vector=vec, label=term)
+                    node.stability = 0.9
+                    self._concept_labels.add(term.lower())
+                    self._concept_keywords[term] = (
+                        self._concept_keywords.get(term, []) + [node.id])
+            except Exception:
+                pass
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [novel-term] learned {term!r} -> {definition[:70]!r}")
+            return 1
+        except Exception:
+            return 0
+
     def _ingest_episodic(self, user_input: str, subject: str = "") -> None:
         """Store a conversational statement in the hippocampal buffer so it can
         be recalled on a later turn.
@@ -8449,6 +8548,17 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._ingest_episodic(user_input)
         except Exception:
             pass
+        # Vocabulary learning: a statement of the form "X is Y" for a term
+        # RAVANA does not know is a definition the user just taught. Hooked
+        # HERE (unconditionally, beside the episodic ingest) rather than on a
+        # specific reply branch, because a definitional statement can route to
+        # any of several branches -- measured: "a zorblat is ..." reached the
+        # reflective-uncertainty branch, not the assertion branch, so a
+        # branch-local hook missed it.
+        try:
+            self.learn_novel_term_from_turn(user_input)
+        except Exception:
+            pass
         # FIX D (round 2026-08-20T1229Z): capture first-person conviction
         # statements ("i believe/think X", "we should protect X") into the
         # user-belief store. The unconditional episodic ingest above only writes
@@ -10984,6 +11094,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # Root-cause recall fix: persist the asserted fact to the
                 # hippocampal buffer before this path returns.
                 self._ingest_episodic(user_input, subject)
+                # A user statement of the form "X is Y" for an UNKNOWN term is
+                # a vocabulary lesson, not just an assertion. Learn it before
+                # returning so the next turn can use the new word.
+                self.learn_novel_term_from_turn(user_input)
                 self._last_responses.append(assertion_response)
             if len(self._last_responses) > 10:
                 self._last_responses = self._last_responses[-10:]
