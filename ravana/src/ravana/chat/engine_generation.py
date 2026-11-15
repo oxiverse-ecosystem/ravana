@@ -700,6 +700,13 @@ class GenerationMixin:
             # 0.3 default that previously pushed it below the 0.55 emit
             # threshold and forced a fail-closed retreat to uncertainty.
             "web_direct_answer": 0.70,
+            # A gated explanation chain has passed BOTH an explicit adequacy
+            # gate (grade_chain verdict == "assert") and an all-hops-provenance
+            # gate (assertable_chain) -- stronger evidence than a narrative
+            # answer, so it must not fall through to the 0.3 default, which
+            # pushes the reply below the 0.55 emit threshold and queues a
+            # correct answer for "learning".
+            "gated_explanation_chain": 0.75,
         }
         base_score = strategy_scores.get(strategy, 0.3)
 

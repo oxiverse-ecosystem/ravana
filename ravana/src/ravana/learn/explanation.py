@@ -77,9 +77,18 @@ class ExplanationChain:
     def labels(self) -> List[str]:
         if not self.hops:
             return [self.subject]
-        out = [self.hops[0].from_label]
-        out.extend(h.to_label for h in self.hops)
-        return out
+        # Hops are stored in WALK order (walk node -> neighbour) and are
+        # contiguous by construction. Build the walk-order label list, then
+        # reverse the LABELS for a backward walk.
+        #
+        # Do NOT reverse the hop list: hops share endpoints, so reversing them
+        # breaks adjacency (measured: hops sun->earth, earth->gravity reversed
+        # gave "sun leads to sun, and sun leads to light").
+        walk_order = [self.hops[0].from_label]
+        walk_order.extend(h.to_label for h in self.hops)
+        if self.direction == "backward":
+            walk_order.reverse()
+        return walk_order
 
     @property
     def margin(self) -> float:
@@ -162,10 +171,20 @@ def enumerate_chains(subject_ids: Sequence[int],
     seen_paths = set()
 
     def _walk(start_id: int, forward: bool) -> None:
-        # stack: (node_id, [Hop])
-        stack = [(start_id, [])]
+        # stack: (node_id, [Hop], visited_node_ids)
+        #
+        # MEASURED BUG: the simple-path check tested only the neighbour's
+        # LABEL, so a RECIPROCAL edge pair (`sun -> light` and
+        # `light -> sun`) was not detected as a cycle: walking sun -> light
+        # then light -> sun revisits `sun`, but the check looked at the
+        # neighbour label against `hops[*].to_label`, and `sun` appears only
+        # as `hops[0].from_label`. Measured output:
+        #   "light leads to sun, and sun leads to light"
+        # Track node IDS, not labels -- two distinct labels can even denote
+        # the same node, and the same label can recur legitimately only once.
+        stack = [(start_id, [], {start_id})]
         while stack:
-            nid, hops = stack.pop()
+            nid, hops, visited = stack.pop()
             if len(hops) >= max_steps:
                 continue
             # MEASURED BUG: the `forward` flag was accepted and then IGNORED --
@@ -202,16 +221,17 @@ def enumerate_chains(subject_ids: Sequence[int],
                 # ['zz_condense','zz_rainfall','zz_condense']. Test both ends.
                 if any(label in (h.from_label, h.to_label) for h in hops):
                     continue
+                if other_id in visited:
+                    continue                  # reciprocal edge -> cycle
                 from_node = graph.get_node(nid)
                 from_label = _as_label(getattr(from_node, "label", ""))
-                # MEASURED BUG (second half): the hop direction was also
-                # inverted. `labels` reads hops[0].from_label then each
-                # to_label, so a hop must run START -> NEXT along the walk.
-                # For a backward walk the edge is other -> nid, but the WALK
-                # goes nid -> other, so the hop must be (from_label -> label)
-                # in BOTH directions. The previous version emitted
-                # ['zz_condense','zz_rainfall','zz_condense'] for a backward
-                # walk starting at `zz_rainfall` -- it began at the neighbour.
+                # Hops are recorded in WALK order (walk node -> neighbour) so
+                # the chain is contiguous. For a backward walk that order is
+                # effect -> cause, so the WHOLE list is reversed at the end
+                # (see `labels`). Flipping individual hops instead breaks the
+                # chain, because neighbouring hops share endpoints --
+                # measured: "light leads to photosynthesis, and photosynthesis
+                # leads to light".
                 hop = Hop(
                     from_label=from_label,
                     relation_type=getattr(edge, "relation_type", "causal"),
@@ -230,7 +250,7 @@ def enumerate_chains(subject_ids: Sequence[int],
                             subject=str(start_id), direction=direction,
                             hops=list(new_hops),
                             score=score_chain(new_hops)))
-                stack.append((other_id, new_hops))
+                stack.append((other_id, new_hops, visited | {other_id}))
 
     for sid in subject_ids:
         if direction in ("forward", "bidirectional"):
