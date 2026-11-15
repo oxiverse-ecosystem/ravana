@@ -226,36 +226,66 @@ def score_speaking(eng):
 
 
 def score_code(eng):
-    """Code generation: does it emit a real function, and is it populated?"""
+    """Code generation: teach a function, then ask for it back.
+
+    The first version of this probe asked for functions the system had never
+    been taught ("write a function that adds two numbers") and scored the
+    honest "i haven't learned a function called X yet" as a FAILURE. That is
+    correct behaviour, not a defect -- the probe was measuring the wrong thing.
+
+    Now it exercises the real loop: teach a novel function, then request it.
+    """
     from ravana.chat.code_learning import CodeLearner
     try:
         cl = eng._code_learner
         if cl is None:
             cl = CodeLearner()
-        known = cl.known_functions()
     except Exception as e:
-        known = []
         print(f"  [ --] code learner unavailable: {type(e).__name__}")
-    print(f"  [ --] known_functions = {known[:8]}")
+        return 0
 
-    ok = 0
-    for q in CODE:
-        a = _ask(eng, q)
-        emits_def = 'def ' in a
-        populated = False
-        try:
-            populated = bool(known)
-        except Exception:
-            pass
-        good = emits_def and not a.startswith("<ERR>")
-        ok += good
-        print(f"  [{ 'ok' if good else 'BAD'}] {q!r:44} -> {a[:80]}")
-    base = round(100 * ok / len(CODE))
-    # a generator that emits only `def f(): pass` is not generating
-    if not known:
-        print("  [ --] no learned functions -> generator is a stub")
-        return min(base, 20)
-    return base
+    # 1. TEACH a function the system has never seen.
+    teach_name = "zzxqnovel_add"
+    teach = (f"here is my code:\n\n"
+             f"def {teach_name}(a, b):\n"
+             f"    return a + b\n")
+    try:
+        eng._maybe_code_learn_or_generate(teach)
+    except Exception as e:
+        print(f"  [ --] teach raised {type(e).__name__}: {e}")
+    known = [n.lower() for n in cl.known_functions()]
+    print(f"  [ --] known_functions after teach = {known[:8]}")
+    taught = teach_name in known
+    print(f"  [{'ok' if taught else 'BAD'}] taught {teach_name}")
+
+    # 2. ASK for it back -- the generation half.
+    gen = ""
+    try:
+        gen = eng._maybe_code_learn_or_generate(
+            f"write a function called {teach_name}") or ""
+    except Exception as e:
+        print(f"  [ --] generate raised {type(e).__name__}: {e}")
+    generated = f"def {teach_name}" in gen
+    print(f"  [{'ok' if generated else 'BAD'}] generate -> {gen[:80]}")
+
+    # 3. An UN-taught name must still be declined honestly (fail-closed).
+    try:
+        unk = eng._maybe_code_learn_or_generate(
+            "write a function called never_taught_fn") or ""
+    except Exception:
+        unk = ""
+    honest = ("haven't learned" in unk or "doesn't name one" in unk
+              or unk == "")
+    print(f"  [{'ok' if honest else 'BAD'}] untaught declined -> {unk[:70]}")
+
+    score = 0
+    if taught:
+        score += 40
+    if generated:
+        score += 40
+    if honest:
+        score += 20
+    return score
 
 
 def main():
