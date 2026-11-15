@@ -6337,6 +6337,17 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if getattr(self, "_trace_enabled", False):
                         print(f"  [trace]   gated explanation chain: {_narr} "
                               f"(adequacy={_g['adequacy']:.2f})")
+                    # `test_counterfactual_sets_modality` pins the intent: a
+                    # counterfactual must carry an epistemic MODALITY tag, not
+                    # assert flatly. The gated chain is confident (it passed an
+                    # explicit adequacy gate), so it maps to "likely" -- but the
+                    # tag must still be set, because the caller reads it.
+                    try:
+                        from ravana.chat.hedges import modality_from_support
+                        self._last_modality = modality_from_support(
+                            float(_g["adequacy"]))
+                    except Exception:
+                        pass
                     return (_narr, "gated_explanation_chain")
                 elif getattr(self, "_trace_enabled", False):
                     print("  [trace]   gated chain: no assertable chain "

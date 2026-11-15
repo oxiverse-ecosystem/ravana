@@ -32,7 +32,10 @@ def test_counterfactual_sets_modality(engine):
     # _simulate_counterfactual may return None if the graph lacks causal chains;
     # when it returns, modality must be set and be a valid value.
     if resp is not None:
-        assert strat == "counterfactual_simulation"
+        # `gated_explanation_chain` is the newer route (a provenance-gated
+        # causal chain); `counterfactual_simulation` is the legacy simulator.
+        # Both are counterfactual answers and both must carry a modality.
+        assert strat in ("counterfactual_simulation", "gated_explanation_chain")
         assert engine._last_modality in ("likely", "possible", "unknown")
 
 
