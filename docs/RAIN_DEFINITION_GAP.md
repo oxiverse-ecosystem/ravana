@@ -1,6 +1,8 @@
 # Why `what causes rain` cannot be answered
 
-**Status:** root cause found. Not a probe problem, and not a regression.
+**Status:** root cause found. Not a probe problem, not a regression, and **not**
+an IntentForge outage — an earlier version of this note claimed IntentForge was
+down. It was not. Corrected below.
 
 ## The symptom
 
@@ -41,55 +43,67 @@ extractor is regex-based and needs an explicit `X is Y.` / `X refers to Y.`
 form (`web_learning.py:1740-1748`). The AccuWeather result is a page title with
 no such form, so nothing is stored in `_definitions`.
 
-## Why AccuWeather and not Wikipedia
+## CORRECTION: IntentForge is UP
 
-Wikipedia's summary API returns exactly the right text:
+An earlier draft of this note said IntentForge (localhost:4000) was "down, so
+the query falls through to DuckDuckGo". **That was wrong** — asserted from a
+single failed call without checking. Measured properly:
 
 ```
-Rain or rainfall is a form of atmospheric precipitation composed of droplets
-of water aerosols that have condensed from atmospheric water vapor and fall by
-gravity.
+TCP 0.0.0.0:4000 LISTENING
+GET /health        -> HTTP 200 in 0.026s
+GET /search?q=rain -> HTTP 200, 8 results
 ```
 
-But the search provider list (`web/learner.py:178-183`) has **no Wikipedia
-source**:
+IntentForge is the FIRST provider in the list (`web/learner.py:179`) and it
+served the query. The earlier `RAVANA_OFFLINE=1` run returned
+`('offline - web learning disabled', 'offline')` — that is the harness's own
+guard, not an outage.
 
-```python
-self.apis = [
-    ("intentforge", "http://localhost:4000/search?q={}", ...),   # down
-    ("local_api",   self._local_url, ...),                       # down
-    ("duckduckgo",  "https://html.duckduckgo.com/html/?q={}", ...),
-    ("oxiverse",    "https://api.oxiverse.org/search?q={}", ...),
-]
+## The actual root cause: the snippet is not a definition
+
+`learn_from_web('rain')` runs and reports success, but stores a **snippet**:
+
+```
+read about rain but already knew the words
+  -> "National Aquarium - Upland Tropical Rain Forest. Explore // Award-Winning
+      Exhibits // Upland Tropical..."
 ```
 
-IntentForge (localhost:4000) is tried first and is not running, so the query
-falls through to DuckDuckGo, whose top result for `rain` is a weather-radar
-page. The engine's own fetcher DOES send a browser User-Agent
-(`web_learning.py:644`), so Wikipedia is reachable from this host — verified
-directly against `page/summary/Rain`.
+The definition extractor is regex-based and needs an explicit `X is Y.` /
+`X refers to Y.` form (`web_learning.py:1740-1748`). IntentForge's top hits for
+`rain` are an aquarium exhibit and weather-radar pages — none has that form, so
+nothing is written to `_definitions`.
 
-## The fix that follows
+The results DO contain definition-shaped text further down (Dictionary.com:
+*"water that is condensed from the aqueous vapor in the atmosphere and falls to
+earth in drops..."*), but the extractor takes the top result and does not scan
+for a definition-bearing candidate.
 
-Add a Wikipedia summary source to the provider list, ahead of the generic
-scrapes. It is the highest-yield definition source available:
+## What would fix it
 
-- it returns a single declarative sentence in exactly the form the extractor
-  wants;
-- it is reachable from this host with the User-Agent the engine already sends;
-- it needs no API key.
+Two independent options, in order of leverage:
 
-Expected effect: `learn_from_web('rain')` stores
-`"Rain or rainfall is a form of atmospheric precipitation..."` in
-`_definitions`, and `what causes rain` / `what is rain` answer from it.
+1. **Scan candidates for a definition-shaped sentence** rather than taking the
+   top result. The regexes already exist; they are applied to one candidate.
+   IntentForge returns 8 results and at least one carries definitional text.
+2. **Add a Wikipedia summary source.** `page/summary/Rain` returns exactly the
+   right sentence and is reachable from this host with the browser User-Agent
+   the engine already sends (`web_learning.py:644`:
+
+   > Rain or rainfall is a form of atmospheric precipitation composed of
+   > droplets of water aerosols that have condensed from atmospheric water
+   > vapor and fall by gravity.
+
+Option 1 is better: it uses results already fetched and generalises to every
+topic, not just those Wikipedia covers.
 
 ## Honest limits
 
-- Wikipedia's summary endpoint 403s without a browser User-Agent; the engine
-  sends one, but any new caller must too.
-- A summary sentence is a definition, not a causal explanation. It would fix
-  `what is rain`; `what causes rain` additionally needs a causal edge, which is
-  the separate provenance problem.
-- Adding a provider changes search behaviour for every query, so it wants a
-  measurement of definition-acquisition rate before and after, not just this
-  one case.
+- A summary/definition is not a causal explanation. It fixes `what is rain`;
+  `what causes rain` additionally needs a causal edge, which is the separate
+  provenance problem.
+- Either change alters behaviour for **every** query, so it wants a
+  before/after measurement of definition-acquisition rate, not one example.
+- The `RAVANA_OFFLINE=1` guard in the harness disables web learning entirely;
+  any web measurement must run with the network up.
