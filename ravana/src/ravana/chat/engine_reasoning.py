@@ -3206,7 +3206,20 @@ class ReasoningMixin:
             ("heat", "climate", "causal", 0.8),
             ("earth", "life", "causal", 0.8),
             ("gravity", "orbit", "causal", 0.9),
-            ("gravity", "earth", "causal", 0.8),
+            # REMOVED: ("gravity", "earth", "causal", 0.8).
+            #
+            # This was never a causal prior -- gravity does not cause the earth
+            # -- and it was producing a confident false explanation:
+            # `gravity -> earth -> life` (measured, verdict=assert once the
+            # authored priors became assertable). It reads plausibly only
+            # because "gravity" and "earth" co-occur in every physics text,
+            # which is exactly the confusion the causal label is meant to
+            # resolve.
+            #
+            # The genuine gravity priors are `gravity -> orbit` (above) and
+            # `gravity -> weight`/`gravity -> fall` where the graph has them.
+            # Flagged in docs/AUTHORED_CAUSAL_SKELETON.md; this is the first
+            # entry removed from that review.
             ("water", "life", "causal", 0.85),
         # M3-E: world-skeleton (above) + Human-Likeness Plan (A2): the classic
         # "tree falls in a forest" counterfactual has no causal edges in the
