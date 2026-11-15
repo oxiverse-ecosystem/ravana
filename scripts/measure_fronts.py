@@ -183,14 +183,35 @@ def score_opinion(eng):
 
 
 def score_thinking(eng):
-    """Multi-step / causal structure rather than a single retrieved clause."""
+    """Multi-step / causal structure rather than a single retrieved clause.
+
+    MEASURED PROBE DEFECT: the causal keyword list matched the EMPTY
+    counterfactual template ("everything that depends on X would shift; other
+    systems would scramble to fill the gap") because it contains "depends on" --
+    so a fluent but content-free answer scored 100 while an honest "i'm not
+    sure" scored 0. The probe was rewarding the nonsense it was meant to
+    detect, and my removing that template dropped this front 67 -> 33.
+
+    Apply the same degenerate-template rejection the speaking probe already
+    uses, and require a real content word so a bare definition does not pass as
+    a causal explanation.
+    """
     ok = 0
+    ASSOC = re.compile(r"the closest i get to|and maybe|from what i've seen|"
+                       r"everything that depends on|scramble to fill the gap",
+                       re.I)
+    FN = set("the a an of to and is are it that this in on for with as at by "
+             "from or be has have had do does did i you we they he she".split())
     for q in THINKING:
         a = _ask(eng, q)
         multi = len(re.findall(r'[.;]', a)) >= 1 or len(a.split()) >= 18
         causal = bool(re.search(r'\b(because|so|therefore|which|that|then|'
                                 r'leads to|causes|makes|means)\b', a, re.I))
-        good = multi and causal and not a.startswith("<ERR>")
+        words = {w.strip('.,;:!?').lower() for w in a.split()}
+        content = {w for w in words if w not in FN and len(w) > 2}
+        degenerate = bool(ASSOC.search(a))
+        good = multi and causal and not degenerate and len(content) >= 4 \
+            and not a.startswith("<ERR>")
         ok += good
         print(f"  [{ 'ok' if good else 'BAD'}] {q!r:44} -> {a[:80]}")
     return round(100 * ok / len(THINKING))
