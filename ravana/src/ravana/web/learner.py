@@ -931,6 +931,23 @@ class WebLearner:
                                                       "relation": "semantic"})
                     else:
                         existing.weight = min(0.9, existing.weight + 0.05)
+                        # MEASURED DEFECT: this branch bumped the weight of an
+                        # EXISTING edge but never stamped provenance, so an edge
+                        # first created by another path (or before the provenance
+                        # work landed) kept the default `edge_kind='unknown'`
+                        # forever. Measured on the live web learner: every
+                        # co-occurrence edge reachable from a freshly learned
+                        # topic carried edge_kind='unknown', which the
+                        # explanation gate reads as unprovenanced -- correctly,
+                        # but the record was simply never written.
+                        # Backfill rather than overwrite: a `web_fact` stamp from
+                        # the OpenIE path is stronger evidence and must survive.
+                        if hasattr(existing, "source_metadata"):
+                            _m = existing.source_metadata
+                            if not _m.get("edge_kind") or _m.get("edge_kind") == "unknown":
+                                _m.update({"edge_kind": "co_occurrence",
+                                           "source": source_id,
+                                           "relation": "semantic"})
 
         # Connect new words to existing via vector similarity
         for word in important_words[:10]:
