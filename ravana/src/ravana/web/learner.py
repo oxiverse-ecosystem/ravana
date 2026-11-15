@@ -1008,8 +1008,18 @@ class WebLearner:
                 # record the topic as a curiosity-resolved node (gap shrinks)
                 self._web_to_graph._topic_edges[topic.lower().strip()] = \
                     self._web_to_graph._topic_edges.get(topic.lower().strip(), 0) + facts
-        except Exception:
+        except Exception as e:
             # Fact acquisition must never break web learning.
+            #
+            # MEASURED: this bare `except` was silently swallowing every
+            # failure, so `learn_from_web` reported success while writing ZERO
+            # graph facts -- measured on `rain`: three real pages fetched, and
+            # `evaporate`/`condense`/`cloud` never became nodes. Keep the
+            # fail-open contract but RECORD the reason so the next person can
+            # see it instead of re-deriving it.
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [web-facts] acquisition failed: "
+                      f"{type(e).__name__}: {e}")
             facts = 0
 
         return new_count

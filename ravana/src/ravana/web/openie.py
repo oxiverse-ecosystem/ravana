@@ -70,6 +70,20 @@ VERB_TO_RELATION = {
     "include": "part_of",
     "consist": "part_of",
     # causes
+    #
+    # MEASURED GAP: this list had only 9 causal verbs, so ordinary PROCESS
+    # language extracted ZERO facts. Measured on a sentence with three
+    # explicit causal claims --
+    #   "Rain forms when water vapour condenses into droplets. Water
+    #    evaporates from oceans, then condenses into clouds, and falls as
+    #    rain."
+    # `OpenIEExtractor.extract` returned 0 facts, so `WebToGraph.learn_text`
+    # wrote nothing and `evaporate`/`condense`/`cloud` never became nodes.
+    # The graph therefore had no causal substrate for `why does it rain`.
+    #
+    # Added the process/phase-change/transform verbs that encyclopedic and
+    # explanatory prose actually uses. Conservative: each denotes a real
+    # state change or forcing relation, not mere co-occurrence.
     "cause": "causes",
     "causes": "causes",
     "produce": "causes",
@@ -78,6 +92,32 @@ VERB_TO_RELATION = {
     "leads": "causes",
     "result": "causes",
     "trigger": "causes",
+    # phase change / transformation
+    "evaporate": "causes", "evaporates": "causes", "evaporated": "causes",
+    "condense": "causes", "condenses": "causes", "condensed": "causes",
+    "freeze": "causes", "freezes": "causes", "frozen": "causes",
+    "melt": "causes", "melts": "causes", "melted": "causes",
+    "vaporize": "causes", "vaporizes": "causes",
+    "precipitate": "causes", "precipitates": "causes",
+    "form": "causes", "forms": "causes", "formed": "causes", "forming": "causes",
+    "create": "causes", "creates": "causes", "created": "causes",
+    "generate": "causes", "generates": "causes", "generated": "causes",
+    "convert": "causes", "converts": "causes", "converted": "causes",
+    "transform": "causes", "transforms": "causes", "transformed": "causes",
+    "release": "causes", "releases": "causes", "released": "causes",
+    "absorb": "causes", "absorbs": "causes", "absorbed": "causes",
+    "reflect": "causes", "reflects": "causes", "reflected": "causes",
+    "scatter": "causes", "scatters": "causes", "scattered": "causes",
+    "heat": "causes", "heats": "causes", "heated": "causes",
+    "warm": "causes", "warms": "causes", "warmed": "causes",
+    "cool": "causes", "cools": "causes", "cooled": "causes",
+    "rise": "causes", "rises": "causes", "rose": "causes",
+    "fall": "causes", "falls": "causes", "fell": "causes",
+    "flow": "causes", "flows": "causes", "flowed": "causes",
+    "grow": "causes", "grows": "causes", "grew": "causes",
+    "die": "causes", "dies": "causes", "killed": "causes", "kills": "causes",
+    "break": "causes", "breaks": "causes", "broken": "causes",
+    "wear": "causes", "wears": "causes", "erode": "causes", "erodes": "causes",
 }
 
 # Stop words for noun-chunk heads
