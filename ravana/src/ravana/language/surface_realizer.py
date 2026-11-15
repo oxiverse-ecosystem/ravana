@@ -1145,6 +1145,19 @@ class SurfaceRealizer:
                   'mice', 'sheep', 'fish', 'deer'):
             if article in ("a", "an"):
                 return concept
+
+        # MEASURED DEFECT: the plural list above is hand-written, so a real
+        # definition beginning with a plural head got an indefinite article:
+        #   "rain is a drops of liquid water falling from the sky"
+        # A plural head cannot take "a"/"an". Detect it structurally instead of
+        # enumerating: a trailing -s on the head noun (with the usual
+        # irregulars and uncountable exceptions already handled above).
+        _head = cl.split()[0] if cl.split() else cl
+        if (article in ("a", "an") and _head.endswith('s')
+                and not _head.endswith(('ss', 'us', 'is'))
+                and _head not in ('news', 'mathematics', 'physics', 'ethics',
+                                  'politics', 'economics', 'gymnastics')):
+            return concept
             return f"the {concept}" if article == "the" else concept
 
         garbage_indicators = (
