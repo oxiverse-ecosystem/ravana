@@ -1177,6 +1177,33 @@ class WebLearningMixin(ResponseGenMixin):
             score += 1.0
             if len(definition) <= 90:
                 score += 0.5
+        # MEASURED DEFECT: the article bonus is the ONLY positive term, so a
+        # perfectly good definition that opens with the subject's own noun
+        # ("water that falls from the sky as drops") scores 0.0 -- exactly the
+        # same as a junk fragment. Because the overwrite guard requires
+        # STRICTLY greater quality, an equal-score replacement never happens
+        # and a bad stored value is permanent.
+        #
+        #   stored: "teeming with life for guests to discover..."   quality 0.0
+        #   fresh : "water that falls from the sky as drops"        quality 0.0
+        #   -> no overwrite, bad value survives every re-learn.
+        #
+        # Reward a self-contained noun-phrase start generally, so a
+        # subject-headed definition is not tied with noise.
+        #
+        # The first version of this patch matched ANY short lowercase start and
+        # gave "coming, hour by hour and day by day" the same 1.2 -- a trailing
+        # fragment with no verb. Require a finite verb so a clause, not a
+        # caption, is needed.
+        elif (re.match(r"^[a-z][a-z\s'-]{2,60}\b", d)
+              and re.search(r"\b(is|are|was|were|has|have|falls?|forms?|"
+                            r"occurs?|happens?|consists?|means?|refers?|"
+                            r"contains?|produces?|causes?|comes?|makes?|"
+                            r"falling|fallen|formed|made|composed|"
+                            r"descended|descending)\b", d)):
+            score += 0.8
+            if len(definition) <= 90:
+                score += 0.4
         # Fragments that open with a conjunction / conjunctive adverb / pronoun
         # are run-on clauses, not self-contained definitions.
         if re.match(r"^(but|and|so|thus|therefore|hence|however|moreover|"
@@ -1462,6 +1489,14 @@ class WebLearningMixin(ResponseGenMixin):
         s = re.sub(r"^\s*[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?\s+definition:\s*", "", s,
                    flags=re.IGNORECASE)
         s = re.sub(r"^\s*[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)?:\s*", "", s)
+        # Strip a leading copula + participle ("is described as", "are defined
+        # as"). The `X is described as Y` pattern captures from the copula, so
+        # without this the stored value begins "described as ...".
+        # MEASURED: rain -> "described as drops of liquid water falling from the
+        # sky" instead of "drops of liquid water falling from the sky".
+        s = re.sub(r"^\s*(?:is|are|was|were)\s+"
+                   r"(?:described|defined|known|understood)\s+as\s+", "",
+                   s, flags=re.IGNORECASE).strip()
         # B2 (Round 3): strip the "Definition of <subject> in <locale>" title
         # prefix (e.g. "Definition of memory in English us.") — the POS-anchored
         # reject at the snippet level missed the *locale-tag* shape ("... in us."),
@@ -1638,6 +1673,14 @@ class WebLearningMixin(ResponseGenMixin):
                 
                 predicate = sent[verb_idx + skip_len:].strip()
                 predicate = predicate.rstrip('.').strip()
+                # Strip a leading participle phrase ("described as", "defined
+                # as"). The verb matched is the copula ("is"), so the predicate
+                # begins with the participle rather than the definied content.
+                # MEASURED: rain -> "described as drops of liquid water falling
+                # from the sky" instead of "drops of liquid water falling...".
+                predicate = re.sub(
+                    r"^(?:described|defined|known|understood)\s+as\s+", "",
+                    predicate, flags=re.IGNORECASE).strip()
                 # Normalize leading article to lowercase
                 pred_words = predicate.split()
                 if pred_words and pred_words[0].lower() in ('a', 'an', 'the'):
@@ -1750,6 +1793,15 @@ class WebLearningMixin(ResponseGenMixin):
             defn_patterns = [
                 # 1. X is/are/was/were [a/an/the/etc] Y
                 re.compile(r'\b([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\s+(?:is|are|was|were)\s+((?:a|an|the)?\s*.+?)\.', re.IGNORECASE),
+                # 1b. X is described/defined/refers as Y -- a common encyclopedic
+                # form that pattern 1 misses because of the intervening participle.
+                # MEASURED: Met Office's "rain is described as drops of liquid
+                # water falling from the sky" was the ONLY definition-shaped
+                # sentence in IntentForge's top-6 results for `rain`, and it was
+                # skipped, so the topic kept a junk value.
+                # NOTE: the capture starts after the participle phrase, so
+                #       "rain is described as X" yields X -- not "described as X".
+                re.compile(r'\b([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\s+(?:is|are|was|were)\s+(?:described|defined|known|understood)\s+as\s+((?:a|an|the)?\s*.+?)\.', re.IGNORECASE),
                 # 2. X refers to Y / X means Y / X describes Y
                 re.compile(r'\b([a-zA-Z0-9\'-]{3,}(?:\s+[a-zA-Z0-9\'-]{3,}){0,2})\s+(?:refers?\s+to|means?|describes?)\s+((?:a|an|the)?\s*.+?)\.', re.IGNORECASE),
                 # 3. X, also known as Y (stop at comma or period)
@@ -1771,7 +1823,14 @@ class WebLearningMixin(ResponseGenMixin):
                     # Clean up common dictionary/web junk in definitions
                     definition_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', definition, flags=re.IGNORECASE)
                     definition_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', definition_clean, flags=re.IGNORECASE)
-                    definition_clean = definition_clean.strip()
+                    # MEASURED DEFECT: the generic `X is Y` pattern runs first and
+                    # captures "described as drops of liquid water falling from
+                    # the sky" for "rain is described as ...", so the more
+                    # specific participle pattern never gets a turn and the
+                    # stored value begins with the participle.
+                    definition_clean = re.sub(
+                        r"^(?:described|defined|known|understood)\s+as\s+", "",
+                        definition_clean, flags=re.IGNORECASE).strip()
                     # Sanitise dictionary-UI chrome ("Add to word list", POS tags,
                     # numbered-list artefacts). If nothing usable remains, skip.
                     _san = self._sanitize_definition_text(definition_clean)
@@ -1865,8 +1924,14 @@ class WebLearningMixin(ResponseGenMixin):
 
                 # Clean up common dictionary/web junk in definitions
                 definition_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', definition, flags=re.IGNORECASE)
-                definition_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', definition_clean, flags=re.IGNORECASE)
-                definition_clean = definition_clean.strip()
+                # MEASURED DEFECT: the generic `X is Y` pattern runs first and
+                # captures "described as drops of liquid water falling from
+                # the sky" for "rain is described as ...", so the more
+                # specific participle pattern never gets a turn and the
+                # stored value begins with the participle.
+                definition_clean = re.sub(
+                    r"^(?:described|defined|known|understood)\s+as\s+", "",
+                    definition_clean, flags=re.IGNORECASE).strip()
                 # Sanitise dictionary-UI chrome ("Add to word list", POS tags,
                 # numbered-list artefacts). If nothing usable remains, skip.
                 _san = self._sanitize_definition_text(definition_clean)
