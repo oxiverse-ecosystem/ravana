@@ -280,10 +280,28 @@ class ConceptEdge:
                 f"{type(self).__name__!r} object has no attribute {name!r}") from None
 
     def __getstate__(self):
-        """Lightweight pickle: exclude heavy unused fields (agent_weights, source_metadata)."""
+        """Pickle state.
+
+        `agent_weights` and `parent_graph` are excluded (heavy / circular).
+        `source_metadata` is NOW KEPT.
+
+        MEASURED DEFECT: it used to be popped, with the comment "heavy unused
+        fields". It is neither heavy nor unused -- it is the ONLY record of an
+        edge's provenance (`edge_kind`: web_fact / curated / co_occurrence).
+        Dropping it meant every save+load silently erased all provenance:
+
+            persisted edges: 380, edge_kind counts: {'(absent)': 380}
+
+        That single line made every provenance gate in the system read
+        "unprovenanced" after a reload -- the explanation gate declined all 17
+        live causal chains, and the web learner's `web_fact` stamp was lost the
+        moment the engine restarted. The dict is a few small string keys per
+        edge; at 380 edges it is ~30 KB, and it grows with the graph, so the
+        cost is proportional to data the system already considers worth
+        keeping.
+        """
         state = self.__dict__.copy()
         state.pop('agent_weights', None)
-        state.pop('source_metadata', None)
         state.pop('parent_graph', None)
         return state
 
