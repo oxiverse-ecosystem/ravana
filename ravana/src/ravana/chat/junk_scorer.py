@@ -533,7 +533,7 @@ def junk_score(word: str, glove_mag: Optional[float] = None,
     if s >= 1.0:
         return 1.0
     clf = _get_classifier()
-    if clf is not None and clf.ready:
+    if clf is not None and clf.ready and _classifier_has_signal(clf):
         feat = _extract_features(w, glove_mag=glove_mag, degree=degree,
                                  source_count=source_count, pmi_stability=pmi_stability)
         soft = clf.predict(feat)
@@ -544,6 +544,55 @@ def junk_score(word: str, glove_mag: Optional[float] = None,
             soft += 0.35
         soft += _salad_signal(w) * 0.4
     return min(1.0, s + soft)
+
+
+def _classifier_has_signal(clf) -> bool:
+    """True when the fitted classifier can actually DISCRIMINATE.
+
+    MEASURED DEFECT: the fitted logistic had collapsed to a constant. Its
+    weights were [-5.25, 0, -5.25, -2.63, 0, 0.0058] and the feature vector for
+    an ordinary noun is [0,0,0,0,0,1], so z ~= 0.006 and the output was
+    0.501 for EVERY input:
+
+        junk_score('clouds', glove_mag=1.0) = 0.501
+        junk_score('ocean',  glove_mag=1.0) = 0.501
+        junk_score('rain',   glove_mag=1.0) = 0.501
+
+    With the admission threshold at 0.5, that rejects every real concept, so
+    web learning wrote NO nodes for ordinary topics and the causal substrate
+    never grew beyond the 23 hand-authored edges.
+
+    A classifier whose predictions do not vary across a probe set carries no
+    information; fall back to the structural formula rather than trust it.
+    Probe on the feature axis that matters (the salad/soft features) and
+    require a non-degenerate spread.
+    """
+    try:
+        # Probe on REAL feature vectors, not synthetic axes: the collapsed
+        # model has large weights on axes that real inputs never set, so an
+        # axis probe reports "has signal" while every actual word still scores
+        # the same. Sample real labels and require the predictions to spread.
+        import numpy as _np
+        probes = ["clouds", "ocean", "rain", "water", "gravity", "battery",
+                  "zzqxjunk", "asdkjfh", "the", "www.example.com", "12345",
+                  "photosynthesis", "moon"]
+        vals = []
+        for p in probes:
+            try:
+                f = _extract_features(p, glove_mag=1.0, degree=None,
+                                     source_count=None, pmi_stability=None)
+                vals.append(float(clf.predict(f)))
+            except Exception:
+                continue
+        if len(vals) < 4:
+            return False
+        # Require a MEANINGFUL spread. Measured on the collapsed model the
+        # probe set spans only 0.500-0.501 (a 1e-3 spread), which a naive
+        # epsilon accepts -- yet every real word still scores 0.501 and is
+        # rejected. Require the predictions to actually separate.
+        return (max(vals) - min(vals)) > 0.05
+    except Exception:
+        return False
 
 
 def refit_now(force: bool = False) -> Optional[dict]:

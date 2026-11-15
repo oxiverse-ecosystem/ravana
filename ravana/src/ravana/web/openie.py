@@ -167,13 +167,50 @@ def _tokenize(sent: str) -> List[str]:
 
 def _chunk(tokens: List[str], exclude: set) -> Optional[str]:
     """Take the head noun + its preceding modifiers, skipping stopwords.
-    Returns a normalized multi-word concept label, or None."""
+
+    Returns a normalized multi-word concept label, or None.
+
+    MEASURED DEFECT: the object chunk kept EVERYTHING after the verb, so
+    "Water vapour condenses into clouds" produced the object "into clouds"
+    and "Water evaporates from the ocean" produced "from ocean". Those are
+    prepositional phrases, not concepts -- they became graph nodes and could
+    never form a clean chain (`clouds -> rain` was unreachable because the
+    node was labelled "into clouds").
+
+    Truncate the chunk at the first preposition, then keep the noun phrase
+    that FOLLOWS it (the preposition's object is usually the real concept).
+    """
     kept = [t for t in tokens if t not in STOP and t not in exclude]
     if not kept:
         return None
-    # drop leading empty determiners already filtered; join modifiers + head
-    label = " ".join(kept)
-    return label
+    # Cut the chunk at the first preposition. Everything after a preposition is
+    # a prepositional phrase; the concept is the noun phrase BEFORE it, or --
+    # when the chunk IS a bare PP ("into clouds") -- the noun phrase AFTER it.
+    #   "water vapour into clouds" -> water vapour
+    #   "into clouds"              -> clouds
+    #   "from ocean"               -> ocean
+    _PREP = {"from", "into", "onto", "in", "on", "at", "to", "of", "by",
+             "with", "for", "as", "during", "through", "via", "over",
+             "under", "between", "among", "within", "without", "across"}
+    head = []
+    for t in kept:
+        if t in _PREP:
+            break
+        head.append(t)
+    if head:
+        return " ".join(head)
+    # Bare PP: take the noun phrase after the preposition.
+    tail = []
+    seen_prep = False
+    for t in kept:
+        if t in _PREP:
+            seen_prep = True
+            continue
+        if seen_prep:
+            tail.append(t)
+    if not tail:
+        return None
+    return " ".join(tail)
 
 
 class OpenIEExtractor:
