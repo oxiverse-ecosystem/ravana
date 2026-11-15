@@ -419,7 +419,27 @@ class ChainWalkerMixin:
                         # reproducible; it is NOT evidence and must not be
                         # asserted as a committed relation.
                         inf_type, _ = self._infer_relation_type(word, other_label, "semantic")
-                        self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
+                        # MEASURED (docs/TYPING_ACCURACY_IS_CIRCULAR.md): this
+                        # proxy scores 0/32 on independent labels, and writing
+                        # its output as the edge's relation_type made a
+                        # GloVe-proximity edge assert as CAUSAL -- measured as
+                        # `rain -> heat` (w=0.35) surfacing in "Rain leads to
+                        # heat, and that in turn leads to climate". The comment
+                        # above already said the label "must not be asserted as a
+                        # committed relation"; the write contradicted it.
+                        #
+                        # Write `semantic` (what the edge actually is: a
+                        # co-occurrence/similarity link) and stamp the provenance
+                        # so the explanation gate can decline it. The inferred
+                        # type is kept in metadata for the record.
+                        _e = self.graph.add_edge(
+                            nid, other_nid, weight=weight,
+                            relation_type="semantic")
+                        if _e is not None and hasattr(_e, "_ensure_source_metadata"):
+                            _m = _e._ensure_source_metadata()
+                            _m["edge_kind"] = "co_occurrence"
+                            _m["inferred_relation"] = inf_type
+                            _m["source"] = "glove_proximity"
                         wired_11 += 1
 
             # Phase 1.2 + 9b: Auto-wire to ALL existing concepts where sim > 0.5
@@ -436,7 +456,17 @@ class ChainWalkerMixin:
                     # reproducible; it is NOT evidence and must not be
                     # asserted as a committed relation.
                     inf_type, _ = self._infer_relation_type(word, other_label, "semantic")
-                    self.graph.add_edge(nid, other_nid, weight=weight, relation_type=inf_type)
+                    # Same fix as Phase 1.1 above: the inferred type is a
+                    # deprecated 0/32 proxy, so it must not become the edge's
+                    # relation_type. See the note there.
+                    _e = self.graph.add_edge(
+                        nid, other_nid, weight=weight,
+                        relation_type="semantic")
+                    if _e is not None and hasattr(_e, "_ensure_source_metadata"):
+                        _m = _e._ensure_source_metadata()
+                        _m["edge_kind"] = "co_occurrence"
+                        _m["inferred_relation"] = inf_type
+                        _m["source"] = "glove_proximity"
 
             # ── INHIBITORY GATE on auto-wiring ──────────────────────────────
             # The two passes above wire a new concept to every graph node with
