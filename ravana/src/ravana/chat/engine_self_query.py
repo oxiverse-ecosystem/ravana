@@ -2635,10 +2635,33 @@ class SelfQueryMixin:
             try:
                 _ok, _why, _score = _gate.judge(text=_focused, subject=subj)
                 if not _ok:
-                    if getattr(self, "_trace_enabled", False):
-                        print(f"  [coherence] internal_knowledge withheld "
-                              f"({_why}): {_focused[:50]!r}")
-                    return None
+                    # A definition legitimately arrives as a bare noun phrase
+                    # ("drops of liquid water falling from the sky") -- that is
+                    # what a dictionary definition IS. It has no predicate, so
+                    # the completeness gate withholds it, and a perfectly good
+                    # definition is lost to a fail-closed check aimed at junk
+                    # fragments.
+                    #
+                    # Supply the missing copula rather than discarding it: the
+                    # subject is already known, so "X is <definition>" is a
+                    # complete clause. Only do this for the no-predicate case;
+                    # every other incompleteness reason still withholds.
+                    if _why == "no_predicate" and _focused.strip():
+                        _focused = f"{subj} is {_focused.strip()}"
+                        try:
+                            _ok2, _why2, _ = _gate.judge(text=_focused, subject=subj)
+                            if not _ok2:
+                                if getattr(self, "_trace_enabled", False):
+                                    print(f"  [coherence] internal_knowledge withheld "
+                                          f"({_why2}): {_focused[:50]!r}")
+                                return None
+                        except Exception:
+                            pass
+                    else:
+                        if getattr(self, "_trace_enabled", False):
+                            print(f"  [coherence] internal_knowledge withheld "
+                                  f"({_why}): {_focused[:50]!r}")
+                        return None
             except Exception:
                 pass
         # Assemble a coherent, non-salad reply in the same voice as the web path.
