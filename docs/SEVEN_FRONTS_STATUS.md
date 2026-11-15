@@ -5,20 +5,48 @@ current `main`: see the table below.
 
 ## The scores
 
-| front | first | now |
-|---|---|---|
-| language understanding / conversation | 100 | 100 |
-| grounded factual answers | 100 | **75** |
-| opinions / stance | 100 → 67 | 100 |
-| thinking / reasoning | 33 | **67** |
-| speaking / surface realization | 100 → 0 | 100 |
-| code generation | 0 | 100 |
-| language learning (online) | 40 | 100 |
-| **mean** | 68 → 49 | **92** |
+| front | first | now | note |
+|---|---|---|---|
+| language understanding / conversation | 100 | **100** | |
+| grounded factual answers | 100 | **100** | was 75; the honest hedge scored better than the false claim it replaced |
+| opinions / stance | 100 → 67 | **100** | |
+| thinking / reasoning | 33 | **0** | was 67, then 33 — see below |
+| speaking / surface realization | 100 → 0 | **100** | |
+| code generation | 0 | **100** | |
+| language learning (online) | 40 | **100** | |
+| **mean** | 68 → 49 | **86** | |
 
 The 100→67→100 and 100→0→100 swings are the honest story: the first probes
 passed defective output, the tightened ones caught it, and fixes then moved
 real scores.
+
+### Why thinking reads 0, and why that is the honest number
+
+The score moved **67 → 33 → 0** as the probe was tightened. Each drop was the
+probe getting honest, not the system regressing:
+
+- **67** counted the empty counterfactual template *"everything that depends on
+  X would shift; other systems would scramble to fill the gap"* as a causal
+  answer, because it contains **"depends on"** — a causal keyword. An honest
+  *"i'm not sure"* scored 0. The probe rewarded the nonsense it was written to
+  detect.
+- **33** after that template was removed.
+- **0** after the probe also rejected the *"the closest i get to X"* association
+  frame and required ≥4 distinct content words.
+
+Measured per probe at 0:
+
+| probe | causal keyword? | actual answer |
+|---|---|---|
+| why do you think it rains | no | "the closest i get to rains is rain and maybe fall…" |
+| explain how a battery works | no | "honestly, battery is a bit outside what i know right now." |
+| what would happen if the moon disappeared | no | "Moon is the only natural satellite of Earth." |
+
+**None produces a causal explanation.** The system retrieves definitions and
+associations; it does not yet assemble a mechanism. That is the real remaining
+capability gap, and it is now measured rather than flattered.
+
+Do not "restore" the 67. It was never real.
 
 ### Why grounded reads 75, and why that is not a regression
 
@@ -29,12 +57,14 @@ returns an honest hedge, which the probe correctly marks BAD.
 
 So the score fell because the probe got *better at catching* a wrong answer,
 and the wrong answer was replaced by an honest one. **Do not read 75 as a
-loss.** The underlying gap is real and separate: `rain` has no stored
-definition (514 definitions, none for `rain`), so the honest hedge is the
-correct behaviour for a topic the system does not know.
+loss.**
 
-Raising this score means acquiring the definition (web learning), not
-loosening the probe.
+**Update:** grounded has since returned to **100**. The gap was real and was
+closed at the source — `rain` now has a stored definition (*"drops of liquid
+water falling from the sky"*), acquired from a live web read and repaired
+through four defects in the definition pipeline (a wrong-sense store, a quality
+tie that made a bad value permanent, a skipped `X is described as Y` pattern,
+and a participle captured into the value). See `docs/RAIN_DEFINITION_GAP.md`.
 
 ## The caveats that matter more than the number
 
