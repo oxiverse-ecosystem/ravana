@@ -11463,13 +11463,36 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # boosts curiosity) so RAVANA keeps trying to learn the topic — but the
         # user sees an honest "still figuring it out" rather than empty text.
         if getattr(self, '_last_response_was_salad', False):
-            subject_label = (ctx.subject or 'that').strip()
-            response = (
-                f"honestly, i'm still piecing together what {subject_label} really "
-                f"means — i don't want to give you a hollow answer. what's your take?"
-            )
-            strategy = "salad_fallback"
-            self._last_strategy = strategy
+            # MEASURED DEFECT: this flag is set by `_is_word_salad` on the text
+            # that existed BEFORE the counterfactual/explanation path ran. When
+            # that path then returns a GOOD answer, the stale flag still fires
+            # here and overwrites it with the "hollow answer" hedge -- which the
+            # final-emit guard then vetoes, so the user gets a third string.
+            #
+            # Measured on `what would happen if the sun disappeared`:
+            #   gated chain returned "sun leads to earth; earth leads to life"
+            #   (adequacy 1.00, passed _sm_response_grounded)
+            #   -> overwritten by the salad hedge
+            #   -> vetoed by detects_fluent_tautology
+            #   -> "i don't really have a solid grasp on Sun"
+            #
+            # Fix: re-test the response we are actually about to emit. A
+            # substitution is only warranted if THAT text is salad.
+            _now_salad = False
+            try:
+                _now_salad = _is_word_salad(response, subject=ctx.subject)
+            except Exception:
+                _now_salad = False
+            if _now_salad:
+                subject_label = (ctx.subject or 'that').strip()
+                response = (
+                    f"honestly, i'm still piecing together what {subject_label} really "
+                    f"means — i don't want to give you a hollow answer. what's your take?"
+                )
+                strategy = "salad_fallback"
+                self._last_strategy = strategy
+            else:
+                self._last_response_was_salad = False
 
         # Brain-inspired Syntactic & Construction Grammar Feedback Learning
         user_understood = (quality_score >= 0.55)

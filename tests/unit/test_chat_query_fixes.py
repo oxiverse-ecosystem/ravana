@@ -278,7 +278,9 @@ def test_counterfactual_premise_returns(engine, q, subject):
     out = engine._simulate_counterfactual(ctx)
     assert out is not None, f"counterfactual bailed for {q!r}"
     text, strat = out
-    assert strat == "counterfactual_simulation"
+    # Both counterfactual routes are valid here: the legacy simulator and the
+    # newer provenance-gated explanation chain.
+    assert strat in ("counterfactual_simulation", "gated_explanation_chain")
     assert len(text) > 10
     # Must not be a hollow uncertainty filler.
     assert "not sure" not in text.lower() and "outside what i know" not in text.lower()
