@@ -468,6 +468,51 @@ def _answer_from_graph_typed_edges(subject: str, engine):
     return InternalAnswer(text, "graph")
 
 
+_IES_ALREADY_SINGULAR = {
+    "species", "series", "crises", "bases", "theses", "hypotheses",
+    "phenomena", "criteria", "data", "media",
+}
+
+
+def _singularize_subject(word: str) -> str:
+    """Best-effort singular of a subject token, for definition lookup.
+
+    Only the regular English plural shapes are handled, and only when the
+    result is a plausible word (no vowel-less stub). Deliberately conservative:
+    a wrong singular is worse than a MISS, because a MISS fails closed while a
+    wrong key returns an unrelated definition.
+    """
+    import re as _re
+    w = (word or "").strip().lower()
+    if not w or len(w) < 4:
+        return ""
+    # -ies -> -y ("stories" -> "story"). Guarded by a small set of -ies words
+    # that are ALREADY singular (species, series, ...): their stem is not a
+    # word, so naive stripping produces "specy". A wrong singular is worse than
+    # a MISS -- a MISS fails closed, a wrong key returns an unrelated
+    # definition.
+    if w.endswith("ies") and len(w) > 4:
+        # Terminal: an -ies word is either a plural (-> -y) or already
+        # singular. Never let it fall through to the plain -s rule, which
+        # produced "specie"/"serie".
+        if w in _IES_ALREADY_SINGULAR or w[-4] in "aeiou":
+            return ""
+        return w[:-3] + "y"
+    # -es after a sibilant -> drop -es (glasses -> glass, washes -> wash)
+    if w.endswith(("shes", "ches", "sses", "xes", "zes")):
+        return w[:-2]
+    # -ses -> -sis is NOT handled (analysis/analyses) -- too error-prone.
+    # -ics nouns are singular (physics, mathematics, ethics) -- never strip.
+    if w.endswith("ics"):
+        return ""
+    # plain -s -> drop it, but never leave a stub ending in -ss/-us/-is
+    if w.endswith("s") and not w.endswith(("ss", "us", "is", "ous", "eaus")):
+        cand = w[:-1]
+        if len(cand) >= 3 and _re.search(r"[aeiou]", cand):
+            return cand
+    return ""
+
+
 def consult_internal(subject: str, engine) -> Optional[InternalAnswer]:
     """Before reaching for the web, consult RAVANA's consolidated internal
     memory (definitions + hippocampal facts + graph), assembling a coherent
@@ -481,6 +526,15 @@ def consult_internal(subject: str, engine) -> Optional[InternalAnswer]:
     print(f"  [consult_internal] subject={s!r}")
     if not s:
         return None
+    # MEASURED DEFECT: "why do you think it rains" grounds to the subject
+    # "rains", which is not a stored key -- `rain` is. The lookup MISSED and the
+    # caller fell through to a generic opinion hedge. A plural inflection of a
+    # known key is the same concept; retry the singular before giving up.
+    if hasattr(engine, "_definitions") and s not in engine._definitions:
+        _sing = _singularize_subject(s)
+        if _sing and _sing != s and _sing in engine._definitions:
+            print(f"  [consult_internal] singularized {s!r} -> {_sing!r}")
+            s = _sing
     if hasattr(engine, "_definitions") and s in engine._definitions:
         _ans = InternalAnswer(engine._definitions[s], "definition")
         print(f"  [consult_internal] HIT definition len={len(_ans.text)} preview={_ans.text[:120]!r}")
