@@ -936,6 +936,12 @@ class PrefrontalWorkspace:
             re.compile(r"what's\s+(.+)", re.IGNORECASE),
         ],
         "why": [
+            # Epistemic-frame form FIRST: "why do you think it rains". The
+            # generic pattern below would capture "you think it rains" and the
+            # subject would come out as "rains" -- measured.
+            re.compile(r"why\s+(?:do|did|does|would|could|can)\s+you\s+"
+                       r"(?:think|believe|suppose|guess|imagine|reckon|say)\s+"
+                       r"(?:that\s+)?(.+)", re.IGNORECASE),
             re.compile(r"why\s+(?:is|are|does|do|can)\s+(.+)", re.IGNORECASE),
             re.compile(r"why\s+(.+)", re.IGNORECASE),
         ],

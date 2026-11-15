@@ -1678,18 +1678,32 @@ class SelfQueryMixin:
                 f"what made you curious about that?")
 
     def _route_self_query(self, user_input: str) -> Optional[str]:
-        """Self/other gate (TPJ / mirror-neuron self-other boundary).
-
-        A query about the AGENT itself ('your name', 'who are you', 'what are
-        you') must be answered from the self-model — never by looking up the
-        word 'name'/'you' as a world concept (which produces the definitional
-        echo "name is a term used for identification..."). World-knowledge
-        queries ('the president', 'the capital of X') deliberately do NOT match
-        and fall through to the factual path.
-
-        Returns a composed self-answer, or None when the query is not about the
-        self (so world knowledge is consulted normally).
-        """
+        # MEASURED DEFECT: this method is called from THREE sites in
+        # process_turn (the intent-router block, the compositional block, and an
+        # unconditional fallback), and only some applied the stance-frame guard.
+        # "why do you think it rains" is a CAUSAL question, but the
+        # unconditional fallback at engine.py:8939 reached here unguarded and
+        # answered with RAVANA's stance on rain ("i'm drawn to rains...").
+        #
+        # The exclusion lives HERE so every caller is covered: a why/how-come
+        # preamble asks for a cause, not a stance, so this router abstains and
+        # lets the causal path answer. Fail-open -- None returns to the pipeline.
+        if re.search(
+                r"\b(?:why|how\s+come)\s+do\s+you\s+"
+                r"(?:think|feel|believe|suppose|guess|imagine)\b",
+                user_input, re.IGNORECASE):
+            return None
+        # Self/other gate (TPJ / mirror-neuron self-other boundary).
+        #
+        # A query about the AGENT itself ('your name', 'who are you', 'what are
+        # you') must be answered from the self-model — never by looking up the
+        # word 'name'/'you' as a world concept (which produces the definitional
+        # echo "name is a term used for identification..."). World-knowledge
+        # queries ('the president', 'the capital of X') deliberately do NOT match
+        # and fall through to the factual path.
+        #
+        # Returns a composed self-answer, or None when the query is not about the
+        # self (so world knowledge is consulted normally).
         t = (user_input or "").lower().strip()
         if not t:
             return None

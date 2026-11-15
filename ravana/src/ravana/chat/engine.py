@@ -8553,6 +8553,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 r"|what\s+is\s+your\s+(opinion|take|view|stance)\s+on\b"
                 r"|do\s+you\s+have\s+a\s+(view|opinion|take)\s+on\b)",
                 user_input, re.IGNORECASE)
+            # MEASURED DEFECT: the bare `do you (think|feel|...)` frame matched
+            # "why do you think it rains" and routed a CAUSAL question to the
+            # stance store, which answered "i'm drawn to rains. it sits close to
+            # people..." -- an opinion about rain, not a reason for it.
+            #
+            # "why do you think X" asks for a CAUSE; "what do you think about
+            # X" asks for a stance. So a why/how-come preamble cancels the
+            # stance route and lets the causal path answer.
+            if _selfopinion and re.search(
+                    r"\b(?:why|how\s+come)\s+do\s+you\s+"
+                    r"(?:think|feel|believe|suppose|guess|imagine)\b",
+                    user_input, re.IGNORECASE):
+                _selfopinion = None
             if _selfceil or _selfopinion:
                 # EXPERIENTIAL FIRST: the _selfopinion gate above matches the
                 # broad "do you (think|feel|have|...)" frame, which also covers
@@ -8884,15 +8897,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # regex admission below exactly as today. Inert unless self_directed is
         # in `promoted`, and fully skipped at use_intent_router=False (default).
         if self.use_intent_router and self._router_says("self_directed", user_input):
-            _self_ans = self._route_self_query(user_input)
-            if _self_ans is not None:
-                self._last_strategy = "self_model"
-                self._last_responses.append(_self_ans)
-                if len(self._last_responses) > 10:
-                    # trim oldest
-                    self._last_responses = self._last_responses[-10:]
-                self.notify_user_idle()
-                return _self_ans
+            # MEASURED DEFECT: this route had no stance-frame guard, so
+            # "why do you think it rains" -- a CAUSAL question -- was classified
+            # self_directed and answered with RAVANA's stance on rain ("i'm
+            # drawn to rains..."). The guards at the compositional block below
+            # do not apply here, so the same why/how-come exclusion is needed.
+            _why_frame = re.search(
+                r"\b(?:why|how\s+come)\s+do\s+you\s+"
+                r"(?:think|feel|believe|suppose|guess|imagine)\b",
+                user_input, re.IGNORECASE)
+            if not _why_frame:
+                _self_ans = self._route_self_query(user_input)
+                if _self_ans is not None:
+                    self._last_strategy = "self_model"
+                    self._last_responses.append(_self_ans)
+                    if len(self._last_responses) > 10:
+                        # trim oldest
+                        self._last_responses = self._last_responses[-10:]
+                    self.notify_user_idle()
+                    return _self_ans
         # ── Structured biographical/stance recall guard (round 2026-08-08) ──
         # The unconditional _route_self_query below answers from RAVANA's OWN
         # self-model. A query about the USER's facts/stances ("what did i tell
