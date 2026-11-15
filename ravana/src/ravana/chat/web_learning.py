@@ -1998,7 +1998,23 @@ class WebLearningMixin(ResponseGenMixin):
                 coherence = self._definition_coherence_score(query_topic, heur_def)
                 def_has_inappropriate = self._def_has_inappropriate(heur_def)
                 if self._definition_acceptable(query_topic, heur_def, def_has_inappropriate) and self._definition_looks_clean(heur_def) and self._is_clean_concept_key(query_topic):
-                    self._definitions[query_topic] = heur_def[:200]
+                    # MEASURED DEFECT: this path checked acceptability and
+                    # cleanliness but never QUALITY, so a marketing snippet
+                    # scored 0.0 and was stored anyway:
+                    #   battery -> "designed for endurance athletes, outdoor
+                    #               adventurers, and water sports enthusiasts..."
+                    # The regex path already applies the quality floor; apply
+                    # the same one here so the two paths agree.
+                    #
+                    # Fail-closed: a definition-shaped sentence that scores
+                    # below the floor is not stored, so the topic stays
+                    # honestly unknown rather than wrongly defined.
+                    if self._definition_quality(heur_def) <= 0.0:
+                        if self._trace_enabled:
+                            print(f"  [definition] heuristic REJECTED "
+                                  f"(quality 0.0): {query_topic} -> {heur_def[:60]!r}")
+                    else:
+                        self._definitions[query_topic] = heur_def[:200]
 
                     if self._trace_enabled:
                         print(f"  [definition] Heuristic match (coherence={coherence:.2f}): {query_topic} -> {heur_def[:80]}...")
