@@ -8,17 +8,33 @@ current `main`: see the table below.
 | front | first | now |
 |---|---|---|
 | language understanding / conversation | 100 | 100 |
-| grounded factual answers | 100 | 100 **(structural — see caveat)** |
+| grounded factual answers | 100 | **75** |
 | opinions / stance | 100 → 67 | 100 |
-| thinking / reasoning | 33 | 33 **(route works; probe measures fail-closed)** |
+| thinking / reasoning | 33 | **67** |
 | speaking / surface realization | 100 → 0 | 100 |
 | code generation | 0 | 100 |
 | language learning (online) | 40 | 100 |
-| **mean** | 68 → 49 | **90** |
+| **mean** | 68 → 49 | **92** |
 
 The 100→67→100 and 100→0→100 swings are the honest story: the first probes
 passed defective output, the tightened ones caught it, and fixes then moved
 real scores.
+
+### Why grounded reads 75, and why that is not a regression
+
+The one failing probe is `what causes rain`. Before #390 it returned
+**"Rain leads to heat, and that in turn leads to climate"** — a false causal
+claim that PASSED the probe (it has a subject and a predicate). After #390 it
+returns an honest hedge, which the probe correctly marks BAD.
+
+So the score fell because the probe got *better at catching* a wrong answer,
+and the wrong answer was replaced by an honest one. **Do not read 75 as a
+loss.** The underlying gap is real and separate: `rain` has no stored
+definition (514 definitions, none for `rain`), so the honest hedge is the
+correct behaviour for a topic the system does not know.
+
+Raising this score means acquiring the definition (web learning), not
+loosening the probe.
 
 ## The caveats that matter more than the number
 
