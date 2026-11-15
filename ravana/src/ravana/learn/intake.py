@@ -260,15 +260,32 @@ def review_interval_for(prior_retention: float, reviews_done: int = 0) -> int:
 
 
 def edge_type_for_relation(relation: str) -> str:
-    """Map an OpenIE relation onto the graph's relation_type vocabulary."""
-    return {
-        "is_a": "is_a",
-        "has_property": "has_property",
-        "located_in": "located_in",
-        "part_of": "part_of",
-        "causes": "causes",
-        "related_to": "semantic",
-    }.get(relation, "semantic")
+    """Map an OpenIE relation onto the graph's relation_type vocabulary.
+
+    MEASURED DEFECT: this was a SECOND copy of the map, and it still read
+    `"causes": "causes"`. `ConceptEdge`'s relation table
+    (`ravana_ml/src/ravana_ml/graph.py:168`) has no `"causes"` key -- only
+    `"causal"`. So the intake path (which runs FIRST, before
+    `WebToGraph.RELATION_TO_EDGE` is consulted) wrote every web-extracted
+    causal fact under a relation type the rest of the system does not
+    recognise: `enumerate_chains` looks for `causal`, found 0 chains, and
+    `why does it rain` could never use the two trusted hops that web
+    learning had in fact produced (`water vapour -> clouds -> rain`).
+
+    Delegate to the canonical map so the two cannot drift again.
+    """
+    try:
+        from ravana.web.web_to_graph import WebToGraph
+        return WebToGraph.RELATION_TO_EDGE.get(relation, "semantic")
+    except Exception:
+        return {
+            "is_a": "is_a",
+            "has_property": "has_property",
+            "located_in": "located_in",
+            "part_of": "part_of",
+            "causes": "causal",
+            "related_to": "semantic",
+        }.get(relation, "semantic")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
