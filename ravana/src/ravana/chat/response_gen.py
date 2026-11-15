@@ -2193,6 +2193,29 @@ class ResponseGenMixin(ChainWalkerMixin):
         # safety net — otherwise a wellbeing query falls through to association
         # salad (A4). Brain-faithful: the LIFG frame-selector has a robust
         # template fallback for canonical social frames (Yoshioka 2023).
+        # MEASURED DEFECT: the regex was only consulted when the prototype
+        # classifier ABSTAINED. For "how is it going" the classifier confidently
+        # returned `invite`, so the regex never ran and the reply was the
+        # topic-invite ("hello. what's on your mind?") -- a wellbeing question
+        # answered as an invitation to talk.
+        #
+        # An explicit canonical wellbeing frame is stronger evidence than a
+        # centroid label, so it OVERRIDES the classifier (the same reasoning the
+        # greeting/wellbeing comment above already applies to the regex-as-
+        # fallback). Order matters: check wellbeing before falling through.
+        _wellbeing_explicit = re.search(
+            r"\b(how\s*are\s*you|how'?re\s*you|how\s*is\s*it\s*going|"
+            r"how\s*have\s*you\s*been|how\s*are\s*you\s*doing|"
+            r"how\s*do\s*you\s*feel|how'?s\s*it\s*going|how'?s\s*life)\b",
+            t)
+        # MEASURED: the classifier labels "how is it going" as `greeting`, and
+        # an earlier version of this fix excluded "greeting" from the override
+        # -- so it still returned the greeting reply. A canonical wellbeing
+        # frame is stronger evidence than a centroid label, so it overrides
+        # `greeting` too. Only farewell/gratitude keep their own frames: they
+        # are different speech acts, not mislabelled wellbeing.
+        if _wellbeing_explicit and intent not in ("farewell", "gratitude"):
+            intent = "wellbeing"
         if intent in (None, "ABSTAIN"):
             _g = re.search(r"\b(hi|hello|hey|yo|sup|greetings|whats\s*up|what's\s*up|whatsup|howdy|good\s*(morning|afternoon|evening))\b", t)
             _w = re.search(r"\b(how\s*are\s*you|how\s*is\s*it\s*going|how\s*have\s*you\s*been|how\s*are\s*you\s*doing)\b", t)
