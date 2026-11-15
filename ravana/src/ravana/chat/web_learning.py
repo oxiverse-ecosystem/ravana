@@ -1185,6 +1185,20 @@ class WebLearningMixin(ResponseGenMixin):
                         "is the name of", "are topics referred to"):
             if _marker in d:
                 return -1.0
+        # MEASURED: the first guard missed the value actually stored for
+        # `rains` -- "a Danish outerwear brand headquartered in Aarhus, Denmark"
+        # scored 1.500, HIGHER than the real definition (1.200), because it
+        # opens with an article + noun and is short. It is a disambiguation
+        # entry for a DIFFERENT topic that happens to share the name.
+        #
+        # A definition of the subject does not name a foreign place or a
+        # company as its head. Reject a definition whose head is a proper-noun
+        # organisation/place marker.
+        for _marker in ("headquartered in", "brand headquartered",
+                        "based in", "commonly known as", "also known as",
+                        "trading as", "formerly known as"):
+            if _marker in d:
+                return -1.0
         # Start from a neutral baseline and reward canonical definition shape.
         score = 0.0
         # Canonical definitions open with an article + noun phrase ("a process",
