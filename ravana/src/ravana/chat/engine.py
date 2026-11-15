@@ -2661,6 +2661,45 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             groups.append(set(_INTRANSITIVE_PREDICATE_SEED))
         return self._learn_predicates_from(*groups)
 
+    @staticmethod
+    def _term_retention(exposures: int, *, half_life: float = 3.0) -> float:
+        """M7 retention curve: curvilinear forgetting, parameterized not frozen.
+
+        A term's retention RISES with exposure count toward 1.0 (consolidated)
+        and would DECAY with elapsed time since the last exposure. This
+        function models the exposure half only:
+
+            R(n) = 1 - 0.5 ** (n / half_life)
+
+        At n=1, R is well below 1 (a single mention is fragile); repeated
+        exposure consolidates toward 1.0. The curve is deliberately
+        PARAMETERISED because Hulme, Barsky & Rodd (2019) found no significant
+        forgetting over a week for story-learned meanings -- the prediction is
+        contested, so the constants must be fittable rather than asserted.
+
+        MEASURED DEFECT in the first version: it returned
+        1/(1+(n-1)/k)**p, which DECREASED with exposure (count=2 -> 0.595,
+        count=4 -> 0.354) -- the opposite of consolidation, and contrary to
+        this docstring's own claim that repeated use saturates near 1.0.
+        """
+        try:
+            n = max(1, int(exposures))
+        except Exception:
+            n = 1
+        try:
+            hl = max(0.5, float(half_life))
+        except Exception:
+            hl = 3.0
+        return float(1.0 - 0.5 ** (n / hl))
+
+    def term_exposure_count(self, term: str) -> int:
+        """How many times the user has defined/used `term` (M7 telemetry)."""
+        try:
+            return int((getattr(self, "_term_exposures", {}) or {})
+                       .get((term or "").lower(), 0))
+        except Exception:
+            return 0
+
     def learn_novel_term_from_turn(self, user_input: str) -> int:
         """Learn a DEFINITION the user just stated for a term RAVANA doesn't know.
 
@@ -2743,6 +2782,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 return 0
 
             known[term.lower()] = definition[:200]
+            # M7 (docs/BRAIN_NOVEL_TERM_LEARNING.md): exposure bookkeeping.
+            # A term enters with ONE exposure; retention is a curvilinear
+            # forgetting function (rapid early decay, flattening later), so a
+            # term that is never seen again should fade rather than persist
+            # forever as if well-known. The count is what makes "learns as the
+            # conversation goes" measurable: a term the user keeps using is
+            # consolidated, a term mentioned once is not.
+            try:
+                _exp = getattr(self, "_term_exposures", None)
+                if _exp is None:
+                    _exp = {}
+                    self._term_exposures = _exp
+                _exp[term.lower()] = int(_exp.get(term.lower(), 0)) + 1
+            except Exception:
+                pass
             # Index the new term so grounding can reach it on later turns.
             try:
                 vec = self._glove_vector(term)
@@ -8557,6 +8611,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # branch-local hook missed it.
         try:
             self.learn_novel_term_from_turn(user_input)
+        except Exception:
+            pass
+        # M7: count USE as well as definition. A term the user keeps using is
+        # being consolidated; a term defined once and never seen again is not.
+        # This is what makes "learns as the conversation goes" measurable --
+        # the exposure count is the consolidation signal.
+        try:
+            _exp = getattr(self, "_term_exposures", None)
+            if _exp is not None:
+                for _t in list(_exp.keys()):
+                    if _t and _t in (user_input or "").lower():
+                        _exp[_t] = int(_exp.get(_t, 0)) + 1
         except Exception:
             pass
         # FIX D (round 2026-08-20T1229Z): capture first-person conviction
