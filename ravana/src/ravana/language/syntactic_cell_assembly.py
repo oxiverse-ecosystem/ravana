@@ -377,6 +377,17 @@ class SyntacticCellAssembly:
         # Check if the concept already starts with an article/determiner
         if cl.startswith(("a ", "an ", "the ", "some ", "any ", "this ", "that ")):
             return ""
+        # MEASURED DEFECT: a stored DEFINITION is a clause, not a bare noun --
+        # "water that falls from the sky as drops of liquid". The object slot
+        # took it as a noun phrase and prepended an article, giving
+        # "rains are a water that falls from the sky as drops of liquid".
+        # A multi-word string containing a finite verb is a clause; it must not
+        # take an indefinite article.
+        if " " in cl.strip() and re.search(
+                r"\b(is|are|was|were|has|have|had|falls?|forms?|occurs?|"
+                r"happens?|consists?|means?|refers?|becomes?|grows?|"
+                r"that|which|who|when|where)\b", cl):
+            return ""
 
         # Complete list of pronouns to never get articles
         PRONOUNS_ALL = {
