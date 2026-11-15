@@ -1484,18 +1484,36 @@ class GraphMixin:
         if not isinstance(saved, dict):
             return 0
         added = 0
+        repaired = 0
         for k, v in saved.items():
             if not isinstance(v, str) or not v.strip():
                 continue
             if k in self._definitions:
+                # MEASURED DEFECT: skipping an existing key made a bad stored
+                # value permanent. `rain` was an aquarium exhibit description
+                # in the durable store, and every re-learn produced a good
+                # definition that was discarded because the key already existed.
+                #
+                # Repair when the stored value is clearly worse, using the same
+                # quality function the extractor uses to accept a definition.
+                # Fail-closed: only replace when the new value scores strictly
+                # higher, so a good value is never degraded by a worse one.
+                try:
+                    if (self._definition_quality(v)
+                            > self._definition_quality(self._definitions[k]) + 0.01):
+                        self._definitions[k] = v
+                        repaired += 1
+                except Exception:
+                    pass
                 continue
             self._definitions[k] = v
             if k in saved_curated:
                 self._curated_definitions.add(k)
             added += 1
-        if added:
-            print(f"  [Persisted] Rehydrated {added} verified definitions from CognitiveDB")
-        return added
+        if added or repaired:
+            print(f"  [Persisted] Rehydrated {added} verified definitions from "
+                  f"CognitiveDB ({repaired} repaired)")
+        return added + repaired
 
     def _seed_kb_definitions(self, top_n: int = 250, workers: int = 8) -> int:
         """Seed _definitions from a DATA-DERIVED concept list (not a hand list):
