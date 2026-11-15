@@ -138,9 +138,42 @@ from ravana.ontology.linggen import hrr_vary_words
 from ravana.core.sub_answer_synthesizer import SubAnswerSynthesizer
 
 
+def _edge_provenanced(edge) -> bool:
+    """True when a causal edge's source is one the system may ASSERT from.
+
+    MEASURED DEFECT: `_causal_chain_from_graph` filtered on
+    `relation_type == "causal"` alone, so an UNPROVENANCED GloVe-proximity edge
+    was asserted as fact. The live example:
+
+        rain -> heat   rel=causal  w=0.29  edge_kind=unknown  source=None
+
+    which surfaced as the confident claim "Rain leads to heat, and that in turn
+    leads to climate" -- a false causal statement. `learn/explanation.py`
+    already draws this line (`provenance_trusted`); this applies the same test
+    at the point of emission, so a weak association cannot be asserted even
+    when it carries the causal label.
+
+    Fail-closed: an edge with no readable provenance is NOT assertable.
+    """
+    try:
+        md = getattr(edge, "source_metadata", None)
+        if not isinstance(md, dict):
+            return False
+        kind = (md.get("edge_kind") or "").strip().lower()
+        src = (md.get("source") or "").strip().lower()
+        if kind in ("web_fact", "curated", "definition", "conversation",
+                    "curriculum", "co_occurrence", "typed"):
+            return True
+        if src in ("common_facts", "web", "curated", "definition",
+                   "conversation", "curriculum"):
+            return True
+        return False
+    except Exception:
+        return False
+
+
 class ResponseGenMixin(ChainWalkerMixin):
     """Mixin providing neural decoder generation, chitchat, and templated responses."""
-
     # Phase 5 (casing): cached set of graph concepts that are STRONG named
     # entities (country/city/company/person/... via ConceptNet IsA). Fed to
     # case_infer so mid-sentence entities not in SUBTLEX still capitalize.
@@ -3123,12 +3156,12 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return None
             causes_in, effects_out = [], []
             for tgt, e in g.get_outgoing(nids[0]):
-                if (e.relation_type or "").lower() == "causal":
+                if (e.relation_type or "").lower() == "causal" and _edge_provenanced(e):
                     tn = g.get_node(tgt)
                     if tn and not _is_meta(tn.label):
                         effects_out.append((tn.label, e.weight))
             for src, e in g.get_incoming(nids[0]):
-                if (e.relation_type or "").lower() == "causal":
+                if (e.relation_type or "").lower() == "causal" and _edge_provenanced(e):
                     sn = g.get_node(src)
                     if sn and not _is_meta(sn.label):
                         causes_in.append((sn.label, e.weight))
@@ -6850,6 +6883,22 @@ class ResponseGenMixin(ChainWalkerMixin):
         _weak = (relation or "").strip().lower() in ("semantic", "related", "")
         if _weak and not self._relation_has_contentful_edge(target, chain[0]):
             return None
+        # MEASURED DEFECT: a CAUSAL question only checked that the relation type
+        # was contentful, not that any hop was PROVENANCED. So the unprovenanced
+        # GloVe edge `rain -> heat` (w=0.29, edge_kind=unknown, source=None)
+        # passed, and the chain was asserted as the confident claim "Rain leads
+        # to heat, and that in turn leads to climate" -- a false causal
+        # statement. `learn/explanation.py` already requires provenance; apply
+        # the same test here so an association cannot be asserted as a cause.
+        if (relation or "").strip().lower() == "causal":
+            _hops = [target] + list(chain)
+            _prov_ok = True
+            for _a, _b in zip(_hops, _hops[1:]):
+                if not self._relation_has_contentful_edge(_a, _b):
+                    _prov_ok = False
+                    break
+            if not _prov_ok:
+                return None
         # Fix 4 (Q7 "how does a virus spread"): a lone temporal edge ("X comes
         # before Y") is an ordering observation, not a substantive fact — it
         # must NOT short-circuit web grounding for how/why questions, which
@@ -6980,6 +7029,25 @@ class ResponseGenMixin(ChainWalkerMixin):
     # non-distributional chain endpoint is, by construction, contentful.
     _DISTRIBUTIONAL_RELATIONS = {"semantic", "related", ""}
 
+    def _edge_assertable(self, edge) -> bool:
+        """Provenance test, scoped to the relation types that assert a CAUSE.
+
+        Only `causal` claims are held to the provenance standard. A `likes`
+        edge between two graph nodes is a real typed assertion the system made
+        and may report; a `causal` edge is a claim about the world, and an
+        unprovenanced GloVe association must not be asserted as one.
+
+        MEASURED: applying the test to every contentful edge broke
+        tests/unit/test_hrr_reasoner.py::test_transitive_inference, where two
+        `likes` edges carry no provenance and are legitimately asserted.
+        """
+        try:
+            if (getattr(edge, "relation_type", "") or "").lower() != "causal":
+                return True
+        except Exception:
+            return True
+        return _edge_provenanced(edge)
+
     def _relation_has_contentful_edge(self, subject: str, obj: str) -> bool:
         """Fix 6: True iff a genuine contentful typed edge links subject→obj
         (either direction), rather than only a distributional 'semantic' edge.
@@ -7018,13 +7086,15 @@ class ResponseGenMixin(ChainWalkerMixin):
             for sid in s_ids:
                 for tid, edge in g.get_outgoing(sid):
                     if tid in o_ids and \
-                            (edge.relation_type or "").lower() not in self._DISTRIBUTIONAL_RELATIONS:
+                            (edge.relation_type or "").lower() not in self._DISTRIBUTIONAL_RELATIONS \
+                            and self._edge_assertable(edge):
                         return True
             # reverse direction
             for oid in o_ids:
                 for tid, edge in g.get_outgoing(oid):
                     if tid in set(s_ids) and \
-                            (edge.relation_type or "").lower() not in self._DISTRIBUTIONAL_RELATIONS:
+                            (edge.relation_type or "").lower() not in self._DISTRIBUTIONAL_RELATIONS \
+                            and self._edge_assertable(edge):
                         return True
         except Exception:
             return False
