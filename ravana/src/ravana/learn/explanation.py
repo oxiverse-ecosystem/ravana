@@ -168,20 +168,50 @@ def enumerate_chains(subject_ids: Sequence[int],
             nid, hops = stack.pop()
             if len(hops) >= max_steps:
                 continue
-            neighbours = graph.get_outgoing(nid) or []
+            # MEASURED BUG: the `forward` flag was accepted and then IGNORED --
+            # both directions called `get_outgoing`, so a "backward" search was
+            # silently a forward one. The comment claimed the link was
+            # "traversed in reverse", but nothing reversed it. Consequence:
+            # `why <X>` (which needs causes, i.e. INCOMING edges) searched
+            # X's EFFECTS instead, and the chain the reader gets runs the wrong
+            # way -- or finds nothing, because most concepts have few outgoing
+            # causal edges.
+            #
+            # Measured: with two trusted causal edges
+            # (evaporate -> condense -> rainfall) injected,
+            # `enumerate_chains([condense], direction="backward")` returned
+            # ZERO chains, because it looked for outgoing edges of `condense`
+            # and the cause (`evaporate`) is incoming.
+            if forward:
+                neighbours = graph.get_outgoing(nid) or []
+            else:
+                neighbours = graph.get_incoming(nid) or []
             for other_id, edge in neighbours:
                 if not _edge_is_causal(getattr(edge, "relation_type", "")):
                     continue
-                # `get_outgoing` is forward; for a backward walk the causal
-                # link is traversed in reverse, which is what `why <X>` wants.
                 node = graph.get_node(other_id)
                 label = _as_label(getattr(node, "label", ""))
                 if not label:
                     continue
                 if any(h.to_label == label for h in hops):
                     continue                      # simple path: no repeats
+                # MEASURED BUG: the simple-path check above only tested
+                # `to_label`, so a backward walk could return to its START
+                # node (which appears only as a `from_label`) and emit a
+                # CYCLE -- measured: backward from `zz_rainfall` returned
+                # ['zz_condense','zz_rainfall','zz_condense']. Test both ends.
+                if any(label in (h.from_label, h.to_label) for h in hops):
+                    continue
                 from_node = graph.get_node(nid)
                 from_label = _as_label(getattr(from_node, "label", ""))
+                # MEASURED BUG (second half): the hop direction was also
+                # inverted. `labels` reads hops[0].from_label then each
+                # to_label, so a hop must run START -> NEXT along the walk.
+                # For a backward walk the edge is other -> nid, but the WALK
+                # goes nid -> other, so the hop must be (from_label -> label)
+                # in BOTH directions. The previous version emitted
+                # ['zz_condense','zz_rainfall','zz_condense'] for a backward
+                # walk starting at `zz_rainfall` -- it began at the neighbour.
                 hop = Hop(
                     from_label=from_label,
                     relation_type=getattr(edge, "relation_type", "causal"),
