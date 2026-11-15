@@ -8216,6 +8216,72 @@ class ResponseGenMixin(ChainWalkerMixin):
                      len(d.token_suppress), d.reason))
         return d
 
+    def _why_how_causal_chain(self, ctx: "CognitiveResponseContext"):
+        """Gated causal chain for `why`/`how` queries.
+
+        MEASURED ROOT CAUSE: the chain assembler lived ONLY inside
+        `_simulate_counterfactual`, whose two callers are both behind
+        `_is_conditional_query(...) and _HAS_HYPOTHETICAL`. A plain
+        `why does X` / `how does X work` never opens that gate, so
+        `enumerate_chains` was called ZERO times for every why/how query
+        across a 17-turn probe -- the assembler was unreachable even though
+        the graph holds 129 causal edges, 23 provenance-trusted, and 34
+        forward-assertable 2-4 hop chains.
+
+        `why <X>` walks BACKWARD (causes); `how does X work` walks FORWARD
+        (mechanism/effects). Fail-closed: returns None unless a chain clears
+        BOTH the adequacy gate and the all-hops-provenance gate.
+        """
+        if not ctx or not ctx.subject:
+            return None
+        try:
+            if not re.search(r"\b(why|how|what\s+causes|what\s+makes|explain)\b",
+                             (ctx.raw_input or ""), re.IGNORECASE):
+                return None
+            from ravana.learn.explanation import (
+                enumerate_chains, grade_chain, assertable_chain)
+            _ck = getattr(self, "_concept_keywords", {}) or {}
+            _nids = [n for n in _ck.get(ctx.subject, [])][:1]
+            # The grounded subject is often a PHRASE ("sun day"), while
+            # `_concept_keywords` is keyed on single labels.
+            if not _nids:
+                for _w in reversed((ctx.subject or "").lower().split()):
+                    if _w in _ck:
+                        _nids = [_ck[_w][0]]
+                        break
+            if not _nids:
+                return None
+            _backward = bool(re.search(
+                r"\b(why|what\s+causes|what\s+makes)\b",
+                (ctx.raw_input or ""), re.IGNORECASE))
+            _chains = enumerate_chains(
+                _nids, self.graph,
+                direction=("backward" if _backward else "forward"),
+                min_steps=2, max_steps=4, limit=3)
+            _ok = [(c, grade_chain(c)) for c in _chains]
+            _ok = [(c, g) for c, g in _ok
+                   if g["verdict"] == "assert" and assertable_chain(c)]
+            if not _ok:
+                return None
+            _best, _g = _ok[0]
+            _labels = _best.labels
+            _pairs = [f"{_labels[i]} leads to {_labels[i + 1]}"
+                      for i in range(len(_labels) - 1)]
+            _narr = ", and ".join(_pairs)
+            if getattr(self, "_trace_enabled", False):
+                print(f"  [trace]   why/how chain "
+                      f"({'backward' if _backward else 'forward'}): "
+                      f"{_narr} (adequacy={_g['adequacy']:.2f})")
+            try:
+                from ravana.chat.hedges import modality_from_support
+                self._last_modality = modality_from_support(
+                    float(_g["adequacy"]))
+            except Exception:
+                pass
+            return (_narr, "gated_explanation_chain")
+        except Exception:
+            return None
+
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Dual-path response generation.
         - Ventral Stream (fast): ATL → IFG — concept retrieval + surface realization.
@@ -8256,6 +8322,17 @@ class ResponseGenMixin(ChainWalkerMixin):
             # published. Multiplicative only -- the realizer's own
             # discourse-driven selection is preserved.
             self.apply_style_conditioning(self._style_context)
+
+        # ── GATED CAUSAL CHAIN for `why`/`how` ────────────────────────────
+        # At the TOP, before decomposition, because measured the decomposition
+        # path captures every why/how query and never assembles a chain.
+        # Fail-closed, so subjects without a trusted chain are unaffected.
+        try:
+            _wh = self._why_how_causal_chain(ctx)
+            if _wh is not None:
+                return _wh
+        except Exception:
+            pass
         # Step 1: PFC Classifier — detect question type and knowledge confidence
         qtype, _ = self.pfc_workspace.detect_question_type(ctx.raw_input, concept_pos=self._concept_pos)
 
