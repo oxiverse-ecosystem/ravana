@@ -919,8 +919,26 @@ class GraphMixin:
         if graph.get_edge(s_id, t_id) is None:
             e = graph.add_edge(s_id, t_id, weight=weight,
                                relation_type=rel_type, confidence=0.9)
-            if e is not None and hasattr(e, "source_metadata"):
-                e.source_metadata.update({"edge_kind": "curated", "source": "common_facts"})
+            if e is not None and hasattr(e, "_ensure_source_metadata"):
+                e._ensure_source_metadata().update(
+                    {"edge_kind": "curated", "source": "common_facts"})
+        else:
+            # MEASURED DEFECT: the stamp was applied only on CREATION, so an
+            # edge that already existed -- including all 380 edges in the
+            # persisted store, saved before the provenance work -- kept
+            # `edge_kind=None` forever, and every provenance gate read it as
+            # unprovenanced.
+            #
+            # Compounded by ConceptEdge.__getstate__ dropping source_metadata
+            # on pickle (fixed in #385): the stamp was written and then
+            # discarded on save, so re-seeding after a reload had to recreate
+            # the edge to re-stamp it. Backfilling here makes the seed
+            # idempotent with respect to provenance too.
+            _ex = graph.get_edge(s_id, t_id)
+            if _ex is not None and hasattr(_ex, "_ensure_source_metadata"):
+                _m = _ex._ensure_source_metadata()
+                if not _m.get("edge_kind"):
+                    _m.update({"edge_kind": "curated", "source": "common_facts"})
 
     def _typed_edges_bootstrap(self) -> int:
         """Inject ConceptNet typed edges (isa / has_property / capable_of /

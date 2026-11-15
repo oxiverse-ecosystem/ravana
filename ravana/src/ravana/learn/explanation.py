@@ -234,7 +234,12 @@ def _hop_provenance(hop: Hop) -> str:
     kind = str(meta.get("edge_kind") or "").strip().lower()
     if kind == "web_fact":
         return "web"
-    if kind in ("definition", "curriculum"):
+    # `curated` is what `_ensure_relation` stamps on the authored offline
+    # skeleton (common_facts / physics causal priors). It is a hand-written
+    # source, so it is trusted -- but see docs/AUTHORED_CAUSAL_SKELETON.md:
+    # the list contains at least one edge that is not a prior at all
+    # (`gravity -> earth`), so a blanket stamp is not a truth guarantee.
+    if kind in ("definition", "curriculum", "curated"):
         return kind
     if kind == "co_occurrence":
         return ""                    # association, not causation
@@ -258,7 +263,7 @@ def provenance_trusted(hop: Hop) -> bool:
     co-occurrence edge is association, not causation.
     """
     return _hop_provenance(hop) in ("web", "definition", "conversation",
-                                    "curriculum")
+                                    "curriculum", "curated")
 
 
 def assertable_chain(chain: Optional[ExplanationChain]) -> bool:

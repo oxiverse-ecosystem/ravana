@@ -267,7 +267,17 @@ class ConceptEdge:
     # __init__ runs on every add_edge -- a 50k-edge build was measurably
     # slower with them eager (~13.0s vs ~12.1s on main). An edge that is
     # never touched by the forgetting machinery should cost nothing.
-    _LAZY_DEFAULTS = {"last_rehearsal": None, "rehearsals": 0, "_forget_age": 0.0}
+    # `source_metadata` is created in __init__, but UNPICKLING SKIPS __init__.
+    # So on a reloaded edge the attribute is absent and __getattr__ raises
+    # AttributeError -- every `edge.source_metadata.update(...)` at a call site
+    # then fails (silently, inside a try/except or a hasattr guard) and the
+    # provenance stamp is lost.
+    #
+    # MEASURED: after loading the persisted store, `edge.source_metadata` was
+    # None on all 380 edges, and re-seeding the authored skeleton stamped
+    # nothing. Adding it here makes a reloaded edge behave like a new one.
+    _LAZY_DEFAULTS = {"last_rehearsal": None, "rehearsals": 0, "_forget_age": 0.0,
+                      "source_metadata": None}
 
     def __getattr__(self, name):
         # Only called when normal lookup fails, so existing attributes are
@@ -278,6 +288,18 @@ class ConceptEdge:
         except KeyError:
             raise AttributeError(
                 f"{type(self).__name__!r} object has no attribute {name!r}") from None
+
+    def _ensure_source_metadata(self):
+        """Return a writable source_metadata dict, creating it if absent.
+
+        Use this instead of `edge.source_metadata.update(...)` at call sites:
+        the latter silently no-ops on a reloaded edge.
+        """
+        m = self.__dict__.get("source_metadata")
+        if not isinstance(m, dict):
+            m = {}
+            self.__dict__["source_metadata"] = m
+        return m
 
     def __getstate__(self):
         """Pickle state.
