@@ -1568,9 +1568,21 @@ class WebLearningMixin(ResponseGenMixin):
             sent_lower = sent.lower()
             
             # Check if subject is in sentence (either exact phrase or all non-stop words)
+            #
+            # MEASURED DEFECT: `subject_lower in sent_lower` is a bare SUBSTRING
+            # test, so the query `rain` matched "Upland Tropical Rain Forest"
+            # and stored an aquarium marketing sentence as the definition of
+            # rain:
+            #   rain -> "teeming with life for guests to discover by following
+            #            the pathway or climbing the stairs to the trees"
+            # The word is present but the SENSE is wrong. Require a whole-word
+            # match (word boundaries) so `rain` does not match inside
+            # `rainforest` / `rain forest`, and so a compound noun cannot stand
+            # in for the concept.
             has_subject = False
             subject_score = 0.0
-            if subject_lower in sent_lower:
+            _subj_re = re.compile(r"\b" + re.escape(subject_lower) + r"\b")
+            if _subj_re.search(sent_lower):
                 has_subject = True
                 subject_score = 3.0
             else:
@@ -1578,7 +1590,7 @@ class WebLearningMixin(ResponseGenMixin):
                 # engine's base-noun content still matches the user's term.
                 matched_variant = None
                 for v in subject_variants:
-                    if v in sent_lower:
+                    if re.search(r"\b" + re.escape(v) + r"\b", sent_lower):
                         matched_variant = v
                         break
                 if matched_variant:
@@ -1827,9 +1839,30 @@ class WebLearningMixin(ResponseGenMixin):
 
             # Extract from called_pattern
             for m in called_pattern.finditer(text):
+                # MEASURED DEFECT: this pattern reads "X, called Y" as
+                # "Y is defined as X". For `rain` it matched an aquarium page
+                # ("Upland Tropical Rain Forest ... called Rain") and stored a
+                # proper-noun exhibit name as the concept with marketing copy as
+                # the definition.
+                #
+                # A `called/termed/named` clause defines the NAME, not the
+                # concept, so the concept must be a plausible common noun. Check
+                # the SOURCE casing (group 2 before lowercasing): a fully
+                # capitalised multi-word name is a proper noun, and a short
+                # capitalised token like "Rain" in a title is too.
+                _raw_concept = m.group(2).strip()
+                _rc_words = _raw_concept.split()
+                _is_proper = (
+                    len(_rc_words) > 1
+                    and all(w[:1].isupper() for w in _rc_words if w)
+                ) or (len(_rc_words) == 1 and _rc_words[0][:1].isupper()
+                      and not _raw_concept.islower())
+                if _is_proper:
+                    continue
+
                 definition = m.group(1).strip()
-                concept = m.group(2).strip().lower()
-                
+                concept = _raw_concept.lower()
+
                 # Clean up common dictionary/web junk in definitions
                 definition_clean = re.sub(r'\s*-\s*(?:reverso|collins|oxford|merriam|cambridge|webster|english|french|spanish|german|italian|chinese|portuguese|russian|japanese|korean)?\s*dictionary\b.*', '', definition, flags=re.IGNORECASE)
                 definition_clean = re.sub(r'\s*\|\s*(?:wikipedia|dictionary\.com|the\s*free\s*dictionary|britannica|investopedia|techopedia).*', '', definition_clean, flags=re.IGNORECASE)
