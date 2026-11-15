@@ -11526,7 +11526,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self.surface_realizer.learn_from_feedback(self.surface_realizer._last_variant_name, success=user_understood)
             self.surface_realizer._last_variant_name = None
 
-        if quality_score < 0.55 and ctx.subject and self.baby_mode:
+        # MEASURED GAP (docs/BRAIN_EXPLANATION_AND_REASONING.md §5.2 Stage 5):
+        # the weak-response loop keys on a global quality score, and a
+        # DEFINITION scores well above the 0.55 floor. So `why does it rain`
+        # returned "Rain is drops of liquid water falling from the sky", scored
+        # adequate, and NEVER recorded that rain's CAUSE is unexplained --
+        # measured: pending_learning_queue 0 -> 0, impossible_queries [].
+        #
+        # A `why`/`how` question is a request for a MECHANISM. A definition is a
+        # non-answer to it, and the system must feel that gap (Rozenblit & Keil)
+        # rather than treating the turn as satisfied.
+        _wants_mechanism = False
+        try:
+            _wants_mechanism = bool(re.search(
+                r"\b(why|how)\b.*\b(cause|happen|work|occur|reason|because|"
+                r"lead|make|form|create|produce)\b|"
+                r"\b(why|how)\s+(do|does|did|is|are|can|would|will)\b",
+                (ctx.raw_input or ""), re.IGNORECASE))
+        except Exception:
+            _wants_mechanism = False
+        _got_mechanism = False
+        try:
+            _got_mechanism = bool(re.search(
+                r"\b(leads to|causes?|because|which makes|so that|"
+                r"in turn|results in|produces)\b", response, re.IGNORECASE))
+        except Exception:
+            _got_mechanism = False
+        _mechanism_gap = bool(_wants_mechanism and not _got_mechanism)
+
+        if (quality_score < 0.55 or _mechanism_gap) and ctx.subject and self.baby_mode:
             # Weak response detected -- boost curiosity and queue immediate learning
 
             # 1. Boost curiosity weight 5x-10x via the impossible queries registry
