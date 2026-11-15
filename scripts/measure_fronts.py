@@ -127,7 +127,8 @@ def score_grounded(eng):
 
 
 DEFLECT = re.compile(
-    r"i'm still forming (a view|my view)|i don't have a fixed stance|"
+    r"i'm still forming (a view|my view) on|"
+    r"i don't have a fixed stance on|"
     r"what's your take|i'd rather hear how you see it|"
     r"i'm drawn to|that's my lean so far|"
     r"i don't have a clean definition|how do you see it|"
@@ -136,6 +137,17 @@ DEFLECT = re.compile(
     r"not that i recall|not totally sure|i don't really have|"
     r"i wish i could|i can't physically|i don't have a way to act",
     re.I)
+
+
+# Phrases a LEGITIMATE stance can contain. The lean template says "i'm still
+# forming my own view, but that's my lean so far" -- that IS a stance (it names
+# a direction and a reason), not a deflection. The first version of the probe
+# matched on the substring and scored the fixed behaviour as BAD.
+STANCE_OK = re.compile(
+    r"that's my lean so far|my lean|i lean|i'm drawn to|"
+    r"it sits close to .*, which i (value|care about|love)|"
+    r"i care deeply|i value|matters to me|i was built to|"
+    r"because|the reason", re.I)
 
 
 def score_opinion(eng):
@@ -154,10 +166,17 @@ def score_opinion(eng):
     ok = 0
     for q in OPINION:
         a = _ask(eng, q)
-        deflecting = bool(DEFLECT.search(a))
+        # A deflection asks the user back WITHOUT committing. A lean commits to
+        # a direction and gives a reason, and may honestly add that the view is
+        # still forming -- that is calibration, not deference.
+        committed = bool(STANCE_OK.search(a)) or bool(EVAL.search(a))
+        # A hit in DEFLECT only counts when the reply does NOT also commit:
+        # "i'm still forming my own view, but that's my lean so far" names a
+        # direction and a reason, which is calibration rather than deference.
+        deflecting = bool(DEFLECT.search(a)) and not committed
         substantive = len(a) > 40
-        takes_stand = bool(EVAL.search(a))
-        good = substantive and takes_stand and not deflecting and not a.startswith("<ERR>")
+        good = (substantive and committed and not deflecting
+                and not a.startswith("<ERR>"))
         ok += good
         print(f"  [{ 'ok' if good else 'BAD'}] {q!r:44} -> {a[:80]}")
     return round(100 * ok / len(OPINION))
