@@ -574,6 +574,26 @@ class SelfQueryMixin:
             _target_vec = self._glove_vector(target)
         except Exception:
             pass
+        # MEASURED DEFECT (front 3, opinions 67/100): `_glove_vector` is
+        # whole-string only, so a MULTI-WORD topic returns None and this branch
+        # is skipped entirely -- the stance cascade falls through to the flat
+        # deflection ("i'm still forming a view on X ... what's your take?").
+        #
+        #   artificial intelligence  -> None   -> DEFLECTS
+        #   climate change           -> None   -> DEFLECTS
+        #   free speech              -> None   -> DEFLECTS
+        #   privacy                  -> vector -> stance ("i care deeply...")
+        #   ai                       -> vector -> stance
+        #
+        # `_compute_phrase_embedding` already exists
+        # (engine_generation.py:1945) and already solves this -- it is the
+        # mean of the constituent vectors, and `response_gen.py:7377` already
+        # falls back to it for exactly this reason. This path did not.
+        if _target_vec is None and hasattr(self, "_compute_phrase_embedding"):
+            try:
+                _target_vec = self._compute_phrase_embedding(target)
+            except Exception:
+                _target_vec = None
         if _target_vec is not None:
             for _k, _v in _values.items():
                 try:

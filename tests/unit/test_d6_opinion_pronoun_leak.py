@@ -78,5 +78,13 @@ def test_opinion_target_resolves_real_topic(engine):
     # The real noun the pronoun modifies must be the topic.
     r = engine.process_turn("what do you make of my lutefisk habit now?")
     assert "lutefisk" in r.lower(), f"expected real topic 'lutefisk' in reply: {r!r}"
-    _slot = r.lower().split("view on", 1)[-1]
-    assert "my" not in _slot, f"topic resolved to pronoun: {r!r}"
+    # The topic slot must not be a bare pronoun. This used to split on
+    # "view on" and assert "my" was absent from the tail -- but the lean
+    # template legitimately contains "my own view", so the split landed
+    # mid-template and the assertion fired on template prose rather than on a
+    # leaked pronoun topic. Assert the actual property: the topic is a real
+    # noun phrase, not "my"/"it"/"that".
+    _slot = r.lower().split("view on", 1)[-1].strip()
+    _topic_word = _slot.split()[0] if _slot.split() else ""
+    assert _topic_word not in {"my", "it", "that", "this", "your"}, (
+        f"topic resolved to pronoun: {r!r}")
