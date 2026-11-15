@@ -1169,6 +1169,22 @@ class WebLearningMixin(ResponseGenMixin):
         if not definition:
             return -1.0
         d = definition.lower()
+        # MEASURED DEFECT: the extractor stored Wikipedia DISAMBIGUATION pages
+        # as definitions. Measured in weights/ravana_weights.pkl:
+        #   rains   -> "a Danish outerwear brand headquartered in Aarhus, Denmark"
+        #   battery -> "Battery most often refers to:Electric battery, ..."
+        #   moon    -> "the only natural satellite of Earth"
+        # A disambiguation page lists OTHER topics that share the name; it says
+        # nothing about the subject. These poisoned three of the thinking
+        # probes, which then answered with a raw snippet instead of reasoning.
+        #
+        # Penalise the disambiguation markers so a real definition always
+        # outranks them, and so a stored disambiguation value is repairable.
+        for _marker in ("most often refers to", "topics referred to by the same",
+                        "may refer to", "may also refer to", "disambiguation",
+                        "is the name of", "are topics referred to"):
+            if _marker in d:
+                return -1.0
         # Start from a neutral baseline and reward canonical definition shape.
         score = 0.0
         # Canonical definitions open with an article + noun phrase ("a process",
