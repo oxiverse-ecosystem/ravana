@@ -13,8 +13,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
 from ravana.learn.explanation import (  # noqa: E402
-    ExplanationChain, Hop, assertable_chain, enumerate_chains, grade_chain,
-    provenance_trusted, score_chain,
+    ExplanationChain, Hop, _hop_provenance, assertable_chain, enumerate_chains,
+    grade_chain, provenance_trusted, score_chain,
 )
 
 
@@ -84,6 +84,23 @@ class TestProvenanceGate:
 
     def test_unprovenanced_is_not_trusted(self):
         assert not provenance_trusted(Hop("a", "causal", "b", provenance=""))
+
+    def test_reads_the_graph_source_metadata(self):
+        """The graph stamps edge_kind in source_metadata, not in an attribute.
+
+        The first version read `edge.provenance`, which does not exist, so
+        every web fact looked unprovenanced and was declined.
+        """
+        hop = Hop("smoking", "causal", "lung cancer", 0.5, 0.9,
+                  source_metadata={"edge_kind": "web_fact",
+                                   "source": "wikipedia"})
+        assert provenance_trusted(hop)
+        assert _hop_provenance(hop) == "web"
+
+    def test_co_occurrence_metadata_is_not_trusted(self):
+        hop = Hop("gravity", "causal", "earth", 0.85, 0.9,
+                  source_metadata={"edge_kind": "co_occurrence"})
+        assert not provenance_trusted(hop)
 
     def test_unprovenanced_chain_is_not_assertable(self):
         """The measured failure: structural adequacy 1.000 on a false chain."""

@@ -56,6 +56,9 @@ class Hop:
     weight: float = 0.0
     confidence: float = 0.0
     provenance: str = ""          # '', 'web', 'definition', 'conversation'
+    # The graph's real provenance record (`edge.source_metadata`), a dict with
+    # an `edge_kind` field. Optional so hand-built hops in tests stay simple.
+    source_metadata: Dict[str, object] = field(default_factory=dict)
 
     @property
     def provenanced(self) -> bool:
@@ -81,6 +84,25 @@ class ExplanationChain:
     @property
     def margin(self) -> float:
         return self.score - self.runner_up_score
+
+
+def _graph_view(graph):
+    """Return the object that actually exposes `get_outgoing`/`get_node`.
+
+    `GraphEngine` WRAPS a `ConceptGraph` at `.graph`; the chat engine's mixin
+    exposes the `ConceptGraph` directly. Both are passed to this module in
+    practice, so accept either rather than forcing callers to unwrap.
+    """
+    inner = getattr(graph, "graph", None)
+    if inner is not None and hasattr(inner, "get_outgoing"):
+        return inner
+    return graph
+
+
+def _edge_metadata(edge) -> Dict[str, object]:
+    """Read an edge's provenance dict, tolerating its absence."""
+    meta = getattr(edge, "source_metadata", None)
+    return dict(meta) if isinstance(meta, dict) else {}
 
 
 def _as_label(value) -> str:
@@ -135,6 +157,7 @@ def enumerate_chains(subject_ids: Sequence[int],
     `get_node(nid) -> node` with `.label`. A snapshot is taken by the caller;
     this function never mutates the graph.
     """
+    graph = _graph_view(graph)
     out: List[ExplanationChain] = []
     seen_paths = set()
 
@@ -166,6 +189,7 @@ def enumerate_chains(subject_ids: Sequence[int],
                     weight=float(getattr(edge, "weight", 0.0) or 0.0),
                     confidence=float(getattr(edge, "confidence", 0.0) or 0.0),
                     provenance=getattr(edge, "provenance", "") or "",
+                    source_metadata=_edge_metadata(edge),
                 )
                 new_hops = hops + [hop]
                 if len(new_hops) >= min_steps:
@@ -191,6 +215,35 @@ def enumerate_chains(subject_ids: Sequence[int],
     return out[:limit]
 
 
+def _hop_provenance(hop: Hop) -> str:
+    """Normalise a hop's provenance to a trusted-source tag.
+
+    Reads the graph's ACTUAL provenance record, which lives in
+    `edge.source_metadata` (a dict) with an `edge_kind` field -- not in an
+    edge attribute called `provenance`. `web_to_graph.py:290` stamps
+    `edge_kind="web_fact"` on every OpenIE fact; the co-occurrence path stamps
+    `edge_kind="co_occurrence"` (`web/learner.py:926`).
+
+    The first version of this module read `edge.provenance`, which does not
+    exist, so every hop looked unprovenanced and the gate declined everything
+    -- including web facts that ARE provenance-stamped.
+    """
+    if hop.provenance:
+        return hop.provenance
+    meta = hop.source_metadata if isinstance(hop.source_metadata, dict) else {}
+    kind = str(meta.get("edge_kind") or "").strip().lower()
+    if kind == "web_fact":
+        return "web"
+    if kind in ("definition", "curriculum"):
+        return kind
+    if kind == "co_occurrence":
+        return ""                    # association, not causation
+    src = str(meta.get("source") or "").strip().lower()
+    if src in ("web", "wikipedia", "conceptnet"):
+        return "web"
+    return ""
+
+
 def provenance_trusted(hop: Hop) -> bool:
     """True when a hop's source is one the system can assert from.
 
@@ -204,7 +257,8 @@ def provenance_trusted(hop: Hop) -> bool:
     OpenIE extracted with an explicit causal predicate. An unprovenanced
     co-occurrence edge is association, not causation.
     """
-    return hop.provenance in ("web", "definition", "conversation", "curriculum")
+    return _hop_provenance(hop) in ("web", "definition", "conversation",
+                                    "curriculum")
 
 
 def assertable_chain(chain: Optional[ExplanationChain]) -> bool:
