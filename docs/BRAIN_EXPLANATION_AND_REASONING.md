@@ -558,19 +558,52 @@ the existing `calibrator.theta_withhold()` ledger pattern from
   unrelated sentences.
 
 **Stage 5 — Learn online.**
-- *From conversation:* fix `_extract_and_store_causal_relations`
-  (`chain_walker.py:749`) to **stop skipping questions**. A user asking
-  `why does it rain` is *revealing* that `rain` has an unexplained cause in the
-  graph — record the gap. A user *asserting* `rain happens because water
-  condenses` should create/strengthen `condense → rain` with a provenance tag
-  (`user_assertion`) and a convergence counter.
+- *From conversation:* **DONE (PR #402 + later).**
+  `_extract_and_store_causal_relations` (`chain_walker.py:749`) no longer drops
+  questions. A user asking `why does it rain` *reveals* that `rain` has an
+  unexplained cause in the graph, so the gap is recorded in
+  `impossible_queries` — and this fires even when the turn scores ABOVE the
+  quality floor, which previously hid the gap entirely.
+  Measured: `impossible_queries → [('rain','why does it rain'),
+  ('sky blue','why is the sky blue')]`, while `what is rain` is correctly
+  *not* queued (a definition request is not a mechanism gap).
+  A user *asserting* `rain happens because water condenses` still creates /
+  strengthens the edge with a provenance tag (`user_assertion`) and a
+  convergence counter.
 - *From web:* `WebToGraph.RELATION_TO_EDGE` (`web/web_to_graph.py:57`) maps
-  `"causes" → "causes"`, but `ConceptEdge`'s relation-type table
-  (`ravana_ml/src/ravana_ml/graph.py:168-181`) has no `"causes"` key — it has
-  `"causal"`. **This is a live bug for online causal learning**: web-extracted
-  causal facts are written under a relation type the rest of the system does not
-  recognise. Add `"causes" → "causal"` (and `"caused_by" → "causal"` with
-  reversed endpoints).
+  `"causes" → "causal"`, and `ConceptEdge`'s relation-type table
+  (`ravana_ml/src/ravana_ml/graph.py:168-181`) has `"causal"`. **FIXED (PRs
+  #412/#414).** Two maps existed: `WebToGraph.RELATION_TO_EDGE` was corrected to
+  `"causal"`, but a second copy in `learn/intake.py::edge_type_for_relation` was
+  not, and the intake path runs FIRST — so web-extracted causal facts were still
+  written as `"causes"`, invisible to `enumerate_chains`. That function now
+  delegates to the canonical map so the two cannot drift again.
+
+  Measured before the fix: web learning had produced two trusted hops into
+  `rain` (`water vapour → clouds → rain`, both `web_fact`) yet
+  `enumerate_chains` found **0** chains. Measured after: `why does it rain` →
+  *"water vapour leads to clouds, and clouds leads to rain"*, adequacy 1.000,
+  `assertable=True`, persisted across a cold reload.
+
+- *Admission gate:* `WebToGraph._ensure_node` admits a scraped concept only
+  after the junk gate, the provisional buffer, and promotion at
+  `_promote_min_sources` (**2**) distinct sources. **The junk gate was silently
+  rejecting everything — FIXED (PRs #413/#417).** The learned
+  `SaladClassifier` had collapsed to a constant: weights
+  `[-5.25, 0, -5.25, -2.63, 0, 0.0058]` against feature vector `[0,0,0,0,0,1]`
+  gives `z ≈ 0.006` → **0.501 for every input**, and the threshold is 0.5.
+  `_structural_floor` correctly returned 0.000 for ordinary nouns, so the
+  0.501 came entirely from the learned branch — which is why it only appeared
+  once a model was fitted. `junk_score` now requires a meaningful spread
+  (> 0.05) over real probe vectors before trusting the classifier, falling back
+  to the structural formula.
+
+  A first version of that guard blocked *"most often refers to"* but not the
+  string actually stored for `rains` — *"a Danish outerwear brand headquartered
+  in Aarhus, Denmark"* — which scored **1.500**, higher than the real
+  definition (1.200), so it never fired. The guard now also rejects a
+  proper-noun organisation/place head. A definition of the subject does not
+  name a foreign company.
 - *Gate the learning:* Dorfman, Tomov, Cheung, Clarke, Gershman & Hughes
   (2021), *Causal inference gates corticostriatal learning*, Journal of
   Neuroscience 41(32):6892–6904 — beliefs about causal structure modulate
