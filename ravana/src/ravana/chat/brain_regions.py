@@ -474,6 +474,32 @@ _IES_ALREADY_SINGULAR = {
 }
 
 
+def _singular_candidates(subject: str):
+    """Plausible index keys for a grounded subject, in preference order.
+
+    `_ground_query` returns the SURFACE word from the question ("rains" in
+    `why do you think it rains`), but the concept index is keyed on the
+    canonical label ("rain"). Yield the phrase itself first, then each word
+    from last to first (the head of an English noun phrase is final), and for
+    each of those the singular form -- so "clouds" finds "cloud", and "rains"
+    finds "rain".
+    """
+    if not subject:
+        return []
+    out = []
+    s = (subject or "").lower().strip()
+    if s:
+        out.append(s)
+    for _w in reversed(s.split()):
+        if _w and _w not in out:
+            out.append(_w)
+    for _w in list(out):
+        _sing = _singularize_subject(_w)
+        if _sing and _sing != _w and _sing not in out:
+            out.append(_sing)
+    return out
+
+
 def _singularize_subject(word: str) -> str:
     """Best-effort singular of a subject token, for definition lookup.
 

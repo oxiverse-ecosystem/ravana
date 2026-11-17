@@ -195,6 +195,22 @@ def score_thinking(eng):
     Apply the same degenerate-template rejection the speaking probe already
     uses, and require a real content word so a bare definition does not pass as
     a causal explanation.
+
+    MEASURED PROBE DEFECT (round 2026-11-17): the causal regex included the bare
+    RELATIVIZERS `that` and `which`. Every ordinary definition contains one --
+    "a device that stores chemical energy", "water that falls from the sky" --
+    so all three probes passed with DEFINITIONS rather than mechanisms:
+
+        why do you think it rains     -> "I believe rains are water that falls ..."
+        explain how a battery works   -> "I believe battery is a device that stores ..."
+        what would happen if the moon disappeared -> "Moon is the natural satellite ..."
+
+    That is the same class of bug this probe's docstring already records: the
+    probe rewarding the nonsense it exists to detect. `that` and `which`
+    introduce relative clauses, they do not mark causation, so they are removed
+    here and replaced with genuine causal/mechanistic markers (because, so
+    that, therefore, thus, hence, leads to, causes, results in, triggers,
+    since, drives, produces).
     """
     ok = 0
     ASSOC = re.compile(r"the closest i get to|and maybe|from what i've seen|"
@@ -205,8 +221,10 @@ def score_thinking(eng):
     for q in THINKING:
         a = _ask(eng, q)
         multi = len(re.findall(r'[.;]', a)) >= 1 or len(a.split()) >= 18
-        causal = bool(re.search(r'\b(because|so|therefore|which|that|then|'
-                                r'leads to|causes|makes|means)\b', a, re.I))
+        causal = bool(re.search(r'\b(because|so that|therefore|thus|hence|'
+                                r'then|leads to|lead to|causes|cause|'
+                                r'makes|means|results in|result in|'
+                                r'triggers|since|drives|produces)\b', a, re.I))
         words = {w.strip('.,;:!?').lower() for w in a.split()}
         content = {w for w in words if w not in FN and len(w) > 2}
         degenerate = bool(ASSOC.search(a))
