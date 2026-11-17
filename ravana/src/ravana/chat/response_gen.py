@@ -8216,6 +8216,32 @@ class ResponseGenMixin(ChainWalkerMixin):
                      len(d.token_suppress), d.reason))
         return d
 
+    def _graph_node_id_for_label(self, subject: str):
+        """Resolve a subject string to a graph node id by LABEL.
+
+        The `_concept_keywords` index is not refreshed when web learning writes
+        new nodes, so a learned concept ("clouds", "water vapour") can be absent
+        from the index while present in the graph. Walk the graph's own labels
+        instead, trying the phrase and then each word head-first, and the
+        singular of each.
+        """
+        g = getattr(self, "graph", None)
+        if g is None or not subject:
+            return None
+        try:
+            nodes = list(g.nodes)
+        except Exception:
+            return None
+        for _cand in _singular_candidates(subject):
+            for n in nodes:
+                try:
+                    lab = (getattr(n, "label", None) or "").lower().strip()
+                except Exception:
+                    continue
+                if lab == _cand:
+                    return getattr(n, "id", None)
+        return None
+
     def _why_how_causal_chain(self, ctx: "CognitiveResponseContext"):
         """Gated causal chain for `why`/`how` queries.
 
@@ -8242,12 +8268,23 @@ class ResponseGenMixin(ChainWalkerMixin):
                 enumerate_chains, grade_chain, assertable_chain)
             _ck = getattr(self, "_concept_keywords", {}) or {}
             _nids = [n for n in _ck.get(ctx.subject, [])][:1]
+            from ravana.chat.brain_regions import _singular_candidates
             # The grounded subject is often a PHRASE ("sun day"), while
             # `_concept_keywords` is keyed on single labels.
+            #
+            # MEASURED DEFECT (round 2026-11-17): lookup also missed the
+            # SINGULARIZED form. `_ground_query` returns the surface word from
+            # the question -- "rains" in `why do you think it rains` -- while the
+            # graph index holds "rain". Verified: `_ck.get('rains')` is None, so
+            # the walker returned None and the query fell back to a
+            # definition, even though the chain
+            # `water vapour -> clouds -> rain` was persisted and assertable.
+            #
+            # Try the singular form before giving up.
             if not _nids:
-                for _w in reversed((ctx.subject or "").lower().split()):
-                    if _w in _ck:
-                        _nids = [_ck[_w][0]]
+                for _cand in _singular_candidates(ctx.subject):
+                    if _cand in _ck:
+                        _nids = [_ck[_cand][0]]
                         break
             if not _nids:
                 return None
