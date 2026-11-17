@@ -11794,7 +11794,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         correction_ack = self._detect_and_handle_correction(
             user_input, ctx.subject, response, strategy, quality_score)
         if correction_ack:
-            response = correction_ack
+            # MEASURED DEFECT: the ack replaced the answer UNCONDITIONALLY, so a
+            # similarity-only guess (INDIRECT_REASK, no explicit cue) discarded a
+            # perfectly good answer. Measured: asking the same question twice
+            # gave "honestly, Sun is a bit outside what i know right now" even
+            # though the answer "sun leads to earth, and earth leads to life"
+            # had adequacy 1.00 and quality 0.91.
+            #
+            # An EXPLICIT correction (the user says "no"/"that's wrong", or
+            # supplies the right fact) should override. A bare re-ask is only a
+            # guess that the previous answer was wrong -- it must not throw away
+            # a good one. Prefer the generated response when the correction is
+            # inferred rather than stated.
+            _ctype = getattr(self.user_model, "detected_correction_type", None)
+            _explicit = (_ctype is not None
+                         and getattr(_ctype, "value", str(_ctype))
+                         in ("direct", "fact"))
+            if _explicit or not response:
+                response = correction_ack
 
         # Phase 3: Register-controlled production — couple VAD + relationship
         # state into the register knobs, then apply them to the final text.

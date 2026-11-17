@@ -6855,11 +6855,31 @@ class UserModel:
                                              min(0.8, (prev_valence - valence) * 1.5))
 
         # Stream 3: Re-ask — similar query within 3 turns
+        #
+        # MEASURED DEFECT: this used lexical overlap ALONE, so two parallel
+        # questions differing only in their subject were classed as the user
+        # CORRECTING RAVANA:
+        #   "what would happen if the moon disappeared"
+        #   "what would happen if the sun disappeared"
+        # share 7 of 8 words (overlap 0.875 > 0.6) -> flagged as a correction.
+        # The correction ack ("thanks — i'll be more careful there. what
+        # should i have said?") then REPLACED a good gated_explanation_chain
+        # answer ("sun leads to earth, and earth leads to life", adequacy 1.00,
+        # quality 0.91), and the forward-model monitor stripped that non-
+        # sequitur as degenerate, leaving "i don't really have a solid grasp
+        # on Sun". One heuristic bug cost the whole answer.
+        #
+        # A genuine re-ask asks about the SAME thing again. Two questions with
+        # DIFFERENT subjects are new questions, not corrections. Require the
+        # grounded subject to match before a lexical near-repeat counts.
         if self._previous_user_query:
             prev_words = set(self._previous_user_query.lower().split())
             curr_words = set(q_clean.split())
             overlap = len(prev_words & curr_words) / max(1, len(prev_words | curr_words))
-            if overlap > 0.6 and len(prev_words) >= 3:
+            _prev_subj = getattr(self, "_previous_query_subject", None)
+            _same_subject = (not _prev_subj or not subject
+                             or _prev_subj == subject)
+            if overlap > 0.6 and len(prev_words) >= 3 and _same_subject:
                 self.detected_correction = True
                 if self.detected_correction_type not in (CorrectionType.DIRECT, CorrectionType.SENTIMENT_DROP):
                     self.detected_correction_type = CorrectionType.INDIRECT_REASK
@@ -6874,6 +6894,7 @@ class UserModel:
         self._extract_correction_fact(query, subject)
 
         self._previous_user_query = q_clean
+        self._previous_query_subject = subject
 
     def _extract_correction_fact(self, query: str, subject: str):
         """Extract (subject, relation, correct_value) from correction sentence.
