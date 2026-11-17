@@ -220,7 +220,8 @@ def score_thinking(eng):
              "from or be has have had do does did i you we they he she".split())
     for q in THINKING:
         a = _ask(eng, q)
-        multi = len(re.findall(r'[.;]', a)) >= 1 or len(a.split()) >= 18
+        _clauses = [c for c in re.split(r'[.;]|\band\b', a) if len(c.split()) >= 2]
+        multi = len(_clauses) >= 2
         causal = bool(re.search(r'\b(because|so that|therefore|thus|hence|'
                                 r'then|leads to|lead to|causes|cause|'
                                 r'makes|means|results in|result in|'
