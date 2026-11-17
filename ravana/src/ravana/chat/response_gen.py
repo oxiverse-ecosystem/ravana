@@ -8228,8 +8228,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         g = getattr(self, "graph", None)
         if g is None or not subject:
             return None
+        # MEASURED DEFECT (round 2026-11-17): `_singular_candidates` was only
+        # ever imported INSIDE `_why_how_causal_chain` (line 8278), so this
+        # function raised `NameError: name '_singular_candidates' is not
+        # defined` on every call. It was invisible while the resolver was
+        # unreachable dead code; the caller's `except Exception: return None`
+        # swallowed it, silently turning EVERY why/how query into a miss.
+        from ravana.chat.brain_regions import _singular_candidates
         try:
-            nodes = list(g.nodes)
+            # `ConceptGraph.nodes` is `Dict[int, ConceptNode]`
+            # (ravana_ml/graph.py:1149) -- iterating it yields the integer
+            # IDS, not the node objects. The previous `list(g.nodes)` fed
+            # ints into the `getattr(n, "label", None)` below, which is
+            # always None for an int, so this resolver returned None for
+            # EVERY subject. Measured: buggy('rain') -> None while the
+            # graph holds a node labelled 'rain'. Compare the correct
+            # pattern at chain_walker.py:182 (`g.nodes.values()`).
+            nodes = list(g.nodes.values())
         except Exception:
             return None
         for _cand in _singular_candidates(subject):
@@ -8267,33 +8282,50 @@ class ResponseGenMixin(ChainWalkerMixin):
             from ravana.learn.explanation import (
                 enumerate_chains, grade_chain, assertable_chain)
             _ck = getattr(self, "_concept_keywords", {}) or {}
-            _nids = [n for n in _ck.get(ctx.subject, [])][:1]
             from ravana.chat.brain_regions import _singular_candidates
             # The grounded subject is often a PHRASE ("sun day"), while
             # `_concept_keywords` is keyed on single labels.
             #
-            # MEASURED DEFECT (round 2026-11-17): lookup also missed the
-            # SINGULARIZED form. `_ground_query` returns the surface word from
-            # the question -- "rains" in `why do you think it rains` -- while the
-            # graph index holds "rain". Verified: `_ck.get('rains')` is None, so
-            # the walker returned None and the query fell back to a
-            # definition, even though the chain
-            # `water vapour -> clouds -> rain` was persisted and assertable.
+            # MEASURED DEFECT (round 2026-11-17, `why do you think it rains`):
+            # FIRST-HIT-WINS resolution picked the WRONG node. `_ground_query`
+            # returns the SURFACE word ("rains"), and web learning creates a
+            # node for exactly that surface form and indexes it:
+            #     _ck['rains'] = [266]   label 'rains', 0 incoming causal edges
+            #     _ck['rain']  = [261]   label 'rain',  clouds -causal-> rain
+            # Taking `[:1]` of the direct hit therefore walked node 266, which
+            # has no causal in-edges: `enumerate_chains([266], 'backward')`
+            # returned ZERO chains, the walker returned None, and the query
+            # fell through to the stored definition
+            # ("I believe rains are water that falls from the sky...").
             #
-            # Try the singular form before giving up.
-            if not _nids:
-                for _cand in _singular_candidates(ctx.subject):
-                    if _cand in _ck:
-                        _nids = [_ck[_cand][0]]
-                        break
-            if not _nids:
-                # Last resort: resolve the label against the graph's OWN node
-                # labels. Web learning writes nodes without refreshing
-                # `_concept_keywords`, so a learned concept can exist in the
-                # graph while being absent from the index.
-                _nid2 = self._graph_node_id_for_label(ctx.subject)
-                if _nid2 is not None:
-                    _nids = [_nid2]
+            # The singular fallback could not save it: the direct hit
+            # SUCCEEDED, so the wrong id SHADOWED the right one, and
+            # `_graph_node_id_for_label` was never reached (measured: zero
+            # calls for this query).
+            #
+            # Resolution now collects EVERY candidate -- the surface form,
+            # each singular candidate, and the graph-label fallback -- into
+            # one deduped, preference-ordered list. `enumerate_chains` walks
+            # all seeds (explanation.py:248), and the adequacy + provenance
+            # gate still decides, so a junk surface node contributes nothing
+            # instead of vetoing the real chain.
+            _nids, _seen_nids = [], set()
+
+            def _add_nid(_n):
+                if _n is not None and _n not in _seen_nids:
+                    _seen_nids.add(_n)
+                    _nids.append(_n)
+
+            for _n in (_ck.get(ctx.subject) or []):
+                _add_nid(_n)
+            for _cand in _singular_candidates(ctx.subject):
+                for _n in (_ck.get(_cand) or []):
+                    _add_nid(_n)
+            # Last resort: resolve the label against the graph's OWN node
+            # labels. Web learning writes nodes without refreshing
+            # `_concept_keywords`, so a learned concept can exist in the
+            # graph while being absent from the index.
+            _add_nid(self._graph_node_id_for_label(ctx.subject))
             if not _nids:
                 return None
             _backward = bool(re.search(
@@ -8325,6 +8357,15 @@ class ResponseGenMixin(ChainWalkerMixin):
                 pass
             return (_narr, "gated_explanation_chain")
         except Exception:
+            # MEASURED DEFECT (round 2026-11-17): this bare swallow hid TWO
+            # real bugs -- the `NameError` inside `_graph_node_id_for_label`
+            # and the dict-keys iteration that made it always return None.
+            # Both presented as a silent "no chain", indistinguishable from a
+            # genuine knowledge gap. Surface the exception when tracing.
+            if getattr(self, "_trace_enabled", False):
+                import traceback as _tb
+                print("  [trace]   why/how chain raised; falling back:")
+                _tb.print_exc()
             return None
 
     def _generate_response(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
