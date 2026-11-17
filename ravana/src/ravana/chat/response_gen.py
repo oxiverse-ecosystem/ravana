@@ -8287,6 +8287,14 @@ class ResponseGenMixin(ChainWalkerMixin):
                         _nids = [_ck[_cand][0]]
                         break
             if not _nids:
+                # Last resort: resolve the label against the graph's OWN node
+                # labels. Web learning writes nodes without refreshing
+                # `_concept_keywords`, so a learned concept can exist in the
+                # graph while being absent from the index.
+                _nid2 = self._graph_node_id_for_label(ctx.subject)
+                if _nid2 is not None:
+                    _nids = [_nid2]
+            if not _nids:
                 return None
             _backward = bool(re.search(
                 r"\b(why|what\s+causes|what\s+makes)\b",
