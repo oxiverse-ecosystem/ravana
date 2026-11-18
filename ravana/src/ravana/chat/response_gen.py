@@ -7252,7 +7252,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                 
         return score
 
-    def _human_like_uncertainty(self, ctx: CognitiveResponseContext):
+    def _human_like_uncertainty(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Graceful, curious turn taken when FOK is low and the topic is ungrounded.
 
         Humans don't emit random associations when they don't know something — they
@@ -7532,15 +7532,63 @@ class ResponseGenMixin(ChainWalkerMixin):
             text = _ack + text[0].lower() + text[1:] if text else text
         return (text, "definition_with_assoc")
 
-    def _reflective_response(self, ctx: CognitiveResponseContext):
-        """Reflective answer for half-known concepts (associations, no real definition).
+    @staticmethod
+    def _subject_grounded_evidence(evidence: str, subject: str) -> str:
+        """Return `evidence` only when it is actually about `subject`.
 
-        When RAVANA has only shallow, association-level knowledge of a topic
-        (no stored definition / web fact), a human doesn't rattle off three
-        loosely-linked assertions — they admit the gap and share the *gist*
-        they've pieced together, then turn it back to the speaker. We mirror
-        that: acknowledge no neat definition, surface the 1-2 most relevant
-        associations naturally, and ask for the user's take.
+        BRAIN BASIS (see docs/REFLECTIVE_GAP_CALIBRATION.md): this is the
+        controlled-retrieval gate that was missing. Koriat (1993,
+        *Psychological Review* 100(4):609-639) showed that a feeling of knowing
+        is computed from the *accessibility* of partial information regardless
+        of its correctness -- people (and models) cannot tell a correct clue
+        from an incorrect one by accessibility alone. Badre & Wagner (2002,
+        *Behavioural and Cognitive Neuroscience Reviews* 1(3):206-218)
+        distinguish automatic, bottom-up associative activation from controlled
+        top-down retrieval (left anterior inferior PFC): when the cue-target
+        association is weak, automatic retrieval fails and the spillover is
+        not a verified recollection. Unfiltered associative spillover is a
+        default-mode product (Buckner, Andrews-Hanna & Schacter, 2008, *Annals
+        of the New York Academy of Sciences* 1124:1-38), not knowledge.
+
+        Therefore a KB sentence fetched for a *neighbour* of the subject may
+        be asserted about the subject only if it genuinely mentions it. A
+        definition of "rains" is not evidence about "earthquakes". This is a
+        subject-binding check, not a per-topic list: any content token of the
+        subject phrase (with a light singular/plural variant) counts.
+        """
+        if not evidence or not subject:
+            return ""
+        e_toks = set(re.findall(r"[a-z']+", evidence.lower()))
+        s_toks = {t for t in re.findall(r"[a-z']+", subject.lower()) if len(t) >= 3}
+        variants = set(s_toks)
+        for t in s_toks:
+            if len(t) > 3 and t.endswith("s") and not t.endswith("ss"):
+                variants.add(t[:-1])
+            else:
+                variants.add(t + "s")
+        return evidence if (variants & e_toks) else ""
+
+    def _reflective_response(self, ctx: CognitiveResponseContext):
+        """Calibrated response when semantic retrieval fails and no causal model exists.
+
+        This is the terminal reflective fallback: there is no stored definition,
+        no web fact, no trusted causal chain -- only shallow GloVe neighbours.
+        The old implementation promoted those neighbours into a fixed
+        associative sentence ("the closest i get to X is Y and maybe Z - and
+        from what i've seen, <definition of Y>"). That is a confabulation
+        signature: it reports a definition of an *unrelated* concept as if it
+        answered the question about X.
+
+        The replacement follows the brain evidence (docs/REFLECTIVE_GAP_CALIBRATION.md):
+        a feeling of knowing tracks accessibility, not correctness (Koriat,
+        1993), so accessible associative debris must not be asserted as a fact;
+        controlled retrieval binds content to the cue (Badre & Wagner, 2002),
+        so only subject-grounded material may be stated; and recognising a
+        specific, unfillable knowledge gap opens an information gap that is
+        answered with calibrated uncertainty plus curiosity (Loewenstein, 1994,
+        *Psychological Bulletin* 116(1):75-98), not with associative filler.
+        Legitimate analogy/creativity lives in the graph-edge-gated bisociation
+        path (_generate_creative / _handle_humor) and is untouched here.
         """
         subject = ctx.subject
         if not subject:
@@ -7721,91 +7769,54 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if _verb >= 0.5:
                         self._metrics["hedged_evidence"] = self._metrics.get("hedged_evidence", 0) + 1
 
-        # ── PROMPT 2: metacognitive-ignorance 3-state (Nelson & Narens 1990;
-        # Koriat 1993). A human distinguishes NO representation / PARTIAL
-        # (related) trace / VERIFIED knowledge, and never presents a low-confidence
-        # graph neighbor as a definition. We therefore (a) pick a hedge frame by
-        # the *strength* of the related trace, not a fixed string, and (b) only
-        # splice retrieved evidence when it passes the existing coherence gates
-        # AND is actually coherent with the subject — this kills the garbled
-        # "...appears to be {raw_conceptnet_sentence}" line (e.g. "power seems to
-        # be topics referred to by the same term").
-        from ravana.chat.hedges import hedge_frame
-        _rel0 = top[0]
-        _rel1 = top[1] if len(top) > 1 else None
-        _strong = related[0][1] >= 0.55 if related else False
-        # Phase 2 (style conditioning): the base trace band is adjusted by
-        # the user's directness before the hedge frame is composed. The
-        # frame and marker still come from the shared registry -- no hedge
-        # string is authored here. Fail-open: no style context -> unchanged.
-        _style_ctx = getattr(self, "_style_context", None)
-        _base_band = ("related_strong" if _strong else "related_weak")
-        _band = self.condition_modality(_base_band, _style_ctx)
-        # Coherence-gate any retrieved evidence before surfacing it (no raw splice).
-        _safe_evidence = ""
+        # ── CALIBRATED-GAP DECISION (see docs/REFLECTIVE_GAP_CALIBRATION.md) ──
+        # The only candidate "evidence" above is a KB sentence about `top[0]`,
+        # an ASSOCIATION of the subject -- never the subject itself. Koriat
+        # (1993, Psychological Review 100(4):609-639) showed that a feeling of
+        # knowing is computed from the accessibility of partial information
+        # regardless of its correctness: promoting an accessible neighbour to a
+        # claim about the subject is exactly that accessibility/correctness
+        # confusion. Badre & Wagner (2002, Behavioural and Cognitive
+        # Neuroscience Reviews 1(3):206-218) distinguish this automatic,
+        # bottom-up associative spillover from controlled, cue-bound retrieval
+        # (left anterior inferior PFC); unfiltered spillover is a default-mode
+        # product (Buckner et al., 2008, Annals of the NY Academy of Sciences
+        # 1124:1-38), not verified knowledge. Only a snippet that actually
+        # mentions the subject counts as usable partial material.
+        _usable = ""
         if _evidence:
             try:
-                if (getattr(self, "_sentence_grounded", None) is None
-                        or self._sentence_grounded(_evidence, subject=subject)) \
-                        and (getattr(self, "_coherence_ok", None) is None
-                             or self._coherence_ok(_evidence, ctx)[0]):
-                    _safe_evidence = _evidence
+                if (getattr(self, "_coherence_ok", None) is None
+                        or self._coherence_ok(_evidence, ctx)[0]):
+                    _usable = self._subject_grounded_evidence(_evidence, subject)
             except Exception:
-                _safe_evidence = ""
-        if len(top) == 1:
-            if _safe_evidence:
-                # EVIDENCE IS A FULL SENTENCE (round 2026-11-10).
-                # `_safe_evidence` is the KB definition's first sentence, e.g.
-                # "a rumor, or rumour, is an unverified piece of information
-                # circulating among people". Embedding it after "seems to be"
-                # produces an ungrammatical clause -- "heat seems to be in
-                # thermodynamics, heat is defined as energy in transfer..." --
-                # because the evidence carries its own subject and verb.
-                # The frame must therefore introduce the evidence as a separate
-                # statement, not as the complement of "seems to be".
-                _note = f" — from what i've seen, {_safe_evidence.lower()}"
-                openers = [
-                    self._join_clauses(
-                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0, engine=self),
-                        _note, sep=" "),
-                    self._join_clauses(
-                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0, engine=self),
-                        _note, sep=" "),
-                ]
-            else:
-                openers = [
-                    hedge_frame("ignorance", _band, engine=self,
-                                subj=subj, rel=_rel0),
-                    f"i can't quite put {subj_cap} into words, though {pron} {make} me think of {_rel0}.",
-                    f"i'm still figuring out {subj_cap} — the thread i keep pulling is {_rel0}.",
-                ]
-        else:
-            if _safe_evidence:
-                # Same fix as the len(top)==1 branch: the evidence is a full
-                # sentence with its own subject, so it cannot be the complement
-                # of "seems to be". Introduce it as a separate statement.
-                _note = f" — and from what i've seen, {_safe_evidence.lower()}"
-                openers = [
-                    self._join_clauses(
-                        hedge_frame("ignorance", "related_strong", subj=subj, rel=_rel0, engine=self) + f" and {_rel1}",
-                        _note, sep=" "),
-                    self._join_clauses(
-                        hedge_frame("ignorance", _band, subj=subj, rel=_rel0, engine=self) + f" and maybe {_rel1}",
-                        _note, sep=" "),
-                ]
-            else:
-                openers = [
-                    hedge_frame("ignorance", _band, engine=self,
-                                subj=subj, rel=_rel0) + f" and {_rel1}",
-                    f"i don't have a clean definition for {subj_cap}, but {pron} {be} tied to {_rel0} and {_rel1} to me.",
-                ]
+                _usable = ""
         closers = [
             " what does it mean to you?",
             " what's your take on it?",
             " how do you see it?",
             " where does that land for you?",
         ]
-        return (random.choice(openers) + random.choice(closers), "reflective_uncertainty")
+        if _usable:
+            # PARTIAL MATERIAL EXISTS -> use it. Note the head never attributes
+            # a neighbour's definition to the subject; the sentence is surfaced
+            # only because it is genuinely about the subject.
+            # NOTE: avoid the retired "from what i've seen" surface -- it is the
+            # probe's degenerate-template token even when the content IS about
+            # the subject. State the grounded material plainly instead.
+            _note = f"what i do know is this: {_usable.lower()}"
+            _m = getattr(self, "_metrics", None)
+            if isinstance(_m, dict):
+                _m["reflective_grounded"] = _m.get("reflective_grounded", 0) + 1
+            return (self._join_clauses(_note, random.choice(closers), sep=" "),
+                    "reflective_grounded")
+        # NO USABLE GROUNDED MATERIAL -> honest calibrated gap, not filler.
+        # Recognising a specific, unfillable knowledge gap is precisely what
+        # opens an information gap and drives curiosity (Loewenstein, 1994,
+        # Psychological Bulletin 116(1):75-98). `_human_like_uncertainty` is the
+        # existing FOK + turn-back route; it also folds in any partial web
+        # candidates when they exist, so partial material is still used.
+        return self._human_like_uncertainty(ctx)
 
     def _rg_decide(self, ctx) -> Optional['SwitchDecision']:
         """Compute the retrieval-vs-generation decision for this turn.
