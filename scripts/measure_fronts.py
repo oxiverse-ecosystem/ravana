@@ -617,14 +617,13 @@ def score_language_learning(eng):
              sub_scores={"taught": 40 * taught, "recall": 40 * hit})
         print(f"  [{'ok' if taught and hit else 'BAD'}] {name:22} "
               f"taught={taught} recall={hit} -> {reply[:50]}")
-    if os.environ.get("RAVANA_OFFLINE") == "1":
-        print("  [ --] RAVANA_OFFLINE=1: web learning disabled by the harness")
-        print("  [ --] (verified separately: learn_from_web writes nodes and a")
-        print("  [ --]  web_fact edge when the network is up)")
-        web = 20
-    else:
-        web = 0
-    return min(round(total / len(LL_PROBES)) + web, 100)
+    # The synthetic "web verified separately" +20 bonus is REMOVED. It awarded
+    # points for a capability the harness had explicitly disabled, so an
+    # OFFLINE run scored 100 while an ONLINE run scoring the same taught+recall
+    # behaviour scored 80. A score must not reward turning the web OFF.
+    # Report the measured teach+recall score honestly in both modes; the web
+    # half is measured by scripts/measure_fronts_web.py, not credited by fiat.
+    return min(round(total / len(LL_PROBES)), 100)
 
 
 def main():
