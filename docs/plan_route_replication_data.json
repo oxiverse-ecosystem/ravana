@@ -1,0 +1,7564 @@
+{
+ "seed": 42,
+ "engine": "persisted(weights,'')",
+ "subjects": [
+  "gravity",
+  "ocean",
+  "water",
+  "light",
+  "time",
+  "music",
+  "colour",
+  "language",
+  "air",
+  "although",
+  "analysis",
+  "animal",
+  "animals",
+  "another",
+  "archived",
+  "being",
+  "blue",
+  "called",
+  "carnivore",
+  "cat",
+  "changes",
+  "climate",
+  "clouds",
+  "common",
+  "comparison",
+  "conditions",
+  "data",
+  "definition",
+  "development",
+  "different",
+  "dog",
+  "early",
+  "earth",
+  "edit",
+  "education",
+  "environment",
+  "environmental",
+  "even",
+  "example",
+  "explained",
+  "fall",
+  "first",
+  "fish",
+  "form",
+  "found",
+  "full",
+  "good",
+  "health",
+  "heat",
+  "history",
+  "however",
+  "human",
+  "important",
+  "including",
+  "information",
+  "intentforge",
+  "knowledge",
+  "known",
+  "land",
+  "learn",
+  "learning",
+  "life",
+  "long",
+  "made",
+  "mammal",
+  "management",
+  "many",
+  "mathematics",
+  "meaning",
+  "mind",
+  "much",
+  "natural",
+  "nature",
+  "often",
+  "only",
+  "out",
+  "oxiverse",
+  "oxygen",
+  "pdf",
+  "people",
+  "perceive",
+  "person",
+  "pet",
+  "philosophy",
+  "photosynthesis",
+  "physics",
+  "plant",
+  "plants",
+  "practical",
+  "psychology",
+  "rain",
+  "rains",
+  "rather",
+  "ravana",
+  "reason",
+  "research",
+  "right",
+  "science",
+  "scientific",
+  "scientists",
+  "sea",
+  "sky",
+  "social",
+  "sound",
+  "species",
+  "star",
+  "studies",
+  "study",
+  "sunlight",
+  "system",
+  "systems",
+  "term",
+  "theory",
+  "there",
+  "thought",
+  "three",
+  "tree",
+  "two",
+  "type",
+  "understanding",
+  "university",
+  "used",
+  "using",
+  "vibrate",
+  "vibration",
+  "view",
+  "way",
+  "well",
+  "world",
+  "years",
+  "zzzunknown",
+  "qxzblorp",
+  "notarealword"
+ ],
+ "rows": [
+  {
+   "subject": "gravity",
+   "has_definition": true,
+   "fallback": {
+    "text": "It appears that  gravity: it relates to an earth. It ultimately carries through an orbit. It naturally reaches into a star.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "relates",
+       "earth"
+      ],
+      [
+       "carries",
+       "orbit"
+      ],
+      [
+       "reaches",
+       "star"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 10,
+     "overlap_words": [
+      "gravity",
+      "earth",
+      "orbit",
+      "star"
+     ],
+     "mean_cosine": 0.36617643848353815,
+     "func_share": 0.5238095238095238,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 21,
+     "unique_ratio": 0.8095238095238095,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is connected to an earth.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "earth"
+      ],
+      [
+       "connected",
+       "earth"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "earth"
+     ],
+     "mean_cosine": 0.37431470373644443,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it resembles an earth."
+  },
+  {
+   "subject": "ocean",
+   "has_definition": true,
+   "fallback": {
+    "text": "Ocean feeds into a sea.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "ocean",
+      "sea"
+     ],
+     "mean_cosine": 0.7401370927412264,
+     "func_share": 0.4,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it feeds into a sea.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "feeds"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "sea"
+     ],
+     "mean_cosine": 0.5199733581431721,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it builds on a sea."
+  },
+  {
+   "subject": "water",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is a liquid.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "liquid"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "liquid"
+     ],
+     "mean_cosine": 0.5009537578399892,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a liquid."
+  },
+  {
+   "subject": "light",
+   "has_definition": true,
+   "fallback": {
+    "text": "It appears that light connects to a sun. It likely naturally holds photosynthesis. It directly is similar to a star.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "holds",
+       "photosynthesis"
+      ],
+      [
+       "is",
+       "star"
+      ],
+      [
+       "similar",
+       "star"
+      ]
+     ],
+     "on_topic_frac": 0.3,
+     "content_words": 10,
+     "overlap_words": [
+      "light",
+      "photosynthesis",
+      "star"
+     ],
+     "mean_cosine": 0.39554928133071343,
+     "func_share": 0.45,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 20,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is tied to a sun.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.0,
+     "content_words": 2,
+     "overlap_words": [],
+     "mean_cosine": 0.27085465368616607,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is opposite to a sun."
+  },
+  {
+   "subject": "time",
+   "has_definition": true,
+   "fallback": {
+    "text": "Time is akin to way. It is different from a well. That is, It broadly is opposite to years.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "is",
+       "different"
+      ],
+      [
+       "is",
+       "broadly"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "way"
+      ],
+      [
+       "akin",
+       "way"
+      ],
+      [
+       "is",
+       "years"
+      ],
+      [
+       "opposite",
+       "years"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 8,
+     "overlap_words": [
+      "time",
+      "way",
+      "well",
+      "years"
+     ],
+     "mean_cosine": 0.5787154345641234,
+     "func_share": 0.5789473684210527,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.7368421052631579,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is similar to way.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "way"
+      ],
+      [
+       "similar",
+       "way"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "way"
+     ],
+     "mean_cosine": 0.6577861082346376,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it comes after way."
+  },
+  {
+   "subject": "music",
+   "has_definition": true,
+   "fallback": {
+    "text": "Music is a sound. It seemingly is art. It intrinsically is a rhythm.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "sound"
+      ],
+      [
+       "is",
+       "art"
+      ],
+      [
+       "is",
+       "rhythm"
+      ]
+     ],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 6,
+     "overlap_words": [
+      "music",
+      "sound",
+      "art",
+      "rhythm"
+     ],
+     "mean_cosine": 0.48983571602827297,
+     "func_share": 0.5384615384615384,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.6923076923076923,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is a sound.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "sound"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "sound"
+     ],
+     "mean_cosine": 0.4901390656436418,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a sound."
+  },
+  {
+   "subject": "colour",
+   "has_definition": false,
+   "fallback": {
+    "text": "It is a blue.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "blue"
+      ]
+     ],
+     "on_topic_frac": 1.0,
+     "content_words": 1,
+     "overlap_words": [
+      "blue"
+     ],
+     "mean_cosine": 0.48306141273959735,
+     "func_share": 0.75,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is a blue.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "blue"
+      ]
+     ],
+     "on_topic_frac": 1.0,
+     "content_words": 1,
+     "overlap_words": [
+      "blue"
+     ],
+     "mean_cosine": 0.48306141273959735,
+     "func_share": 0.75,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "language",
+   "has_definition": true,
+   "fallback": {
+    "text": "Language: it is a human.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "human"
+      ]
+     ],
+     "on_topic_frac": 1.0,
+     "content_words": 2,
+     "overlap_words": [
+      "language",
+      "human"
+     ],
+     "mean_cosine": 0.6776565826816806,
+     "func_share": 0.6,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is a human.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "human"
+      ]
+     ],
+     "on_topic_frac": 1.0,
+     "content_words": 1,
+     "overlap_words": [
+      "human"
+     ],
+     "mean_cosine": 0.3553131653633612,
+     "func_share": 0.75,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "air",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that they spark a sound.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "spark"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "sound"
+     ],
+     "mean_cosine": 0.2777467580661279,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they are connected to a sound."
+  },
+  {
+   "subject": "although",
+   "has_definition": true,
+   "fallback": {
+    "text": "Although reaches into a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "reaches",
+       "comparison"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "comparison"
+     ],
+     "mean_cosine": 0.5837325334232442,
+     "func_share": 0.4,
+     "has_verb": true,
+     "frame": 0.6666666666666666,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It precedes a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "comparison"
+     ],
+     "mean_cosine": 0.3191527839520678,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "analysis",
+   "has_definition": true,
+   "fallback": {
+    "text": "Analysis is the process of breaking a complex topic or substance into smaller parts in order to gain a better understanding of it. The technique has been applied in the study of mathematics and logic since before Aristotle, though analysis as a formal concept is a relatively recent development. Understanding drives the initial desire to learn. This process unfolds as develops is gathered through observation, study, and experience.",
+    "strategy": "situation_model_narrative",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "drives",
+       "initial"
+      ],
+      [
+       "is",
+       "gathered"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "process"
+      ],
+      [
+       "been",
+       "applied"
+      ],
+      [
+       "is",
+       "relatively"
+      ]
+     ],
+     "on_topic_frac": 0.7567567567567568,
+     "content_words": 37,
+     "overlap_words": [
+      "analysis",
+      "process",
+      "breaking",
+      "complex",
+      "topic",
+      "substance",
+      "smaller",
+      "parts",
+      "order",
+      "gain",
+      "better",
+      "understanding",
+      "technique",
+      "applied",
+      "study",
+      "mathematics",
+      "logic",
+      "aristotle",
+      "though",
+      "analysis",
+      "formal",
+      "concept",
+      "relatively",
+      "recent",
+      "development",
+      "understanding",
+      "process",
+      "study"
+     ],
+     "mean_cosine": 0.4432149113484918,
+     "func_share": 0.4411764705882353,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 68,
+     "unique_ratio": 0.7352941176470589,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that analysis: it carries through data.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "carries",
+       "data"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 4,
+     "overlap_words": [
+      "analysis",
+      "data"
+     ],
+     "mean_cosine": 0.6143883292033214,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it leads to data."
+  },
+  {
+   "subject": "animal",
+   "has_definition": true,
+   "fallback": {
+    "text": "It appears that animal triggers plants. It closely is a human.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "human"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 6,
+     "overlap_words": [
+      "animal",
+      "plants",
+      "human"
+     ],
+     "mean_cosine": 0.527336857804486,
+     "func_share": 0.45454545454545453,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 11,
+     "unique_ratio": 0.9090909090909091,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it drives plants.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "plants"
+      ],
+      [
+       "drives",
+       "plants"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "plants"
+     ],
+     "mean_cosine": 0.36099589842285856,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is connected with plants."
+  },
+  {
+   "subject": "animals",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is linked to oxygen.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "oxygen"
+      ],
+      [
+       "linked",
+       "oxygen"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "oxygen"
+     ],
+     "mean_cosine": 0.36833473840955056,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it has a relationship with oxygen."
+  },
+  {
+   "subject": "another",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "archived",
+   "has_definition": true,
+   "fallback": {
+    "text": "Perhaps archived shapes an archived pdf. It challenges a pdf. It often is connected to data.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "data"
+      ],
+      [
+       "connected",
+       "data"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 10,
+     "overlap_words": [
+      "archived",
+      "archived",
+      "pdf",
+      "pdf",
+      "data"
+     ],
+     "mean_cosine": 0.3651649986919506,
+     "func_share": 0.375,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.8125,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it follows a pdf.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "follows"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "pdf"
+     ],
+     "mean_cosine": 0.1896728876572756,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it builds on a pdf."
+  },
+  {
+   "subject": "being",
+   "has_definition": true,
+   "fallback": {
+    "text": "Being ties to a known. It builds on a full. It gives rise to a found.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "being",
+       "known"
+      ],
+      [
+       "ties",
+       "known"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 8,
+     "overlap_words": [
+      "being",
+      "known",
+      "full",
+      "found"
+     ],
+     "mean_cosine": 0.5247274925345639,
+     "func_share": 0.5625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.75,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "blue",
+   "has_definition": true,
+   "fallback": {
+    "text": "It appears that blue is a sky. It partly closely is a colour. It seems to me that it seemingly deeply is a short wavelength.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "sky"
+      ],
+      [
+       "is",
+       "colour"
+      ],
+      [
+       "seems",
+       "colour"
+      ],
+      [
+       "is",
+       "short"
+      ]
+     ],
+     "on_topic_frac": 0.45454545454545453,
+     "content_words": 11,
+     "overlap_words": [
+      "blue",
+      "sky",
+      "colour",
+      "short",
+      "wavelength"
+     ],
+     "mean_cosine": 0.4145593053737507,
+     "func_share": 0.56,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 25,
+     "unique_ratio": 0.68,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is a colour.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "colour"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "colour"
+     ],
+     "mean_cosine": 0.4567508315342008,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a colour."
+  },
+  {
+   "subject": "called",
+   "has_definition": true,
+   "fallback": {
+    "text": "Called stems from a system. They follow an example. They differ from a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "stems",
+       "system"
+      ],
+      [
+       "differ",
+       "form"
+      ]
+     ],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "system",
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.5804031046220242,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 14,
+     "unique_ratio": 0.7857142857142857,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "They challenge a form. They carry through a system. They branch off from an example.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "carry",
+       "system"
+      ]
+     ],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "form",
+      "system",
+      "example"
+     ],
+     "mean_cosine": 0.5787947225237434,
+     "func_share": 0.6,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 15,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "carnivore",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "cat",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is a pet.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "pet"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "pet"
+     ],
+     "mean_cosine": 0.6220379374351639,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a pet."
+  },
+  {
+   "subject": "changes",
+   "has_definition": true,
+   "fallback": {
+    "text": "Changes: they lead to a system.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "lead",
+       "system"
+      ]
+     ],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "changes",
+      "system"
+     ],
+     "mean_cosine": 0.7134005823433428,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 6,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It sparks a system.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "system"
+     ],
+     "mean_cosine": 0.3900294730581098,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "climate",
+   "has_definition": true,
+   "fallback": {
+    "text": "Climate gives rise to a heat. It ties to a development. It clearly resembles an environment.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "ties",
+       "development"
+      ],
+      [
+       "resembles",
+       "environment"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "climate",
+      "heat",
+      "development",
+      "environment"
+     ],
+     "mean_cosine": 0.5235758674816814,
+     "func_share": 0.4375,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.8125,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is different from an environment.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "different"
+      ],
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "environment"
+     ],
+     "mean_cosine": 0.5398512230080613,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it challenges an environment."
+  },
+  {
+   "subject": "clouds",
+   "has_definition": false,
+   "fallback": {
+    "text": "It draws on a rain. It likely deeply is different from rains. It differs from a water vapour.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "draws",
+       "rain"
+      ],
+      [
+       "differs",
+       "water"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "rain",
+      "rains",
+      "water",
+      "vapour"
+     ],
+     "mean_cosine": 0.34393962061520766,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 18,
+     "unique_ratio": 0.7777777777777778,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is tied to a rain.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "rain"
+      ],
+      [
+       "tied",
+       "rain"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "rain"
+     ],
+     "mean_cosine": 0.36800543906650135,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is different from a rain."
+  },
+  {
+   "subject": "common",
+   "has_definition": true,
+   "fallback": {
+    "text": "Common weaves through a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "common",
+      "comparison"
+     ],
+     "mean_cosine": 0.5374733926958848,
+     "func_share": 0.4,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is different from an example. It sometimes follows a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.4,
+     "content_words": 5,
+     "overlap_words": [
+      "example",
+      "comparison"
+     ],
+     "mean_cosine": 0.6442578108473759,
+     "func_share": 0.5454545454545454,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 11,
+     "unique_ratio": 0.9090909090909091,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "comparison",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it brings about analysis.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "brings",
+       "analysis"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "analysis"
+     ],
+     "mean_cosine": 0.4397625352102126,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it comes before an example."
+  },
+  {
+   "subject": "conditions",
+   "has_definition": true,
+   "fallback": {
+    "text": "Conditions are linked with rains. It kind of traces back to rains rain.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "are",
+       "rains"
+      ],
+      [
+       "linked",
+       "rains"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 8,
+     "overlap_words": [
+      "conditions",
+      "rains",
+      "rains",
+      "rain"
+     ],
+     "mean_cosine": 0.5429006605101929,
+     "func_share": 0.38461538461538464,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.9230769230769231,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It ties to rains. It closely paves the way to rains rain.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "paves",
+       "way"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "ties",
+       "rains"
+      ]
+     ],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "rains",
+      "rains",
+      "rain"
+     ],
+     "mean_cosine": 0.42251741465409437,
+     "func_share": 0.4166666666666667,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 12,
+     "unique_ratio": 0.75,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "data",
+   "has_definition": true,
+   "fallback": {
+    "text": "Data grows out of analysis. It typically reaches into a comparison. Specifically, It prompts an archived pdf.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "grows",
+       "out"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "reaches",
+       "comparison"
+      ]
+     ],
+     "on_topic_frac": 0.45454545454545453,
+     "content_words": 11,
+     "overlap_words": [
+      "data",
+      "analysis",
+      "comparison",
+      "archived",
+      "pdf"
+     ],
+     "mean_cosine": 0.4721043693568191,
+     "func_share": 0.4117647058823529,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.9411764705882353,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It flows into analysis. Specifically, It grounds in information. It builds on a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "flows",
+       "analysis"
+      ],
+      [
+       "grounds",
+       "information"
+      ]
+     ],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "analysis",
+      "information",
+      "comparison"
+     ],
+     "mean_cosine": 0.4821510709868107,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 14,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "definition",
+   "has_definition": true,
+   "fallback": {
+    "text": "Definition: it challenges data. It subtly opens up a comparison. It builds from a theory.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "comparison"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "data",
+      "comparison",
+      "theory"
+     ],
+     "mean_cosine": 0.44507759197081703,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it opens up data.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "data"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "data"
+     ],
+     "mean_cosine": 0.35543509958508546,
+     "func_share": 0.5714285714285714,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it grounds in data."
+  },
+  {
+   "subject": "development",
+   "has_definition": true,
+   "fallback": {
+    "text": "Development crosses a management. It historically weaves through an environment. It kind of builds on education.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "development",
+      "management",
+      "environment",
+      "education"
+     ],
+     "mean_cosine": 0.48589898897038697,
+     "func_share": 0.4375,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.9375,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it comes before a management.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "comes",
+       "management"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "management"
+     ],
+     "mean_cosine": 0.564370623347071,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it traces back to a management."
+  },
+  {
+   "subject": "different",
+   "has_definition": true,
+   "fallback": {
+    "text": "Different reaches into a definition. It ultimately gives rise to an example. It sort of typically influences a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "reaches",
+       "definition"
+      ],
+      [
+       "influences",
+       "form"
+      ]
+     ],
+     "on_topic_frac": 0.36363636363636365,
+     "content_words": 11,
+     "overlap_words": [
+      "different",
+      "definition",
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.55400611452484,
+     "func_share": 0.42105263157894735,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.8947368421052632,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It crosses an example. That is, It paves the way for a form. It perhaps contributes to a definition.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "is",
+       "way"
+      ],
+      [
+       "paves",
+       "way"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "example",
+      "form",
+      "definition"
+     ],
+     "mean_cosine": 0.4306554271907065,
+     "func_share": 0.5789473684210527,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.8421052631578947,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "dog",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is a pet.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "pet"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "pet"
+     ],
+     "mean_cosine": 0.6299403139725837,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a pet."
+  },
+  {
+   "subject": "early",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "They are similar to a made. That is, They relate to time. They usually follow a rain.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "made",
+       "relate"
+      ],
+      [
+       "is",
+       "relate"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "made",
+      "time",
+      "rain"
+     ],
+     "mean_cosine": 0.5266169643607609,
+     "func_share": 0.5882352941176471,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.7647058823529411,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "earth",
+   "has_definition": true,
+   "fallback": {
+    "text": "Earth: it follows a sun. It is a planet. Specifically, It ultimately gives rise to life.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "planet"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "earth",
+      "planet",
+      "life"
+     ],
+     "mean_cosine": 0.5164659694991097,
+     "func_share": 0.4375,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.8125,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is a planet.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "planet"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "planet"
+     ],
+     "mean_cosine": 0.6363532428051157,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a planet."
+  },
+  {
+   "subject": "edit",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "education",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is connected to a development.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "development"
+      ],
+      [
+       "connected",
+       "development"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "development"
+     ],
+     "mean_cosine": 0.4454593003575526,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it differs from a development."
+  },
+  {
+   "subject": "environment",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it calls for a development.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "calls"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "development"
+     ],
+     "mean_cosine": 0.5205566439904293,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it carries through a development."
+  },
+  {
+   "subject": "environmental",
+   "has_definition": true,
+   "fallback": {
+    "text": "Environmental ties with an environment.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "ties",
+       "environment"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "environment"
+     ],
+     "mean_cosine": 0.6844862777253063,
+     "func_share": 0.4,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It forms an environment.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "forms",
+       "environment"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "environment"
+     ],
+     "mean_cosine": 0.548884518791183,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 0.6666666666666666,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "even",
+   "has_definition": true,
+   "fallback": {
+    "text": "Even is about Topics referred to by the same term. Awareness grows of the need for something different. This process unfolds as awareness is made to pursue a new direction.",
+    "strategy": "situation_model_narrative",
+    "scores": {
+     "unsupported_count": 3,
+     "unsupported_pairs": [
+      [
+       "grows",
+       "awareness"
+      ],
+      [
+       "is",
+       "pursue"
+      ],
+      [
+       "made",
+       "pursue"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "topics"
+      ],
+      [
+       "need",
+       "different"
+      ]
+     ],
+     "on_topic_frac": 0.38461538461538464,
+     "content_words": 13,
+     "overlap_words": [
+      "topics",
+      "referred",
+      "term",
+      "different",
+      "made"
+     ],
+     "mean_cosine": 0.5275197273300796,
+     "func_share": 0.43333333333333335,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 30,
+     "unique_ratio": 0.8666666666666667,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that even: it recalls an example.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "recalls",
+       "example"
+      ]
+     ],
+     "on_topic_frac": 0.25,
+     "content_words": 4,
+     "overlap_words": [
+      "example"
+     ],
+     "mean_cosine": 0.7410570684178387,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it resembles an example."
+  },
+  {
+   "subject": "example",
+   "has_definition": true,
+   "fallback": {
+    "text": "Example is connected to a common. It typically drives a comparison. It likely historically connects to a definition.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "common"
+      ],
+      [
+       "connected",
+       "common"
+      ],
+      [
+       "drives",
+       "comparison"
+      ],
+      [
+       "connects",
+       "definition"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 10,
+     "overlap_words": [
+      "example",
+      "common",
+      "comparison",
+      "definition"
+     ],
+     "mean_cosine": 0.6330983551263729,
+     "func_share": 0.4444444444444444,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 18,
+     "unique_ratio": 0.7777777777777778,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it comes before called.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "comes",
+       "called"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "called"
+     ],
+     "mean_cosine": 0.6959227947850745,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it draws on called."
+  },
+  {
+   "subject": "explained",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it paves the way to a reason.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "paves",
+       "way"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.25,
+     "content_words": 4,
+     "overlap_words": [
+      "reason"
+     ],
+     "mean_cosine": 0.4445269398294674,
+     "func_share": 0.6,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 10,
+     "unique_ratio": 0.9,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is opposite to a reason."
+  },
+  {
+   "subject": "fall",
+   "has_definition": false,
+   "fallback": {
+    "text": "It appears that they are different from a sound. They sort of directly spark a tree. They broadly shape rains.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "different"
+      ],
+      [
+       "are",
+       "different"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "shape",
+       "rains"
+      ]
+     ],
+     "on_topic_frac": 0.3,
+     "content_words": 10,
+     "overlap_words": [
+      "sound",
+      "tree",
+      "rains"
+     ],
+     "mean_cosine": 0.37769943503942427,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 20,
+     "unique_ratio": 0.85,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that they trigger a sound.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "trigger"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "sound"
+     ],
+     "mean_cosine": 0.38102205014560425,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they are connected to a sound."
+  },
+  {
+   "subject": "first",
+   "has_definition": true,
+   "fallback": {
+    "text": "First is tied with time. Specifically, They partly closely weave through a made. In other words, They weave through an early.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "made",
+       "words"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "time"
+      ],
+      [
+       "tied",
+       "time"
+      ]
+     ],
+     "on_topic_frac": 0.36363636363636365,
+     "content_words": 11,
+     "overlap_words": [
+      "first",
+      "time",
+      "made",
+      "early"
+     ],
+     "mean_cosine": 0.4856784004018441,
+     "func_share": 0.42857142857142855,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 21,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "They recall an early. They loosely are similar to a made. They broadly echo time.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 3,
+     "unsupported_pairs": [
+      [
+       "are",
+       "loosely"
+      ],
+      [
+       "similar",
+       "loosely"
+      ],
+      [
+       "made",
+       "broadly"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "recall",
+       "early"
+      ],
+      [
+       "echo",
+       "time"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "early",
+      "made",
+      "time"
+     ],
+     "mean_cosine": 0.48085686559075336,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.8666666666666667,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "fish",
+   "has_definition": true,
+   "fallback": {
+    "text": "Fish stems from a sea. Specifically, It sparks species.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "stems",
+       "sea"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 6,
+     "overlap_words": [
+      "fish",
+      "sea",
+      "species"
+     ],
+     "mean_cosine": 0.5164068948185946,
+     "func_share": 0.3333333333333333,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 9,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "form",
+   "has_definition": true,
+   "fallback": {
+    "text": "Form: it sparks an example. Put simply, It calls for a full. It subtly is connected with a known.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "known"
+      ],
+      [
+       "connected",
+       "known"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "form",
+      "example",
+      "full",
+      "known"
+     ],
+     "mean_cosine": 0.521966205534701,
+     "func_share": 0.47368421052631576,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.8421052631578947,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it builds on called.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "builds"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "called"
+     ],
+     "mean_cosine": 0.5383039161552565,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it links to called."
+  },
+  {
+   "subject": "found",
+   "has_definition": true,
+   "fallback": {
+    "text": "Found follows a made. They historically cause people.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "made",
+       "historically"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "cause",
+       "people"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 6,
+     "overlap_words": [
+      "made",
+      "people"
+     ],
+     "mean_cosine": 0.5893672753324588,
+     "func_share": 0.25,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "full",
+   "has_definition": true,
+   "fallback": {
+    "text": "Full builds on a form. It gives rise to a long.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.5,
+     "content_words": 6,
+     "overlap_words": [
+      "full",
+      "form",
+      "long"
+     ],
+     "mean_cosine": 0.5782153709507973,
+     "func_share": 0.45454545454545453,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 11,
+     "unique_ratio": 0.9090909090909091,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It opens up a form. Specifically, It usually traces back to a long.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "form"
+      ]
+     ],
+     "on_topic_frac": 0.2857142857142857,
+     "content_words": 7,
+     "overlap_words": [
+      "form",
+      "long"
+     ],
+     "mean_cosine": 0.49998354765364245,
+     "func_share": 0.46153846153846156,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.8461538461538461,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "good",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it opens up to way.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "way"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "way"
+     ],
+     "mean_cosine": 0.5179270750966474,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it crosses way."
+  },
+  {
+   "subject": "health",
+   "has_definition": true,
+   "fallback": {
+    "text": "Health feeds into education. They deeply fuel a medicine.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.5,
+     "content_words": 6,
+     "overlap_words": [
+      "health",
+      "education",
+      "medicine"
+     ],
+     "mean_cosine": 0.5613616736522841,
+     "func_share": 0.3333333333333333,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 9,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "They are tied to education. That is, They reach into a medicine.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "are",
+       "education"
+      ],
+      [
+       "tied",
+       "education"
+      ],
+      [
+       "is",
+       "education"
+      ],
+      [
+       "reach",
+       "medicine"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 4,
+     "overlap_words": [
+      "education",
+      "medicine"
+     ],
+     "mean_cosine": 0.4949373629153719,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 12,
+     "unique_ratio": 0.9166666666666666,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "heat",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is connected to climate.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "climate"
+      ],
+      [
+       "connected",
+       "climate"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "climate"
+     ],
+     "mean_cosine": 0.32607577984721053,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it triggers climate."
+  },
+  {
+   "subject": "history",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "History: it has a relationship with life.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "history",
+      "life"
+     ],
+     "mean_cosine": 0.7523672895633666,
+     "func_share": 0.5714285714285714,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "however",
+   "has_definition": true,
+   "fallback": {
+    "text": "However is akin to an early. Specifically, It sometimes reflects an example. It sharply weaves through a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "early"
+      ],
+      [
+       "akin",
+       "early"
+      ],
+      [
+       "reflects",
+       "example"
+      ]
+     ],
+     "on_topic_frac": 0.3,
+     "content_words": 10,
+     "overlap_words": [
+      "early",
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.5136158589920122,
+     "func_share": 0.4444444444444444,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 18,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is connected to an early. Specifically, It comes before an example. Put simply, It contrasts with a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "early"
+      ],
+      [
+       "connected",
+       "early"
+      ],
+      [
+       "comes",
+       "example"
+      ],
+      [
+       "contrasts",
+       "form"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "early",
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.5748903928472135,
+     "func_share": 0.5263157894736842,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.8421052631578947,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "human",
+   "has_definition": true,
+   "fallback": {
+    "text": "Human is a language. It kind of loosely builds on animals. It closely gives rise to nature.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "language"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 10,
+     "overlap_words": [
+      "human",
+      "language",
+      "animals",
+      "nature"
+     ],
+     "mean_cosine": 0.48521553977165804,
+     "func_share": 0.4117647058823529,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.9411764705882353,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is animal.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "animal"
+      ],
+      [
+       "is",
+       "animal"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "animal"
+     ],
+     "mean_cosine": 0.5934639804209718,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is animal."
+  },
+  {
+   "subject": "important",
+   "has_definition": true,
+   "fallback": {
+    "text": "Important recalls an example. It ties to a view. It draws on way.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "recalls",
+       "example"
+      ],
+      [
+       "ties",
+       "view"
+      ],
+      [
+       "draws",
+       "way"
+      ]
+     ],
+     "on_topic_frac": 0.5714285714285714,
+     "content_words": 7,
+     "overlap_words": [
+      "important",
+      "example",
+      "view",
+      "way"
+     ],
+     "mean_cosine": 0.5990484574372219,
+     "func_share": 0.46153846153846156,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 13,
+     "unique_ratio": 0.9230769230769231,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is connected to an example.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "example"
+      ],
+      [
+       "connected",
+       "example"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "example"
+     ],
+     "mean_cosine": 0.5880621452238796,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it leads to an example."
+  },
+  {
+   "subject": "including",
+   "has_definition": true,
+   "fallback": {
+    "text": "Including: it follows a found. They cause an example. They naturally bring about a made.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "bring",
+       "naturally"
+      ],
+      [
+       "made",
+       "naturally"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "cause",
+       "example"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "found",
+      "example",
+      "made"
+     ],
+     "mean_cosine": 0.5799976092699514,
+     "func_share": 0.4666666666666667,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 15,
+     "unique_ratio": 0.8666666666666667,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that they are akin to a made.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "made"
+     ],
+     "mean_cosine": 0.45793530417261435,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they carry through a made."
+  },
+  {
+   "subject": "information",
+   "has_definition": true,
+   "fallback": {
+    "text": "Information traces back to data. It is linked with a form. In other words, It follows knowledge.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "form"
+      ],
+      [
+       "linked",
+       "form"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "information",
+      "data",
+      "form",
+      "knowledge"
+     ],
+     "mean_cosine": 0.5229055960867673,
+     "func_share": 0.4117647058823529,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.9411764705882353,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is connected to data.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "data"
+      ],
+      [
+       "connected",
+       "data"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "data"
+     ],
+     "mean_cosine": 0.527308653235855,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it leads to data."
+  },
+  {
+   "subject": "intentforge",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "knowledge",
+   "has_definition": true,
+   "fallback": {
+    "text": "Knowledge weaves through information. It fundamentally gives rise to a mind.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "knowledge",
+      "information",
+      "mind"
+     ],
+     "mean_cosine": 0.49334999459538065,
+     "func_share": 0.36363636363636365,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 11,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it carries through information.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "carries",
+       "information"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "information"
+     ],
+     "mean_cosine": 0.42008041248489664,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it influences information."
+  },
+  {
+   "subject": "known",
+   "has_definition": true,
+   "fallback": {
+    "text": "Known: it branches off from an example. It subtly opens up to a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "form"
+      ]
+     ],
+     "on_topic_frac": 0.2857142857142857,
+     "content_words": 7,
+     "overlap_words": [
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.5020014821515469,
+     "func_share": 0.5714285714285714,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 14,
+     "unique_ratio": 0.9285714285714286,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It flows into an example. It echos a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "flows",
+       "example"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 4,
+     "overlap_words": [
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.4138479460659093,
+     "func_share": 0.5555555555555556,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "land",
+   "has_definition": true,
+   "fallback": {
+    "text": "Land influences an earth. It brings about a sea.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "influences",
+       "earth"
+      ],
+      [
+       "brings",
+       "sea"
+      ]
+     ],
+     "on_topic_frac": 0.6,
+     "content_words": 5,
+     "overlap_words": [
+      "land",
+      "earth",
+      "sea"
+     ],
+     "mean_cosine": 0.5473291841705958,
+     "func_share": 0.4444444444444444,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It springs from an earth. It partly branches off from a sea.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "springs",
+       "earth"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 6,
+     "overlap_words": [
+      "earth",
+      "sea"
+     ],
+     "mean_cosine": 0.5432620308978048,
+     "func_share": 0.5833333333333334,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 12,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "learn",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "learning",
+   "has_definition": true,
+   "fallback": {
+    "text": "Learning: it precedes knowledge. It links to a philosophy. It perhaps is a philosophy science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "links",
+       "philosophy"
+      ],
+      [
+       "is",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.625,
+     "content_words": 8,
+     "overlap_words": [
+      "learning",
+      "knowledge",
+      "philosophy",
+      "philosophy",
+      "science"
+     ],
+     "mean_cosine": 0.5866034728827374,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.7333333333333333,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is process.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "process"
+      ],
+      [
+       "is",
+       "process"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "process"
+     ],
+     "mean_cosine": 0.4296747805467078,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is process."
+  },
+  {
+   "subject": "life",
+   "has_definition": true,
+   "fallback": {
+    "text": "Life is linked to an earth. It grounds in a water. It intrinsically triggers history.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "earth"
+      ],
+      [
+       "linked",
+       "earth"
+      ],
+      [
+       "grounds",
+       "water"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 8,
+     "overlap_words": [
+      "life",
+      "earth",
+      "water",
+      "history"
+     ],
+     "mean_cosine": 0.498775758855726,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.9333333333333333,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it crosses nature.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "crosses"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "nature"
+     ],
+     "mean_cosine": 0.4558544909942426,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it carries through nature."
+  },
+  {
+   "subject": "long",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that they precede a full.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "precede"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "full"
+     ],
+     "mean_cosine": 0.4041872310631834,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they reflect a full."
+  },
+  {
+   "subject": "made",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that they are connected to an example.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "are",
+       "example"
+      ],
+      [
+       "connected",
+       "example"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "example"
+     ],
+     "mean_cosine": 0.536132046635938,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they guide an example."
+  },
+  {
+   "subject": "mammal",
+   "has_definition": false,
+   "fallback": {
+    "text": "It is a cat. It is a dog. It deeply is a human.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "cat"
+      ],
+      [
+       "is",
+       "dog"
+      ],
+      [
+       "is",
+       "human"
+      ]
+     ],
+     "on_topic_frac": 0.75,
+     "content_words": 4,
+     "overlap_words": [
+      "cat",
+      "dog",
+      "human"
+     ],
+     "mean_cosine": 0.3321150160850297,
+     "func_share": 0.6923076923076923,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.5384615384615384,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is a cat. It is a dog. Put simply, It partly is a human.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "cat"
+      ],
+      [
+       "is",
+       "dog"
+      ],
+      [
+       "is",
+       "human"
+      ]
+     ],
+     "on_topic_frac": 0.6,
+     "content_words": 5,
+     "overlap_words": [
+      "cat",
+      "dog",
+      "human"
+     ],
+     "mean_cosine": 0.23556863396771424,
+     "func_share": 0.6,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.6,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "management",
+   "has_definition": true,
+   "fallback": {
+    "text": "Management: it brings about a development. Specifically, They are similar to a man.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "are",
+       "man"
+      ],
+      [
+       "similar",
+       "man"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "brings",
+       "development"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 6,
+     "overlap_words": [
+      "management",
+      "development"
+     ],
+     "mean_cosine": 0.5350838980602579,
+     "func_share": 0.5384615384615384,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.9230769230769231,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "They follow a development. In other words, They closely are connected to a man.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "are",
+       "man"
+      ],
+      [
+       "connected",
+       "man"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.16666666666666666,
+     "content_words": 6,
+     "overlap_words": [
+      "development"
+     ],
+     "mean_cosine": 0.42602795805494303,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 14,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "many",
+   "has_definition": true,
+   "fallback": {
+    "text": "Many comes before a well. It possibly opens up to a man. It broadly is connected to rains.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "opens",
+       "man"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "comes",
+       "well"
+      ],
+      [
+       "is",
+       "rains"
+      ],
+      [
+       "connected",
+       "rains"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 9,
+     "overlap_words": [
+      "many",
+      "well",
+      "rains"
+     ],
+     "mean_cosine": 0.5410100766949932,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 18,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It branches off from people. Specifically, It seemingly precedes a well. It sort of reaches into years.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "reaches",
+       "years"
+      ]
+     ],
+     "on_topic_frac": 0.3,
+     "content_words": 10,
+     "overlap_words": [
+      "people",
+      "well",
+      "years"
+     ],
+     "mean_cosine": 0.5317146051553865,
+     "func_share": 0.47058823529411764,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.8823529411764706,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "mathematics",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it contributes to a physics.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "contributes"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "physics"
+     ],
+     "mean_cosine": 0.33787849397948294,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it calls for a physics."
+  },
+  {
+   "subject": "meaning",
+   "has_definition": false,
+   "fallback": {
+    "text": "It influences a common. It connects to a language. It perhaps closely comes before a definition.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "influences",
+       "common"
+      ],
+      [
+       "connects",
+       "language"
+      ],
+      [
+       "comes",
+       "definition"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "common",
+      "language",
+      "definition"
+     ],
+     "mean_cosine": 0.49211770030638635,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.75,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it differs from a common.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "differs",
+       "common"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "common"
+     ],
+     "mean_cosine": 0.5491365551778548,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it follows a common."
+  },
+  {
+   "subject": "mind",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it comes from a view.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "comes",
+       "view"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "view"
+     ],
+     "mean_cosine": 0.6312354404631259,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it reaches into a view."
+  },
+  {
+   "subject": "much",
+   "has_definition": true,
+   "fallback": {
+    "text": "Much: it opens up to a long. Put simply, It prompts an example. It closely links to a rain.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "long"
+      ],
+      [
+       "links",
+       "rain"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "much",
+      "long",
+      "example",
+      "rain"
+     ],
+     "mean_cosine": 0.5393679121730098,
+     "func_share": 0.47368421052631576,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.7894736842105263,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It mirrors a long. It usually parallels an example. It intrinsically links to a rain.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "mirrors",
+       "long"
+      ],
+      [
+       "parallels",
+       "example"
+      ],
+      [
+       "links",
+       "rain"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "long",
+      "example",
+      "rain"
+     ],
+     "mean_cosine": 0.43661275587031956,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "natural",
+   "has_definition": true,
+   "fallback": {
+    "text": "Natural connects to a water. It reaches into a rain. It grows out of rains rain.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "grows",
+       "out"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "connects",
+       "water"
+      ],
+      [
+       "reaches",
+       "rain"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "water",
+      "rain",
+      "rains",
+      "rain"
+     ],
+     "mean_cosine": 0.5107577448527465,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.8125,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it crosses a water.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "crosses"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "water"
+     ],
+     "mean_cosine": 0.4214487081520725,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it differs from a water."
+  },
+  {
+   "subject": "nature",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it links with a mind.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "links",
+       "mind"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "mind"
+     ],
+     "mean_cosine": 0.5436510947862253,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it builds from a mind."
+  },
+  {
+   "subject": "often",
+   "has_definition": true,
+   "fallback": {
+    "text": "Often is similar to a found. It often branches off from an example. In other words, It goes hand in hand with a long.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "found"
+      ],
+      [
+       "similar",
+       "found"
+      ]
+     ],
+     "on_topic_frac": 0.4166666666666667,
+     "content_words": 12,
+     "overlap_words": [
+      "often",
+      "found",
+      "often",
+      "example",
+      "long"
+     ],
+     "mean_cosine": 0.6818201726195294,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 24,
+     "unique_ratio": 0.7916666666666666,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It influences an example. It typically follows a long. It is akin to a found.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "influences",
+       "example"
+      ],
+      [
+       "is",
+       "found"
+      ],
+      [
+       "akin",
+       "found"
+      ]
+     ],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "example",
+      "long",
+      "found"
+     ],
+     "mean_cosine": 0.5887739732185511,
+     "func_share": 0.5333333333333333,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "only",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that they draw on an early.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "draw",
+       "early"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "early"
+     ],
+     "mean_cosine": 0.610855406999463,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they spring from an early."
+  },
+  {
+   "subject": "out",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "oxiverse",
+   "has_definition": false,
+   "fallback": {
+    "text": "I suspect that oxiverse influences a privacy.",
+    "strategy": "situation_model_narrative",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "influences",
+       "privacy"
+      ]
+     ],
+     "on_topic_frac": 0.25,
+     "content_words": 4,
+     "overlap_words": [
+      "privacy"
+     ],
+     "mean_cosine": 0.39494428273965404,
+     "func_share": 0.42857142857142855,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "Perhaps it is different from a privacy.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "privacy"
+     ],
+     "mean_cosine": 0.17404266062382392,
+     "func_share": 0.5714285714285714,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "Perhaps it is similar to a privacy."
+  },
+  {
+   "subject": "oxygen",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It is linked to animals. Specifically, It holds plants.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "animals"
+      ],
+      [
+       "linked",
+       "animals"
+      ],
+      [
+       "holds",
+       "plants"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 5,
+     "overlap_words": [
+      "animals",
+      "plants"
+     ],
+     "mean_cosine": 0.28142947490498205,
+     "func_share": 0.4444444444444444,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "pdf",
+   "has_definition": true,
+   "fallback": {
+    "text": "I believe pdf is similar to an archived pdf. It usually sparks an edit Have you experienced pdf before?",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "archived"
+      ],
+      [
+       "similar",
+       "archived"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 10,
+     "overlap_words": [
+      "pdf",
+      "archived",
+      "pdf",
+      "edit",
+      "pdf"
+     ],
+     "mean_cosine": 0.3974768766370995,
+     "func_share": 0.47368421052631576,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.8421052631578947,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it follows an edit.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "follows"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "edit"
+     ],
+     "mean_cosine": 0.24794095904554622,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it prompts an edit."
+  },
+  {
+   "subject": "people",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it gives rise to a found.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "rise"
+      ],
+      [
+       "gives",
+       "rise"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.25,
+     "content_words": 4,
+     "overlap_words": [
+      "found"
+     ],
+     "mean_cosine": 0.5251667972856916,
+     "func_share": 0.5555555555555556,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it shapes a found."
+  },
+  {
+   "subject": "perceive",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "person",
+   "has_definition": true,
+   "fallback": {
+    "text": "Person brings about a right. It typically leads to a single.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "brings",
+       "right"
+      ],
+      [
+       "leads",
+       "single"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 6,
+     "overlap_words": [
+      "person",
+      "right",
+      "single"
+     ],
+     "mean_cosine": 0.6001927020289664,
+     "func_share": 0.45454545454545453,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 11,
+     "unique_ratio": 0.9090909090909091,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It sparks a single. In other words, it typically paves the way for a right.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "paves",
+       "way"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.2857142857142857,
+     "content_words": 7,
+     "overlap_words": [
+      "single",
+      "right"
+     ],
+     "mean_cosine": 0.4260385775698906,
+     "func_share": 0.4666666666666667,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 15,
+     "unique_ratio": 0.8666666666666667,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "pet",
+   "has_definition": false,
+   "fallback": {
+    "text": "It is a dog. It is a cat.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "dog"
+      ],
+      [
+       "is",
+       "cat"
+      ]
+     ],
+     "on_topic_frac": 1.0,
+     "content_words": 2,
+     "overlap_words": [
+      "dog",
+      "cat"
+     ],
+     "mean_cosine": 0.7725770188363428,
+     "func_share": 0.75,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.625,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is a dog. It possibly is a cat.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "dog"
+      ],
+      [
+       "is",
+       "cat"
+      ]
+     ],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "dog",
+      "cat"
+     ],
+     "mean_cosine": 0.6151194775244968,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.6666666666666666,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "philosophy",
+   "has_definition": true,
+   "fallback": {
+    "text": "I believe  philosophy is a philosophy science. It sort of is tied to a mathematics, which is worth thinking about. It is different from a psychology.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "is",
+       "worth"
+      ],
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "mathematics"
+      ],
+      [
+       "tied",
+       "mathematics"
+      ]
+     ],
+     "on_topic_frac": 0.45454545454545453,
+     "content_words": 11,
+     "overlap_words": [
+      "philosophy",
+      "philosophy",
+      "science",
+      "mathematics",
+      "psychology"
+     ],
+     "mean_cosine": 0.5571870518193951,
+     "func_share": 0.5769230769230769,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 26,
+     "unique_ratio": 0.7307692307692307,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it holds learning.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "learning"
+      ],
+      [
+       "holds",
+       "learning"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "learning"
+     ],
+     "mean_cosine": 0.43450662703171156,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is linked with learning."
+  },
+  {
+   "subject": "photosynthesis",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it causes plants.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "plants"
+      ],
+      [
+       "causes",
+       "plants"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "plants"
+     ],
+     "mean_cosine": 0.22308716382224714,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it carries through plants."
+  },
+  {
+   "subject": "physics",
+   "has_definition": true,
+   "fallback": {
+    "text": "Physics: it leads to a mathematics. It reflects a philosophy. It deeply is a philosophy science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "leads",
+       "mathematics"
+      ],
+      [
+       "reflects",
+       "philosophy"
+      ],
+      [
+       "is",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.625,
+     "content_words": 8,
+     "overlap_words": [
+      "physics",
+      "mathematics",
+      "philosophy",
+      "philosophy",
+      "science"
+     ],
+     "mean_cosine": 0.49963792791771294,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.6875,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It recalls a mathematics. It paves the way to a philosophy. It is a philosophy science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "paves",
+       "way"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "recalls",
+       "mathematics"
+      ],
+      [
+       "is",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.5714285714285714,
+     "content_words": 7,
+     "overlap_words": [
+      "mathematics",
+      "philosophy",
+      "philosophy",
+      "science"
+     ],
+     "mean_cosine": 0.43745776901306244,
+     "func_share": 0.5625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.6875,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "plant",
+   "has_definition": true,
+   "fallback": {
+    "text": "It appears that plant is opposite to a sunlight. It is a tree. Specifically, It seemingly inevitably ties to photosynthesis.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "sunlight"
+      ],
+      [
+       "opposite",
+       "sunlight"
+      ],
+      [
+       "is",
+       "tree"
+      ],
+      [
+       "ties",
+       "photosynthesis"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 10,
+     "overlap_words": [
+      "plant",
+      "sunlight",
+      "tree",
+      "photosynthesis"
+     ],
+     "mean_cosine": 0.2937037774761043,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 20,
+     "unique_ratio": 0.75,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it flows into photosynthesis.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "flows",
+       "photosynthesis"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "photosynthesis"
+     ],
+     "mean_cosine": 0.22379907776171995,
+     "func_share": 0.5714285714285714,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it sets the stage for photosynthesis."
+  },
+  {
+   "subject": "plants",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is similar to animals.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "animals"
+      ],
+      [
+       "similar",
+       "animals"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "animals"
+     ],
+     "mean_cosine": 0.414375374488658,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it reaches into animals."
+  },
+  {
+   "subject": "practical",
+   "has_definition": true,
+   "fallback": {
+    "text": "Practical is tied to a philosophy. It ultimately is akin to a definition.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "philosophy"
+      ],
+      [
+       "tied",
+       "philosophy"
+      ],
+      [
+       "is",
+       "definition"
+      ],
+      [
+       "akin",
+       "definition"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 6,
+     "overlap_words": [
+      "practical",
+      "philosophy",
+      "definition"
+     ],
+     "mean_cosine": 0.42842139379246075,
+     "func_share": 0.5384615384615384,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.7692307692307693,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It parallels a philosophy. It inevitably reaches into a definition.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "parallels",
+       "philosophy"
+      ],
+      [
+       "reaches",
+       "definition"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 5,
+     "overlap_words": [
+      "philosophy",
+      "definition"
+     ],
+     "mean_cosine": 0.3657674828334104,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 10,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "psychology",
+   "has_definition": true,
+   "fallback": {
+    "text": "Psychology ties with a philosophy. That is, It contributes to science. It perhaps is a philosophy science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "contributes"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "ties",
+       "philosophy"
+      ],
+      [
+       "is",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.625,
+     "content_words": 8,
+     "overlap_words": [
+      "psychology",
+      "philosophy",
+      "science",
+      "philosophy",
+      "science"
+     ],
+     "mean_cosine": 0.555731108326418,
+     "func_share": 0.5294117647058824,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.7058823529411765,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it reflects a philosophy.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "reflects",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "philosophy"
+     ],
+     "mean_cosine": 0.37063409473433623,
+     "func_share": 0.5714285714285714,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is similar to a philosophy."
+  },
+  {
+   "subject": "rain",
+   "has_definition": true,
+   "fallback": {
+    "text": "I believe rain is different from rains rain. It builds on rains. It kind of closely is similar to clouds.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "clouds"
+      ],
+      [
+       "similar",
+       "clouds"
+      ]
+     ],
+     "on_topic_frac": 0.45454545454545453,
+     "content_words": 11,
+     "overlap_words": [
+      "rain",
+      "rains",
+      "rain",
+      "rains",
+      "clouds"
+     ],
+     "mean_cosine": 0.5626817301731458,
+     "func_share": 0.45,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 20,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is tied with clouds.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "clouds"
+      ],
+      [
+       "tied",
+       "clouds"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "clouds"
+     ],
+     "mean_cosine": 0.44956067685679885,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it leads to clouds."
+  },
+  {
+   "subject": "rains",
+   "has_definition": true,
+   "fallback": {
+    "text": "I believe rains branch off from rains rain. It perhaps deeply follows a rain, which is worth thinking about. It parallels a fall.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "worth"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "parallels",
+       "fall"
+      ]
+     ],
+     "on_topic_frac": 0.35714285714285715,
+     "content_words": 14,
+     "overlap_words": [
+      "rains",
+      "rains",
+      "rain",
+      "rain",
+      "fall"
+     ],
+     "mean_cosine": 0.4304252763152628,
+     "func_share": 0.43478260869565216,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 23,
+     "unique_ratio": 0.8260869565217391,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It relates to a rain. It resembles rains rain. It intrinsically comes before a fall.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "relates",
+       "rain"
+      ],
+      [
+       "comes",
+       "fall"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 8,
+     "overlap_words": [
+      "rain",
+      "rains",
+      "rain",
+      "fall"
+     ],
+     "mean_cosine": 0.43952189977581557,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.7333333333333333,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": "It appears that it challenges a heat."
+  },
+  {
+   "subject": "rather",
+   "has_definition": true,
+   "fallback": {
+    "text": "Rather mirrors a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "mirrors",
+       "comparison"
+      ]
+     ],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "rather",
+      "comparison"
+     ],
+     "mean_cosine": 0.6450859958235222,
+     "func_share": 0.25,
+     "has_verb": true,
+     "frame": 0.3333333333333333,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It opens up a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "comparison"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "comparison"
+     ],
+     "mean_cosine": 0.3723868189493438,
+     "func_share": 0.6,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "ravana",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "reason",
+   "has_definition": true,
+   "fallback": {
+    "text": "Reason: it crosses a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "reason",
+      "comparison"
+     ],
+     "mean_cosine": 0.5451135260130171,
+     "func_share": 0.4,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It differs from a comparison.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "differs",
+       "comparison"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "comparison"
+     ],
+     "mean_cosine": 0.35687708932390116,
+     "func_share": 0.6,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "research",
+   "has_definition": true,
+   "fallback": {
+    "text": "Research: it follows analysis. It paves the way for a development. It intrinsically is akin to science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "paves",
+       "way"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "science"
+      ],
+      [
+       "akin",
+       "science"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "research",
+      "analysis",
+      "development",
+      "science"
+     ],
+     "mean_cosine": 0.4321052906289656,
+     "func_share": 0.47058823529411764,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.8823529411764706,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it contributes to analysis.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "contributes"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "analysis"
+     ],
+     "mean_cosine": 0.46388246963048063,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is linked to analysis."
+  },
+  {
+   "subject": "right",
+   "has_definition": true,
+   "fallback": {
+    "text": "Right colors a person.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "person"
+     ],
+     "mean_cosine": 0.6515802909033533,
+     "func_share": 0.25,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It contrasts with a person.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "contrasts",
+       "person"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "person"
+     ],
+     "mean_cosine": 0.31213261032402023,
+     "func_share": 0.6,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 5,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "science",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it recalls research.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "research"
+      ],
+      [
+       "recalls",
+       "research"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "research"
+     ],
+     "mean_cosine": 0.4590958660765209,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it resembles research."
+  },
+  {
+   "subject": "scientific",
+   "has_definition": true,
+   "fallback": {
+    "text": "Scientific leads to science. It likely is a philosophy science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "leads",
+       "science"
+      ],
+      [
+       "is",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 6,
+     "overlap_words": [
+      "scientific",
+      "science",
+      "philosophy",
+      "science"
+     ],
+     "mean_cosine": 0.5927898591318851,
+     "func_share": 0.4,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 10,
+     "unique_ratio": 0.9,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is tied to science. It is a philosophy science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "science"
+      ],
+      [
+       "tied",
+       "science"
+      ],
+      [
+       "is",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.75,
+     "content_words": 4,
+     "overlap_words": [
+      "science",
+      "philosophy",
+      "science"
+     ],
+     "mean_cosine": 0.45550692233347845,
+     "func_share": 0.6,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 10,
+     "unique_ratio": 0.7,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "scientists",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "sea",
+   "has_definition": true,
+   "fallback": {
+    "text": "Sea is linked to an ocean. It is similar to a land. It ultimately paves the way for fish.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "paves",
+       "way"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "ocean"
+      ],
+      [
+       "linked",
+       "ocean"
+      ],
+      [
+       "is",
+       "land"
+      ],
+      [
+       "similar",
+       "land"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "sea",
+      "ocean",
+      "land",
+      "fish"
+     ],
+     "mean_cosine": 0.48646932063055576,
+     "func_share": 0.5263157894736842,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.8421052631578947,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it traces back to an ocean.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "traces"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.25,
+     "content_words": 4,
+     "overlap_words": [
+      "ocean"
+     ],
+     "mean_cosine": 0.46044138119194145,
+     "func_share": 0.5555555555555556,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it weaves through an ocean."
+  },
+  {
+   "subject": "sky",
+   "has_definition": true,
+   "fallback": {
+    "text": "Sky is a blue. It calls for a sunlight. It reflects a sea.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "blue"
+      ],
+      [
+       "reflects",
+       "sea"
+      ]
+     ],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 6,
+     "overlap_words": [
+      "sky",
+      "blue",
+      "sunlight",
+      "sea"
+     ],
+     "mean_cosine": 0.5371858615313715,
+     "func_share": 0.5384615384615384,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.7692307692307693,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is a blue.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "blue"
+      ]
+     ],
+     "on_topic_frac": 1.0,
+     "content_words": 2,
+     "overlap_words": [
+      "appears",
+      "blue"
+     ],
+     "mean_cosine": 0.543461454938686,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a blue."
+  },
+  {
+   "subject": "social",
+   "has_definition": true,
+   "fallback": {
+    "text": "Social builds from education.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.6666666666666666,
+     "content_words": 3,
+     "overlap_words": [
+      "social",
+      "education"
+     ],
+     "mean_cosine": 0.656061786544849,
+     "func_share": 0.25,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It contrasts with education.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "contrasts",
+       "education"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "education"
+     ],
+     "mean_cosine": 0.4839153277374333,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 0.6666666666666666,
+     "word_count": 4,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "sound",
+   "has_definition": false,
+   "fallback": {
+    "text": "It appears that it reflects a vibration. It sort of often is linked to an air. It comes before a fall.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "reflects",
+       "vibration"
+      ],
+      [
+       "is",
+       "air"
+      ],
+      [
+       "linked",
+       "air"
+      ],
+      [
+       "comes",
+       "fall"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 9,
+     "overlap_words": [
+      "vibration",
+      "air",
+      "fall"
+     ],
+     "mean_cosine": 0.36951023067973937,
+     "func_share": 0.5714285714285714,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 21,
+     "unique_ratio": 0.8095238095238095,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": "It appears that it is linked to hear."
+  },
+  {
+   "subject": "species",
+   "has_definition": true,
+   "fallback": {
+    "text": "Species builds on fish. That is, It kind of typically precedes animals. It grows out of a sea.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "is",
+       "kind"
+      ],
+      [
+       "grows",
+       "out"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.5,
+     "content_words": 10,
+     "overlap_words": [
+      "species",
+      "fish",
+      "typically",
+      "animals",
+      "sea"
+     ],
+     "mean_cosine": 0.5052819351238071,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 18,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it runs counter to fish.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "runs",
+       "fish"
+      ],
+      [
+       "counter",
+       "fish"
+      ]
+     ],
+     "on_topic_frac": 0.25,
+     "content_words": 4,
+     "overlap_words": [
+      "fish"
+     ],
+     "mean_cosine": 0.36095218978982324,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it calls for fish."
+  },
+  {
+   "subject": "star",
+   "has_definition": true,
+   "fallback": {
+    "text": "It appears that  star: it is a sun. It possibly directly differs from a light. It likely springs from a gravity.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "possibly"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "differs",
+       "light"
+      ],
+      [
+       "springs",
+       "gravity"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 9,
+     "overlap_words": [
+      "star",
+      "light",
+      "gravity"
+     ],
+     "mean_cosine": 0.32926834006364003,
+     "func_share": 0.5238095238095238,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 21,
+     "unique_ratio": 0.7142857142857143,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is a plasma.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "plasma"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "plasma"
+     ],
+     "mean_cosine": 0.1977366789637229,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a plasma."
+  },
+  {
+   "subject": "studies",
+   "has_definition": true,
+   "fallback": {
+    "text": "Studies reach into science. It perhaps directly is a philosophy science. It loosely parallels a university.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "reach",
+       "science"
+      ],
+      [
+       "is",
+       "philosophy"
+      ],
+      [
+       "parallels",
+       "university"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 10,
+     "overlap_words": [
+      "studies",
+      "science",
+      "philosophy",
+      "science",
+      "university"
+     ],
+     "mean_cosine": 0.46114817653653983,
+     "func_share": 0.375,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.8125,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "study",
+   "has_definition": true,
+   "fallback": {
+    "text": "Study traces back to research. It closely ties to analysis. It intrinsically is different from science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "ties",
+       "analysis"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 10,
+     "overlap_words": [
+      "study",
+      "research",
+      "analysis",
+      "science"
+     ],
+     "mean_cosine": 0.518933384710846,
+     "func_share": 0.375,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it causes analysis.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "analysis"
+      ],
+      [
+       "causes",
+       "analysis"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "analysis"
+     ],
+     "mean_cosine": 0.5399909860401045,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it precedes analysis."
+  },
+  {
+   "subject": "sunlight",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "system",
+   "has_definition": true,
+   "fallback": {
+    "text": "System is akin to an example. In other words, It naturally opens up to a problem. It is similar to systems.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "example"
+      ],
+      [
+       "akin",
+       "example"
+      ],
+      [
+       "opens",
+       "problem"
+      ],
+      [
+       "is",
+       "systems"
+      ],
+      [
+       "similar",
+       "systems"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "system",
+      "example",
+      "problem",
+      "systems"
+     ],
+     "mean_cosine": 0.582849427734986,
+     "func_share": 0.5238095238095238,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 21,
+     "unique_ratio": 0.8095238095238095,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it branches off from changes.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "branches"
+      ],
+      [
+       "changes",
+       "branches"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.25,
+     "content_words": 4,
+     "overlap_words": [
+      "changes"
+     ],
+     "mean_cosine": 0.49880175722529796,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it reaches into changes."
+  },
+  {
+   "subject": "systems",
+   "has_definition": true,
+   "fallback": {
+    "text": "Systems: they tie with a system. That is, It leads to a computer.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "tie",
+       "system"
+      ],
+      [
+       "is",
+       "system"
+      ],
+      [
+       "leads",
+       "computer"
+      ]
+     ],
+     "on_topic_frac": 0.6,
+     "content_words": 5,
+     "overlap_words": [
+      "systems",
+      "system",
+      "computer"
+     ],
+     "mean_cosine": 0.6022412783037266,
+     "func_share": 0.6153846153846154,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 13,
+     "unique_ratio": 0.9230769230769231,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is opposite to a system. It is linked to a computer.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "system"
+      ],
+      [
+       "opposite",
+       "system"
+      ],
+      [
+       "is",
+       "computer"
+      ],
+      [
+       "linked",
+       "computer"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 4,
+     "overlap_words": [
+      "system",
+      "computer"
+     ],
+     "mean_cosine": 0.5250112584861417,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 12,
+     "unique_ratio": 0.6666666666666666,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "term",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "theory",
+   "has_definition": true,
+   "fallback": {
+    "text": "Theory flows into a philosophy. It goes hand in hand with a definition. That is, It perhaps carries through theories.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "perhaps"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "flows",
+       "philosophy"
+      ],
+      [
+       "carries",
+       "theories"
+      ]
+     ],
+     "on_topic_frac": 0.4,
+     "content_words": 10,
+     "overlap_words": [
+      "theory",
+      "philosophy",
+      "definition",
+      "theories"
+     ],
+     "mean_cosine": 0.4951298961830416,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 20,
+     "unique_ratio": 0.85,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "there",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it challenges a well.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "challenges"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "well"
+     ],
+     "mean_cosine": 0.6121825597220849,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it branches off from a well."
+  },
+  {
+   "subject": "thought",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "three",
+   "has_definition": true,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "tree",
+   "has_definition": true,
+   "fallback": {
+    "text": "It appears that tree is a wood. It is a plant. That is, It likely naturally shapes a fall.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "is",
+       "likely"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "wood"
+      ],
+      [
+       "is",
+       "plant"
+      ],
+      [
+       "shapes",
+       "fall"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 8,
+     "overlap_words": [
+      "tree",
+      "wood",
+      "plant",
+      "fall"
+     ],
+     "mean_cosine": 0.5232955770858413,
+     "func_share": 0.5789473684210527,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.631578947368421,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it is a plant.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "plant"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "plant"
+     ],
+     "mean_cosine": 0.5112177182047348,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is a plant."
+  },
+  {
+   "subject": "two",
+   "has_definition": true,
+   "fallback": {
+    "text": "Two: it influences a made. They resemble an early. They kind of cross a number.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "influences",
+       "resemble"
+      ],
+      [
+       "made",
+       "resemble"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.42857142857142855,
+     "content_words": 7,
+     "overlap_words": [
+      "two",
+      "made",
+      "early"
+     ],
+     "mean_cosine": 0.5580167574076358,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.8666666666666667,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that they are a number.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.0,
+     "content_words": 1,
+     "overlap_words": [],
+     "mean_cosine": 0.44798450462405376,
+     "func_share": 0.7142857142857143,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they are a number."
+  },
+  {
+   "subject": "type",
+   "has_definition": true,
+   "fallback": {
+    "text": "Type: it builds from an example. Specifically, It echos a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 6,
+     "overlap_words": [
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.5353791885731615,
+     "func_share": 0.45454545454545453,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 11,
+     "unique_ratio": 0.9090909090909091,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It parallels an example. It mirrors a form.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "parallels",
+       "example"
+      ],
+      [
+       "mirrors",
+       "form"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 4,
+     "overlap_words": [
+      "example",
+      "form"
+     ],
+     "mean_cosine": 0.4748365604348418,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "understanding",
+   "has_definition": true,
+   "fallback": {
+    "text": "Understanding is a cognitive process related to an abstract or physical object, such as a person, situation, or message whereby one is able to use concepts to model that object. Understanding is a relation between the knower and an object of understanding. Understanding implies abilities and dispositions with respect to an object of knowledge that are sufficient to support intelligent behavior. Understanding drives the initial desire to learn. This process unfolds as develops is gathered through observation, study, and experience.",
+    "strategy": "situation_model_narrative",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "drives",
+       "initial"
+      ],
+      [
+       "is",
+       "gathered"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "cognitive"
+      ],
+      [
+       "related",
+       "abstract"
+      ],
+      [
+       "is",
+       "able"
+      ],
+      [
+       "use",
+       "concepts"
+      ],
+      [
+       "is",
+       "relation"
+      ],
+      [
+       "implies",
+       "abilities"
+      ],
+      [
+       "are",
+       "sufficient"
+      ],
+      [
+       "support",
+       "intelligent"
+      ]
+     ],
+     "on_topic_frac": 0.7435897435897436,
+     "content_words": 39,
+     "overlap_words": [
+      "understanding",
+      "cognitive",
+      "process",
+      "related",
+      "abstract",
+      "physical",
+      "person",
+      "situation",
+      "message",
+      "whereby",
+      "able",
+      "concepts",
+      "model",
+      "understanding",
+      "relation",
+      "knower",
+      "understanding",
+      "understanding",
+      "implies",
+      "abilities",
+      "dispositions",
+      "respect",
+      "knowledge",
+      "sufficient",
+      "support",
+      "intelligent",
+      "behavior",
+      "understanding",
+      "process"
+     ],
+     "mean_cosine": 0.5238310304868442,
+     "func_share": 0.425,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 80,
+     "unique_ratio": 0.6625,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "Understanding is a cognitive process related to an abstract or physical object, such as a person, situation, or message whereby one is able to use concepts to model that object. Understanding is a relation between the knower and an object of understanding. Understanding implies abilities and dispositions with respect to an object of knowledge that are sufficient to support intelligent behavior. Understanding drives the initial desire to learn. This process unfolds as develops is gathered through observation, study, and experience.",
+    "strategy": "situation_model_narrative",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "drives",
+       "initial"
+      ],
+      [
+       "is",
+       "gathered"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "cognitive"
+      ],
+      [
+       "related",
+       "abstract"
+      ],
+      [
+       "is",
+       "able"
+      ],
+      [
+       "use",
+       "concepts"
+      ],
+      [
+       "is",
+       "relation"
+      ],
+      [
+       "implies",
+       "abilities"
+      ],
+      [
+       "are",
+       "sufficient"
+      ],
+      [
+       "support",
+       "intelligent"
+      ]
+     ],
+     "on_topic_frac": 0.7435897435897436,
+     "content_words": 39,
+     "overlap_words": [
+      "understanding",
+      "cognitive",
+      "process",
+      "related",
+      "abstract",
+      "physical",
+      "person",
+      "situation",
+      "message",
+      "whereby",
+      "able",
+      "concepts",
+      "model",
+      "understanding",
+      "relation",
+      "knower",
+      "understanding",
+      "understanding",
+      "implies",
+      "abilities",
+      "dispositions",
+      "respect",
+      "knowledge",
+      "sufficient",
+      "support",
+      "intelligent",
+      "behavior",
+      "understanding",
+      "process"
+     ],
+     "mean_cosine": 0.5238310304868442,
+     "func_share": 0.425,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 80,
+     "unique_ratio": 0.6625,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "university",
+   "has_definition": true,
+   "fallback": {
+    "text": "University: it gives rise to studies. That is, It likely sometimes challenges science. It likely is a philosophy science.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "gives",
+       "rise"
+      ],
+      [
+       "is",
+       "likely"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "philosophy"
+      ]
+     ],
+     "on_topic_frac": 0.45454545454545453,
+     "content_words": 11,
+     "overlap_words": [
+      "university",
+      "studies",
+      "science",
+      "philosophy",
+      "science"
+     ],
+     "mean_cosine": 0.4837382952754358,
+     "func_share": 0.42105263157894735,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 19,
+     "unique_ratio": 0.7368421052631579,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it reflects studies.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "appears",
+       "studies"
+      ],
+      [
+       "reflects",
+       "studies"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "studies"
+     ],
+     "mean_cosine": 0.357291783133705,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 6,
+     "unique_ratio": 0.8333333333333334,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is similar to studies."
+  },
+  {
+   "subject": "used",
+   "has_definition": true,
+   "fallback": {
+    "text": "Used frames a found. They lead to a system. They fundamentally follow an example.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "used",
+       "frames"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "lead",
+       "system"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "found",
+      "system",
+      "example"
+     ],
+     "mean_cosine": 0.5632157654553107,
+     "func_share": 0.42857142857142855,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 14,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that they follow a found.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "follow"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "found"
+     ],
+     "mean_cosine": 0.5670575705294923,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they frame a found."
+  },
+  {
+   "subject": "using",
+   "has_definition": true,
+   "fallback": {
+    "text": "Using: it feeds into a system. It sharply contributes to an example.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "using",
+       "feeds"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 6,
+     "overlap_words": [
+      "system",
+      "example"
+     ],
+     "mean_cosine": 0.5359795090448669,
+     "func_share": 0.5,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 12,
+     "unique_ratio": 0.9166666666666666,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it opens up a system.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "opens",
+       "system"
+      ]
+     ],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "system"
+     ],
+     "mean_cosine": 0.4560670647133467,
+     "func_share": 0.625,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 8,
+     "unique_ratio": 0.875,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it is different from a system."
+  },
+  {
+   "subject": "vibrate",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": "It appears that it is connected with an air."
+  },
+  {
+   "subject": "vibration",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "It appears that it is different from a sound.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "different"
+      ],
+      [
+       "is",
+       "different"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "sound"
+     ],
+     "mean_cosine": 0.21598717704257017,
+     "func_share": 0.6666666666666666,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 0.8888888888888888,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it draws on a sound."
+  },
+  {
+   "subject": "view",
+   "has_definition": true,
+   "fallback": {
+    "text": "Synthesis printable gastropods ray dissolves masterpiece edges funding return bastyr basidiomycetes mandino restrict minded hegewisch caecilians grey affinity accompanies rose decisions motivate indianapolis fields.",
+    "strategy": "situation_model_decoder",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.0,
+     "content_words": 23,
+     "overlap_words": [],
+     "mean_cosine": 0.13003088110458416,
+     "func_share": 0.0,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 24,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "Gastropods printable edges funding minded masterpiece dissolves hegewisch return rose restrict caecilians grey basidiomycetes accompanies bastyr affinity ray indianapolis mandino motivate fields decisions seasoned.",
+    "strategy": "situation_model_decoder",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.0,
+     "content_words": 23,
+     "overlap_words": [],
+     "mean_cosine": 0.12901620173175052,
+     "func_share": 0.0,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 24,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": "It appears that view is tied to an example."
+  },
+  {
+   "subject": "way",
+   "has_definition": true,
+   "fallback": {
+    "text": "Printable offers dislikes mandino caecilians gastropods ray dissolves funding hegewisch bastyr masterpiece return rose affinity minded grey basidiomycetes restrict fields indianapolis accompanies decisions edges.",
+    "strategy": "situation_model_decoder",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [],
+     "on_topic_frac": 0.0,
+     "content_words": 23,
+     "overlap_words": [],
+     "mean_cosine": 0.1419123223281049,
+     "func_share": 0.0,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 24,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that way is opposite to a view.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "view"
+      ],
+      [
+       "opposite",
+       "view"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 4,
+     "overlap_words": [
+      "way",
+      "view"
+     ],
+     "mean_cosine": 0.6844399709425895,
+     "func_share": 0.5555555555555556,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 9,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it sparks a view."
+  },
+  {
+   "subject": "well",
+   "has_definition": true,
+   "fallback": {
+    "text": "Well: it brings about a made. It closely is linked to an example. It closely follows time.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 1,
+     "unsupported_pairs": [
+      [
+       "made",
+       "closely"
+      ]
+     ],
+     "supported_pairs": [
+      [
+       "is",
+       "example"
+      ],
+      [
+       "linked",
+       "example"
+      ]
+     ],
+     "on_topic_frac": 0.4444444444444444,
+     "content_words": 9,
+     "overlap_words": [
+      "well",
+      "made",
+      "example",
+      "time"
+     ],
+     "mean_cosine": 0.6390909331044692,
+     "func_share": 0.47058823529411764,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 17,
+     "unique_ratio": 0.8235294117647058,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that it follows a made.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 2,
+     "unsupported_pairs": [
+      [
+       "appears",
+       "follows"
+      ],
+      [
+       "made",
+       "follows"
+      ]
+     ],
+     "supported_pairs": [],
+     "on_topic_frac": 0.3333333333333333,
+     "content_words": 3,
+     "overlap_words": [
+      "made"
+     ],
+     "mean_cosine": 0.608478336600735,
+     "func_share": 0.5714285714285714,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 7,
+     "unique_ratio": 0.8571428571428571,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that it brings about a made."
+  },
+  {
+   "subject": "world",
+   "has_definition": true,
+   "fallback": {
+    "text": "World shapes a well. It likely has a relationship with time. It is connected with way.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "shapes",
+       "well"
+      ],
+      [
+       "is",
+       "way"
+      ],
+      [
+       "connected",
+       "way"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 8,
+     "overlap_words": [
+      "world",
+      "well",
+      "time",
+      "way"
+     ],
+     "mean_cosine": 0.5499333369820019,
+     "func_share": 0.5,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 16,
+     "unique_ratio": 0.8125,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It is opposite to way. It partly precedes time. It sharply leads to a well.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "is",
+       "way"
+      ],
+      [
+       "opposite",
+       "way"
+      ],
+      [
+       "leads",
+       "well"
+      ]
+     ],
+     "on_topic_frac": 0.375,
+     "content_words": 8,
+     "overlap_words": [
+      "way",
+      "time",
+      "well"
+     ],
+     "mean_cosine": 0.40992100733023185,
+     "func_share": 0.4666666666666667,
+     "has_verb": true,
+     "frame": 1.0,
+     "word_count": 15,
+     "unique_ratio": 0.8,
+     "is_word_salad": false
+    }
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "years",
+   "has_definition": true,
+   "fallback": {
+    "text": "Years: they come after an early. They seemingly loosely prompt a long. They call for a made.",
+    "strategy": "situation_model_syntax",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "come",
+       "early"
+      ]
+     ],
+     "on_topic_frac": 0.5714285714285714,
+     "content_words": 7,
+     "overlap_words": [
+      "years",
+      "early",
+      "long",
+      "made"
+     ],
+     "mean_cosine": 0.5325684743686794,
+     "func_share": 0.47058823529411764,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 17,
+     "unique_ratio": 0.8235294117647058,
+     "is_word_salad": false
+    }
+   },
+   "plan": {
+    "text": "It appears that they link to an early.",
+    "strategy": "situation_model_plan",
+    "scores": {
+     "unsupported_count": 0,
+     "unsupported_pairs": [],
+     "supported_pairs": [
+      [
+       "link",
+       "early"
+      ]
+     ],
+     "on_topic_frac": 0.5,
+     "content_words": 2,
+     "overlap_words": [
+      "early"
+     ],
+     "mean_cosine": 0.6244783876233757,
+     "func_share": 0.625,
+     "has_verb": false,
+     "frame": 0.0,
+     "word_count": 8,
+     "unique_ratio": 1.0,
+     "is_word_salad": false
+    }
+   },
+   "fired": true,
+   "plan_commit": "It appears that they contrast with an early."
+  },
+  {
+   "subject": "zzzunknown",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "qxzblorp",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  },
+  {
+   "subject": "notarealword",
+   "has_definition": false,
+   "fallback": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "plan": {
+    "text": "",
+    "strategy": "",
+    "scores": null
+   },
+   "fired": false,
+   "plan_commit": ""
+  }
+ ]
+}
