@@ -904,6 +904,17 @@ class MemoryMixin:
         return scored
 
     def _self_cued_episodic(self, query: str) -> Optional[str]:
+        # A cue question about a word taught in conversation is a request to
+        # DEPLOY that word, not to recall the user's disclosure about it.
+        try:
+            from .response_gen import (extract_construction_cue,
+                                       find_taught_term)
+            if (extract_construction_cue(query) != "NONE"
+                    and find_taught_term(
+                        query, getattr(self, "_term_exposures", None) or {})):
+                return None
+        except Exception:
+            pass
         """Retrieve a user's OWN prior disclosure by CONTENT CUE, without
         requiring an explicit "remember / what did i say" act.
 

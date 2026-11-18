@@ -11,8 +11,9 @@ from ravana.chat.engine import CognitiveChatEngine
 
 
 def _engine():
+    import uuid
     return CognitiveChatEngine(data_dir=os.path.join(PROJ, "weights"),
-                               user_suffix="produse_test")
+                               user_suffix="produse_" + uuid.uuid4().hex[:8])
 
 
 def test_functional_definition_is_rebound_into_new_construction():
@@ -83,3 +84,41 @@ def test_paraphrases_all_deploy_the_learned_word():
         assert "measures air pressure" in out, (q, out)
         assert "can't physically" not in out, (q, out)
         assert "noted" not in out, (q, out)
+
+
+def test_cue_selects_semantically_matching_construction():
+    from ravana.chat.models import CognitiveResponseContext
+    e = _engine()
+    e._term_exposures = {"zorblat": 1}
+    definition = "a small blue device that measures air pressure"
+    cases = {
+        "what does a zorblat do": "measures air pressure",
+        "what is a zorblat part of": "part of a device",
+        "what is a zorblat like": "small and blue",
+    }
+    for q, expected in cases.items():
+        ctx = CognitiveResponseContext(subject="zorblat", raw_input=q)
+        result = e._productive_use_response(ctx, "zorblat", definition)
+        assert result is not None, q
+        out = result[0].lower()
+        assert "zorblat" in out, (q, out)
+        assert expected in out, (q, out)
+        assert "is a small blue device that" not in out, (q, out)
+
+
+def test_locative_cue_selects_locative_frame():
+    e = _engine()
+    e.process_turn("a marrowlight is a lamp that glows only in deep water")
+    out = (e.process_turn("where is a marrowlight") or "").strip().lower()
+    assert out.startswith("marrowlight "), out
+    assert "found in deep water" in out, out
+    assert "you mentioned" not in out, out
+
+
+def test_cue_mapping_is_deterministic():
+    from ravana.chat.response_gen import extract_construction_cue
+    assert extract_construction_cue("what does a zorblat do") == "FUNCTION"
+    assert extract_construction_cue("what is a zorblat part of") == "PART_WHOLE"
+    assert extract_construction_cue("where is a marrowlight") == "LOCATIVE"
+    assert extract_construction_cue("what is a zorblat like") == "PROPERTY"
+    assert extract_construction_cue("use the word zorblat in a sentence") == "NONE"
