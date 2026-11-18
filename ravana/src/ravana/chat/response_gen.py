@@ -7335,15 +7335,15 @@ class ResponseGenMixin(ChainWalkerMixin):
         # Gentle, low-valence-aware phrasing.
         if valence < 0.4:
             openers = [
-                f"hmm, i'm not totally sure about {subj_cap} yet, and that's okay. ",
-                f"i don't really have a solid grasp on {subj_cap} so far. ",
-                f"honestly, {subj_cap} is a bit outside what i know right now. ",
+                f"hmm, i'm not totally sure about {subj_cap} yet, and that's okay.",
+                f"i don't really have a solid grasp on {subj_cap} so far.",
+                f"honestly, {subj_cap} is a bit outside what i know right now.",
             ]
         else:
             openers = [
-                f"ooh, {subj_cap} is interesting — i don't fully know that one yet. ",
-                f"i'm not completely sure about {subj_cap}, but i'm curious! ",
-                f"hmm, {subj_cap} is new to me. ",
+                f"ooh, {subj_cap} is interesting — i don't fully know that one yet.",
+                f"i'm not completely sure about {subj_cap}, but i'm curious!",
+                f"hmm, {subj_cap} is new to me.",
             ]
         # Deprioritize recently used openers: prefer ones not in the recency window.
         _fresh_openers = [o for o in openers if o not in _recent_openers]
