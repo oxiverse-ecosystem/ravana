@@ -53,3 +53,33 @@ def test_untaught_word_is_still_declined():
     assert ("not totally sure" in out.lower()
             or "outside what i know" in out.lower()
             or "solid grasp" in out.lower()), out
+
+
+def test_two_identical_requests_produce_two_distinct_constructions():
+    e = _engine()
+    e.process_turn("a zorblat is a small blue device that measures air pressure")
+    q = "use the word zorblat in a sentence"
+    a1 = (e.process_turn(q) or "").strip()
+    a2 = (e.process_turn(q) or "").strip()
+    assert a1 != a2, (a1, a2)
+    assert a1.lower().startswith("zorblat "), a1
+    assert "called zorblat" in a2.lower(), a2
+    # Neither echoes the definition.
+    for out in (a1, a2):
+        assert "is a small blue device" not in out.lower(), out
+
+
+def test_paraphrases_all_deploy_the_learned_word():
+    e = _engine()
+    e.process_turn("a zorblat is a small blue device that measures air pressure")
+    queries = [
+        "make a sentence with zorblat",
+        "give me an example using the word zorblat",
+        "write a sentence using zorblat",
+    ]
+    for q in queries:
+        out = (e.process_turn(q) or "").strip().lower()
+        assert "zorblat" in out, (q, out)
+        assert "measures air pressure" in out, (q, out)
+        assert "can't physically" not in out, (q, out)
+        assert "noted" not in out, (q, out)
