@@ -63,6 +63,41 @@ def _clean_snippet(s: str) -> str:
     return s
 
 
+# ── Gap-driven targeted web learning: design constants ────────────────────────
+# Every value below is the computational analogue of a cited human-brain
+# mechanism, NOT an ad-hoc plumbing threshold. See
+# docs/GAP_DRIVEN_WEB_LEARNING.md for the full argument and verbatim citations.
+#
+# Loewenstein, G. (1994), "The psychology of curiosity: A review and
+#   reinterpretation", Psychological Bulletin 116(1), 75-98 — information-gap
+#   theory: a perceived gap between what is known and what is wanted is a
+#   cognitively induced deprivation that DRIVES curiosity. So the read is
+#   TARGETED at the specific missing causal link (query template below), not a
+#   generic "learn about X" sweep.
+# Schacter, D. L. & Addis, D. R. (2007), "The cognitive neuroscience of
+#   constructive memory: remembering the past and imagining the future",
+#   Philosophical Transactions of the Royal Society B 362(1481), 773-786 —
+#   constructive episodic simulation: a novel scenario is built by flexibly
+#   RECOMBINING retrieved elements. One hop is recall; >=2 retrieved causal hops
+#   recombined into a chain is a simulated mechanism. -> _GAP_MIN_HOPS = 2.
+# Friston, K. (2010), "The free-energy principle: a unified brain theory?",
+#   Nature Reviews Neuroscience 11(2), 127-138 — active inference: an
+#   exploratory action is selected for its (bounded) epistemic value. -> hard
+#   caps on sources/reads, RAVANA_OFFLINE short-circuit, fail-open on error.
+# Gerstenberg, T. (2024), "Counterfactual simulation in causal cognition",
+#   Trends in Cognitive Sciences 28(10), 924-936 — counterfactual simulation
+#   model: a causal judgment needs a GENERATIVE model that supports
+#   intervention, with traceable provenance and strength scaled by convergent
+#   evidence. -> every edge stamped with source/method/converging_sources and
+#   confidence increasing with corroboration.
+_GAP_CAUSAL_QUERY = "{subject} causes mechanism why process explained"
+_GAP_MAX_SOURCES = 2       # Friston 2010: bounded epistemic sampling
+_GAP_MAX_READS = 4         # Friston 2010: bounded exploration per session
+_GAP_MIN_HOPS = 2          # Schacter & Addis 2007: recombination, not recall
+_GAP_BASE_CONF = 0.7       # Gerstenberg 2024: one source = provisional strength
+_GAP_CONF_PER_SOURCE = 0.15  # Gerstenberg 2024: +strength per converging source
+
+
 class _null_ctx:
     """No-op context manager for when _graph_lock is absent."""
     def __enter__(self): return self
@@ -621,6 +656,218 @@ class WebLearningMixin(ResponseGenMixin):
                 self._network_available = False
             return "offline", ""
 
+
+    # ── Gap -> web -> graph -> answer ─────────────────────────────────────────
+    def close_mechanism_gap(self, subject: str, query: str = "",
+                            max_sources: Optional[int] = None) -> Dict[str, Any]:
+        """Turn a recorded explanatory gap into a bounded, targeted web read.
+
+        This is the action a detected information gap SELECTS (Friston 2010,
+        active inference): read the specific missing causal link, write the
+        retrieved causal hops into the typed graph with full provenance, and
+        mark the gap resolved so a LATER turn can simulate the mechanism from
+        the chain (Schacter & Addis 2007; Gerstenberg 2024).
+
+        Fail-open and bounded by construction: offline short-circuit, per-session
+        read cap, once-per-subject dedup, capped source count, and a swallow at
+        the call site. No exception from this method may break a user turn.
+
+        Returns a dict: status in {offline, budget, already_attempted,
+        no_search, search_error, no_graph, no_chain, learned}, plus source and
+        hop counts and the stamped edges. No eng.save() here — persistence is
+        the caller's/engine's normal save path (graph -> pkl + db mirror).
+        """
+        result: Dict[str, Any] = {
+            "status": "noop", "subject": subject, "sources": 0,
+            "causal_hops": 0, "chain_hops": 0, "edges": [],
+        }
+        subj = (subject or "").strip().lower()
+        if not subj:
+            result["status"] = "no_subject"
+            return result
+        # Friston 2010: an action that cannot sample the environment has no
+        # epistemic value — do not even attempt it (D1 offline contract).
+        if os.environ.get("RAVANA_OFFLINE") == "1":
+            result["status"] = "offline"
+            return result
+
+        cap = _GAP_MAX_SOURCES if max_sources is None else int(max_sources)
+        cap = max(1, min(cap, _GAP_MAX_SOURCES))
+        attempted = getattr(self, "_gap_read_subjects", None)
+        if attempted is None:
+            attempted = set()
+            self._gap_read_subjects = attempted
+        if subj in attempted:
+            result["status"] = "already_attempted"
+            return result
+        reads = int(getattr(self, "_gap_read_count", 0) or 0)
+        if reads >= _GAP_MAX_READS:
+            result["status"] = "budget"
+            return result
+        attempted.add(subj)
+        self._gap_read_count = reads + 1
+
+        w2g = self._get_web_to_graph()
+        if w2g is None:
+            result["status"] = "no_graph"
+            return result
+
+        causal_query = _GAP_CAUSAL_QUERY.format(subject=subj)
+        try:
+            searcher = getattr(self, "search_engine", None)
+            if searcher is None:
+                result["status"] = "no_search"
+                return result
+            hits = searcher.search(causal_query, max_results=cap) or []
+        except Exception as e:
+            result["status"] = "search_error"
+            result["error"] = f"{type(e).__name__}: {e}"
+            return result
+
+        # Snapshot existing causal edges so only newly written ones are stamped.
+        before = {(s, t) for (s, t), e in self.graph.edges.items()
+                  if (e.relation_type or "").lower() == "causal"}
+
+        # Gerstenberg 2024: a causal claim is a generative-model commitment, so
+        # record which DISTINCT sources state each relation and scale strength
+        # by that convergence. Learn each source separately so provenance is
+        # attributable to a real URL rather than a merged blob.
+        sources_by_edge: Dict[Tuple[str, str], Set[str]] = {}
+        conf_by_edge: Dict[Tuple[str, str], float] = {}
+        read_sources: List[str] = []
+        for hit in hits[:cap]:
+            url = str(hit.get("url") or "").strip()
+            text = f"{hit.get('title', '')}. {hit.get('content', '')}".strip()
+            if not text or text == ".":
+                continue
+            read_sources.append(url or subj)
+            try:
+                facts = w2g.openie.extract(text)
+            except Exception:
+                facts = []
+            for f in facts:
+                if f.relation != "causes":
+                    continue
+                key = (f.subject.lower().strip(), f.obj.lower().strip())
+                sources_by_edge.setdefault(key, set()).add(url or subj)
+                conf_by_edge[key] = max(conf_by_edge.get(key, 0.0),
+                                        float(f.confidence or _GAP_BASE_CONF))
+            try:
+                w2g.learn_text(text, source_url=url or subj, context=subj)
+            except Exception as e:
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [gap->web] learn_text suppressed: {e}")
+        result["sources"] = len(read_sources)
+
+        # Stamp newly written causal edges with gap-driven provenance and
+        # evidence-scaled strength. edge_kind stays "web_fact" so the existing
+        # explanation-chain provenance gate (explanation.py:_hop_provenance)
+        # and the emitter gate (response_gen.py:_edge_provenanced) still trust it.
+        label_by_id = {nid: (n.label or "").lower().strip()
+                       for nid, n in self.graph.nodes.items()}
+        for (s, t), edge in self.graph.edges.items():
+            if (s, t) in before or (edge.relation_type or "").lower() != "causal":
+                continue
+            key = (label_by_id.get(s, ""), label_by_id.get(t, ""))
+            urls = sources_by_edge.get(key)
+            if not urls:
+                continue
+            conf = conf_by_edge.get(key, _GAP_BASE_CONF)
+            strength = min(1.0, conf + _GAP_CONF_PER_SOURCE * (len(urls) - 1))
+            try:
+                from ravana.chat.provenance import populate_provenance
+                # Unpickled edges have source_metadata=None; _ensure_source_metadata
+                # is the only safe way to get a writable dict on a reloaded edge.
+                if hasattr(edge, "_ensure_source_metadata"):
+                    md = edge._ensure_source_metadata()
+                else:
+                    md = (edge.source_metadata
+                          if isinstance(getattr(edge, "source_metadata", None), dict)
+                          else None)
+                if md is not None:
+                    first_url = sorted(urls)[0]
+                    populate_provenance(
+                        edge, edge_kind="web_fact",
+                        source=first_url, source_url=first_url,
+                        method="mechanism_gap_read", retrieval_conf=conf,
+                        converging_sources=len(urls))
+                    md["acquired_by"] = "mechanism_gap"
+                    md["gap_subject"] = subj
+                    md["gap_query"] = (query or causal_query)
+                edge.confidence = strength
+                edge.weight = max(edge.weight or 0.0, min(1.0, strength * 0.7))
+            except Exception as e:
+                if getattr(self, "_trace_enabled", False):
+                    print(f"  [gap->web] provenance stamp suppressed: {e}")
+            result["causal_hops"] += 1
+            result["edges"].append({
+                "from": key[0], "to": key[1],
+                "converging_sources": len(urls), "confidence": round(strength, 3),
+            })
+
+        # Schacter & Addis 2007: a mechanism is a RECOMBINATION of >=2 retrieved
+        # hops, not a single association. Close the gap only when the new edges
+        # form a connected chain of at least _GAP_MIN_HOPS hops.
+        result["chain_hops"] = self._gap_chain_hops(result["edges"], subj)
+        if result["chain_hops"] >= _GAP_MIN_HOPS:
+            result["status"] = "learned"
+            self._mark_mechanism_gap_resolved(subj)
+        else:
+            result["status"] = "no_chain"
+        return result
+
+    @staticmethod
+    def _gap_chain_hops(edges: List[Dict[str, Any]], subject: str) -> int:
+        """Number of causal hops in the largest chain of newly sourced edges.
+
+        Connected-component hop count over the new edges; the gap-subject
+        component is preferred, with a fallback to the largest component when
+        the retrieved chain names the cause rather than the subject surface.
+        """
+        if not edges:
+            return 0
+        adj: Dict[str, Set[str]] = {}
+        for e in edges:
+            a, b = e.get("from"), e.get("to")
+            if a and b:
+                adj.setdefault(a, set()).add(b)
+                adj.setdefault(b, set()).add(a)
+        components: List[Tuple[Set[str], int]] = []
+        seen: Set[str] = set()
+        for node in adj:
+            if node in seen:
+                continue
+            comp, stack, hops = set(), [node], 0
+            while stack:
+                cur = stack.pop()
+                if cur in comp:
+                    continue
+                comp.add(cur)
+                for nxt in adj.get(cur, ()):
+                    if nxt not in comp:
+                        hops += 1
+                        stack.append(nxt)
+            seen |= comp
+            components.append((comp, hops))
+        if not components:
+            return 0
+        for comp, hops in components:
+            if any(subject == lab or subject in lab or lab in subject for lab in comp):
+                return hops
+        return max(hops for _, hops in components)
+
+    def _mark_mechanism_gap_resolved(self, subject: str) -> None:
+        """Close the registry entry once the chain has actually been learned."""
+        for iq in list(getattr(self, "_impossible_queries", []) or []):
+            if (getattr(iq, "subject", "").lower().strip() == subject
+                    and not getattr(iq, "resolved", False)):
+                iq.resolved = True
+        try:
+            self._pending_learning_queue = [
+                t for t in self._pending_learning_queue
+                if (t or "").lower().strip() != subject]
+        except Exception:
+            pass
 
 
     def _fetch_article_text(self, url: str, timeout: int = 8) -> Optional[str]:
