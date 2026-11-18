@@ -106,12 +106,27 @@ The blocker is localized, not architectural: the schema-consistency write gate r
 - No `eng.save()` was called; state lived only in memory on a scratch copy, so nothing persisted into `weights/`.
 - **Concurrent edits:** other agents own `ravana/src/` and were editing it during this measurement window. At session end `git status` showed uncommitted changes to `engine.py`, `response_gen.py` and `web_learning.py` (including a new `close_mechanism_gap` method). The numbers above are from the on-disk code at run time, not a clean `2766a80` checkout. That new method is the natural follow-up teaching channel to measure once it is merged; it was deliberately not used here because the specified teaching channels were the conversational assertion and `WebToGraph.learn_text`.
 
-## 6. Reproduce
+## 7. Post-fix update (branch `fix/conversational-causal-trust`)
+
+The flat curve above was real, but the localised cause was **not** a blanket
+schema-gate rejection of causal facts. The conversational channel
+(`chain_walker.py::_create_causal_edge`) wrote causal edges with no
+`source_metadata` (`edge_kind='unknown'`), so `assertable_chain()` declined
+them; it never called `KnowledgeIntake` at all. The fix routes the *asserted*
+propositions through the existing gate with a user-source provenance record
+and leaves the gate's thresholds untouched.
+
+Re-run on the same unmodified instrument (branch source, commit `47bfe04`
+baseline): **TEACH_BOTH Δ = +0.833** (10/12), 22 new trusted causal edges,
+answer-chain rate 0.750; NO_TEACH Δ = 0.000 and DEF_ONLY Δ = 0.000.
+Positive control Δ = +0.500 (shares intermediates with the teach arm — see
+caveats). Full root cause, brain-grounded design, raw before/after strings,
+tests and caveats: `docs/LEARNING_CURVE_CONSOLIDATION.md`.
 
 ```bash
 cd C:/Users/Likhith/Documents/projects/ravana
 uv run python scripts/measure_learning_curve.py
-# full raw I/O per probe: scratch/learning_curve_run.log
+# full raw I/O per probe: scratch/learning_curve_after2.log
 # machine audit (all 30 records, exact strings): scratch/learning_curve_audit.json
 ```
 
