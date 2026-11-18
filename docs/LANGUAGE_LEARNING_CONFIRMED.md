@@ -17,7 +17,7 @@ Control: an untaught term (`flibbertigibbet`) returned an honest calibrated gap 
 *"honestly, flibbertigibbet is a bit outside what i know right now…"* — so the
 recall is not a generic echo.
 
-## Productive use: PARTIAL
+## Productive use: NOW WORKS FOR FUNCTIONAL DEFINITIONS (2/3)
 
 `use the word zorblat in a sentence` originally grounded to the subject
 `word zorblat`, which is absent from the definition store, so a word the system
@@ -28,20 +28,33 @@ Root cause: the directive-frame normalizer in `engine_generation.py` handled
 Fixed by stripping `use|using (the)? (word|term|expression)` before the
 trailing `in a sentence` rule.
 
-After the fix:
+After that fix the subject resolved, but the reply was the stored definition.
+A second fix (`_productive_use_response` in `response_gen.py`) rebinds a
+definition's FUNCTIONAL clause under a new construction with the learned word
+as subject, and echo-gates the result. Measured:
 
 ```
-Q=use the word zorblat in a sentence -> subject='zorblat'
-   A=It seems to me that zorblat is a small blue device that measures air pressure.
-Q=tell me a sentence about water     -> subject='water'
-   A=Water is a transparent, tasteless, odourless liquid (H2O) essential for all known life.
+use the word zorblat in a sentence      -> Zorblat measures air pressure.
+use the word marrowlight in a sentence  -> Marrowlight glows only in deep water.
+use the word quindle in a sentence      -> It seems to me that quindle is the feeling of waiting for rain.
+use the word flibbertigibbet ...        -> hmm, i'm not totally sure about flibbertigibbet yet...
 ```
 
-The learned word now appears in a sentence, but the sentence is the **stored
-definition** rather than a freshly composed usage. True generative use —
-producing a novel sentence that deploys the word in a new context — is **not
-demonstrated**. That needs a construction-based realiser (Goldberg), not
-another subject-resolution fix.
+Two of three learned words now get a **new construction** — the definitional
+copula + head NP is gone, and the functional predicate is reused as the matrix
+predicate. The third (`quindle`, a stative "feeling of…" definition) has no
+functional clause to rebind and **fails closed** to the definition rather than
+inventing content. The untaught word is still declined.
+
+Brain basis: productive vocabulary use is construction deployment, not
+definition recall (Goldberg 2006; Carey 2010; Schacter & Addis 2007). See
+`docs/BRAIN_PRODUCTIVE_VOCABULARY.md` for the full cited mechanism and
+`docs/PRODUCTIVE_VOCAB_CODEMAP.md` for the emitting path.
+
+**Remaining limit:** cross-frame productivity is not demonstrated — each word
+is realized with one new construction, not two different ones across two
+requests, and only definitions with a relative clause can be rebound. Four
+regression tests cover the measured cases.
 
 ## What this means
 
