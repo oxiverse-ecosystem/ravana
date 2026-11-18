@@ -2095,6 +2095,13 @@ class GenerationMixin:
             r"summary|overview|description|definition|explanation)"
             r"\s+(?:about|of|on|for|regarding|concerning)\s+",
             "", query_phrase, flags=re.IGNORECASE).strip() or query_phrase
+        # "use the word X in a sentence" left the subject as "word zorblat",
+        # which is absent from the definition store, so a word RAVANA had just
+        # LEARNED was treated as unknown. Strip the performative verb + its
+        # noun-phrase head. The trailing "in a sentence" is handled below.
+        query_phrase = re.sub(
+            r"^(?:use|using)\s+(?:the\s+)?(?:word|term|expression)\s+",
+            "", query_phrase, flags=re.IGNORECASE).strip() or query_phrase
         # Trailing form: "X in one sentence" / "X in a paragraph".
         query_phrase = re.sub(
             r"\s+in\s+(?:a|an|one|single)?\s*"
