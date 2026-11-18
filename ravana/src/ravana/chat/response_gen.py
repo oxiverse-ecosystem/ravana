@@ -7447,6 +7447,54 @@ class ResponseGenMixin(ChainWalkerMixin):
                     f"want to explore it together?")
         return (text, "metacognitive_uncertainty")
 
+    # A request to USE a learned word is not a request to recite its definition.
+    # "use the word X in a sentence" / "make a sentence with X".
+    _USE_IN_SENTENCE = re.compile(
+        r"\b(?:use|using)\b.{0,40}\b(?:word|term)\b|"
+        r"\b(?:make|give|write)\s+(?:me\s+)?(?:a|one)\s+sentence\b",
+        re.IGNORECASE)
+
+    def _productive_use_response(self, ctx, subject: str, definition: str):
+        """Compose a NEW sentence from a learned word's functional clause.
+
+        Brain basis: productive vocabulary use is construction deployment, not
+        definition recall (Goldberg 2006; Carey 2010; Schacter & Addis 2007).
+        The definition is decomposed, and its FUNCTIONAL clause -- the part that
+        says what the thing DOES -- is rebound under a different construction
+        with the learned word as subject. A stative copula + the definition NP
+        is verbatim recall and is rejected by the echo gate.
+
+        Returns None (fail-closed) when no functional clause can be rebound, so
+        the caller falls through to the unchanged definition path. Untaught
+        words never reach this helper because the caller gates on _definitions.
+        """
+        if not self._USE_IN_SENTENCE.search(getattr(ctx, "raw_input", "") or ""):
+            return None
+        if not subject or not definition:
+            return None
+        text = str(definition).strip()
+        # Relative clause: "a small blue device that measures air pressure".
+        m = re.search(
+            r"\b(?:that|which|who)\s+"
+            r"([a-z][a-z'\-]*(?:\s+[a-z][a-z'\-]*){0,5})",
+            text, re.IGNORECASE)
+        if not m:
+            # "a lamp that glows only in deep water" -> works;
+            # "the feeling of waiting for rain" -> no functional clause,
+            # so honestly fall through rather than invent content.
+            return None
+        predicate = m.group(1).strip().rstrip(".,;:!?")
+        if len(predicate.split()) < 2:
+            return None
+        sent = f"{subject} {predicate}."
+        # Echo gate: never emit the definition itself, and never emit a string
+        # whose content is essentially the definitional NP + copula.
+        if text.lower() in sent.lower() or sent.lower() in text.lower():
+            return None
+        if len(sent.split()) < 4:
+            return None
+        return (sent[0].upper() + sent[1:], "productive_use")
+
     def _definition_response(self, ctx: CognitiveResponseContext):
         """Answer from genuine learned knowledge (definition / web fact).
 
@@ -8611,7 +8659,20 @@ class ResponseGenMixin(ChainWalkerMixin):
             _sl = ctx.subject.lower().strip()
             if _sl:
                 # 1. Stored non-empty definition fallback
-                if getattr(self, "_definitions", {}).get(_sl):
+                _defs = getattr(self, "_definitions", {}) or {}
+                if _defs.get(_sl):
+                    # Productive use is NOT definition recall. If the user
+                    # asked to USE the word, try to deploy its functional
+                    # content in a new construction first. Fail-closed:
+                    # any failure falls through to the unchanged definition
+                    # path, and untaught words never enter this branch.
+                    try:
+                        _prod = self._productive_use_response(
+                            ctx, _sl, _defs[_sl])
+                        if _prod:
+                            return _prod
+                    except Exception:
+                        pass
                     _def_resp = self._definition_response(ctx)
                     if _def_resp:
                         return _def_resp
