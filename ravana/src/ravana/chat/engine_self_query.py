@@ -2433,6 +2433,40 @@ class SelfQueryMixin:
             pass
         return True
 
+    def _mechanism_chain_available(self, text: str, subject: str) -> bool:
+        """True when a trusted causal chain for this mechanism question exists.
+
+        Used by the internal-knowledge consult so a stored DEFINITION does not
+        shadow a learned MECHANISM. Brain basis: Schacter & Addis (2007,
+        Phil Trans R Soc B) constructive episodic simulation — retrieved facts
+        must feed the simulation of a mechanism, not replace it with a bare
+        recollection. Gerstenberg (2024, Trends Cogn Sci): the chain must be
+        an assertable generative model (every hop provenance-trusted).
+        """
+        try:
+            from ravana.learn.explanation import enumerate_chains, assertable_chain
+            from .brain_regions import _singular_candidates
+            ck = getattr(self, "_concept_keywords", {}) or {}
+            ids, seen = [], set()
+            for nid in (ck.get(subject) or []):
+                if nid not in seen:
+                    seen.add(nid); ids.append(nid)
+            for cand in _singular_candidates(subject):
+                for nid in (ck.get(cand) or []):
+                    if nid not in seen:
+                        seen.add(nid); ids.append(nid)
+            if not ids:
+                return False
+            backward = bool(re.search(r"\b(why|what\s+causes|what\s+makes)\b",
+                                      text or "", re.IGNORECASE))
+            chains = enumerate_chains(
+                ids, self.graph,
+                direction=("backward" if backward else "forward"),
+                min_steps=2, max_steps=4, limit=3)
+            return any(assertable_chain(c) for c in chains)
+        except Exception:
+            return False
+
     def _consult_internal_knowledge(self, user_input: str) -> Optional[str]:
         """Before web, consult RAVANA's consolidated internal memory.
 
@@ -2561,6 +2595,16 @@ class SelfQueryMixin:
         except Exception:
             subj = None
         if not subj:
+            return None
+        # A why/how question asks for a MECHANISM, not a definition. If a
+        # trusted causal chain now exists (e.g. one the gap-driven web loop
+        # just wrote), do NOT let a stored definition short-circuit this turn:
+        # the generative path walks that chain and simulates the mechanism.
+        # Brain basis: Schacter & Addis (2007) — retrieved facts must feed
+        # simulation, not replace it; Gerstenberg (2024) — the chain is an
+        # assertable generative model. Fail-open: no chain -> normal consult.
+        if (re.search(r"\b(why|how)\b", t)
+                and self._mechanism_chain_available(t, subj)):
             return None
         # Don't short-circuit world-knowledge queries whose subject is unknown
         # to us — let them reach web (the honest-uncertainty path stays intact).

@@ -11776,6 +11776,32 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             if self._trace_enabled:
                 print(f"  [self-learn] Weak response ({quality_score:.2f}) for '{ctx.subject}' -- queued for learning")
 
+            # ── Gap -> targeted web read -> typed graph -> NEXT answer ────────
+            # Loewenstein (1994, Psychological Bulletin): a perceived
+            # information gap drives curiosity, so ACT on the gap — do not just
+            # log it. Only an EXPLANATORY gap (why/how with no mechanism in the
+            # answer) opens this loop; a merely weak answer does not.
+            # Friston (2010, Nat Rev Neurosci): exploration is selected for its
+            # bounded epistemic value -> close_mechanism_gap is capped,
+            # offline-aware and fail-open. Schacter & Addis (2007) + Gerstenberg
+            # (2024): the retrieved hops are written as provenanced typed causal
+            # edges so the next turn can simulate the mechanism from the chain.
+            # Full citations + design decisions: docs/GAP_DRIVEN_WEB_LEARNING.md
+            if _mechanism_gap:
+                try:
+                    _gap_out = self.close_mechanism_gap(
+                        ctx.subject, (ctx.raw_input or ""))
+                    if self._trace_enabled:
+                        print(f"  [gap->web] status={_gap_out.get('status')} "
+                              f"sources={_gap_out.get('sources')} "
+                              f"chain_hops={_gap_out.get('chain_hops')} "
+                              f"for '{ctx.subject}'")
+                except Exception as _gap_err:
+                    # Fail-open: curiosity / sleep pressure were already tagged
+                    # above; a failed read must never break the user's turn.
+                    if self._trace_enabled:
+                        print(f"  [gap->web] suppressed error: {_gap_err}")
+
         # ─── Correction Detection & Processing (ACC -> DA -> BG -> Hippocampus -> PFC) ───
         # Check if user is correcting RAVANA. This runs AFTER response generation.
         # The UserModel._detect_correction() was called during observe_user_query.
@@ -12671,6 +12697,31 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 turn_number=int(tn), rehearsal_count=int(rc))
         except Exception:
             return None
+    def _final_emit_guard(self, text: str, ctx, strategy: str = "") -> str:
+        """Source-monitoring exemption for provenance-trusted causal chains.
+
+        The inherited guard censors self-generated degenerate text (word salad /
+        fluent tautology). A `gated_explanation_chain` is not self-generated:
+        `_why_how_causal_chain` assembles it ONLY from graph edges that cleared
+        the all-hops-provenance gate and the adequacy gate. Re-running the
+        salad/tautology censor on it is a false positive that fails closed to
+        uncertainty and discards a correct, learned mechanism — exactly the
+        "confident-garbage-in-reverse" failure the guard's own docs warn about.
+
+        Brain basis: Schacter & Addis (2007, Phil Trans R Soc B) — a simulated
+        mechanism is a recombination of retrieved facts, not free association;
+        Gerstenberg (2024, Trends Cogn Sci) — a provenanced causal chain is an
+        assertable generative model; Johnson & Raye (1981) source monitoring —
+        retrieved structure must not be re-litigated as self-generated salad
+        (the same rationale the inherited guard uses for web_direct_answer).
+
+        Narrow: only this one strategy is exempt; every other response defers
+        to the inherited guard unchanged.
+        """
+        if strategy == "gated_explanation_chain" and text and text.strip():
+            return text
+        return super()._final_emit_guard(text, ctx, strategy)
+
     def save(self) -> str:
         """Save full cognitive state to disk. Returns path to save file."""
         import time
