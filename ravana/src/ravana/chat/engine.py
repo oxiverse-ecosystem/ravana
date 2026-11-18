@@ -501,7 +501,8 @@ from .engine_generation import GenerationMixin
 from .engine_self_query import SelfQueryMixin
 from .engine_persistence import PersistenceMixin
 from .engine_monitor import MonitorMixin
-from .response_gen import is_productive_use_request
+from .response_gen import (is_productive_use_request,
+                           extract_construction_cue, find_taught_term)
 
 
 class _SkipEpisodicEcho(Exception):
@@ -3493,7 +3494,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             r")\b", q)
         if _agg_early:
             return self._aggregate_user_model()
-        _ab = self._autobiographical_recall(user_input)
+        # Cue questions about a taught word are construction requests, not
+        # autobiographical recall about the user's own disclosures.
+        _cue_taught = bool(
+            extract_construction_cue(user_input) != "NONE"
+            and find_taught_term(
+                user_input, getattr(self, "_term_exposures", None) or {}))
+        _ab = None if _cue_taught else self._autobiographical_recall(user_input)
         if _ab is not None:
             return _ab
 
@@ -5744,6 +5751,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         return _t
 
     def _autobiographical_recall(self, user_input: str) -> Optional[str]:
+        # A cue question about a word taught in conversation asks RAVANA to
+        # DEPLOY that word, not to recall the user's disclosure containing it.
+        if (extract_construction_cue(user_input) != "NONE"
+                and find_taught_term(
+                    user_input, getattr(self, "_term_exposures", None) or {})):
+            return None
         
         """AUTO-BIOGRAPHICAL RECALL of the USER (feature t_a41f7e29,
         round 2026-08-18T0937Z).
@@ -9024,7 +9037,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # fact, emit it; otherwise (None) fall through to the normal pipeline
         # and only then to web / honest-uncertainty. This is the rare-case
         # fallback, not the default, preserving the RAVANA bar.
-        _intern = self._consult_internal_knowledge(user_input)
+        # Cue-sensitive construction selection: wh-questions about a term
+        # taught in conversation must reach the productive-use path so the
+        # cue (what-does / part-of / where) selects the frame. Internal-memory
+        # recitation would otherwise short-circuit it.
+        _cue_subj = find_taught_term(
+            user_input, getattr(self, "_term_exposures", None) or {})
+        _cue_bypass = bool(
+            _cue_subj
+            and extract_construction_cue(user_input) != "NONE"
+            and (_cue_subj.lower() in (getattr(self, "_term_exposures", None) or {}))
+        )
+        _intern = None if _cue_bypass else self._consult_internal_knowledge(user_input)
         if _intern is not None:
             self._last_strategy = "internal_knowledge"
             self._last_responses.append(_intern)

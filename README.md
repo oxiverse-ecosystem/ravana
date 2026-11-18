@@ -506,8 +506,57 @@ See [`docs/`](docs/README.md):
 - [C4 Cerebellar Phrase-Pattern Learner](docs/CAPABILITY_C4_CEREBELLAR_PHRASE_PATTERN_LEARNER.md) — how RAVANA's sole online sequential learner (no LLM, no retraining) is wired into the output path so a verb phrase learned from one conversation biases the verb picked for the same relation type on the next turn.
 - [Autobiographical Recall — Entity-Head Bridge](docs/CAPABILITY_AUTOBIOGRAPHICAL_RECALL_ENTITY_HEAD_BRIDGE.md) — when the entity head precedes the tell-verb (*"what colour did i say i like"*), the confirmation branch tries each content word of the full query as a candidate topic, bridging to a stored composite attribute such as `favourite colour` / `favourite food`. No new reply strings; fails closed when the head word is absent from the stored attribute.
 - [Honest Reporting Standard](docs/HONEST_REPORTING_STANDARD.md) — four enforceable rules for every RAVANA claim.
+- [Productive Vocabulary Use](docs/LANGUAGE_LEARNING_CONFIRMED.md) — a learned word is deployed in a new construction, not recited as a definition; 3/3 taught terms recalled, untaught terms declined. Brain basis in [docs/BRAIN_PRODUCTIVE_VOCABULARY.md](docs/BRAIN_PRODUCTIVE_VOCABULARY.md).
+- [Cue-Sensitive Constructions](docs/BRAIN_CUE_SENSITIVE_CONSTRUCTIONS.md) — what-does / part-of / where / property questions select semantically matching frames instead of cycling by repetition; code map in [docs/CUE_SELECTION_CODEMAP.md](docs/CUE_SELECTION_CODEMAP.md).
+- [Benchmarking Survey](docs/BENCHMARKING_SURVEY.md) — why the old scores needed a validity note, and the tiered RAVANA-7 v1 design.
+
+## Running the RAVANA-7 benchmark
+
+From the repo root, with the pinned environment. **Both arms are always
+reported** — a score that goes up when the web is disabled is an artifact, not
+a result:
+
+```bash
+# seven fronts, offline arm
+RAVANA_OFFLINE=1 PYTHONHASHSEED=0 uv run python scripts/measure_fronts.py
+
+# same probes, web arm
+PYTHONHASHSEED=0 uv run python scripts/measure_fronts_web.py
+
+# within-session learning: acquisition, retention, savings, transfer
+RAVANA_OFFLINE=1 PYTHONHASHSEED=0 uv run python scripts/measure_learning_curve.py
+```
+
+Per-item records go to `scratch/front_probes_n30.jsonl` (web arm:
+`front_probes_web.jsonl`) with a summary alongside. Each record carries the
+query, raw response, pass verdict and reason, so a score can be audited rather
+than trusted.
+
+**What the numbers mean.** Each front is a 0–100 pass rate over held-out
+probes. A score means "this fraction of probes passed the stated rubric" —
+not that the system understands the topic. The learning numbers matter more
+for an architecture that must learn online: compare the **teach** arm against
+the **no-teach** and **definition-only** controls; a rise without teaching is
+an instrument artifact.
+
+**Known limits.** The shipped suite has **27 items per front**, so an
+unpaired difference is roughly ±17.6 points; do not read small changes as
+signal. The recommended 60-item primary/replication split and the full tiered
+design are in [docs/BENCHMARKING_SURVEY.md](docs/BENCHMARKING_SURVEY.md) §5.
+Every probe is an instrument: validate it against known-good and known-bad
+outputs before reporting its number.
 
 ## Benchmark results
+
+> **Validity note (2026-11-19).** The historical figures below come from the
+> older nine-battery harness and have **not** been re-validated against the
+> probe-defect class found this session — a causal regex that counted the
+> relativizers *that/which* as reasoning, a punctuation-based sentence test
+> that penalised correct mechanisms, and a synthetic `+20` bonus that rewarded
+> turning the web **off**. Treat those numbers as **provenance, not current
+> capability claims**. For the current, gated measurement see
+> [Running the RAVANA-7 benchmark](#running-the-ravana-7-benchmark) below and
+> [docs/BENCHMARKING_SURVEY.md](docs/BENCHMARKING_SURVEY.md).
 
 RAVANA is evaluated end-to-end with `scripts/evaluate_ravana.py`, which trains a
 fresh `dim=64` engine on TinyShakespeare (25 passes, no live web) and runs **all

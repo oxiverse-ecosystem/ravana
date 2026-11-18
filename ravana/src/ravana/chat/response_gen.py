@@ -184,6 +184,47 @@ _PRODUCTIVE_USE_RE = re.compile(
     re.IGNORECASE)
 
 
+def find_taught_term(text: str, exposures) -> str:
+    """Find the longest conversationally taught term present in the text.
+
+    `_ground_query` resolves wh-cues poorly ("what is X part of" -> 'part',
+    "where is X" -> ''), so cue questions need direct lexical matching against
+    the terms RAVANA actually taught. Longest match wins to avoid a short term
+    shadowing a longer one.
+    """
+    t = (text or "").lower()
+    words = set(re.findall(r"[a-z][a-z'\-]*", t))
+    best = ""
+    for term in (exposures or {}):
+        key = str(term).lower().strip()
+        if key and key in words and len(key) > len(best):
+            best = key
+    return best
+
+
+def extract_construction_cue(text: str) -> str:
+    """Map a question form to the constructional relation it requests.
+
+    Cue validity = availability x reliability (MacWhinney, Bates & Kliegl 1984).
+    The wh-form is the cue; the mapping is deterministic and grounded in the
+    question's semantics, not in turn order. NONE means the user gave no frame
+    cue, in which case repetition fatigue may legitimately cycle frames.
+    """
+    t = (text or "").lower()
+    if re.search(r"\b(?:what is .{1,40} part of|what is .{1,40} made of|"
+                 r"what does .{1,40} consist of)\b", t):
+        return "PART_WHOLE"
+    if re.search(r"\b(?:where is|where would|where can|where do|where does|"
+                 r"in what place)\b", t):
+        return "LOCATIVE"
+    if re.search(r"\b(?:what does .{1,40} do|what is .{1,40} for|"
+                 r"how does .{1,40} work)\b", t):
+        return "FUNCTION"
+    if re.search(r"\b(?:what is .{1,40} like|what colou?r is|how big is)\b", t):
+        return "PROPERTY"
+    return "NONE"
+
+
 def is_productive_use_request(text: str) -> bool:
     """True when the user asks to deploy a word in a sentence or example."""
     return bool(text and _PRODUCTIVE_USE_RE.search(str(text)))
@@ -7477,6 +7518,23 @@ class ResponseGenMixin(ChainWalkerMixin):
         r"\b(?:make|give|write)\s+(?:me\s+)?(?:a|one)\s+sentence\b",
         re.IGNORECASE)
 
+    def _is_productive_cue_request(self, text: str, subject: str) -> bool:
+        """Productive use also covers wh-cues about a term taught in conversation.
+
+        Ordinary vocabulary ("what does water do") must keep its normal
+        definition path; only conversationally taught terms (tracked by M7
+        exposure bookkeeping) get the cue-sensitive construction treatment.
+        """
+        raw = text or ""
+        cue = extract_construction_cue(raw)
+        exposures = getattr(self, "_term_exposures", None) or {}
+        taught = find_taught_term(raw, exposures)
+        if is_productive_use_request(raw):
+            return True
+        if cue == "NONE":
+            return False
+        return bool(taught and taught == (subject or "").lower())
+
     def _productive_use_response(self, ctx, subject: str, definition: str):
         """Compose a NEW sentence from a learned word's functional clause.
 
@@ -7491,7 +7549,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         the caller falls through to the unchanged definition path. Untaught
         words never reach this helper because the caller gates on _definitions.
         """
-        if not is_productive_use_request(getattr(ctx, "raw_input", "") or ""):
+        if not self._is_productive_cue_request(
+                getattr(ctx, "raw_input", "") or "", subject):
             return None
         if not subject or not definition:
             return None
@@ -7509,29 +7568,47 @@ class ResponseGenMixin(ChainWalkerMixin):
         predicate = m.group(1).strip().rstrip(".,;:!?")
         if len(predicate.split()) < 2:
             return None
-        # Deterministic frame competition with recency fatigue (Bybee 2006;
-        # Pickering & Garrod 2004; Thompson-Schill 1997). A per-subject repeat
-        # counter selects a DIFFERENT construction on the next identical
-        # request -- no RNG. find_construction returns the same frame for the
-        # same role triple, which is exactly the one-frame trap we must avoid.
-        _counts = getattr(self, "_productive_use_counts", None)
-        if _counts is None:
-            _counts = self._productive_use_counts = {}
-        _idx = int(_counts.get(subject.lower(), 0)) % 2
-        _counts[subject.lower()] = _idx + 1
-
-        # Frame 0: bare subject + functional predicate.
-        # Frame 1: appositive naming construction, using the definition's head
-        # noun. Both deploy the word; neither echoes the definition verbatim.
+        # Cue-validity construction competition: the wh-form selects the
+        # relation; repetition fatigue is only a tie-break for NONE cues.
+        # Brain basis: MacWhinney, Bates & Kliegl (1984), Goldberg (2006).
+        _cue = extract_construction_cue(getattr(ctx, "raw_input", "") or "")
         _head = ""
         _pre = text[:m.start()].strip(" .,;:!?")
         _pre_words = _pre.split()
         if _pre_words:
             _head = _pre_words[-1].lower()
-        if _idx == 1 and _head and _head not in ("a", "an", "the", "small", "blue"):
-            sent = f"A {_head} called {subject} {predicate}."
-        else:
+        _loc = ""
+        _lm = re.search(
+            r"\b(in|on|at|within|under|inside)\s+"
+            r"([a-z][a-z\s'\-]{1,40})", predicate, re.IGNORECASE)
+        if _lm:
+            _loc = (_lm.group(1) + " " + _lm.group(2)).strip()
+        _adjs = [w for w in _pre_words[:-1]
+                 if w.lower() not in ("a", "an", "the", "one", "some")]
+
+        sent = ""
+        if _cue == "FUNCTION":
             sent = f"{subject} {predicate}."
+        elif _cue == "PART_WHOLE" and _head not in ("a", "an", "the", ""):
+            sent = f"{subject} is part of a {_head}."
+        elif _cue == "LOCATIVE" and _loc:
+            sent = f"{subject} is found {_loc}."
+        elif _cue == "PROPERTY" and _adjs:
+            # Join attributes so the frame clears the word-count gate without
+            # reusing the definitional copula + head NP.
+            sent = f"{subject} is {' and '.join(_adjs)}."
+        else:
+            # No reliable cue (or no grounded target for the cued relation):
+            # fall back to the previous deterministic repeat counter.
+            _counts = getattr(self, "_productive_use_counts", None)
+            if _counts is None:
+                _counts = self._productive_use_counts = {}
+            _idx = int(_counts.get(subject.lower(), 0)) % 2
+            _counts[subject.lower()] = _idx + 1
+            if _idx == 1 and _head and _head not in ("a", "an", "the"):
+                sent = f"A {_head} called {subject} {predicate}."
+            else:
+                sent = f"{subject} {predicate}."
         # Echo gate: never emit the definition itself, and never emit a string
         # whose content is essentially the definitional NP + copula.
         if text.lower() in sent.lower() or sent.lower() in text.lower():
@@ -8699,11 +8776,18 @@ class ResponseGenMixin(ChainWalkerMixin):
             # → honest uncertainty, not decoder word salad
             return self._human_like_uncertainty(ctx)
 
-        # ── Fallback to stored _definitions or on-demand KB grounding ──
-        if ctx.subject:
-            _sl = ctx.subject.lower().strip()
-            if _sl:
-                # 1. Stored non-empty definition fallback
+        # Wh-cue questions resolve poorly in _ground_query ("what is X
+        # part of" -> 'part', "where is X" -> ''), so resolve the taught
+        # term directly from the query before the definition lookup.
+        _sl = (ctx.subject or "").lower().strip()
+        if extract_construction_cue(getattr(ctx, "raw_input", "") or "") != "NONE":
+            _taught = find_taught_term(
+                getattr(ctx, "raw_input", "") or "",
+                getattr(self, "_term_exposures", None) or {})
+            if _taught:
+                _sl = _taught
+        if _sl:
+            # 1. Stored non-empty definition fallback
                 _defs = getattr(self, "_definitions", {}) or {}
                 if _defs.get(_sl):
                     # Productive use is NOT definition recall. If the user

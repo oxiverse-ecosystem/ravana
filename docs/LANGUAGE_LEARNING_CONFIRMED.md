@@ -51,10 +51,24 @@ definition recall (Goldberg 2006; Carey 2010; Schacter & Addis 2007). See
 `docs/BRAIN_PRODUCTIVE_VOCABULARY.md` for the full cited mechanism and
 `docs/PRODUCTIVE_VOCAB_CODEMAP.md` for the emitting path.
 
-**Remaining limit:** cross-frame productivity is not demonstrated — each word
-is realized with one new construction, not two different ones across two
-requests, and only definitions with a relative clause can be rebound. Four
-regression tests cover the measured cases.
+**Cue-sensitive selection (later work).** The remaining limit above was closed:
+question cues now select semantically matching constructions. Measured:
+
+```
+what does a zorblat do      -> Zorblat measures air pressure.
+what is a zorblat part of   -> Zorblat is part of a device.
+what is a zorblat like      -> Zorblat is small and blue.
+where is a marrowlight      -> Marrowlight is found in deep water.
+```
+
+Brain basis: cue validity = availability x reliability (MacWhinney, Bates &
+Kliegl 1984); see `docs/BRAIN_CUE_SENSITIVE_CONSTRUCTIONS.md` and
+`docs/CUE_SELECTION_CODEMAP.md`. Six regression tests cover the measured cases.
+
+**Still open:** cue-to-frame associations are not learned from feedback; the
+mapping is fixed by question form, and `learned_frames` / recency state is not
+updated on selection. That is the next step toward genuinely usage-based
+construction selection.
 
 ## What this means
 
