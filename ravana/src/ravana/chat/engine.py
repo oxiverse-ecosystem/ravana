@@ -10500,10 +10500,19 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if new_concepts > 0:
             activated = self._activate_from_input(user_input)
 
-        # Phase 1.6: Extract causal relations from user statements
-        # Creates causal graph edges from patterns like "when X, Y" and "if X, Y"
-        # so the chain walk can follow them during response generation.
-        causal_edges = self._extract_and_store_causal_relations(user_input)
+        # Phase 1.6a: consolidate ASSERTED causal propositions through the
+        # schema-consistency gate with a user-source record. This is the
+        # episodic->semantic step: only a declarative teaching turn writes
+        # provenance-trusted edges; a question never does.
+        consolidated = 0
+        try:
+            consolidated = self._consolidate_asserted_causal_facts(user_input)
+        except Exception:
+            pass  # consolidation is best-effort; never break the turn
+        # Phase 1.6b: associative causal extraction (untrusted by design).
+        # Keeps the fast chain-walk substrate but carries no source record.
+        causal_edges = self._extract_and_store_causal_relations(
+            user_input, weak_associations=bool(consolidated))
         if causal_edges > 0:
             # Re-activate to include newly wired causal edges
             activated = self._activate_from_input(user_input)

@@ -776,7 +776,161 @@ class ChainWalkerMixin:
         return out
 
 
-    def _extract_and_store_causal_relations(self, text: str) -> int:
+    # ── Episodic teaching -> semantic/causal consolidation ──────────────────
+    # A user's declarative causal assertion is an EPISODE. The hippocampus
+    # binds it fast; reusable cause/effect structure is extracted into the
+    # neocortical graph (McClelland, McNaughton & O'Reilly 1995, Psychological
+    # Review 102(3):419-457; Squire & Zola 1996, PNAS 93(24):13515-13522). Source memory is an ATTRIBUTION computed
+    # from the record (Johnson & Raye 1981, Psychological Review 88(1):67-85), so the edge must carry a real source record -- it is not allowed
+    # to appear out of nowhere. We therefore write asserted propositions
+    # through the SAME schema-consistency gate web facts use, tagged with a
+    # user-source provenance. The provenance gate is NOT weakened: an
+    # associative/question-derived edge stays untrusted and cannot be
+    # asserted as a mechanism.
+    _ASSERTED_CAUSAL_RE = re.compile(
+        r"\b(?P<cause>[a-z][a-z\-]+)\s+"
+        r"(?:causes?|leads?\s+to|results?\s+in|triggers?|produces?|"
+        r"generates?|creates?|makes?|drives?)\s+"
+        r"(?P<effect>[a-z][a-z\-]+)\b", re.I)
+
+    def _asserted_causal_propositions(self, text: str) -> List[Tuple[str, str]]:
+        """Precise (cause, effect) propositions stated in a declarative turn.
+
+        The legacy `_create_causal_edge` takes a cross product of every content
+        word on either side of a causal connective, which mints junk such as
+        `causes -> condensation` and `fog -> condensation`. Consolidation must
+        use the STATED propositions, not that cross product, or the graph
+        would "learn" a mechanism nobody asserted.
+        """
+        out: List[Tuple[str, str]] = []
+        seen = set()
+        for clause in re.split(r"[.;,\n]|\s+and\s+", (text or "").lower()):
+            clause = clause.strip(" \t;,-\n")
+            if not clause:
+                continue
+            hits = [(m.group("cause").lower(), m.group("effect").lower())
+                    for m in self._ASSERTED_CAUSAL_RE.finditer(clause)]
+            if not hits:
+                # Broader process verbs ("rain forms clouds") via the shared
+                # OpenIE lexicon. Keep only single head nouns; a multiword
+                # scrape fragment is not a proposition.
+                try:
+                    from ravana.web.openie import OpenIEExtractor
+                    from ravana.web.web_to_graph import WebToGraph
+                    extractor = getattr(self, "_assertion_openie", None)
+                    if extractor is None:
+                        extractor = self._assertion_openie = OpenIEExtractor()
+                    for f in extractor.extract(clause):
+                        if WebToGraph.RELATION_TO_EDGE.get(
+                                f.relation) != "causal":
+                            continue
+                        cw = re.findall(r"[a-z]+", (f.subject or "").lower())
+                        ew = re.findall(r"[a-z]+", (f.obj or "").lower())
+                        if cw and ew:
+                            hits.append((cw[-1], ew[-1]))
+                except Exception:
+                    pass
+            for cause, effect in hits:
+                cause, effect = cause.strip(), effect.strip()
+                if (not cause or not effect or cause == effect
+                        or cause in STOP_WORDS or effect in STOP_WORDS
+                        or cause in WEB_GARBAGE or effect in WEB_GARBAGE):
+                    continue
+                key = (cause, effect)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(key)
+        return out
+
+    def _ensure_assertion_node(self, label: str) -> Optional[int]:
+        """Admit a label named in an assertion into the concept graph/index."""
+        lbl = (label or "").strip().lower()
+        if not lbl:
+            return None
+        index = getattr(self, "_concept_keywords", None)
+        if index is None:
+            index = {}
+            self._concept_keywords = index
+        for key in (lbl, label):
+            ids = index.get(key)
+            if ids:
+                return ids[0]
+        g = self.graph
+        if g is None:
+            return None
+        for nid, node in g.nodes.items():
+            if (getattr(node, "label", "") or "").strip().lower() == lbl:
+                index.setdefault(lbl, []).append(nid)
+                return nid
+        try:
+            vec = self._glove_vector(lbl)
+        except Exception:
+            vec = None
+        node = g.add_node(vector=vec, label=lbl)
+        if node is None:
+            return None
+        labels = getattr(self, "_concept_labels", None)
+        if isinstance(labels, set):
+            labels.add(lbl)
+        index.setdefault(lbl, []).append(node.id)
+        return node.id
+
+    def _consolidate_asserted_causal_facts(self, text: str) -> int:
+        """Consolidate the causal mechanisms a declarative turn asserts.
+
+        Returns the number of facts the schema-consistency gate wrote. Each
+        write carries a computed user-source record, so the resulting edge is
+        provenance-trusted and can be walked into an assertable chain.
+        Questions assert nothing: an interrogative is a retrieval cue, not a
+        source, so it is never consolidated (Johnson & Raye 1981).
+        """
+        if not text or text.strip().endswith("?"):
+            return 0
+        propositions = self._asserted_causal_propositions(text)
+        if not propositions:
+            return 0
+        getter = getattr(self, "_get_knowledge_intake", None)
+        if not callable(getter):
+            return 0
+        try:
+            intake = getter()
+        except Exception:
+            return 0
+        if intake is None:
+            return 0
+        written = 0
+        try:
+            from ravana.learn.intake import Fact, Provenance
+            for cause, effect in propositions:
+                try:
+                    sid = self._ensure_assertion_node(cause)
+                    oid = self._ensure_assertion_node(effect)
+                    if sid is None or oid is None or sid == oid:
+                        continue
+                    fact = Fact(subject=cause, relation="causes", obj=effect,
+                                confidence=0.9, source_sentence=text)
+                    prov = Provenance(
+                        source="conversation", source_type="user", url="",
+                        extractor="conversational-assertion",
+                        operations=("taught-in-conversation",))
+                    verdict = intake.intake(fact, prov, salience=1.0)
+                    if verdict.route in ("fast_merge", "novel_write", "revise"):
+                        written += 1
+                    if getattr(self, "_trace_enabled", False):
+                        print("  [consolidate] %s causes %s -> %s (%s)" % (
+                            cause, effect, verdict.route, verdict.reason),
+                            flush=True)
+                except Exception:
+                    if getattr(self, "_trace_enabled", False):
+                        import traceback
+                        traceback.print_exc()
+                    continue
+        except Exception:
+            return written
+        return written
+
+    def _extract_and_store_causal_relations(self, text: str,
+                                            weak_associations: bool = False) -> int:
         """Extract causal relations from user input using GloVe vector semantics.
 
         Instead of hardcoded regex patterns for "when X, Y" / "if X, then Y" /
@@ -878,7 +1032,8 @@ class ChainWalkerMixin:
                 if before_words and after_words:
                     for bw in before_words:
                         for aw in after_words:
-                            if bw != aw and self._create_causal_edge(bw, aw, text):
+                            if bw != aw and self._create_causal_edge(
+                                    bw, aw, text, weak=weak_associations):
                                 edges_created += 1
 
         if edges_created > 0 and self._trace_enabled:
@@ -898,7 +1053,7 @@ class ChainWalkerMixin:
 
 
     def _create_causal_edge(self, cause_word: str, effect_word: str,
-                            source_text: str = "") -> bool:
+                            source_text: str = "", weak: bool = False) -> bool:
         """Create or strengthen a causal edge between two words in the graph.
 
         If the edge already exists, boost its weight and set relation to causal.
@@ -916,18 +1071,30 @@ class ChainWalkerMixin:
         existing = self.graph.get_edge(cause_nid, effect_nid)
         if existing:
             was_already_causal = existing.relation_type == "causal"
-            existing.weight = min(0.85, existing.weight + 0.3)
-            if existing.relation_type != "causal":
-                existing.relation_type = "causal"
-            existing.confidence = min(0.95, existing.confidence + 0.2)
+            # Associative traces are WEAK: a cross-product of content words
+            # is an episodic co-activation, not an asserted mechanism. Give
+            # it a small boost so it cannot outrank a provenance-backed
+            # fact in score_chain (provenance governs assertability; a
+            # strong unprovenanced edge would crowd trusted chains out of
+            # enumerate_chains' limit). McClelland, McNaughton & O'Reilly
+            # (1995): fast hippocampal binding is labile; slow neocortical
+            # consolidation is what becomes durable.
+            # An unstated association must NEVER rewrite an edge the gate
+            # already consolidated: capping its confidence would silently
+            # DE-strengthen a trusted fact. Leave incumbents untouched.
+            if not weak:
+                existing.weight = min(0.85, existing.weight + 0.3)
+                if existing.relation_type != "causal":
+                    existing.relation_type = "causal"
+                existing.confidence = min(0.95, existing.confidence + 0.2)
             if not was_already_causal and self._trace_enabled:
                 print(f"  [trace]   boosted edge {cause_word} -> {effect_word} to causal")
         else:
             self.graph.add_edge(
                 cause_nid, effect_nid,
-                weight=0.75,
+                weight=(0.25 if weak else 0.75),
                 relation_type="causal",
-                confidence=0.7,
+                confidence=(0.30 if weak else 0.7),
             )
         # Mark as user-stated belief
         if source_text:
