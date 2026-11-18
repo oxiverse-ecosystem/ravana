@@ -501,6 +501,7 @@ from .engine_generation import GenerationMixin
 from .engine_self_query import SelfQueryMixin
 from .engine_persistence import PersistenceMixin
 from .engine_monitor import MonitorMixin
+from .response_gen import is_productive_use_request
 
 
 class _SkipEpisodicEcho(Exception):
@@ -11097,6 +11098,10 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 pass
             return _self_resp
 
+        # Speech-act guard: "make/write a sentence with X" is a request to
+        # DEPLOY language, not to write a creative artifact. Skip the
+        # creative/action pre-routers below; _productive_use_response handles it.
+        _skip_creative_router = is_productive_use_request(user_input)
         # ─── W4: Creative-writing request pre-router ───
         # "write me a poem about X" / "tell me a story about Y" are GENERATIVE
         # creative requests, not assertions or factual questions. They must be
@@ -11127,7 +11132,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # (about/of/for), which is the creative-request signature.
         _creative_topic_anchor = bool(re.search(
             r"\b(about|of|for|where|when)\b", user_input.lower()))
-        if _creative_intent and (_gen_verb or _creative_topic_anchor):
+        if not _skip_creative_router and _creative_intent and (_gen_verb or _creative_topic_anchor):
             resp = self._handle_action_request(user_input, _gen_verb or "write", subject)
             self._last_strategy = ("creative_generation"
                                    if getattr(self, "_last_creative", False)
@@ -11143,7 +11148,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # generator. Route them to _generate_creative BEFORE the action-request
         # handler can refuse them as tool actions.
         _is_info_tell = bool(re.search(r"\b(tell\s+(?:me\s+)?about|tell\s+me|explain|describe|give\s+(?:an?\s+)?overview|what\s+is|define)\b", user_input.lower()))
-        if _creative_shape and not _is_info_tell:
+        if not _skip_creative_router and _creative_shape and not _is_info_tell:
             resp = self._handle_action_request(user_input, _gen_verb or "write", subject)
             self._last_strategy = ("creative_generation"
                                    if getattr(self, "_last_creative", False)
@@ -11162,7 +11167,7 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # reads as a statement — route it to the counterfactual simulator, not
         # the assertion mirror (CSM: the intervention do(X) is a question to
         # the forward-model, not a claim about reality).
-        if not self._is_conditional_query(user_input):
+        if not self._is_conditional_query(user_input) and not _skip_creative_router:
             assertion_response = self._handle_assertion(user_input, subject)
             if assertion_response:
                 self._last_strategy = "assertion"

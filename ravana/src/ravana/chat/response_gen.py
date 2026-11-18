@@ -172,6 +172,23 @@ def _edge_provenanced(edge) -> bool:
         return False
 
 
+# A request to USE a learned word is not an action on the world and not a
+# creative artifact request. It is a construction-deployment request (Goldberg
+# 2006; Austin 1962 / Searle 1969 illocutionary force). Recognising it BEFORE
+# the action and creative pre-routers is what stops "i can't physically make a
+# sentence" and the spurious assertion acknowledgement.
+_PRODUCTIVE_USE_RE = re.compile(
+    r"\b(?:use|using)\b.{0,40}\b(?:word|term)\b"
+    r"|\b(?:make|write|compose|produce|give|show)\b"
+    r".{0,35}\b(?:sentence|example)\b",
+    re.IGNORECASE)
+
+
+def is_productive_use_request(text: str) -> bool:
+    """True when the user asks to deploy a word in a sentence or example."""
+    return bool(text and _PRODUCTIVE_USE_RE.search(str(text)))
+
+
 class ResponseGenMixin(ChainWalkerMixin):
     """Mixin providing neural decoder generation, chitchat, and templated responses."""
     # Phase 5 (casing): cached set of graph concepts that are STRONG named
@@ -2856,6 +2873,12 @@ class ResponseGenMixin(ChainWalkerMixin):
         import re
         t = text.lower().strip(" ?!.")
         if not t:
+            return None
+        # Speech-act guard: "make/write a sentence with X" and "give me an
+        # example using X" deploy language; they are not physical actions.
+        # Without this, make/write land in _ACTION_VERBS and produce the
+        # "i can't physically make a sentence" refusal.
+        if is_productive_use_request(t):
             return None
         # Informational request guard: "tell me about X", "explain X", "describe X", "search for X", etc.
         # are epistemic knowledge requests, NOT physical/system execution commands.
@@ -7468,7 +7491,7 @@ class ResponseGenMixin(ChainWalkerMixin):
         the caller falls through to the unchanged definition path. Untaught
         words never reach this helper because the caller gates on _definitions.
         """
-        if not self._USE_IN_SENTENCE.search(getattr(ctx, "raw_input", "") or ""):
+        if not is_productive_use_request(getattr(ctx, "raw_input", "") or ""):
             return None
         if not subject or not definition:
             return None
@@ -7486,7 +7509,29 @@ class ResponseGenMixin(ChainWalkerMixin):
         predicate = m.group(1).strip().rstrip(".,;:!?")
         if len(predicate.split()) < 2:
             return None
-        sent = f"{subject} {predicate}."
+        # Deterministic frame competition with recency fatigue (Bybee 2006;
+        # Pickering & Garrod 2004; Thompson-Schill 1997). A per-subject repeat
+        # counter selects a DIFFERENT construction on the next identical
+        # request -- no RNG. find_construction returns the same frame for the
+        # same role triple, which is exactly the one-frame trap we must avoid.
+        _counts = getattr(self, "_productive_use_counts", None)
+        if _counts is None:
+            _counts = self._productive_use_counts = {}
+        _idx = int(_counts.get(subject.lower(), 0)) % 2
+        _counts[subject.lower()] = _idx + 1
+
+        # Frame 0: bare subject + functional predicate.
+        # Frame 1: appositive naming construction, using the definition's head
+        # noun. Both deploy the word; neither echoes the definition verbatim.
+        _head = ""
+        _pre = text[:m.start()].strip(" .,;:!?")
+        _pre_words = _pre.split()
+        if _pre_words:
+            _head = _pre_words[-1].lower()
+        if _idx == 1 and _head and _head not in ("a", "an", "the", "small", "blue"):
+            sent = f"A {_head} called {subject} {predicate}."
+        else:
+            sent = f"{subject} {predicate}."
         # Echo gate: never emit the definition itself, and never emit a string
         # whose content is essentially the definitional NP + copula.
         if text.lower() in sent.lower() or sent.lower() in text.lower():

@@ -2095,6 +2095,15 @@ class GenerationMixin:
             r"summary|overview|description|definition|explanation)"
             r"\s+(?:about|of|on|for|regarding|concerning)\s+",
             "", query_phrase, flags=re.IGNORECASE).strip() or query_phrase
+        # "make/write a sentence with/using X", "give me an example using X".
+        # Without these the grounded subject is "sentence", which has no
+        # definition, so a taught word was treated as unknown.
+        query_phrase = re.sub(
+            r"^(?:make|write|compose|produce|give\s+me|show\s+me)\s+"
+            r"(?:an?\s+|one\s+)?(?:sentence|example)\s+"
+            r"(?:with|using|of|about|for)\s+(?:the\s+)?"
+            r"(?:word\s+|term\s+)?",
+            "", query_phrase, flags=re.IGNORECASE).strip() or query_phrase
         # "use the word X in a sentence" left the subject as "word zorblat",
         # which is absent from the definition store, so a word RAVANA had just
         # LEARNED was treated as unknown. Strip the performative verb + its
