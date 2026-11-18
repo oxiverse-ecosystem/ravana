@@ -525,6 +525,10 @@ PYTHONHASHSEED=0 uv run python scripts/measure_fronts_web.py
 
 # within-session learning: acquisition, retention, savings, transfer
 RAVANA_OFFLINE=1 PYTHONHASHSEED=0 uv run python scripts/measure_learning_curve.py
+
+# optional quarterly reference tracks (slower)
+uv run python scripts/external_benchmark.py --quick
+uv run python scripts/evaluate_ravana.py --skip-train --no-curiosity
 ```
 
 Per-item records go to `scratch/front_probes_n30.jsonl` (web arm:
@@ -541,8 +545,10 @@ an instrument artifact.
 
 **Known limits.** The shipped suite has **27 items per front**, so an
 unpaired difference is roughly ±17.6 points; do not read small changes as
-signal. The recommended 60-item primary/replication split and the full tiered
-design are in [docs/BENCHMARKING_SURVEY.md](docs/BENCHMARKING_SURVEY.md) §5.
+signal. Wilson intervals, multiplicity correction, energy accounting and the
+instrument gates in the survey are recommended targets, **not implemented**.
+The recommended 60-item primary/replication split and the full tiered design
+are in [docs/BENCHMARKING_SURVEY.md](docs/BENCHMARKING_SURVEY.md) §5.
 Every probe is an instrument: validate it against known-good and known-bad
 outputs before reporting its number.
 
