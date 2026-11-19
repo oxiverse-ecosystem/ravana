@@ -29,11 +29,23 @@ boots (~15 s here) and prints no front scores. Normal runs execute G1/GC's
 static parts before the engine boot and all measured gates between scoring and
 printing, so no ungated number ever reaches the console or summary file.
 
-## Measured result on current main
+## Measured result on `7e55cda` (n=27 — SUPERSEDED)
 
-Base commit `7e55cda`; measured after this change. Fresh offline run, cached
-web run (web scoring code is unchanged by this work). Exact numbers from
-`scratch/gate_only_{offline,web}.log` and the gate JSONL.
+> **Staleness note (2026-11-19).** This section records the n=27 gate run at
+> commit `7e55cda`. That is **no longer current main** (main is `6a2b5fa`,
+> 68 PRs merged). Every gate measurement number below — including the 27-record
+> census, the selectivity/control vectors and the front scores — is from that
+> n=27 run and is retained as history. The current gated seven-front result is
+> the honest **n=60** offline measurement in
+> [docs/BENCHMARK_60_ITEMS.md](BENCHMARK_60_ITEMS.md) §4–§5 (G1–G6 PASS/FLAG,
+> 420 records, indices 1..60 per front). The web arm at n=60 **timed out**
+> (2400 s, 207 of 434 probes, no valid summary), so **no n=60 web score exists**;
+> do not reuse the n=27 web figures below as current. The gate mechanics
+> (G1–G6) themselves are unchanged.
+
+Base commit `7e55cda` (historical); measured after this change. Fresh offline
+run, cached web run (web scoring code is unchanged by this work). Exact numbers
+from `scratch/gate_only_{offline,web}.log` and the gate JSONL.
 
 ### RAVANA_OFFLINE=1 (offline)
 
@@ -48,9 +60,13 @@ web run (web scoring code is unchanged by this work). Exact numbers from
 | G6 | **FLAG** | `code generation=100` INVALID as progress signal |
 | **Overall** | **PARTIAL** | 6 PASS / 0 FAIL / 1 FLAG, exit 0 |
 
-Scores reported after gates: conversation 85, grounded 78, opinion 70,
-thinking 19, speaking 37, **code 100 (INVALID: saturated)**, language
-learning 80; MEAN 67.
+Scores reported after gates at n=27 (SUPERSEDED): conversation 85, grounded
+78, opinion 70, thinking 19, speaking 37, **code 100 (INVALID: saturated)**,
+language learning 80; MEAN 67.
+**Current honest n=60 offline (2026-11-19, BENCHMARK_60_ITEMS.md §4):**
+conversation 93, grounded 17, opinions 87, thinking 8, speaking 7,
+code 100 (saturated), language learning 80; **MEAN 56**. No rubric was relaxed
+to recover the n=27 numbers.
 
 ### Web on
 

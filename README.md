@@ -437,8 +437,15 @@ CI (`.github/workflows/ci.yml`) runs `pip install -e .[full,dev]` then the
 
 ## Benchmark results
 
-Results are **current as of the latest commits**. Historical values from prior
-experiments are archived separately.
+> **Staleness note (2026-11-19).** The nine-battery figures in this section are
+> historical/provenance only — they have **not** been re-validated against the
+> probe-defect class described in the validity note further down this README.
+> The current, gated seven-front measurement is
+> [docs/BENCHMARK_60_ITEMS.md](docs/BENCHMARK_60_ITEMS.md) §4: honest offline
+> n=60 — conversation 93, grounded 17, opinions 87, thinking 8, speaking 7,
+> code 100, language learning 80, mean 56. The web arm at n=60 timed out
+> (2400 s, 207 of 434 probes, no valid summary), so **no n=60 web number is
+> recorded**.
 
 ### Cross-Domain transfer
 
@@ -543,12 +550,15 @@ for an architecture that must learn online: compare the **teach** arm against
 the **no-teach** and **definition-only** controls; a rise without teaching is
 an instrument artifact.
 
-**Known limits.** The shipped suite has **27 items per front**, so an
-unpaired difference is roughly ±17.6 points; do not read small changes as
-signal. Wilson intervals, multiplicity correction, energy accounting and the
-instrument gates in the survey are recommended targets, **not implemented**.
-The recommended 60-item primary/replication split and the full tiered design
-are in [docs/BENCHMARKING_SURVEY.md](docs/BENCHMARKING_SURVEY.md) §5.
+**Known limits (updated 2026-11-19).** The shipped suite now has **60 items per
+front** (30 primary + 30 sealed replication), so an unpaired difference is
+roughly ±12.3 points at n=60 (was ±17.6 at the old n=27); do not read small
+changes as signal. The 60-item split is implemented and its honest offline
+result is in [docs/BENCHMARK_60_ITEMS.md](docs/BENCHMARK_60_ITEMS.md) §4.
+Wilson intervals, multiplicity correction and energy accounting remain
+recommended targets in [docs/BENCHMARKING_SURVEY.md](docs/BENCHMARKING_SURVEY.md)
+§5; the instrument gates G1–G6 are now **implemented** in `scripts/front_gates.py`
+and documented in [docs/INSTRUMENT_GATES.md](docs/INSTRUMENT_GATES.md).
 Every probe is an instrument: validate it against known-good and known-bad
 outputs before reporting its number.
 

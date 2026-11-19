@@ -219,9 +219,12 @@ Raw per-item records go to `scratch/front_probes_n30.jsonl` and the summary to
 `scratch/learning_curve_audit.json`. Commit SHA, seed, and probe hashes are
 recorded with every summary; an unpaired or ungated run is not a result.
 
-The scripts currently ship 27 items per front; the 60-item primary/replication
-split is the RAVANA-7 v1 target in `docs/BENCHMARKING_SURVEY.md` §5.2. Until it
-is adopted, read the interval at n=27 as roughly ±17.6 points.
+The 60-item primary/replication split is **adopted and measured** (as of
+2026-11-19): see `docs/BENCHMARK_60_ITEMS.md` §4 for the honest n=60 offline
+result and §2 for the sealed-set provenance. Read the interval at n=60 as
+roughly ±12.3 points (n=27 was ±17.6); the 27-item lists are retained only as
+provenance constants. This paragraph was written when the scripts still shipped
+27 items — that is no longer the case.
 
 **What the numbers mean.** Each front is a 0–100 score over 60 held-out items
 (30 primary + 30 sealed replication), reported with a 95% interval and a

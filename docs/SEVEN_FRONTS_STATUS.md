@@ -1,7 +1,18 @@
 # Seven fronts: where the measurement stands
 
-**Status:** measured by `scripts/measure_fronts.py`. Last full run on a
-current `main`: see the table below.
+> **Superseded (2026-11-19).** The "now" scores below are from the small
+> (3–4-probe per front) tightened-probe run documented here; they are **not**
+> the current measurement. The current honest **n=60** offline result
+> ([BENCHMARK_60_ITEMS.md](BENCHMARK_60_ITEMS.md) §4) is: conversation 93,
+> grounded 17, opinions 87, thinking 8, speaking 7, code 100, language learning
+> 80, mean 56. In particular the "grounded 100" and the six 100s below are
+> stale. The web arm at n=60 timed out (2400 s, 207 of 434 probes, no valid
+> summary), so **no n=60 web score is recorded**. The probe-tightening narrative
+> below is retained as history, not as current status.
+
+**Status (historical):** measured by `scripts/measure_fronts.py`. Scores below
+are from the tightened small-probe run described in this note; see the
+supersession note above for current values.
 
 ## The scores
 
@@ -93,7 +104,7 @@ the source (#390).
 The route itself was verified directly: `sun leads to earth, and earth leads to
 life` (#388). The probe was deliberately NOT tuned to look better.
 
-## The defect pattern across 26 PRs
+## The defect pattern across 26 PRs (as of that round; 68 PRs merged on main as of 2026-11-19)
 
 Almost nothing was a missing capability. It was plumbing:
 
