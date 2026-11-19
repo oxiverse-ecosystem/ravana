@@ -505,3 +505,25 @@ need plus source veto, full page). The remaining hypothesis is that the
 search provider's result set itself lacks the needed pages; test that directly
 by measuring what fraction of returned documents contain two distinct
 causal triples before building any further extraction machinery.
+
+## MEASURED: the frozen result set, not the extractor, is the limit
+
+Ran the existing OpenIE extractor over all 1,087 frozen search fixtures
+(`tests/fixtures/web_snapshots/web_fixtures.json`), counting distinct causal
+triples per query:
+
+```
+all queries:  n=1087   >=1 triple = 386 (35.5%)   >=2 triples = 159 (14.6%)
+gap queries:  n=4      >=1 triple = 2             >=2 triples = 1
+```
+
+So the corpus does contain usable causal prose, and OpenIE can extract it.
+But the specific gap-read query template appears only **4 times** in 434
+harness probes, and only once yields two triples. The dominant failure is
+upstream: `close_mechanism_gap` is rarely invoked because the mechanism-gap
+detector does not open a gap for most definition-style answers.
+
+**Consequence:** further extraction work will not help until gap detection
+opens a gap for `why/how` questions answered only by a definition. That is the
+next work item; it is a detection problem, not an acquisition or extraction
+problem.
