@@ -11737,6 +11737,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # Brain-inspired Syntactic & Construction Grammar Feedback Learning
         user_understood = (quality_score >= 0.55)
+        # Usage-based cue-to-frame reinforcement: the frame chosen by
+        # _productive_use_response is reinforced by the same online quality
+        # signal already used for the M16 frames and surface variants.
+        # Accepted -> +0.05 on the chosen frame; rejected -> -0.025 and a
+        # smaller nudge to the alternatives (NoGo), so competitors can win.
+        _last_cf = getattr(self, "_last_cue_frame", None)
+        if _last_cf:
+            try:
+                _w, _cue, _frame = _last_cf
+                _table = self._cue_frame_table()
+                _row = _table.setdefault((str(_cue), str(_w)), {})
+                if user_understood:
+                    _row[_frame] = float(_row.get(_frame, 0.0)) + 0.05
+                else:
+                    _row[_frame] = float(_row.get(_frame, 0.0)) - 0.025
+                    for _alt in ("FUNCTION", "PART_WHOLE", "LOCATIVE",
+                                 "PROPERTY", "NONE_COUNTER"):
+                        if _alt != _frame:
+                            _row[_alt] = float(_row.get(_alt, 0.0)) + 0.01
+            except Exception:
+                pass
+            self._last_cue_frame = None
         if hasattr(self.syntactic_assembly, '_last_frame') and self.syntactic_assembly._last_frame:
             self.syntactic_assembly.learn_from_feedback(self.syntactic_assembly._last_frame, user_understood=user_understood)
             self.syntactic_assembly._last_frame = None
