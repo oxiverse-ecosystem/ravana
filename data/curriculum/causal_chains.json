@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "note": "Authored causal scaffold for RAVANA. These are common-knowledge causal relations written by the maintainer, stamped edge_kind=curriculum with source=curriculum:authored:<subject>. This is SCAFFOLDING to make the reasoning mechanism testable offline, not evidence of web learning, and not a claim that the system acquired these from conversation. Each hop must carry an explicit physical or causal rationale. Schemas propose; sources admit: web-derived edges still require two distinct sources and keep their own provenance.",
+  "chains": [
+    {"subject": "rain", "hops": [
+      {"from": "water vapour", "to": "clouds", "evidence": "Water vapour cools and condenses into droplets that form clouds."},
+      {"from": "clouds", "to": "rain", "evidence": "Droplets in clouds coalesce until gravity pulls them out as rain."}
+    ]},
+    {"subject": "rain", "hops": [
+      {"from": "evaporation", "to": "water vapour", "evidence": "Solar heating evaporates surface water into water vapour."},
+      {"from": "water vapour", "to": "precipitation", "evidence": "Condensed water vapour returns to the surface as precipitation."}
+    ]},
+    {"subject": "rust", "hops": [
+      {"from": "oxygen", "to": "oxidation", "evidence": "Iron reacts with oxygen in an oxidation reaction."},
+      {"from": "oxidation", "to": "rust", "evidence": "Oxidation of iron produces iron oxides known as rust."}
+    ]},
+    {"subject": "rust", "hops": [
+      {"from": "water", "to": "oxidation", "evidence": "Water accelerates the electrochemical oxidation of iron."},
+      {"from": "oxidation", "to": "corrosion", "evidence": "The oxidation reaction corrodes the metal."}
+    ]},
+    {"subject": "tides", "hops": [
+      {"from": "moon", "to": "gravity", "evidence": "The Moon exerts gravitational pull on Earth's oceans."},
+      {"from": "gravity", "to": "tides", "evidence": "Differential lunar gravity raises ocean bulges that produce tides."}
+    ]},
+    {"subject": "battery", "hops": [
+      {"from": "chemical reaction", "to": "electron flow", "evidence": "A battery's chemical reaction separates charge and drives electrons through a circuit."},
+      {"from": "electron flow", "to": "electricity", "evidence": "The movement of electrons is an electric current."}
+    ]},
+    {"subject": "battery", "hops": [
+      {"from": "chemical energy", "to": "electrical energy", "evidence": "A battery converts stored chemical energy into electrical energy."},
+      {"from": "electrical energy", "to": "power", "evidence": "Delivered electrical energy provides power to a device."}
+    ]},
+    {"subject": "moon", "hops": [
+      {"from": "moon", "to": "gravity", "evidence": "The Moon's mass produces gravitational attraction."},
+      {"from": "gravity", "to": "tides", "evidence": "The Moon's gravity is the main driver of Earth's tides."}
+    ]},
+    {"subject": "photosynthesis", "hops": [
+      {"from": "sunlight", "to": "chlorophyll", "evidence": "Chlorophyll absorbs energy from sunlight."},
+      {"from": "chlorophyll", "to": "glucose", "evidence": "That captured energy drives the synthesis of glucose from carbon dioxide and water."}
+    ]},
+    {"subject": "photosynthesis", "hops": [
+      {"from": "photosynthesis", "to": "plants", "evidence": "Photosynthesis supplies plants with the sugars they use for growth."},
+      {"from": "plants", "to": "oxygen", "evidence": "Plants release oxygen as a byproduct of photosynthesis."}
+    ]},
+    {"subject": "river", "hops": [
+      {"from": "rainfall", "to": "runoff", "evidence": "Rain that does not soak into the ground becomes surface runoff."},
+      {"from": "runoff", "to": "river", "evidence": "Runoff collects in channels that form rivers."}
+    ]},
+    {"subject": "cloud", "hops": [
+      {"from": "cooling", "to": "condensation", "evidence": "Cooling air reduces its capacity to hold water vapour, causing condensation."},
+      {"from": "condensation", "to": "clouds", "evidence": "Condensed droplets suspended in air form clouds."}
+    ]},
+    {"subject": "wind", "hops": [
+      {"from": "solar heating", "to": "pressure differences", "evidence": "Uneven solar heating creates differences in air pressure."},
+      {"from": "pressure differences", "to": "wind", "evidence": "Air moves from high to low pressure, which is wind."}
+    ]},
+    {"subject": "volcano", "hops": [
+      {"from": "magma", "to": "pressure", "evidence": "Rising magma accumulates gas and pressure beneath the surface."},
+      {"from": "pressure", "to": "eruption", "evidence": "When pressure exceeds the strength of overlying rock, a volcanic eruption occurs."}
+    ]},
+    {"subject": "earthquake", "hops": [
+      {"from": "plate motion", "to": "stress", "evidence": "Moving tectonic plates build elastic stress along faults."},
+      {"from": "stress", "to": "earthquake", "evidence": "Sudden fault slip releases the accumulated stress as an earthquake."}
+    ]},
+    {"subject": "sun", "hops": [
+      {"from": "nuclear fusion", "to": "sunlight", "evidence": "Hydrogen fusion in the Sun's core releases energy that emerges as sunlight."},
+      {"from": "sunlight", "to": "photosynthesis", "evidence": "Sunlight drives photosynthesis in plants."}
+    ]},
+    {"subject": "gravity", "hops": [
+      {"from": "gravity", "to": "orbit", "evidence": "Gravity provides the centripetal force that keeps planets in orbit."},
+      {"from": "orbit", "to": "seasons", "evidence": "Orbital geometry together with axial tilt gives rise to seasons."}
+    ]},
+    {"subject": "ice", "hops": [
+      {"from": "cooling", "to": "freezing", "evidence": "Lowering water temperature below its freezing point causes freezing."},
+      {"from": "freezing", "to": "ice", "evidence": "Frozen water forms ice."}
+    ]},
+    {"subject": "evaporation", "hops": [
+      {"from": "heat", "to": "evaporation", "evidence": "Heat gives water molecules enough energy to escape the liquid surface."},
+      {"from": "evaporation", "to": "cooling", "evidence": "Evaporation removes the most energetic molecules and cools the remaining liquid."}
+    ]},
+    {"subject": "digestion", "hops": [
+      {"from": "enzymes", "to": "breakdown", "evidence": "Digestive enzymes break food molecules into smaller units."},
+      {"from": "breakdown", "to": "absorption", "evidence": "The resulting small molecules can be absorbed through the intestinal wall."}
+    ]},
+    {"subject": "sleep", "hops": [
+      {"from": "sleep", "to": "memory consolidation", "evidence": "Sleep supports the consolidation of newly learned memories."},
+      {"from": "memory consolidation", "to": "recall", "evidence": "Consolidated memories are more readily recalled."}
+    ]},
+    {"subject": "exercise", "hops": [
+      {"from": "exercise", "to": "heart rate", "evidence": "Muscular work raises the demand for oxygen and increases heart rate."},
+      {"from": "heart rate", "to": "circulation", "evidence": "A faster heartbeat increases blood circulation."}
+    ]},
+    {"subject": "fire", "hops": [
+      {"from": "heat", "to": "ignition", "evidence": "Sufficient heat brings fuel to its ignition temperature."},
+      {"from": "ignition", "to": "fire", "evidence": "Ignition starts the self-sustaining combustion we call fire."}
+    ]},
+    {"subject": "sound", "hops": [
+      {"from": "vibration", "to": "air pressure waves", "evidence": "A vibrating object creates alternating pressure waves in the air."},
+      {"from": "air pressure waves", "to": "hearing", "evidence": "These waves move the eardrum and are interpreted as sound."}
+    ]},
+    {"subject": "lightning", "hops": [
+      {"from": "charge separation", "to": "electric field", "evidence": "Charge separation inside clouds creates a strong electric field."},
+      {"from": "electric field", "to": "lightning", "evidence": "When the field exceeds air's breakdown strength, a lightning discharge occurs."}
+    ]},
+    {"subject": "rainbow", "hops": [
+      {"from": "refraction", "to": "dispersion", "evidence": "Light entering water droplets is refracted and split into component wavelengths."},
+      {"from": "dispersion", "to": "rainbow", "evidence": "Dispersed light reflected from droplets appears as a rainbow."}
+    ]},
+    {"subject": "erosion", "hops": [
+      {"from": "rainfall", "to": "runoff", "evidence": "Rain produces moving surface water."},
+      {"from": "runoff", "to": "erosion", "evidence": "Moving water detaches and transports soil, causing erosion."}
+    ]},
+    {"subject": "plant growth", "hops": [
+      {"from": "sunlight", "to": "photosynthesis", "evidence": "Sunlight powers the photosynthetic production of sugars."},
+      {"from": "photosynthesis", "to": "plant growth", "evidence": "Sugars provide the carbon skeletons and energy for growth."}
+    ]},
+    {"subject": "fever", "hops": [
+      {"from": "infection", "to": "immune response", "evidence": "Pathogens trigger an immune response."},
+      {"from": "immune response", "to": "fever", "evidence": "Immune signalling raises the body's temperature set point, producing fever."}
+    ]},
+    {"subject": "tides", "hops": [
+      {"from": "sun", "to": "gravity", "evidence": "The Sun also exerts gravitational attraction on Earth's oceans."},
+      {"from": "gravity", "to": "spring tides", "evidence": "Solar and lunar gravity align at new and full moon to produce spring tides."}
+    ]},
+    {"subject": "magnet", "hops": [
+      {"from": "electron spin", "to": "magnetic field", "evidence": "Aligned electron spins produce a net magnetic field."},
+      {"from": "magnetic field", "to": "attraction", "evidence": "The field exerts force on ferromagnetic materials, causing attraction."}
+    ]}
+  ]
+}

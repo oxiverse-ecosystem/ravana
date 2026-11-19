@@ -2186,6 +2186,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # in-memory graph with the saved one — running it earlier would
                 # inject into the empty pre-load graph and then be discarded).
                 self._typed_edges_bootstrap()
+                # Authored causal scaffold must also run on the loaded path:
+                # _load replaced the cold-start graph and this branch returns
+                # before the cold-start seed block. Provenance is curriculum,
+                # never overwriting web/conversation edges.
+                try:
+                    _n_curriculum = self._seed_curriculum_causal()
+                    if getattr(self, "_trace_enabled", False):
+                        print("  [Curriculum] seeded %d causal edges" % _n_curriculum)
+                except Exception:
+                    pass
                 return
 
         # Cold start (no saved weights): seed everything from scratch.
@@ -2214,7 +2224,6 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._seed_physics_causal()
         except Exception:
             pass
-
         # top-N corpus-frequency concepts so common facts ("the sun is a star")
         # are available without any authored text. This is retrieval, not
         # hand-authored prose; concepts with no KB hit are simply skipped.
@@ -2255,6 +2264,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Deferred item 1: materialize ConceptNet typed edges into the
         # cold-start graph (seeded above) so the inheritance walk works.
         self._typed_edges_bootstrap()
+        # Authored causal scaffold with curriculum provenance, loaded AFTER
+        # _typed_edges_bootstrap (which rebuilds the cold-start graph). This is
+        # scaffolding for the reasoning mechanism, NOT a learning claim; web
+        # edges keep their own provenance and two-source rule.
+        try:
+            _n_curriculum = self._seed_curriculum_causal()
+            if getattr(self, "_trace_enabled", False):
+                print("  [Curriculum] seeded %d causal edges" % _n_curriculum)
+        except Exception:
+            pass
         # Stable-node snapshot: the graph as it stands AFTER cold-start
         # bootstrap but BEFORE any web-learning this session. Used by the
         # counterfactual analogy-gate (_conditional_has_graph_anchor) so that
