@@ -471,3 +471,37 @@ reproduced.
 9. Tse, D., et al. (2007). Schema-dependent gene expression and memory formation. *Science, 316*, 76–82.
 10. Griffiths, T. L., & Tenenbaum, J. B. (2009). Theory-based causal induction. *Psychological Review, 116*(4), 661–716.
 11. Schacter, D. L., & Addis, D. R. (2007). The cognitive neuroscience of constructive memory. *Philosophical Transactions of the Royal Society B, 362*(1481), 773–786.
+
+---
+
+## MEASURED NEGATIVE: full-page flag failed its A/B (REVERTED)
+
+Implemented behind `RAVANA_FULL_PAGE_GAP=1`: bounded `_fetch_article_text`
+on each admitted URL, existing OpenIE over the longer text, two distinct URLs
+required per causal triple before stamping, `acquired_by=full_page_extraction`.
+Default-OFF; existing 10 gap tests passed.
+
+A/B with IntentForge on, identical state, separate processes (3 subjects):
+
+```
+FLAG=0  iron rust   hops=0  chain=0
+FLAG=0  ocean tides hops=2  chain=1
+FLAG=0  rain        hops=0  chain=0
+
+FLAG=1  iron rust   hops=0  chain=0
+FLAG=1  ocean tides hops=0  chain=0
+FLAG=1  rain        hops=0  chain=0
+```
+
+The whole-page path produced **no** causal hops where the snippet path did.
+The four assertable chains counted in both arms came from the authored
+curriculum scaffold, not from web learning. The code was **REVERTED**; default
+snippet behaviour is restored.
+
+**Conclusion:** fetching more text does not help when the retriever cannot
+find pages that state two extractable causal relations for the subject. This
+is the fourth failed input-side attempt (query phrasing, bounded retry, typed
+need plus source veto, full page). The remaining hypothesis is that the
+search provider's result set itself lacks the needed pages; test that directly
+by measuring what fraction of returned documents contain two distinct
+causal triples before building any further extraction machinery.
