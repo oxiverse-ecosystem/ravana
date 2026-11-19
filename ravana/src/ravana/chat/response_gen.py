@@ -7535,6 +7535,39 @@ class ResponseGenMixin(ChainWalkerMixin):
             return False
         return bool(taught and taught == (subject or "").lower())
 
+    def _cue_frame_table(self):
+        """Persisted (cue, word) -> {frame_id: weight} association table."""
+        sa = getattr(self, "syntactic_assembly", None)
+        if sa is None:
+            return {}
+        t = getattr(sa, "cue_frame_weights", None)
+        if t is None:
+            t = sa.cue_frame_weights = {}
+        return t
+
+    def _select_cue_frame(self, cue: str, word: str, candidates: dict):
+        """Deterministic argmax over admissible constructions.
+
+        Empty learned table => the cue's own frame wins (optimistic prior),
+        which reproduces the previous fixed mapping byte-identically.
+        No RNG; ties break by stable frame-id order.
+        """
+        admissible = {k: v for k, v in candidates.items() if v}
+        if not admissible:
+            return "", ""
+        keys = sorted(admissible)
+        table = self._cue_frame_table()
+        weights = table.get((cue, word), {}) or {}
+        preferred = cue if cue in admissible else (
+            "NONE_COUNTER" if "NONE_COUNTER" in admissible else keys[0])
+        scored = {}
+        for k in keys:
+            # Optimistic prior: the built-in frame starts at 1.0 so untested
+            # alternatives are not selected before they earn evidence.
+            scored[k] = float(weights.get(k, 0.0)) + (1.0 if k == preferred else 0.0)
+        best = max(keys, key=lambda k: (scored[k], -keys.index(k)))
+        return best, admissible[best]
+
     def _productive_use_response(self, ctx, subject: str, definition: str):
         """Compose a NEW sentence from a learned word's functional clause.
 
@@ -7586,29 +7619,32 @@ class ResponseGenMixin(ChainWalkerMixin):
         _adjs = [w for w in _pre_words[:-1]
                  if w.lower() not in ("a", "an", "the", "one", "some")]
 
-        sent = ""
-        if _cue == "FUNCTION":
-            sent = f"{subject} {predicate}."
-        elif _cue == "PART_WHOLE" and _head not in ("a", "an", "the", ""):
-            sent = f"{subject} is part of a {_head}."
-        elif _cue == "LOCATIVE" and _loc:
-            sent = f"{subject} is found {_loc}."
-        elif _cue == "PROPERTY" and _adjs:
-            # Join attributes so the frame clears the word-count gate without
-            # reusing the definitional copula + head NP.
-            sent = f"{subject} is {' and '.join(_adjs)}."
-        else:
-            # No reliable cue (or no grounded target for the cued relation):
-            # fall back to the previous deterministic repeat counter.
+        # Candidate constructions, keyed by frame id. Built-in mapping is the
+        # optimistic prior for an unlearned association (empty table => today's
+        # byte-identical output). Usage-based selection replaces the fixed
+        # if/elif ladder; see docs/BRAIN_USAGE_BASED_SELECTION.md.
+        candidates = {
+            "FUNCTION": f"{subject} {predicate}." if _cue == "FUNCTION" else "",
+            "PART_WHOLE": (f"{subject} is part of a {_head}."
+                           if _head not in ("a", "an", "the", "") else ""),
+            "LOCATIVE": (f"{subject} is found {_loc}." if _loc else ""),
+            "PROPERTY": (f"{subject} is {' and '.join(_adjs)}."
+                         if _adjs else ""),
+        }
+        # NONE cue: retain the deterministic repeat counter as tie-break.
+        if _cue == "NONE":
             _counts = getattr(self, "_productive_use_counts", None)
             if _counts is None:
                 _counts = self._productive_use_counts = {}
             _idx = int(_counts.get(subject.lower(), 0)) % 2
             _counts[subject.lower()] = _idx + 1
-            if _idx == 1 and _head and _head not in ("a", "an", "the"):
-                sent = f"A {_head} called {subject} {predicate}."
-            else:
-                sent = f"{subject} {predicate}."
+            candidates["NONE_COUNTER"] = (
+                f"A {_head} called {subject} {predicate}."
+                if _idx == 1 and _head and _head not in ("a", "an", "the")
+                else f"{subject} {predicate}.")
+        _frame_id, sent = self._select_cue_frame(
+            _cue, subject.lower(), candidates)
+        self._last_cue_frame = (subject.lower(), _cue, _frame_id)
         # Echo gate: never emit the definition itself, and never emit a string
         # whose content is essentially the definitional NP + copula.
         if text.lower() in sent.lower() or sent.lower() in text.lower():

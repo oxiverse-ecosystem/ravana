@@ -122,3 +122,29 @@ def test_cue_mapping_is_deterministic():
     assert extract_construction_cue("where is a marrowlight") == "LOCATIVE"
     assert extract_construction_cue("what is a zorblat like") == "PROPERTY"
     assert extract_construction_cue("use the word zorblat in a sentence") == "NONE"
+
+
+def test_learned_association_can_override_builtin_frame():
+    from ravana.chat.models import CognitiveResponseContext
+    e = _engine()
+    e._term_exposures = {"zorblat": 1}
+    definition = "a small blue device that measures air pressure"
+    ctx = CognitiveResponseContext(subject="zorblat",
+                                   raw_input="what does a zorblat do")
+    before = e._productive_use_response(ctx, "zorblat", definition)[0]
+    assert before.lower().startswith("zorblat measures"), before
+    # A learned association for a competing frame must win deterministically.
+    table = e._cue_frame_table()
+    table.setdefault(("FUNCTION", "zorblat"), {})["PROPERTY"] = 5.0
+    after = e._productive_use_response(ctx, "zorblat", definition)[0]
+    assert "small and blue" in after.lower(), after
+
+
+def test_cue_frame_association_survives_state_roundtrip():
+    e = _engine()
+    table = e._cue_frame_table()
+    table.setdefault(("FUNCTION", "zorblat"), {})["PROPERTY"] = 5.0
+    state = e.syntactic_assembly.get_state()
+    restored = type(e.syntactic_assembly)()
+    restored.set_state(state)
+    assert restored.cue_frame_weights[("FUNCTION", "zorblat")]["PROPERTY"] == 5.0

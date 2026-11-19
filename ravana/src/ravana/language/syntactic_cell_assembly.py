@@ -742,6 +742,13 @@ class SyntacticCellAssembly:
             'verb_phrase_counts': self.verb_phrase_counts,
             'learned_frames': [asdict(f) for f in self.learned_frames],
             'max_learned_frames': self._max_learned_frames,
+            # Usage-based cue-to-frame associations. Serialised as a flat list
+            # because tuple dict keys are not JSON-safe.
+            'cue_frame_weights': [
+                [str(cue), str(word), str(frame), float(w)]
+                for (cue, word), fw in (getattr(self, 'cue_frame_weights', {}) or {}).items()
+                for frame, w in fw.items()
+            ],
         }
 
     def set_state(self, state: Dict):
@@ -766,3 +773,13 @@ class SyntacticCellAssembly:
             except Exception:
                 continue
         self.learned_frames = restored[-self._max_learned_frames:]
+        # Restore usage-based cue-to-frame associations (fail-soft on malformed
+        # entries; no cap -- this table is not the M16 frame inventory).
+        self.cue_frame_weights = {}
+        for row in state.get('cue_frame_weights', []) or []:
+            try:
+                cue, word, frame, w = row
+                self.cue_frame_weights.setdefault((str(cue), str(word)), {})[
+                    str(frame)] = float(w)
+            except Exception:
+                continue

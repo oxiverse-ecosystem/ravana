@@ -29,8 +29,14 @@ Engine policy: RAVANA_OFFLINE=1, ONE cold boot, ALL probes in one process,
 NO eng.save() (the three weight stores drift and concurrent saves clobber
 learned state). Learn code in-memory via the engine's own code learner only.
 
+Tier-0 instrument gates (docs/BENCHMARKING_SURVEY.md section 5.1) run BEFORE
+any score is printed. A FAIL suppresses the score block and exits nonzero.
+Gate outcomes are logged to scratch/front_probes_n30_gates.jsonl; the existing
+per-probe JSONL and aggregate print format are unchanged.
+
 Usage:
     uv run python scripts/measure_fronts.py
+    uv run python scripts/measure_fronts.py --gates-only
 """
 import json
 import os
@@ -39,14 +45,18 @@ import sys
 import time
 
 PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (PROJ, os.path.join(PROJ, "ravana_ml", "src"),
+_HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (_HERE, PROJ, os.path.join(PROJ, "ravana_ml", "src"),
            os.path.join(PROJ, "ravana", "src"),
            os.path.join(PROJ, "ravana-v2", "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import front_gates
+
 DATA_PATH = os.path.join(PROJ, "scratch", "front_probes_n30.jsonl")
 SUMMARY_PATH = os.path.join(PROJ, "scratch", "front_probes_n30_summary.json")
+GATE_LOG_PATH = os.path.join(PROJ, "scratch", "front_probes_n30_gates.jsonl")
 os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
 _LOGFH = None
 
@@ -236,7 +246,7 @@ N_MAP = {
 # ── engine + logging ────────────────────────────────────────────────────────
 def _boot():
     os.environ["RAVANA_OFFLINE"] = "1"
-    from ravana.chat.engine import CognitiveChatEngine
+    from ravana.chat.engine import CognitiveChatEngine  # type: ignore
     eng = CognitiveChatEngine(data_dir=os.path.join(PROJ, "weights"),
                               user_suffix="")
     eng._web_direct_answer = lambda ctx: None
@@ -420,6 +430,130 @@ def judge_speaking(a):
     if err:
         why.append("error")
     return good, (";".join(why) if why else "grammatical_non_degenerate")
+
+
+# ── tier-0 gate plumbing (rubric criteria above are NOT changed) ─────────────
+# The judges are handed to front_gates unchanged; the gates only feed them
+# fixed hand-labelled vectors and report the verdicts they actually produce.
+JUDGES = {
+    "language understanding / conversation": judge_conversation,
+    "grounded factual answers": lambda a, q=None: judge_grounded(
+        a, q or "what is gravity"),
+    "opinions / stance": judge_opinion,
+    "thinking / reasoning": judge_thinking,
+    "speaking / surface realization": judge_speaking,
+}
+
+
+def _cold_reload_probe():
+    """Two sequential cold boots: verify absence claims and graph iteration.
+
+    The harness learns in memory only (no eng.save), so a symbol that was
+    never taught must be absent after EACH cold reload. Also check the actual
+    ConceptGraph container shape: .nodes is Dict[int, node], so iterating it
+    directly yields ints and no labels -- the historical false finding.
+    """
+    from ravana.chat.engine import CognitiveChatEngine  # type: ignore
+    saved = os.environ.get("RAVANA_OFFLINE")
+    os.environ["RAVANA_OFFLINE"] = "1"
+    probe = LL_PROBES[0]
+    info = {"passed": False, "probe_symbol": probe, "boots": []}
+    try:
+        for boot_i in range(2):
+            eng2 = CognitiveChatEngine(data_dir=os.path.join(PROJ, "weights"),
+                                       user_suffix="")
+            cl = getattr(eng2, "_code_learner", None)
+            known = [str(n).lower() for n in cl.known_functions()] if cl else []
+            g = getattr(eng2, "graph", None) or getattr(eng2, "concept_graph", None)  # type: ignore
+            nodes = getattr(g, "nodes", None)
+            values = list(nodes.values()) if isinstance(nodes, dict) else []
+            labelled = sum(1 for nd in values if isinstance(
+                getattr(nd, "label", None), str) and getattr(nd, "label", ""))
+            first = values[0] if values else None
+            by_id = None
+            if first is not None and g is not None and hasattr(g, "get_node"):
+                got = g.get_node(getattr(first, "id", None))
+                by_id = getattr(got, "label", None) if got is not None else None
+            info["boots"].append({
+                "boot": boot_i + 1,
+                "symbol_absent": probe not in known,
+                "nodes_is_dict": isinstance(nodes, dict),
+                "node_count": len(values),
+                "labelled_values": labelled,
+                "get_node_label": by_id,
+            })
+            del eng2
+        info["passed"] = all(
+            b["symbol_absent"] and b["nodes_is_dict"] and b["node_count"] > 0
+            and b["labelled_values"] == b["node_count"]
+            for b in info["boots"])
+    except Exception as exc:                      # surface, never swallow
+        info["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        if saved is None:
+            os.environ.pop("RAVANA_OFFLINE", None)
+        else:
+            os.environ["RAVANA_OFFLINE"] = saved
+    return info
+
+
+def _gate_log():
+    return open(GATE_LOG_PATH, "a", encoding="utf-8")
+
+
+def pre_gates():
+    """G1, G3 and the static half of G4/G5 -- run before any engine boot."""
+    with _gate_log() as fh:
+        results = [
+            front_gates.gate_paired(JUDGES, fh, "offline"),
+            front_gates.gate_symmetric(JUDGES, fh, "offline"),
+        ]
+    return results
+
+
+def post_gates(records, scores, cold_info, summary=None):
+    """G2, G5 and G6 need measured records; G4 rechecks earned-vs-reported."""
+    with _gate_log() as fh:
+        results = [
+            front_gates.gate_selectivity(JUDGES, records, N_MAP, fh, "offline"),
+            front_gates.gate_parity(__file__, records=records, summary=summary,
+                                    compare_modes=False, n_map=N_MAP,
+                                    logfh=fh, mode="offline"),
+            front_gates.gate_census(records, N_MAP, __file__, cold_info, fh,
+                                    "offline"),
+            front_gates.gate_saturation(scores, fh, "offline"),
+        ]
+    return results
+
+
+def gates_only():
+    """Full gate set on the cached per-probe log; no engine needed for scores."""
+    print("front_gates: cold-reload sanity needs engine boots (~15 s)")
+    cold = _cold_reload_probe()
+    records = front_gates.load_probe_records(DATA_PATH)
+    summary = (json.load(open(SUMMARY_PATH, encoding="utf-8"))
+               if os.path.exists(SUMMARY_PATH) else None)
+    scores = front_gates.recompute_scores(records, N_MAP)
+    with _gate_log() as fh:
+        pre = [
+            front_gates.gate_paired(JUDGES, fh, "offline"),
+            front_gates.gate_symmetric(JUDGES, fh, "offline"),
+        ]
+    with _gate_log() as fh:
+        measured = [
+            front_gates.gate_selectivity(JUDGES, records, N_MAP, fh, "offline"),
+            front_gates.gate_parity(__file__, records=records, summary=summary,
+                                    compare_modes=True, n_map=N_MAP,
+                                    logfh=fh, mode="offline"),
+            front_gates.gate_census(records, N_MAP, __file__, cold, fh, "offline"),
+            front_gates.gate_saturation(
+                (summary or {}).get("scores", scores), fh, "offline"),
+        ]
+    ordered = [pre[0], measured[0], pre[1], measured[1],
+               measured[2], measured[3]]
+    status = front_gates.print_table(ordered, "offline --gates-only")
+    print(f"  recomputed scores: {scores}")
+    return 0 if front_gates.gate_valid(ordered) else 1
 
 
 # ── instrument self-check: positive/negative controls on the JUDGES ─────────
@@ -626,18 +760,36 @@ def score_language_learning(eng):
     return min(round(total / len(LL_PROBES)), 100)
 
 
-def main():
+def main(argv=None):
     global _LOGFH
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--gates-only" in argv:
+        return gates_only()
     started = time.time()
+
+    # PRE-SCORE GATES: no engine boot, no probe, no front score is reported
+    # until these pass. They run on fixed vectors and on the harness source.
+    pre = pre_gates()
+    front_gates.print_table(pre, "offline -- pre-score")
+    if not front_gates.gate_valid(pre):
+        print("\nINSTRUMENT INVALID: pre-score gate failure; no scores reported.")
+        return 1
+
+    # G5's cold-reload probe uses two sequential cold boots.
+    print("\n--- cold-reload sanity (2 sequential cold boots) ---")
+    cold = _cold_reload_probe()
+    print(f"  cold_reload passed={cold.get('passed')} "
+          f"boots={len(cold.get('boots', []))}")
+
+    eng = _boot()
     with open(DATA_PATH, "w", encoding="utf-8") as fh:
         _LOGFH = fh
-        eng = _boot()
         print("=" * 78)
         print("RAVANA capability fronts -- baseline (n30 held-out)")
         print("=" * 78)
         print(f"  data -> {DATA_PATH}")
         print("\n--- instrument controls ---")
-        run_controls()
+        ctrl_fail = run_controls()
 
         scores = {}
         for name, fn in (
@@ -653,25 +805,46 @@ def main():
 
         print("\n--- language learning (online) ---")
         scores["language learning (online)"] = score_language_learning(eng)
-
-        print("\n" + "=" * 78)
-        for k, v in scores.items():
-            print(f"  {v:>4}/100  {k}")
-        vals = list(scores.values())
-        print(f"  {round(sum(vals) / len(vals)):>4}/100  MEAN")
-        print("=" * 78)
-        summary = {
-            "data_path": DATA_PATH,
-            "n_per_front": N_MAP,
-            "scores": scores,
-            "mean": round(sum(vals) / len(vals)),
-            "elapsed_s": round(time.time() - started, 1),
-            "offline": os.environ.get("RAVANA_OFFLINE"),
-            "eng_save_called": False,
-        }
-        with open(SUMMARY_PATH, "w", encoding="utf-8") as sf:
-            json.dump(summary, sf, indent=2)
         _LOGFH = None
+
+    vals = list(scores.values())
+    summary = {
+        "data_path": DATA_PATH,
+        "n_per_front": N_MAP,
+        "scores": scores,
+        "mean": round(sum(vals) / len(vals)),
+        "elapsed_s": round(time.time() - started, 1),
+        "offline": os.environ.get("RAVANA_OFFLINE"),
+        "eng_save_called": False,
+    }
+
+    # POST-SCORE GATES: computed first, printed only after they pass. A FAIL
+    # suppresses the entire score block and returns nonzero.
+    records = front_gates.load_probe_records(DATA_PATH)
+    measured = post_gates(records, scores, cold, summary)
+    ctrl_gate = front_gates.GateResult(
+        "GC", "hand-labelled judge controls",
+        "PASS" if ctrl_fail == 0 else "FAIL",
+        f"control failures={ctrl_fail} (see {DATA_PATH}, control=true)",
+        {"control_failures": ctrl_fail})
+    ordered = [pre[0], measured[0], pre[1], ctrl_gate,
+               measured[1], measured[2], measured[3]]
+    status = front_gates.print_table(ordered, "offline")
+    if not front_gates.gate_valid(ordered):
+        print("\nINSTRUMENT INVALID: gate failure; front scores suppressed.")
+        return 1
+
+    print("\n" + "=" * 78)
+    for k, v in scores.items():
+        print(f"  {v:>4}/100  {k}")
+    print(f"  {round(sum(vals) / len(vals)):>4}/100  MEAN")
+    print("=" * 78)
+    flagged = [f for r in ordered for f in r.flagged_fronts]
+    if flagged:
+        print(f"  NOTE: saturated fronts are INVALID as progress signals: "
+              f"{', '.join(flagged)}")
+    with open(SUMMARY_PATH, "w", encoding="utf-8") as sf:
+        json.dump(summary, sf, indent=2)
     return 0
 
 
