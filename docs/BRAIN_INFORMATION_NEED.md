@@ -443,3 +443,34 @@ mechanisms and must be measured in RAVANA before being treated as effective.
     > "Whether or not an event was in a causal chain and the number of its causal connections were both found to account for substantial proportions of common and unique variance in all four measures."
 [31] https://jwilson.coe.uga.edu/EMAT7050/Students/Wilson/Flavell%20%281979%29.pdf — Flavell 1979
     > "A Model of Cognitive Monitoring I believe that the monitoring of a wide variety of cognitive enterprises occurs through the actions of and interactions among four classes of phenomena: (a) metacognitive knowledge, (b) metacognitive experiences, (c) goals (or tasks), and (d) actions (or strategies)."
+
+---
+
+## MEASURED NEGATIVE: typed need + source veto did not close the gap
+
+The recommendation above was implemented at `close_mechanism_gap`: a typed
+`InformationNeed` (direction, gap type, anchor, missing hop, closure test),
+a widened candidate pool of 8 with the QUERY unchanged, and a veto-only
+admissibility predicate rejecting definition/glossary/navigation snippets
+and snippets with no process connective. Rejected URLs never reached
+`openie.extract` or provenance stamping. 12 unit tests passed.
+
+A/B with IntentForge on, identical state, no `eng.save()`:
+
+```
+iron rust       candidates=8 admitted=2 causal_hops=0 chain_hops=0
+ocean tides     candidates=8 admitted=2 causal_hops=0 chain_hops=0
+answers: unchanged definitions; no improvement
+```
+
+The filter changed *which* sources were read but did not produce a single
+causal hop. The weaker undirected proxy also fell from 1 to 0 on tides. The
+code was **REVERTED**; no capability gain, so no code shipped.
+
+**What this establishes:** an information need can be well-formed and a
+source can look like process prose, yet the retrieval surface still does not
+contain two connected, extractable causal relations for these subjects. The
+bottleneck is the available corpus and extraction, not the specification of
+the need. Next work must change the INPUT: authored curriculum chains with
+provenance, or full-page extraction instead of search snippets. Do not
+re-attempt query phrasing or veto lists alone.
