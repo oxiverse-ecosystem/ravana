@@ -442,10 +442,13 @@ CI (`.github/workflows/ci.yml`) runs `pip install -e .[full,dev]` then the
 > probe-defect class described in the validity note further down this README.
 > The current, gated seven-front measurement is
 > [docs/BENCHMARK_60_ITEMS.md](docs/BENCHMARK_60_ITEMS.md) §4: honest offline
-> n=60 — conversation 93, grounded 17, opinions 87, thinking 8, speaking 7,
-> code 100, language learning 80, mean 56. The web arm at n=60 timed out
-> (2400 s, 207 of 434 probes, no valid summary), so **no n=60 web number is
-> recorded**.
+> n=60 — conversation 95, grounded 57, opinions 80, thinking 13, speaking 7,
+> code 100, language learning 80, mean 62. This supersedes mean 56: the earlier
+> run used an O(nodes×edges) `detect_gaps` scan (19 s/turn) that read absent
+> edge attributes and flagged every node as a knowledge gap; PR #438 made it
+> linear (1.23 s/turn) and the harness now completes. The web arm at n=60
+> timed out (2400 s, 207 of 434 probes, no valid summary), so **no n=60 web
+> number is recorded**.
 
 ### Cross-Domain transfer
 

@@ -2,9 +2,10 @@
 
 > **Superseded (2026-11-19).** These are the original small (3–4 probe per
 > front) baseline scores, kept as history. The current honest **n=60** offline
-> result is [BENCHMARK_60_ITEMS.md](BENCHMARK_60_ITEMS.md) §4: conversation 93,
-> grounded 17, opinions 87, thinking 8, speaking 7, code 100, language learning
-> 80, mean 56. Do **not** read the 100/100 figures below as current capability
+> result is conversation 95, grounded 57, opinions 80, thinking 13, speaking 7,
+> code 100, language learning 80, mean 62 (after PR #438's linear `detect_gaps`
+> fix; the earlier mean 56 was measured with a 19 s/turn quadratic scan).
+> Do **not** read the 100/100 figures below as current capability
 > claims — the nine-battery scores in README.md are likewise historical/
 > provenance only.
 

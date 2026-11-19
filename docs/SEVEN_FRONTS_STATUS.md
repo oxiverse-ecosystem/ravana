@@ -2,13 +2,20 @@
 
 > **Superseded (2026-11-19).** The "now" scores below are from the small
 > (3–4-probe per front) tightened-probe run documented here; they are **not**
-> the current measurement. The current honest **n=60** offline result
-> ([BENCHMARK_60_ITEMS.md](BENCHMARK_60_ITEMS.md) §4) is: conversation 93,
-> grounded 17, opinions 87, thinking 8, speaking 7, code 100, language learning
-> 80, mean 56. In particular the "grounded 100" and the six 100s below are
-> stale. The web arm at n=60 timed out (2400 s, 207 of 434 probes, no valid
-> summary), so **no n=60 web score is recorded**. The probe-tightening narrative
-> below is retained as history, not as current status.
+> the current measurement. The current honest **n=60** offline result, measured
+> after the linear-`detect_gaps` instrument fix ([PR #438], `466fcd1`), is:
+> conversation 95, grounded 57, opinions 80, thinking 13, speaking 7,
+> code 100, language learning 80, **mean 62**. This supersedes the earlier
+> n=60 result of mean 56 (conversation 93, grounded 17, opinions 87, thinking 8,
+> speaking 7): that run used a 19 s/turn O(nodes×edges) gap scan that read
+> absent edge attributes and flagged every node as a knowledge gap. The large
+> grounded gain is attributable to that fix, not to the curriculum scaffold;
+> the scaffold's own A/B contribution is thinking 5 → 13. The web arm at n=60
+> timed out (2400 s, 207 of 434 probes, no valid summary), so **no n=60 web
+> score is recorded**. The probe-tightening narrative below is retained as
+> history, not as current status.
+
+[PR #438]: https://github.com/oxiverse-ecosystem/ravana/pull/438
 
 **Status (historical):** measured by `scripts/measure_fronts.py`. Scores below
 are from the tightened small-probe run described in this note; see the
