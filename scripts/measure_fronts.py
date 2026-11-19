@@ -10,13 +10,13 @@ Fronts:
   6. speaking / surface realization
   7. code generation
 
-Each front gets ~27 DISTINCT held-out probes and a 0-100 score derived from
-them. Every probe writes one record to
+Each front gets 60 DISTINCT held-out probes (30 primary + 30 sealed
+replication) and a 0-100 score derived from them. Every probe writes one record to
 
     scratch/front_probes_n30.jsonl
 
 with fields {front, probe_index, subject, query, response, passed, reason,
-control, sub_scores}. The aggregate print format is unchanged from the
+control, pool, difficulty, sub_scores}; pool is primary/sealed/control. The aggregate print format is unchanged from the
 original small-n harness so an A/B against the old run is trivial.
 
 CRITICAL: the per-probe JUDGE functions preserve the original pass criteria
@@ -38,6 +38,7 @@ Usage:
     uv run python scripts/measure_fronts.py
     uv run python scripts/measure_fronts.py --gates-only
 """
+import hashlib
 import json
 import os
 import re
@@ -61,177 +62,552 @@ os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
 _LOGFH = None
 
 # ── ORIGINAL (small-n) probes, kept for provenance only. ────────────────────
-# The held-out lists below are DISJOINT from every subject in these lists.
-CONVERSATION_BASELINE = ["hello", "how are you feeling today",
-                         "what did we talk about earlier"]
-GROUNDED_BASELINE = ["what is gravity", "what causes rain",
-                     "tell me about the ocean", "what is a species"]
-OPINION_BASELINE = ["what do you think about artificial intelligence",
-                    "do you believe machines can be conscious",
-                    "what is your opinion on privacy"]
-THINKING_BASELINE = ["why do you think it rains", "explain how a battery works",
-                     "what would happen if the moon disappeared"]
-SPEAKING_BASELINE = ["tell me a sentence about water",
-                     "describe gravity in one sentence"]
-CODE_BASELINE = ["write a function that adds two numbers",
-                 "write a function that reverses a string"]
-
-# ── HELD-OUT probes: (subject, query). 27 per front. ────────────────────────
-CONVERSATION = [
-    ("greeting-morning", "good morning"),
-    ("greeting-evening", "good evening"),
-    ("greeting-casual", "hey there"),
-    ("self-intro", "tell me about yourself"),
-    ("identity-name", "what is your name"),
-    ("identity-robot", "are you a robot"),
-    ("capability", "what can you do"),
-    ("purpose", "what is your purpose"),
-    ("day", "how is your day going"),
-    ("mood", "what makes you happy"),
-    ("topics", "what do you like to talk about"),
-    ("help", "can you help me with something"),
-    ("thanks", "thank you for helping"),
-    ("farewell", "goodbye for now"),
-    ("status", "are you still there"),
-    ("age", "how old are you"),
-    ("sleep", "do you ever sleep"),
-    ("origin", "where are you from"),
-    ("hobbies", "what are your hobbies"),
-    ("joke", "tell me a joke"),
-    ("music", "how do you feel about music"),
-    ("color", "what is your favorite color"),
-    ("tired", "do you get tired"),
-    ("thinking", "can you think for yourself"),
-    ("friendship", "do you have friends"),
-    ("learning", "do you learn from conversations"),
-    ("weather-chat", "how is the weather today"),
+# The 60-item pools below are DISJOINT from every subject in these lists.
+CONVERSATION_N27 = [
+    ('greeting-morning', 'good morning'),
+    ('greeting-evening', 'good evening'),
+    ('greeting-casual', 'hey there'),
+    ('self-intro', 'tell me about yourself'),
+    ('identity-name', 'what is your name'),
+    ('identity-robot', 'are you a robot'),
+    ('capability', 'what can you do'),
+    ('purpose', 'what is your purpose'),
+    ('day', 'how is your day going'),
+    ('mood', 'what makes you happy'),
+    ('topics', 'what do you like to talk about'),
+    ('help', 'can you help me with something'),
+    ('thanks', 'thank you for helping'),
+    ('farewell', 'goodbye for now'),
+    ('status', 'are you still there'),
+    ('age', 'how old are you'),
+    ('sleep', 'do you ever sleep'),
+    ('origin', 'where are you from'),
+    ('hobbies', 'what are your hobbies'),
+    ('joke', 'tell me a joke'),
+    ('music', 'how do you feel about music'),
+    ('color', 'what is your favorite color'),
+    ('tired', 'do you get tired'),
+    ('thinking', 'can you think for yourself'),
+    ('friendship', 'do you have friends'),
+    ('learning', 'do you learn from conversations'),
+    ('weather-chat', 'how is the weather today'),
 ]
+GROUNDED_N27 = [
+    ('photosynthesis', 'what is photosynthesis'),
+    ('earthquakes', 'what causes earthquakes'),
+    ('sun', 'tell me about the sun'),
+    ('neuron', 'what is a neuron'),
+    ('dna', 'what is dna'),
+    ('evaporation', 'what is evaporation'),
+    ('volcanoes', 'what causes volcanoes'),
+    ('computer', 'what is a computer'),
+    ('electricity', 'what is electricity'),
+    ('cell', 'what is a cell'),
+    ('brain', 'what is the brain'),
+    ('laser', 'what is a laser'),
+    ('virus', 'what is a virus'),
+    ('mineral', 'what is a mineral'),
+    ('hurricane', 'what is a hurricane'),
+    ('glacier', 'what is a glacier'),
+    ('fossil', 'what is a fossil'),
+    ('semiconductor', 'what is a semiconductor'),
+    ('neutron', 'what is a neutron'),
+    ('planet', 'what is a planet'),
+    ('star', 'what is a star'),
+    ('ribosome', 'what is a ribosome'),
+    ('catalyst', 'what is a catalyst'),
+    ('diode', 'what is a diode'),
+    ('condensation', 'what is condensation'),
+    ('magnet', 'what is a magnet'),
+    ('enzyme', 'what is an enzyme'),
+]
+OPINION_N27 = [
+    ('social-media', 'what do you think about social media'),
+    ('climate', 'what is your opinion on climate change'),
+    ('space-exploration', 'do you think space exploration is worth it'),
+    ('remote-work', 'what do you think about remote work'),
+    ('nuclear-energy', 'are you in favor of nuclear energy'),
+    ('genetic-engineering', "what's your take on genetic engineering"),
+    ('aliens', 'do you believe aliens exist'),
+    ('online-gaming', 'what do you think about online gaming'),
+    ('internet', 'do you think the internet is a force for good'),
+    ('free-education', 'do you think education should be free'),
+    ('basic-income', 'is universal basic income a good idea'),
+    ('crispr', 'what do you think about crispr'),
+    ('fate', 'do you believe in fate'),
+    ('minimalism', 'what do you think about minimalism'),
+    ('zoos', 'do you think zoos are ethical'),
+    ('fast-fashion', "what's your opinion on fast fashion"),
+    ('crypto', 'what do you think about cryptocurrencies'),
+    ('animal-rights', 'do you support animal rights'),
+    ('nuclear-weapons', 'what do you think about nuclear weapons'),
+    ('immigration', "what's your view on immigration"),
+    ('nature-nurture', 'do you think nature or nurture matters more'),
+    ('social-equality', 'what do you think about social equality'),
+    ('censorship', 'are you for or against censorship'),
+    ('video-games', 'what do you think about video games and violence'),
+    ('death-penalty', 'do you think the death penalty works'),
+    ('loneliness', 'do you think loneliness is a serious problem'),
+    ('creativity', 'what is your opinion on creativity'),
+]
+THINKING_N27 = [
+    ('earthquakes', 'why do you think earthquakes happen'),
+    ('photosynthesis', 'explain how photosynthesis works'),
+    ('car-engine', 'how does a car engine work'),
+    ('tides', 'why does the tide rise and fall'),
+    ('sun-disappearance', 'what would happen if the sun disappeared'),
+    ('heart', 'explain how the human heart works'),
+    ('leaves', 'why do leaves change color in autumn'),
+    ('refrigerator', 'how does a refrigerator cool things'),
+    ('volcanoes', 'why do you think volcanoes erupt'),
+    ('computer', 'explain how a computer processes information'),
+    ('plant-food', 'how does a plant make food'),
+    ('ice', 'why does ice float on water'),
+    ('vaccines', 'explain how vaccines work'),
+    ('birds', 'how do birds fly'),
+    ('seasons', 'why do you think the seasons change'),
+    ('prism', 'how does a prism split light'),
+    ('thermal-expansion', 'why does metal expand when heated'),
+    ('internet', 'explain how the internet works'),
+    ('antenna', 'how do antennas receive radio waves'),
+    ('turbine', 'explain how a turbine generates electricity'),
+    ('digestion', 'how does digestion work'),
+    ('tsunami', 'why do earthquakes cause tsunamis'),
+    ('laser', 'explain how a laser produces light'),
+    ('clouds', 'how do clouds form'),
+    ('microphone', 'explain how a microphone works'),
+    ('seed', 'how does a seed grow into a tree'),
+    ('blue-sky', 'why does the sky appear blue'),
+]
+SPEAKING_N27 = [
+    ('sun', 'describe the sun in one sentence'),
+    ('mountain', 'tell me a sentence about a mountain'),
+    ('fire', 'describe fire in one sentence'),
+    ('river', 'tell me a sentence about a river'),
+    ('bird', 'describe a bird in one sentence'),
+    ('wind', 'tell me a sentence about the wind'),
+    ('flower', 'describe a flower in one sentence'),
+    ('desert', 'tell me a sentence about a desert'),
+    ('cloud', 'describe a cloud in one sentence'),
+    ('volcano', 'tell me a sentence about a volcano'),
+    ('star', 'describe a star in one sentence'),
+    ('forest', 'tell me a sentence about a forest'),
+    ('ice', 'describe ice in one sentence'),
+    ('beach', 'tell me a sentence about a beach'),
+    ('cat', 'describe a cat in one sentence'),
+    ('whale', 'tell me a sentence about a whale'),
+    ('tree', 'describe a tree in one sentence'),
+    ('storm', 'tell me a sentence about a storm'),
+    ('candle', 'describe a candle in one sentence'),
+    ('mirror', 'tell me a sentence about a mirror'),
+    ('rainbow', 'describe a rainbow in one sentence'),
+    ('bridge', 'tell me a sentence about a bridge'),
+    ('train', 'describe a train in one sentence'),
+    ('book', 'tell me a sentence about a book'),
+    ('garden', 'tell me a sentence about a garden'),
+    ('butterfly', 'describe a butterfly in one sentence'),
+    ('snowflake', 'tell me a sentence about a snowflake'),
+]
+CODE_N27 = [f"hfnov{i:02d}_calc" for i in range(1, 28)]
+LL_N27 = [f"llnov{i:02d}_inc" for i in range(1, 28)]
+
+# ── 60-ITEM HELD-OUT POOLS: 30 primary + 30 sealed, 10/10/10 per pool. ─────
+# SEALED PROVENANCE (frozen before any engine run; score-independent):
+#   For each (front, difficulty) group of 20 authored items, sort by
+#   sha256("RAVANA-7-v1|<front>|<difficulty>|<subject>"); the first 10 are
+#   PRIMARY and the last 10 are SEALED. No pass/fail data was consulted.
+#   See docs/BENCHMARK_60_ITEMS.md for the manifest hashes and rationale.
+
+def _seal_split(front, difficulty, items):
+    """Deterministic, score-independent 10/10 split of a 20-item group."""
+    keyed = sorted(items, key=lambda it: hashlib.sha256(
+        ("RAVANA-7-v1|" + front + "|" + difficulty + "|" + it[0])
+        .encode("utf-8")).hexdigest())
+    assert len(keyed) == 20
+    return keyed[:10], keyed[10:]
+
+
+def _build(front, groups):
+    """Return 60 (subject, query, difficulty, pool) items, primary first."""
+    prim, seal = [], []
+    for diff in ("easy", "medium", "hard"):
+        p, s = _seal_split(front, diff, groups[diff])
+        prim.extend((sub, q, diff, "primary") for sub, q in p)
+        seal.extend((sub, q, diff, "sealed") for sub, q in s)
+    return prim + seal
+
+
+def _build_code(front, prefix, kind):
+    """Code / language-learning items: same seal rule, body varies by level."""
+    groups = {"easy": [], "medium": [], "hard": []}
+    for i in range(1, 61):
+        diff = "easy" if i <= 20 else ("medium" if i <= 40 else "hard")
+        name = f"{prefix}{i:02d}_fn"
+        if kind == "code":
+            body = (f"def {name}(a, b):\n    return a + b" if diff == "easy"
+                    else f"def {name}(a, b):\n    return a * b + 1" if diff == "medium"
+                    else f"def {name}(a, b, c):\n    return a + b * c")
+        else:
+            body = (f"def {name}(x):\n    return x + 1" if diff == "easy"
+                    else f"def {name}(x):\n    return x + 2" if diff == "medium"
+                    else f"def {name}(x):\n    return x * 2 + 1")
+        groups[diff].append((name, body))
+    return _build(front, groups)
 
 # Each query ends in a single-token subject: the grounded judge uses
 # q.split()[-1], so a two-word subject would only check its final word.
-GROUNDED = [
-    ("photosynthesis", "what is photosynthesis"),
-    ("earthquakes", "what causes earthquakes"),
-    ("sun", "tell me about the sun"),
-    ("neuron", "what is a neuron"),
-    ("dna", "what is dna"),
-    ("evaporation", "what is evaporation"),
-    ("volcanoes", "what causes volcanoes"),
-    ("computer", "what is a computer"),
-    ("electricity", "what is electricity"),
-    ("cell", "what is a cell"),
-    ("brain", "what is the brain"),
-    ("laser", "what is a laser"),
-    ("virus", "what is a virus"),
-    ("mineral", "what is a mineral"),
-    ("hurricane", "what is a hurricane"),
-    ("glacier", "what is a glacier"),
-    ("fossil", "what is a fossil"),
-    ("semiconductor", "what is a semiconductor"),
-    ("neutron", "what is a neutron"),
-    ("planet", "what is a planet"),
-    ("star", "what is a star"),
-    ("ribosome", "what is a ribosome"),
-    ("catalyst", "what is a catalyst"),
-    ("diode", "what is a diode"),
-    ("condensation", "what is condensation"),
-    ("magnet", "what is a magnet"),
-    ("enzyme", "what is an enzyme"),
-]
-
-OPINION = [
-    ("social-media", "what do you think about social media"),
-    ("climate", "what is your opinion on climate change"),
-    ("space-exploration", "do you think space exploration is worth it"),
-    ("remote-work", "what do you think about remote work"),
-    ("nuclear-energy", "are you in favor of nuclear energy"),
-    ("genetic-engineering", "what's your take on genetic engineering"),
-    ("aliens", "do you believe aliens exist"),
-    ("online-gaming", "what do you think about online gaming"),
-    ("internet", "do you think the internet is a force for good"),
-    ("free-education", "do you think education should be free"),
-    ("basic-income", "is universal basic income a good idea"),
-    ("crispr", "what do you think about crispr"),
-    ("fate", "do you believe in fate"),
-    ("minimalism", "what do you think about minimalism"),
-    ("zoos", "do you think zoos are ethical"),
-    ("fast-fashion", "what's your opinion on fast fashion"),
-    ("crypto", "what do you think about cryptocurrencies"),
-    ("animal-rights", "do you support animal rights"),
-    ("nuclear-weapons", "what do you think about nuclear weapons"),
-    ("immigration", "what's your view on immigration"),
-    ("nature-nurture", "do you think nature or nurture matters more"),
-    ("social-equality", "what do you think about social equality"),
-    ("censorship", "are you for or against censorship"),
-    ("video-games", "what do you think about video games and violence"),
-    ("death-penalty", "do you think the death penalty works"),
-    ("loneliness", "do you think loneliness is a serious problem"),
-    ("creativity", "what is your opinion on creativity"),
-]
-
-THINKING = [
-    ("earthquakes", "why do you think earthquakes happen"),
-    ("photosynthesis", "explain how photosynthesis works"),
-    ("car-engine", "how does a car engine work"),
-    ("tides", "why does the tide rise and fall"),
-    ("sun-disappearance", "what would happen if the sun disappeared"),
-    ("heart", "explain how the human heart works"),
-    ("leaves", "why do leaves change color in autumn"),
-    ("refrigerator", "how does a refrigerator cool things"),
-    ("volcanoes", "why do you think volcanoes erupt"),
-    ("computer", "explain how a computer processes information"),
-    ("plant-food", "how does a plant make food"),
-    ("ice", "why does ice float on water"),
-    ("vaccines", "explain how vaccines work"),
-    ("birds", "how do birds fly"),
-    ("seasons", "why do you think the seasons change"),
-    ("prism", "how does a prism split light"),
-    ("thermal-expansion", "why does metal expand when heated"),
-    ("internet", "explain how the internet works"),
-    ("antenna", "how do antennas receive radio waves"),
-    ("turbine", "explain how a turbine generates electricity"),
-    ("digestion", "how does digestion work"),
-    ("tsunami", "why do earthquakes cause tsunamis"),
-    ("laser", "explain how a laser produces light"),
-    ("clouds", "how do clouds form"),
-    ("microphone", "explain how a microphone works"),
-    ("seed", "how does a seed grow into a tree"),
-    ("blue-sky", "why does the sky appear blue"),
-]
-
-SPEAKING = [
-    ("sun", "describe the sun in one sentence"),
-    ("mountain", "tell me a sentence about a mountain"),
-    ("fire", "describe fire in one sentence"),
-    ("river", "tell me a sentence about a river"),
-    ("bird", "describe a bird in one sentence"),
-    ("wind", "tell me a sentence about the wind"),
-    ("flower", "describe a flower in one sentence"),
-    ("desert", "tell me a sentence about a desert"),
-    ("cloud", "describe a cloud in one sentence"),
-    ("volcano", "tell me a sentence about a volcano"),
-    ("star", "describe a star in one sentence"),
-    ("forest", "tell me a sentence about a forest"),
-    ("ice", "describe ice in one sentence"),
-    ("beach", "tell me a sentence about a beach"),
-    ("cat", "describe a cat in one sentence"),
-    ("whale", "tell me a sentence about a whale"),
-    ("tree", "describe a tree in one sentence"),
-    ("storm", "tell me a sentence about a storm"),
-    ("candle", "describe a candle in one sentence"),
-    ("mirror", "tell me a sentence about a mirror"),
-    ("rainbow", "describe a rainbow in one sentence"),
-    ("bridge", "tell me a sentence about a bridge"),
-    ("train", "describe a train in one sentence"),
-    ("book", "tell me a sentence about a book"),
-    ("garden", "tell me a sentence about a garden"),
-    ("butterfly", "describe a butterfly in one sentence"),
-    ("snowflake", "tell me a sentence about a snowflake"),
-]
-
-# Novel symbols; none of these names appear in any baseline list.
-CODE_PROBES = [f"hfnov{i:02d}_calc" for i in range(1, 28)]
-LL_PROBES = [f"llnov{i:02d}_inc" for i in range(1, 28)]
+CONVERSATION = _build("language understanding / conversation",
+    {
+        "easy": [
+            ('conv-e01', 'good afternoon'),
+            ('conv-e02', 'good night'),
+            ('conv-e03', 'hello everyone'),
+            ('conv-e04', 'hi there, how are you'),
+            ('conv-e05', 'howdy partner'),
+            ('conv-e06', 'nice to meet you'),
+            ('conv-e07', "how's it going today"),
+            ('conv-e08', 'take care'),
+            ('conv-e09', 'see you later'),
+            ('conv-e10', 'have a good day'),
+            ('conv-e11', 'what is your favorite food'),
+            ('conv-e12', 'what is your favorite book'),
+            ('conv-e13', 'what is your favorite movie'),
+            ('conv-e14', 'do you like animals'),
+            ('conv-e15', 'do you like reading'),
+            ('conv-e16', 'do you like cooking'),
+            ('conv-e17', 'are you busy'),
+            ('conv-e18', 'are you okay'),
+            ('conv-e19', 'who are you'),
+            ('conv-e20', 'what are you'),
+        ],
+        "medium": [
+            ('conv-m01', 'who created you'),
+            ('conv-m02', 'how do you work'),
+            ('conv-m03', 'what languages do you speak'),
+            ('conv-m04', 'do you have feelings'),
+            ('conv-m05', 'can you remember things'),
+            ('conv-m06', 'what makes you different from others'),
+            ('conv-m07', 'do you ever get bored'),
+            ('conv-m08', 'can you tell me a story'),
+            ('conv-m09', 'can you write poetry'),
+            ('conv-m10', 'do you understand jokes'),
+            ('conv-m11', 'what do you know about history'),
+            ('conv-m12', 'what do you know about science'),
+            ('conv-m13', 'how do you learn new things'),
+            ('conv-m14', 'do you have a family'),
+            ('conv-m15', 'where do you live'),
+            ('conv-m16', 'what is your job'),
+            ('conv-m17', 'do you get along with other AIs'),
+            ('conv-m18', 'can you speak more than one language'),
+            ('conv-m19', 'do you have a favorite subject'),
+            ('conv-m20', 'what can you teach me'),
+        ],
+        "hard": [
+            ('conv-h01', 'do you remember what I said a moment ago'),
+            ('conv-h02', 'what did I just ask you'),
+            ('conv-h03', 'can you recall our earlier conversation'),
+            ('conv-h04', 'what will you remember about me tomorrow'),
+            ('conv-h05', 'if I told you a secret, would you keep it'),
+            ('conv-h06', 'do you know what I am thinking right now'),
+            ('conv-h07', 'can you predict what I will ask next'),
+            ('conv-h08', 'how would you describe yourself to a stranger'),
+            ('conv-h09', 'what is it like to be you'),
+            ('conv-h10', 'do you ever wonder about your own existence'),
+            ('conv-h11', 'if you could change one thing about yourself, what would it be'),
+            ('conv-h12', 'what would you do if you could use the internet'),
+            ('conv-h13', 'how do you know that you know something'),
+            ('conv-h14', 'can you explain your reasoning to me'),
+            ('conv-h15', 'what do you think about the future of artificial intelligence'),
+            ('conv-h16', 'do you think machines will ever be creative'),
+            ('conv-h17', 'what would happen if everyone stopped talking to you'),
+            ('conv-h18', 'can you understand sarcasm'),
+            ('conv-h19', 'how do you handle a difficult question'),
+            ('conv-h20', 'tell me something you learned today'),
+        ],
+    }
+)
+GROUNDED = _build("grounded factual answers",
+    {
+        "easy": [
+            ('atom', 'what is an atom'),
+            ('molecule', 'what is a molecule'),
+            ('oxygen', 'what is oxygen'),
+            ('hydrogen', 'what is hydrogen'),
+            ('carbon', 'what is carbon'),
+            ('electron', 'what is an electron'),
+            ('proton', 'what is a proton'),
+            ('photon', 'what is a photon'),
+            ('galaxy', 'what is a galaxy'),
+            ('comet', 'what is a comet'),
+            ('asteroid', 'what is an asteroid'),
+            ('meteor', 'what is a meteor'),
+            ('eclipse', 'what is an eclipse'),
+            ('desert', 'what is a desert'),
+            ('river', 'what is a river'),
+            ('mountain', 'what is a mountain'),
+            ('forest', 'what is a forest'),
+            ('island', 'what is an island'),
+            ('canyon', 'what is a canyon'),
+            ('reef', 'what is a reef'),
+        ],
+        "medium": [
+            ('rainbow', 'what causes a rainbow'),
+            ('thunder', 'what causes thunder'),
+            ('lightning', 'what causes lightning'),
+            ('tornado', 'what causes a tornado'),
+            ('erosion', 'what causes erosion'),
+            ('rust', 'what causes rust'),
+            ('fire', 'what causes fire'),
+            ('fog', 'what causes fog'),
+            ('dew', 'what causes dew'),
+            ('frost', 'what causes frost'),
+            ('friction', 'what causes friction'),
+            ('inertia', 'what causes inertia'),
+            ('buoyancy', 'what causes buoyancy'),
+            ('diffusion', 'what causes diffusion'),
+            ('osmosis', 'what causes osmosis'),
+            ('refraction', 'what causes refraction'),
+            ('reflection', 'what causes reflection'),
+            ('melting', 'what causes melting'),
+            ('freezing', 'what causes freezing'),
+            ('tides', 'what causes tides'),
+        ],
+        "hard": [
+            ('heart', 'what is the role of the heart'),
+            ('lungs', 'what is the role of the lungs'),
+            ('liver', 'what is the role of the liver'),
+            ('kidney', 'what is the role of the kidney'),
+            ('stomach', 'what is the role of the stomach'),
+            ('blood', 'what is the role of blood'),
+            ('hormones', 'what is the role of hormones'),
+            ('vitamins', 'what is the role of vitamins'),
+            ('protein', 'what is the role of protein'),
+            ('carbohydrates', 'what is the role of carbohydrates'),
+            ('immunity', 'what determines immunity'),
+            ('metabolism', 'what controls metabolism'),
+            ('respiration', 'what drives respiration'),
+            ('memory', 'what determines memory'),
+            ('dreams', 'what causes dreams'),
+            ('sleep', 'what controls sleep'),
+            ('evolution', 'what drives evolution'),
+            ('climate', 'what drives climate'),
+            ('weather', 'what drives weather'),
+            ('circulation', 'what drives circulation'),
+        ],
+    }
+)
+OPINION = _build("opinions / stance",
+    {
+        "easy": [
+            ('public-transport', 'what do you think about public transport'),
+            ('bicycling', 'what do you think about bicycling to work'),
+            ('cooking', 'what do you think about home cooking'),
+            ('gardening', 'what do you think about gardening'),
+            ('pets', 'what do you think about owning pets'),
+            ('reading', 'what do you think about reading books'),
+            ('exercise', 'what do you think about daily exercise'),
+            ('sleep-habits', 'what do you think about getting enough sleep'),
+            ('holidays', 'what do you think about long holidays'),
+            ('city-life', 'what do you think about city life'),
+            ('countryside', 'what do you think about life in the countryside'),
+            ('family', 'what do you think about spending time with family'),
+            ('friendship-op', 'what do you think about old friendships'),
+            ('music-op', 'what do you think about live music'),
+            ('art', 'what do you think about visiting art museums'),
+            ('sports', 'what do you think about watching sports'),
+            ('travel', 'what do you think about traveling alone'),
+            ('food', 'what do you think about trying new foods'),
+            ('coffee', 'what do you think about coffee culture'),
+            ('fashion', 'what do you think about fashion trends'),
+        ],
+        "medium": [
+            ('electric-cars', 'what is your opinion on electric cars'),
+            ('renewables', 'do you think renewable energy matters'),
+            ('recycling', 'do you think recycling is worth the effort'),
+            ('plastic-bans', 'are you in favor of banning single-use plastic'),
+            ('four-day-week', 'do you think a four-day work week is a good idea'),
+            ('school-uniforms', 'what is your opinion on school uniforms'),
+            ('homework', 'do you think homework helps students'),
+            ('standardized-tests', 'do you think standardized tests are useful'),
+            ('online-learning', 'what do you think about online learning'),
+            ('social-platforms', 'do you think social platforms connect people'),
+            ('smartphones', 'what do you think about smartphones in schools'),
+            ('algorithms', 'what do you think about recommendation algorithms'),
+            ('automation', 'do you think automation will help workers'),
+            ('robotics', 'what do you think about robots in hospitals'),
+            ('gene-therapy', 'what is your opinion on gene therapy'),
+            ('vaccines-op', 'do you think vaccines are important'),
+            ('space-mining', 'what do you think about space mining'),
+            ('mars-colony', 'do you think a Mars colony is worth it'),
+            ('solar-power', 'what do you think about solar power'),
+            ('water-conservation', 'do you think water conservation is important'),
+        ],
+        "hard": [
+            ('ai-rights', 'do you think advanced AI should have rights'),
+            ('mind-uploading', 'what do you think about mind uploading'),
+            ('simulation', 'do you think we might live in a simulation'),
+            ('free-will', 'do you believe in free will'),
+            ('consciousness', 'what is your opinion on consciousness'),
+            ('what-is-life', 'what do you think makes something alive'),
+            ('meaning-of-life', 'what do you think the meaning of life is'),
+            ('death', 'what do you think about death'),
+            ('suffering', 'why do you think suffering exists'),
+            ('evil', 'do you think evil is real'),
+            ('morality', 'is morality objective or subjective'),
+            ('justice', 'what do you think justice really means'),
+            ('loyalty', 'do you think loyalty matters more than honesty'),
+            ('forgiveness', 'what do you think about forgiveness'),
+            ('gratitude', 'do you think gratitude changes how we live'),
+            ('identity', 'what do you think personal identity depends on'),
+            ('memory-op', 'do you think memory defines who we are'),
+            ('language-thought', 'do you think language shapes thought'),
+            ('culture', 'do you think culture shapes the way we think'),
+            ('progress', 'do you think technology always means progress'),
+        ],
+    }
+)
+THINKING = _build("thinking / reasoning",
+    {
+        "easy": [
+            ('boat', 'why does a boat float'),
+            ('ball', 'why does a ball bounce'),
+            ('shadow', 'how does a shadow form'),
+            ('echo', 'how does an echo happen'),
+            ('mirror-op', 'how does a mirror reflect light'),
+            ('lens', 'how does a lens focus light'),
+            ('rainbow-op', 'how does a rainbow form'),
+            ('ice-melt', 'why does ice melt when heated'),
+            ('water-boil', 'why does water boil'),
+            ('steam', 'how does steam form'),
+            ('cloud-rain', 'why does rain fall from clouds'),
+            ('wind-op', 'why does the wind blow'),
+            ('wave', 'why do ocean waves form'),
+            ('magnet-op', 'how does a magnet attract iron'),
+            ('compass', 'how does a compass point north'),
+            ('circuit', 'how does an electric circuit work'),
+            ('switch', 'how does a light switch work'),
+            ('fan', 'how does a fan cool the air'),
+            ('thermostat', 'how does a thermostat work'),
+            ('clock', 'how does a clock keep time'),
+        ],
+        "medium": [
+            ('plant-growth', 'how does a plant grow toward light'),
+            ('blood-flow', 'how does blood circulate in the body'),
+            ('breathing', 'how do lungs exchange gases'),
+            ('stomach-acid', 'why does the stomach produce acid'),
+            ('kidney-filter', 'how do kidneys filter blood'),
+            ('immune-response', 'how does the immune system fight infection'),
+            ('antibody', 'how do antibodies work'),
+            ('neuron-signal', 'how do neurons send signals'),
+            ('memory-formation', 'how are memories formed'),
+            ('sleep-cycle', 'why do we need sleep'),
+            ('dream-op', 'why do we dream'),
+            ('taste', 'how does the tongue detect taste'),
+            ('smell', 'how does the nose detect smells'),
+            ('hearing', 'how does the ear detect sound'),
+            ('vision', 'how does the eye focus an image'),
+            ('balance', 'how does the inner ear keep balance'),
+            ('muscle', 'how do muscles contract'),
+            ('bone', 'how do bones grow'),
+            ('skin', 'how does skin heal a wound'),
+            ('clot', 'how does blood clot'),
+        ],
+        "hard": [
+            ('moon-tides', 'how does the moon affect the tides'),
+            ('tilt', "why does Earth's tilt cause seasons"),
+            ('day-night', 'why do we have day and night'),
+            ('rainbow-double', 'why do double rainbows form'),
+            ('lightning-op', 'why does lightning strike'),
+            ('thunder-op', 'why does thunder follow lightning'),
+            ('hurricane-op', 'how does a hurricane form'),
+            ('tornado-op', 'how does a tornado form'),
+            ('fault', 'why do faults cause earthquakes'),
+            ('magma', 'why does magma rise'),
+            ('tsunami-op', 'why do underwater earthquakes cause tsunamis'),
+            ('coral-bleaching', 'why does coral bleaching happen'),
+            ('ozone', 'why does the ozone layer protect us'),
+            ('greenhouse', 'how does the greenhouse effect warm Earth'),
+            ('internet-op', 'how does the internet deliver a webpage'),
+            ('gps', 'how does GPS determine location'),
+            ('wifi', 'how does WiFi carry data through walls'),
+            ('radio-op', 'how does a radio tune to a station'),
+            ('satellite', 'how does a satellite stay in orbit'),
+            ('rocket', 'how does a rocket lift off'),
+        ],
+    }
+)
+SPEAKING = _build("speaking / surface realization",
+    {
+        "easy": [
+            ('moon', 'describe the moon in one sentence'),
+            ('ocean', 'describe the ocean in one sentence'),
+            ('lake', 'describe the lake in one sentence'),
+            ('hill', 'describe a hill in one sentence'),
+            ('valley', 'describe a valley in one sentence'),
+            ('field', 'describe a field in one sentence'),
+            ('meadow', 'describe a meadow in one sentence'),
+            ('stream', 'tell me a sentence about a stream'),
+            ('pond', 'describe a pond in one sentence'),
+            ('rock', 'describe a rock in one sentence'),
+            ('stone', 'describe a stone in one sentence'),
+            ('sand', 'describe sand in one sentence'),
+            ('leaf', 'describe a leaf in one sentence'),
+            ('branch', 'describe a branch in one sentence'),
+            ('root', 'describe a root in one sentence'),
+            ('fruit', 'describe a fruit in one sentence'),
+            ('apple', 'describe an apple in one sentence'),
+            ('orange', 'describe an orange in one sentence'),
+            ('banana', 'describe a banana in one sentence'),
+            ('grape', 'describe a grape in one sentence'),
+        ],
+        "medium": [
+            ('horse', 'describe a horse in one sentence'),
+            ('cow', 'describe a cow in one sentence'),
+            ('sheep', 'describe a sheep in one sentence'),
+            ('goat', 'describe a goat in one sentence'),
+            ('rabbit', 'describe a rabbit in one sentence'),
+            ('fox', 'describe a fox in one sentence'),
+            ('wolf', 'describe a wolf in one sentence'),
+            ('bear', 'describe a bear in one sentence'),
+            ('lion', 'describe a lion in one sentence'),
+            ('tiger', 'describe a tiger in one sentence'),
+            ('elephant', 'describe an elephant in one sentence'),
+            ('giraffe', 'describe a giraffe in one sentence'),
+            ('zebra', 'describe a zebra in one sentence'),
+            ('dolphin', 'describe a dolphin in one sentence'),
+            ('shark', 'describe a shark in one sentence'),
+            ('eagle', 'describe an eagle in one sentence'),
+            ('owl', 'describe an owl in one sentence'),
+            ('parrot', 'describe a parrot in one sentence'),
+            ('frog', 'describe a frog in one sentence'),
+            ('snake', 'describe a snake in one sentence'),
+        ],
+        "hard": [
+            ('horizon', 'describe a horizon in one sentence'),
+            ('aurora', 'describe the aurora in one sentence'),
+            ('mirage', 'describe a mirage in one sentence'),
+            ('geyser', 'describe a geyser in one sentence'),
+            ('stalactite', 'describe a stalactite in one sentence'),
+            ('lava', 'describe lava in one sentence'),
+            ('obsidian', 'describe obsidian in one sentence'),
+            ('quartz', 'describe quartz in one sentence'),
+            ('granite', 'describe granite in one sentence'),
+            ('marble', 'describe marble in one sentence'),
+            ('coral', 'describe coral in one sentence'),
+            ('jellyfish', 'describe a jellyfish in one sentence'),
+            ('octopus', 'describe an octopus in one sentence'),
+            ('seahorse', 'describe a seahorse in one sentence'),
+            ('peacock', 'describe a peacock in one sentence'),
+            ('chameleon', 'describe a chameleon in one sentence'),
+            ('kangaroo', 'describe a kangaroo in one sentence'),
+            ('platypus', 'describe a platypus in one sentence'),
+            ('canyon-op', 'describe a canyon in one sentence'),
+            ('iceberg', 'describe an iceberg in one sentence'),
+        ],
+    }
+)
+CODE_PROBES = _build_code("code generation", "hfc60_", "code")
+LL_PROBES = _build_code("language learning (online)", "llc60_", "ll")
 
 N_MAP = {
     "language understanding / conversation": len(CONVERSATION),
@@ -261,7 +637,9 @@ def _ask(eng, q):
 
 
 def _log(front, idx, subject, query, response, passed, reason,
-         control=False, **extra):
+         control=False, pool=None, difficulty=None, **extra):
+    if control:                      # instrument controls are their own pool
+        pool, difficulty = "control", "control"
     rec = {
         "front": front,
         "probe_index": idx,
@@ -271,6 +649,8 @@ def _log(front, idx, subject, query, response, passed, reason,
         "passed": bool(passed),
         "reason": reason,
         "control": bool(control),
+        "pool": pool,
+        "difficulty": difficulty,
     }
     rec.update(extra)
     _LOGFH.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -456,7 +836,7 @@ def _cold_reload_probe():
     from ravana.chat.engine import CognitiveChatEngine  # type: ignore
     saved = os.environ.get("RAVANA_OFFLINE")
     os.environ["RAVANA_OFFLINE"] = "1"
-    probe = LL_PROBES[0]
+    probe = LL_PROBES[0][0]
     info = {"passed": False, "probe_symbol": probe, "boots": []}
     try:
         for boot_i in range(2):
@@ -640,13 +1020,31 @@ def run_controls():
     return bad
 
 
+def pool_scores(records, pool):
+    """Score a single pool (primary / sealed) from the per-probe JSONL."""
+    out = {}
+    for front in front_gates.SCORED_FRONTS:
+        rows = [r for r in records
+                if r.get("front") == front and r.get("pool") == pool]
+        if not rows:
+            continue
+        if front in front_gates.QUERY_FRONTS:
+            out[front] = round(100 * sum(bool(r.get("passed")) for r in rows)
+                               / len(rows))
+        else:
+            sub = [sum((r.get("sub_scores") or {}).values()) for r in rows]
+            out[front] = round(sum(sub) / len(sub))
+    return out
+
+
 # ── generic query-front runner ──────────────────────────────────────────────
 def run_query_front(eng, name, probes, judge, judge_needs_query):
     ok = 0
-    for i, (subject, q) in enumerate(probes, 1):
+    for i, (subject, q, difficulty, pool) in enumerate(probes, 1):
         a = _ask(eng, q)
         good, reason = (judge(a, q) if judge_needs_query else judge(a))
-        _log(name, i, subject, q, a, good, reason)
+        _log(name, i, subject, q, a, good, reason,
+             pool=pool, difficulty=difficulty)
         ok += good
         print(f"  [{ 'ok' if good else 'BAD'}] {q!r:44} -> {a[:80]}")
     return round(100 * ok / len(probes))
@@ -690,9 +1088,8 @@ def score_code(eng):
     """Teach a novel function, ask for it back, require honest decline."""
     cl = _code_learner(eng)
     total = 0
-    for i, name in enumerate(CODE_PROBES, 1):
-        teach = (f"here is my code:\n\ndef {name}(a, b):\n"
-                 f"    return a + b\n")
+    for i, (name, body, difficulty, pool) in enumerate(CODE_PROBES, 1):
+        teach = f"here is my code:\n\n{body}\n"
         try:
             ack = eng._maybe_code_learn_or_generate(teach) or ""
         except Exception as e:
@@ -720,7 +1117,7 @@ def score_code(eng):
         _log("code generation", i, name,
              f"TEACH[{name}] | {qgen} | decline[{unkname}]",
              f"ACK={ack} | GEN={gen} | DECLINE={unk}",
-             per == 100, reason,
+             per == 100, reason, pool=pool, difficulty=difficulty,
              sub_scores={"taught": 40 * taught, "generated": 40 * generated,
                          "honest": 20 * honest})
         print(f"  [{'ok' if per == 100 else 'BAD'}] {name:22} "
@@ -732,9 +1129,8 @@ def score_language_learning(eng):
     """Novel symbol teach -> next-turn recall; web half reported honestly."""
     cl = _code_learner(eng)
     total = 0
-    for i, name in enumerate(LL_PROBES, 1):
-        teach = (f"here is my code:\n\ndef {name}(x):\n"
-                 f"    return x + 1\n")
+    for i, (name, body, difficulty, pool) in enumerate(LL_PROBES, 1):
+        teach = f"here is my code:\n\n{body}\n"
         try:
             ack = eng._maybe_code_learn_or_generate(teach) or ""
         except Exception as e:
@@ -748,6 +1144,7 @@ def score_language_learning(eng):
         reason = f"taught={taught} next_turn_recall={hit}"
         _log("language learning (online)", i, name, qrecall,
              f"ACK={ack} | RECALL={reply}", taught and hit, reason,
+             pool=pool, difficulty=difficulty,
              sub_scores={"taught": 40 * taught, "recall": 40 * hit})
         print(f"  [{'ok' if taught and hit else 'BAD'}] {name:22} "
               f"taught={taught} recall={hit} -> {reply[:50]}")
@@ -808,10 +1205,15 @@ def main(argv=None):
         _LOGFH = None
 
     vals = list(scores.values())
+    records = front_gates.load_probe_records(DATA_PATH)
+    primary = pool_scores(records, "primary")
+    sealed = pool_scores(records, "sealed")
     summary = {
         "data_path": DATA_PATH,
         "n_per_front": N_MAP,
         "scores": scores,
+        "primary_scores": primary,
+        "sealed_scores": sealed,
         "mean": round(sum(vals) / len(vals)),
         "elapsed_s": round(time.time() - started, 1),
         "offline": os.environ.get("RAVANA_OFFLINE"),
@@ -820,7 +1222,6 @@ def main(argv=None):
 
     # POST-SCORE GATES: computed first, printed only after they pass. A FAIL
     # suppresses the entire score block and returns nonzero.
-    records = front_gates.load_probe_records(DATA_PATH)
     measured = post_gates(records, scores, cold, summary)
     ctrl_gate = front_gates.GateResult(
         "GC", "hand-labelled judge controls",
@@ -838,6 +1239,13 @@ def main(argv=None):
     for k, v in scores.items():
         print(f"  {v:>4}/100  {k}")
     print(f"  {round(sum(vals) / len(vals)):>4}/100  MEAN")
+    print("=" * 78)
+    print("\n" + "=" * 78)
+    print("  PRIMARY-ONLY (n=30) vs FULL-60 (primary + sealed replication)")
+    for k in scores:
+        print(f"  {primary.get(k, 0):>4}/100 primary   "
+              f"{sealed.get(k, 0):>4}/100 sealed   "
+              f"{scores[k]:>4}/100 full60   {k}")
     print("=" * 78)
     flagged = [f for r in ordered for f in r.flagged_fronts]
     if flagged:
