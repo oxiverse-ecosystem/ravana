@@ -4,6 +4,23 @@
 **Measured at:** commit `2766a80`, `RAVANA_OFFLINE=1`, ONE process, scratch `data_dir` copy, NO `eng.save()`.
 **Status:** measured. **Verdict: no within-session learning is demonstrable through the default teaching path.** The instrument is valid (its positive control fires), so the flat curve is a real property of the current write path, not a probe artifact.
 
+> **CURRENT MEASUREMENT (main `41ec83a`, after PR #438 and the curriculum
+> scaffold).** Re-ran the same harness with identical policy. The verdict above
+> is now superseded:
+>
+> | arm | answer-chain rate before → after | delta |
+> |---|---|---:|
+> | TEACH_BOTH (n=12) | 0.000 → **0.583** | **+0.583** |
+> | NO_TEACH_CONTROL (n=6) | 0.167 → 0.167 | 0.000 |
+> | DEF_ONLY_CONTROL (n=6) | 0.000 → 0.000 | 0.000 |
+> | WEB_UNGATED_POSITIVE (n=6) | 0.000 → 0.333 | +0.500 |
+>
+> 19 new trusted causal edges in TEACH_BOTH, both controls flat. The positive
+> control confirms the instrument can still detect learning; the earlier
+> +0.833 figure was from a different engine state and is historical. The tables
+> below record that earlier state and are retained as history, not as current
+> status. Run output: `scratch/car_curve.txt`, `scratch/learning_curve_audit.json`.
+
 ---
 
 ## 1. Why this metric, grounded in how human learning is measured
