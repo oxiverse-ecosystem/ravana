@@ -884,6 +884,64 @@ class GraphMixin:
         except Exception:
             return None
 
+    def _seed_curriculum_causal(self) -> int:
+        """Load the authored causal scaffold with curriculum provenance.
+
+        This is SCAFFOLDING (docs/...): it gives the explanation mechanism
+        enough trusted chains to be testable offline. It is NOT evidence of
+        learning, and it never touches web-derived provenance. Schemas propose;
+        sources admit -- web edges keep their own source and two-source rule.
+        """
+        path = os.path.join(_proj_root, "data", "curriculum", "causal_chains.json")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                doc = json.load(fh)
+        except Exception:
+            return 0
+        graph = getattr(self, "graph", None)
+        if graph is None:
+            return 0
+        written = 0
+        for chain in (doc.get("chains") or []):
+            subject = str(chain.get("subject") or "").strip()
+            if not subject:
+                continue
+            for hop in (chain.get("hops") or []):
+                src = str(hop.get("from") or "").strip()
+                tgt = str(hop.get("to") or "").strip()
+                if not src or not tgt:
+                    continue
+                try:
+                    self._ensure_relation(src, tgt, "causal", 0.8)
+                    s_ids = (self._concept_keywords.get(src) or
+                             self._concept_keywords.get(src.lower()) or [])
+                    t_ids = (self._concept_keywords.get(tgt) or
+                             self._concept_keywords.get(tgt.lower()) or [])
+                    if not s_ids or not t_ids:
+                        continue
+                    edge = graph.get_edge(s_ids[0], t_ids[0])
+                    if edge is None:
+                        continue
+                    md = (edge._ensure_source_metadata()
+                          if hasattr(edge, "_ensure_source_metadata")
+                          else getattr(edge, "source_metadata", None))
+                    if not isinstance(md, dict):
+                        continue
+                    kind = md.get("edge_kind")
+                    if kind not in (None, "curated"):
+                        continue  # never downgrade a web/conversation edge
+                    md.update({
+                        "edge_kind": "curriculum",
+                        "source": "curriculum:authored:" + subject,
+                        "evidence": str(hop.get("evidence") or ""),
+                        "acquired_by": "authored_scaffold",
+                    })
+                    edge.relation_type = "causal"
+                    written += 1
+                except Exception:
+                    continue
+        return written
+
     def _ensure_relation(self, src: str, tgt: str, rel_type: str,
                          weight: float) -> None:
         """Idempotently ensure a typed edge src->tgt exists in the graph.
