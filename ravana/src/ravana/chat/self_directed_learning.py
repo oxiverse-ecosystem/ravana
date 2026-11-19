@@ -43,15 +43,22 @@ class SelfDirectedLearner:
                 return 1.0 - math.exp(-max(0.0, support_count) / 4.0)
         graph = getattr(eng, "graph", None)
         nodes = getattr(graph, "nodes", {}) if graph is not None else {}
+        edges = getattr(graph, "edges", {}) if graph is not None else {}
+        # ONE pass over edges, not a scan of every edge for every node.
+        # The old O(nodes*edges) loop cost ~50 s/turn (380M getattr calls) and
+        # made the 60-item harness impossible to complete.
+        degree: Dict[Any, int] = {}
+        edge_values = edges.values() if hasattr(edges, "values") else edges
+        for e in edge_values:
+            s = getattr(e, "source", None)
+            t = getattr(e, "target", None)
+            if s is not None:
+                degree[s] = degree.get(s, 0) + 1
+            if t is not None:
+                degree[t] = degree.get(t, 0) + 1
         for nid, node in list(nodes.items()):
             label = getattr(node, "label", None) or str(nid)
-            support = float(getattr(node, "prediction_free_energy", 0.0) or 0.0)
-            # support proxy: edge count if available
-            edges = getattr(graph, "edges", {})
-            ec = 0
-            for e in edges.values() if hasattr(edges, "values") else []:
-                if getattr(e, "source", None) == nid or getattr(e, "target", None) == nid:
-                    ec += 1
+            ec = degree.get(nid, 0)
             conf = fok_confidence(ec, False, 0.0)
             if conf < threshold and len(label) >= 3:
                 self.gaps.append(KnowledgeGap(label, conf, float(ec)))
