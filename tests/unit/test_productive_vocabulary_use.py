@@ -148,3 +148,42 @@ def test_cue_frame_association_survives_state_roundtrip():
     restored = type(e.syntactic_assembly)()
     restored.set_state(state)
     assert restored.cue_frame_weights[("FUNCTION", "zorblat")]["PROPERTY"] == 5.0
+
+
+def test_listener_grounding_signal_maps_observable_behaviour():
+    e = _engine()
+    cases = {
+        "no, that's not what i meant": -0.7,   # repair demand (no flag set)
+        "you got it wrong": -0.7,               # repair demand
+        "thanks, that helps": 0.5,               # acknowledgment
+        "tell me more about that": 0.5,          # continuation
+        "the weather is nice today": 0.0,        # no evidence
+    }
+    for text, expected in cases.items():
+        got = e._listener_grounding_signal(text)
+        assert got == expected, (text, got, expected)
+    # An explicit correction flag is a high-precision override.
+    e.user_model.detected_correction_type = "direct"
+    assert e._listener_grounding_signal("whatever") == -1.0
+
+
+def test_repair_demotes_chosen_frame_and_lifts_alternatives():
+    e = _engine()
+    table = e._cue_frame_table()
+    table.setdefault(("FUNCTION", "zorblat"), {})["FUNCTION"] = 1.0
+    e._last_cue_frame = ("zorblat", "FUNCTION", "FUNCTION")
+    e.user_model.detected_correction_type = None
+    e.process_turn("no, that's wrong")
+    row = e._cue_frame_table()[("FUNCTION", "zorblat")]
+    assert row["FUNCTION"] < 1.0, row
+    assert row.get("PROPERTY", 0.0) > 0.0, row
+
+
+def test_neutral_turn_does_not_strongly_reinforce():
+    e = _engine()
+    table = e._cue_frame_table()
+    table.setdefault(("FUNCTION", "zorblat"), {})["FUNCTION"] = 1.0
+    e._last_cue_frame = ("zorblat", "FUNCTION", "FUNCTION")
+    e.process_turn("the weather is nice today")
+    row = e._cue_frame_table()[("FUNCTION", "zorblat")]
+    assert abs(row["FUNCTION"] - 1.0) <= 0.01, row
