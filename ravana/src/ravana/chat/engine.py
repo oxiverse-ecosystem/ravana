@@ -7977,6 +7977,48 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             return None
 
+    def _listener_grounding_signal(self, user_input: str) -> float:
+        """Implicit listener feedback from the next user turn, in [-1, 1].
+
+        The internal quality score rates RAVANA's own text and cannot see the
+        listener. Humans use other-initiated repair and grounding evidence
+        (Schegloff, Jefferson & Sacks 1977; Clark & Brennan 1991; Clark &
+        Krych 2004); chat has analogous observable signals:
+
+          explicit correction / supplied fact -> -1.0 (high precision)
+          re-ask / sentiment drop             -> -0.5
+          repair demand ("no", "i meant")     -> -0.7
+          acknowledgment / continuation       -> +0.5 / +0.4
+          otherwise                           ->  0.0 (no evidence)
+
+        No single implicit signal is ground truth (Joachims et al. 2005),
+        so weights move in small increments over several turns.
+        """
+        t = (user_input or "").lower().strip()
+        if not t:
+            return 0.0
+        ctype = getattr(getattr(self, "user_model", None),
+                        "detected_correction_type", None)
+        cval = getattr(ctype, "value", str(ctype) if ctype else "")
+        if cval in ("direct", "fact"):
+            return -1.0
+        if cval in ("reask", "sentiment"):
+            return -0.5
+        if re.search(
+                r"\b(no|nope|wrong|incorrect|huh|i meant|not what i|"
+                r"that'?s not|you got it wrong)\b", t):
+            return -0.7
+        if re.search(
+                r"\b(thanks|thank you|got it|exactly|yes|yeah|go on|"
+                r"tell me more|another|more|else|also)\b", t):
+            return 0.5
+        try:
+            if self._is_follow_up(user_input):
+                return 0.4
+        except Exception:
+            pass
+        return 0.0
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed.
 
@@ -11737,25 +11779,35 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
 
         # Brain-inspired Syntactic & Construction Grammar Feedback Learning
         user_understood = (quality_score >= 0.55)
-        # Usage-based cue-to-frame reinforcement: the frame chosen by
-        # _productive_use_response is reinforced by the same online quality
-        # signal already used for the M16 frames and surface variants.
-        # Accepted -> +0.05 on the chosen frame; rejected -> -0.025 and a
-        # smaller nudge to the alternatives (NoGo), so competitors can win.
+        # Usage-based cue-to-frame reinforcement. quality_score is a GATE for
+        # fluency/salad, not the teacher: it rates our own text and cannot see
+        # the listener. Listener grounding comes from the next user turn's
+        # observable behaviour (repair, re-ask, continuation, acknowledgment).
+        # Steps are small so no single biased signal dominates.
         _last_cf = getattr(self, "_last_cue_frame", None)
         if _last_cf:
             try:
                 _w, _cue, _frame = _last_cf
                 _table = self._cue_frame_table()
                 _row = _table.setdefault((str(_cue), str(_w)), {})
-                if user_understood:
-                    _row[_frame] = float(_row.get(_frame, 0.0)) + 0.05
+                _listener = self._listener_grounding_signal(
+                    getattr(self, "_last_user_input", "") or "")
+                if _listener == 0.0:
+                    _delta = 0.005 if user_understood else -0.01
+                elif _listener < 0.0:
+                    # Repair / correction: high-precision negative override.
+                    _delta = 0.08 * _listener
                 else:
-                    _row[_frame] = float(_row.get(_frame, 0.0)) - 0.025
+                    # Continuation: reinforce only if the internal gate passed.
+                    _delta = (0.02 + 0.03 * _listener
+                              if user_understood else -0.01)
+                _row[_frame] = float(_row.get(_frame, 0.0)) + _delta
+                if _delta < 0.0:
                     for _alt in ("FUNCTION", "PART_WHOLE", "LOCATIVE",
                                  "PROPERTY", "NONE_COUNTER"):
                         if _alt != _frame:
-                            _row[_alt] = float(_row.get(_alt, 0.0)) + 0.01
+                            _row[_alt] = float(_row.get(_alt, 0.0)) + (
+                                -_delta * 0.2)
             except Exception:
                 pass
             self._last_cue_frame = None
