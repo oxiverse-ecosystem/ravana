@@ -11,7 +11,9 @@ down. It was not. Corrected below.
 > the closest i get to rain is water and maybe fall — and from what i've seen,
 > water is a transparent, tasteless, odourless liquid (H2O)...
 
-The seven-fronts probe marks this BAD, so grounded reads 75 instead of 100.
+The seven-fronts probe (small, historical probe set) marks this BAD, so
+grounded reads 75 instead of 100. At the current honest n=60 measurement
+grounded is **17/100** — see `BENCHMARK_60_ITEMS.md` §4.
 **That is correct scoring of a real gap.** Before #390 the same query returned
 "Rain leads to heat, and that in turn leads to climate" — a false causal claim
 that PASSED the probe. The score fell because the probe got better at catching

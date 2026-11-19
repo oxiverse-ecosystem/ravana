@@ -11,15 +11,25 @@ criteria C1–C5), `BRAIN_CAUSAL_SUBSTRATE.md` (acquisition criteria G1–G5),
 `PLAN_ROUTE_REPLICATION.md`. `PASSIVE_WEB_LEARNING.md` does not exist in this
 tree.
 
-**Bottom line.** Production is sound; **acquisition is the deficit**. Only two
-subjects have a verified trusted 2-hop chain (`sun→light→photosynthesis`,
-`water vapour→clouds→rain`); the THINKING front is 19 offline / 41 web at n=27
-(`BRAIN_CAUSAL_SUBSTRATE.md:6-10`). The narrowest correct lever is **not** a web
-loop, a lower trust gate, or schema relabelling: it is a bounded offline pass
-that promotes explicit causal propositions **already present in RAVANA's stored
-definitions** into provenance-stamped `definition`/`curated` edges through the
-existing seed writer, with verified chain shapes used only to choose which
-definitions to inspect.
+> **Superseded (2026-11-19).** This bottom line was a read-only proposal at tree
+> `6aabeda`, not current status. Production is sound; **acquisition is the
+> deficit**. Only two subjects have a verified trusted 2-hop chain
+> (`sun→light→photosynthesis`, `water vapour→clouds→rain`); the THINKING front
+> was 19 offline / 41 web **at n=27** (`BRAIN_CAUSAL_SUBSTRATE.md:6-10`).
+> **Current n=60:** honest offline thinking is **8/100** (primary 10, sealed 7)
+> — see `BENCHMARK_60_ITEMS.md` §4. The web arm at n=60 timed out (2400 s, 207
+> of 434 probes, no valid summary), so **no n=60 web score exists**; do not read
+> the 41 above as current.
+>
+> This map proposed that the narrowest correct lever was a bounded offline
+> pass promoting explicit causal propositions **already present in RAVANA's
+> stored definitions** into provenance-stamped `definition`/`curated` edges,
+> with verified chain shapes used only to choose which definitions to inspect.
+> **That proposal was implemented, measured as a no-op, and REVERTED**:
+> `WRITE_N=0`, `CANDIDATES=0` (only 8 of 583 definitions contain a causal-ish
+> connective, most false positives). See `BRAIN_CAUSAL_SUBSTRATE.md` §10. More
+> substrate must come from web reading with the network on or from authored
+> curriculum edges — not from reinterpreting stored definitions.
 
 ---
 
