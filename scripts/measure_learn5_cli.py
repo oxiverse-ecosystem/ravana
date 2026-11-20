@@ -433,6 +433,16 @@ def apply_replay_overlay(graph, replay_memory, replay_on):
         if s not in graph.nodes or t not in graph.nodes:
             continue
         live = graph.get_edge(s, t)
+        # A hop that survived maintenance intact (causal + earned provenance) is
+        # left UNTOUCHED in both arms. The overlay only repairs DAMAGED hops
+        # (deleted, relation-flipped, or stripped of provenance). Stripping a
+        # healthy trusted edge in the OFF arm would sabotage the control beyond
+        # the intended wrong-tag manipulation (measured: ret_off collapsed to 0).
+        if (live is not None
+                and getattr(live, "relation_type", "") == "causal"
+                and isinstance(getattr(live, "source_metadata", None), dict)
+                and live.source_metadata.get("edge_kind") in EARNED_EDGE_KINDS):
+            continue
         if live is None:
             live = graph.add_edge(s, t, weight=rec["weight"],
                                   relation_type="causal",
@@ -527,11 +537,21 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
     overlay_n = apply_replay_overlay(eng.graph, replay_memory, replay_on)
     overlay_secs = time.time() - t1
 
+    # Work counters (the real compute-parity measure, independent of first-arm
+    # wall-clock warmup): sum the maintenance iteration counts across cycles.
+    # Identical post-B snapshots => identical counters in both arms.
+    work = {"edges_strengthened": 0, "edges_pruned": 0, "rem_flipped_edges": 0,
+            "rem_counterfactual_edges": 0, "rem_creative_edges": 0,
+            "rem_emotional_decays": 0, "episodic_consolidated": 0}
+    for mm in metrics:
+        for kk in work:
+            work[kk] += int(mm["sleep_cycle"].get(kk, 0))
+
     return {"arm": arm, "replay_on": bool(replay_on), "cycles": cycles,
             "replay_steps_per_cycle": steps,
             "wall_secs": round(maint_secs + overlay_secs, 4),
             "maint_secs": round(maint_secs, 4), "overlay_secs": round(overlay_secs, 4),
-            "overlay_edges": overlay_n, "metrics": metrics}
+            "overlay_edges": overlay_n, "work": work, "metrics": metrics}
 
 
 def transfer_lex_copy(answer, taught_tokens):
@@ -715,7 +735,9 @@ def summarize_pool(pool_name, a_pool, b_pool, t_pool, recs):
                     "on_overlay_edges": on["sleep"].get("overlay_edges", 0),
                     "off_overlay_edges": off["sleep"].get("overlay_edges", 0),
                     "on_maint_secs": on["sleep"].get("maint_secs", 0.0),
-                    "off_maint_secs": off["sleep"].get("maint_secs", 0.0)},
+                    "off_maint_secs": off["sleep"].get("maint_secs", 0.0),
+                    "on_work": on["sleep"].get("work", {}),
+                    "off_work": off["sleep"].get("work", {})},
     }
 
 
@@ -740,12 +762,13 @@ def decide(summaries, controls, pool_names):
             s["transfer_struct"] >= PASS_TRANSFER_STRUCT, s["transfer_struct"])
         add("%s: lexical copy <= %.2f" % (p, PASS_LEX_COPY),
             s["lexical_copy"] <= PASS_LEX_COPY, s["lexical_copy"])
-        add("%s: compute matched (wall clock +/-10%%, steps, cycles & overlay equal)" % p,
+        add("%s: compute matched (work counters, steps, cycles & overlay equal; wall +/-10%%)" % p,
             (COMPUTE_RATIO_LO <= s["compute"]["on_secs"] /
              max(s["compute"]["off_secs"], 1e-9) <= COMPUTE_RATIO_HI
              and s["compute"]["on_steps"] == s["compute"]["off_steps"]
              and s["compute"]["on_cycles"] == s["compute"]["off_cycles"]
-             and s["compute"].get("on_overlay_edges", 0) == s["compute"].get("off_overlay_edges", 0)),
+             and s["compute"].get("on_overlay_edges", 0) == s["compute"].get("off_overlay_edges", 0)
+             and s["compute"].get("on_work", {}) == s["compute"].get("off_work", {})),
             s["compute"])
         # Hard fail bounds (explicit in the task).
         add("%s: NOT fail (sleep-on >= %.2f)" % (p, FAIL_RET_FLOOR),
@@ -779,6 +802,27 @@ def main():
     builtins.print = _filtered_print
     t_start = time.time()
     commit = os.popen("git -C %s rev-parse --short HEAD" % PROJ).read().strip()
+
+    # Warmup: pay one-time lazy init (faiss / numba / JIT) on a tiny synthetic
+    # graph BEFORE any measured arm, so the first arm's wall-clock is not
+    # inflated by initialization the later arms skip (compute-parity hygiene).
+    try:
+        import numpy as _np
+        from ravana_ml.graph import ConceptGraph as _CG
+        from ravana.core.sleep import SleepConsolidation as _SC
+        _wg = _CG(dim=8)
+        for _i in range(6):
+            _v = _np.random.RandomState(_i).randn(8).astype("float32")
+            _v /= (_np.linalg.norm(_v) + 1e-9)
+            _wg.add_node(vector=_v, label="w%d" % _i)
+        for _i in range(5):
+            _wg.add_edge(_i, _i + 1, weight=0.5, relation_type="causal",
+                         confidence=0.5)
+        _SC().run_cycle(graph=_wg, episodic_buffer=[], episodic_triples=[],
+                        belief_store=None, topic_list=[], user_model=None,
+                        impossible_queries=[], contradiction_map={})
+    except Exception:
+        pass
 
     # FIX BANKS + SPLIT BEFORE ANY ENGINE BOOT.
     a_all = assign_difficulty(_build(_A_CANDIDATES, "A"),
