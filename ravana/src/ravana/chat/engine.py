@@ -13216,8 +13216,61 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # branch would otherwise abort the ENTIRE load -- silently booting a
             # blank mind every round. ravana_unpickler degrades just that class
             # to an inert placeholder and records it. See state_compat.py.
-            with open(self._save_path, 'rb') as f:
-                state = ravana_unpickler(f).load()
+            try:
+                with open(self._save_path, 'rb') as f:
+                    state = ravana_unpickler(f).load()
+            except Exception as _parse_err:
+                # The primary snapshot is unreadable (e.g. a truncated pickle
+                # from a save killed mid-write — EOFError). Do NOT silently cold
+                # start and discard the learned graph. Rehydrate from the ACID
+                # SQLite mirror written on every save(): complementary learning
+                # systems (McClelland, McNaughton & O'Reilly 1995, Psychol Rev
+                # 102:419-457) — the slow, durable neocortical store retains the
+                # semantic structure when the fast hippocampal snapshot is
+                # damaged. Provenance is preserved wherever the mirror holds it
+                # (source_metadata column); non-graph state resets to defaults.
+                print(f"  [Load recover] primary snapshot unreadable "
+                      f"({type(_parse_err).__name__}: {_parse_err}); rehydrating "
+                      f"graph from the ACID SQLite mirror instead of cold start.")
+                _rec_graph = ConceptGraph(dim=self.dim,
+                                          max_nodes=getattr(self, '_max_nodes', 20000),
+                                          rng=self.rng)
+                try:
+                    self.db.load_graph(_rec_graph)
+                except Exception as _db_err:
+                    print(f"  [Load recover] SQLite mirror unavailable "
+                          f"({_db_err}); falling back to cold start.")
+                    return False
+                if not _rec_graph.nodes:
+                    print("  [Load recover] mirror empty; falling back to cold start.")
+                    return False
+                _ck = {}
+                for _nid, _n in _rec_graph.nodes.items():
+                    if getattr(_n, 'label', None):
+                        _ck.setdefault(_n.label.lower(), []).append(_nid)
+                if self.hrr_reasoner is not None:
+                    _rec_graph._fact_encode_hook = self._hrr_encode_hook
+                    _rec_graph.dual_code = self.dual_code
+                state = {
+                    'graph': _rec_graph,
+                    'concept_keywords': _ck,
+                    'turn_count': 0,
+                    'last_responses': [],
+                    'last_strategy': '',
+                    'free_energy': self._free_energy,
+                    'learning_count': 0,
+                    'identity_state': self.identity.state,
+                    'identity_momentum': 0.0,
+                    'vad_valence': self.emotion.state.valence,
+                    'vad_arousal': self.emotion.state.arousal,
+                    'vad_dominance': self.emotion.state.dominance,
+                    'meaning_accumulated': self.meaning.accumulated_meaning,
+                    'rng_state': self.rng.get_state(),
+                    'definitions': self.db.load_metadata('definitions') or {},
+                    'curated_definitions': self.db.load_metadata('curated_definitions') or [],
+                }
+                print(f"  [Load recover] rehydrated {len(_rec_graph.nodes)} nodes / "
+                      f"{len(_rec_graph.edges)} edges; non-graph state reset to defaults.")
             _dropped = report_dropped()
             if _dropped:
                 print(_dropped)

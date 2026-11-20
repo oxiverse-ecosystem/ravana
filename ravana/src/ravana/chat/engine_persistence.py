@@ -178,6 +178,35 @@ from ravana.learn.consolidation import HippocampalReplay
 from ravana.language.register import RegisterController
 
 
+def _atomic_pickle_dump(obj, fpath):
+    """Write a pickle atomically: dump to a sibling temp file, fsync, then
+    os.replace onto the target. A process killed mid-dump (SIGTERM on a gateway
+    restart, OOM, timeout) can then NEVER leave a truncated authoritative
+    snapshot — the target is either the old complete file or the new complete
+    file, never a half-written one.
+
+    Root cause of the 2026-11-19 grounded-front collapse: the prior
+    `open(fpath,'wb'); pickle.dump(...)` truncated weights/ravana_weights.pkl
+    when the web-arm run was killed mid-save (EOFError on next boot), and the
+    engine silently cold-started, discarding the learned graph. Atomic rename
+    is the standard durability guarantee (write-ahead / shadow-paging), the
+    engineering analogue of keeping the prior consolidated trace intact until
+    the new one is fully stable.
+    """
+    import pickle
+    tmp = f"{fpath}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "wb") as _f:
+            pickle.dump(obj, _f, protocol=5)
+            _f.flush()
+            os.fsync(_f.fileno())
+        os.replace(tmp, fpath)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 class PersistenceMixin:
@@ -242,8 +271,7 @@ class PersistenceMixin:
         """
         import pickle
         try:
-            with open(fpath, 'wb') as _f:
-                pickle.dump(state, _f)
+            _atomic_pickle_dump(state, fpath)
             return True
         except (TypeError, pickle.PicklingError):
             pass
@@ -370,8 +398,7 @@ class PersistenceMixin:
                 return PLACEHOLDER.format(type(obj).__name__)
 
             sane = _sanitize(state)
-            with open(fpath, 'wb') as _f:
-                pickle.dump(sane, _f)
+            _atomic_pickle_dump(sane, fpath)
             return True
         except Exception:
             return False
