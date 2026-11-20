@@ -524,6 +524,11 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
         maint_secs = cached["maint_secs"]
         metrics = cached["metrics"]
         work = dict(cached["work"])
+        # Use the SAME write-time capture as the sharing arm, so the overlay
+        # addresses the SAME (src,tgt) keys in the shared snapshot (separate
+        # boots drift in node ids; OFF's own capture would miss the damaged hops
+        # and collapse the contrast to on-off=0).
+        replay_memory = cached["replay_memory"]
     else:
         G_snap = copy.deepcopy(eng.graph)
         t0 = time.time()
@@ -553,7 +558,8 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
         if share_key:
             _SHARED_MAINT[share_key] = {"state": G_snap.__getstate__(),
                                         "maint_secs": maint_secs,
-                                        "metrics": metrics, "work": dict(work)}
+                                        "metrics": metrics, "work": dict(work),
+                                        "replay_memory": replay_memory}
         # COMMIT in place (keep the engine's graph object identity so subsystem
         # references stay valid), then rewire the runtime HRR/dual-code hooks.
         eng.graph.__setstate__(G_snap.__getstate__())
