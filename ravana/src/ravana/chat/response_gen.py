@@ -230,6 +230,37 @@ def is_productive_use_request(text: str) -> bool:
     return bool(text and _PRODUCTIVE_USE_RE.search(str(text)))
 
 
+def mechanism_intent(text: str) -> Optional[str]:
+    """Return retrieval direction for a mechanism question, or None.
+
+    Brain basis: retrieval is cue-driven, not strength-driven (Tulving &
+    Thomson 1973; Morris, Bransford & Franks 1977). A paraphrase such as
+    'how is X produced?' must address the same taught chain as 'why does X
+    happen?'. Measured defect: the old regexes rejected the first form and
+    walked forward for the second, so a taught A->B->X chain (incoming at X)
+    was unreachable and emitted reach stayed <=0.10 despite graph delta
+    +0.80.
+    """
+    t = (text or "").lower()
+    if not re.search(
+            r"\b(why|how|what\s+causes|what\s+makes|explain|mechanism|effects?)\b", t):
+        return None
+    if re.search(r"\b(effects?\s+of|what\s+does\s+.+\s+cause)\b", t):
+        return "forward"
+    return "backward"
+
+
+def longest_label_seed(text: str, labels, limit: int = 4):
+    """Known concept labels occurring in the query, longest match first."""
+    t = (text or "").lower()
+    hits = []
+    for label in labels:
+        s = str(label).lower().strip()
+        if len(s) >= 3 and s in t:
+            hits.append(s)
+    return sorted(hits, key=len, reverse=True)[:limit]
+
+
 class ResponseGenMixin(ChainWalkerMixin):
     """Mixin providing neural decoder generation, chitchat, and templated responses."""
     # Phase 5 (casing): cached set of graph concepts that are STRONG named
@@ -8493,8 +8524,8 @@ class ResponseGenMixin(ChainWalkerMixin):
         if not ctx or not ctx.subject:
             return None
         try:
-            if not re.search(r"\b(why|how|what\s+causes|what\s+makes|explain)\b",
-                             (ctx.raw_input or ""), re.IGNORECASE):
+            _direction = mechanism_intent(ctx.raw_input)
+            if _direction is None:
                 return None
             from ravana.learn.explanation import (
                 enumerate_chains, grade_chain, assertable_chain)
@@ -8545,13 +8576,10 @@ class ResponseGenMixin(ChainWalkerMixin):
             _add_nid(self._graph_node_id_for_label(ctx.subject))
             if not _nids:
                 return None
-            _backward = bool(re.search(
-                r"\b(why|what\s+causes|what\s+makes)\b",
-                (ctx.raw_input or ""), re.IGNORECASE))
             _chains = enumerate_chains(
                 _nids, self.graph,
-                direction=("backward" if _backward else "forward"),
-                min_steps=2, max_steps=4, limit=3)
+                direction=_direction,
+                min_steps=2, max_steps=4, limit=64)
             _ok = [(c, grade_chain(c)) for c in _chains]
             _ok = [(c, g) for c, g in _ok
                    if g["verdict"] == "assert" and assertable_chain(c)]
@@ -8564,7 +8592,7 @@ class ResponseGenMixin(ChainWalkerMixin):
             _narr = ", and ".join(_pairs)
             if getattr(self, "_trace_enabled", False):
                 print(f"  [trace]   why/how chain "
-                      f"({'backward' if _backward else 'forward'}): "
+                      f"({_direction}): "
                       f"{_narr} (adequacy={_g['adequacy']:.2f})")
             try:
                 from ravana.chat.hedges import modality_from_support
