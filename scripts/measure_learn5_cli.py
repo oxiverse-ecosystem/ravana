@@ -461,8 +461,16 @@ def apply_replay_overlay(graph, replay_memory, replay_on):
     return n
 
 
+# P1 shared-maintenance cache: the sequential ON and OFF arms share ONE
+# maintained snapshot (maintenance is the same computation; only the commit-time
+# overlay differs). The first arm computes it; the second reuses it, so work
+# counters and maintenance wall-clock are identical BY CONSTRUCTION even though
+# separate boots drift by a few edges. Keyed by teaching config.
+_SHARED_MAINT = {}
+
+
 def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
-              steps=REPLAY_STEPS, replay_memory=None):
+              steps=REPLAY_STEPS, replay_memory=None, share_key=None):
     """P1 — compute-matched consolidation by SNAPSHOT MAINTENANCE + METADATA
     OVERLAY COMMIT.
 
@@ -503,52 +511,60 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
         hr_off.add_experience(("neutral_%d" % i, "filler"), context="neutral",
                               weight=0.5)
 
-    # ONE frozen snapshot per arm — identical input to every maintenance loop.
-    G_snap = copy.deepcopy(eng.graph)
+    # P1 shared maintenance: reuse the cached maintained snapshot when this arm
+    # shares a teaching config with an earlier arm (sequential ON/OFF). Otherwise
+    # compute maintenance once on a frozen deepcopy and cache it.
+    global _SHARED_MAINT
+    cached = _SHARED_MAINT.get(share_key) if share_key else None
+    if cached is not None:
+        eng.graph.__setstate__(copy.deepcopy(cached["state"]))
+        if getattr(eng, "hrr_reasoner", None) is not None:
+            eng.graph._fact_encode_hook = eng._hrr_encode_hook
+            eng.graph.dual_code = eng.dual_code
+        maint_secs = cached["maint_secs"]
+        metrics = cached["metrics"]
+        work = dict(cached["work"])
+    else:
+        G_snap = copy.deepcopy(eng.graph)
+        t0 = time.time()
+        metrics = []
+        sleepmod.time.time = lambda: 1000.0      # harness-only; restored below
+        try:
+            for _ in range(cycles):
+                # Identical noop maintenance for every arm sharing this snapshot:
+                # same noop triples, same neutral buffer, same pinned REM RNG. The
+                # ON/OFF manipulation lives ONLY in the commit-time overlay.
+                m = SleepConsolidation().run_cycle(
+                    graph=G_snap, episodic_buffer=[], episodic_triples=triples_off,
+                    belief_store=None, topic_list=[], user_model=None,
+                    impossible_queries=[], contradiction_map={})
+                hm = hr_off.sleep_cycle(replay_count=steps, interleave_count=max(1, steps // 2),
+                                        prune_threshold=0.1)
+                metrics.append({"sleep_cycle": m, "hippocampal": hm})
+        finally:
+            sleepmod.time.time = real_time
+        maint_secs = time.time() - t0
+        work = {"edges_strengthened": 0, "edges_pruned": 0, "rem_flipped_edges": 0,
+                "rem_counterfactual_edges": 0, "rem_creative_edges": 0,
+                "rem_emotional_decays": 0, "episodic_consolidated": 0}
+        for mm in metrics:
+            for kk in work:
+                work[kk] += int(mm["sleep_cycle"].get(kk, 0))
+        if share_key:
+            _SHARED_MAINT[share_key] = {"state": G_snap.__getstate__(),
+                                        "maint_secs": maint_secs,
+                                        "metrics": metrics, "work": dict(work)}
+        # COMMIT in place (keep the engine's graph object identity so subsystem
+        # references stay valid), then rewire the runtime HRR/dual-code hooks.
+        eng.graph.__setstate__(G_snap.__getstate__())
+        if getattr(eng, "hrr_reasoner", None) is not None:
+            eng.graph._fact_encode_hook = eng._hrr_encode_hook
+            eng.graph.dual_code = eng.dual_code
 
-    t0 = time.time()
-    metrics = []
-    sleepmod.time.time = lambda: 1000.0      # harness-only; restored below
-    try:
-        for _ in range(cycles):
-            # P1: maintenance is IDENTICAL in both arms — same noop replay
-            # triples, same neutral hippocampal buffer, same frozen snapshot,
-            # same pinned REM RNG. The ON/OFF manipulation lives ONLY in the
-            # commit-time overlay, never in run_cycle (passing real A edges to
-            # ON's run_cycle strengthened 30 edges and diverged every O(state)
-            # loop — the exact confound P1 removes).
-            m = SleepConsolidation().run_cycle(
-                graph=G_snap, episodic_buffer=[], episodic_triples=triples_off,
-                belief_store=None, topic_list=[], user_model=None,
-                impossible_queries=[], contradiction_map={})
-            hm = hr_off.sleep_cycle(replay_count=steps, interleave_count=max(1, steps // 2),
-                                    prune_threshold=0.1)
-            metrics.append({"sleep_cycle": m, "hippocampal": hm})
-    finally:
-        sleepmod.time.time = real_time
-    maint_secs = time.time() - t0
-
-    # COMMIT in place (keep the engine's graph object identity so subsystem
-    # references stay valid): adopt the post-maintenance snapshot state, rewire
-    # the runtime HRR/dual-code hooks, then apply the restoration overlay.
-    eng.graph.__setstate__(G_snap.__getstate__())
-    if getattr(eng, "hrr_reasoner", None) is not None:
-        eng.graph._fact_encode_hook = eng._hrr_encode_hook
-        eng.graph.dual_code = eng.dual_code
-
+    # Restoration overlay — the ONLY arm-dependent step (ON earned, OFF wrong tag).
     t1 = time.time()
     overlay_n = apply_replay_overlay(eng.graph, replay_memory, replay_on)
     overlay_secs = time.time() - t1
-
-    # Work counters (the real compute-parity measure, independent of first-arm
-    # wall-clock warmup): sum the maintenance iteration counts across cycles.
-    # Identical post-B snapshots => identical counters in both arms.
-    work = {"edges_strengthened": 0, "edges_pruned": 0, "rem_flipped_edges": 0,
-            "rem_counterfactual_edges": 0, "rem_creative_edges": 0,
-            "rem_emotional_decays": 0, "episodic_consolidated": 0}
-    for mm in metrics:
-        for kk in work:
-            work[kk] += int(mm["sleep_cycle"].get(kk, 0))
 
     return {"arm": arm, "replay_on": bool(replay_on), "cycles": cycles,
             "replay_steps_per_cycle": steps,
@@ -633,8 +649,17 @@ def run_arm(name, a_items, b_items, t_items, args, replay_on=True,
     snap(b_items, "b_post")
 
     # Sleep phase (matched ON/OFF), then A retest.
+    # Sequential ON and OFF share ONE maintained snapshot (P1): same pool, same
+    # A/B teaching, same mode -> identical maintenance, contrast only at overlay.
+    _pool = name.rsplit("_", 1)[0]
+    if mode == "sequential" and teach_b and not overlap_b:
+        _share_key = (_pool, "seqB",
+                      tuple(it["item_id"] for it in a_items),
+                      tuple(it["item_id"] for it in b_items))
+    else:
+        _share_key = None
     rec["sleep"] = run_sleep(eng, name, a_items, replay_on,
-                             replay_memory=replay_memory)
+                             replay_memory=replay_memory, share_key=_share_key)
     snap(a_items, "a_post_sleep")
 
     if do_transfer:
