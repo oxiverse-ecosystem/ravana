@@ -527,3 +527,30 @@ detector does not open a gap for most definition-style answers.
 opens a gap for `why/how` questions answered only by a definition. That is the
 next work item; it is a detection problem, not an acquisition or extraction
 problem.
+
+## MEASURED NEGATIVE: widening gap detection did not help
+
+Hypothesis from the previous section: definitions with one causal connective
+were falsely counted as mechanisms, so `close_mechanism_gap` rarely fired.
+Changed `_got_mechanism` to require >=2 causal clauses. Instrumented call
+sites: 6 of 14 why/how probes now opened a gap (subjects resolved correctly;
+the old single-clause test closed the rest).
+
+A/B on the frozen web harness, identical fixtures and seed:
+
+```
+before: search=1666  mean=77
+after:  search=1752  mean=77   (+86 gap reads, zero score change)
+```
+
+All seven fronts unchanged. The code was **REVERTED**; no capability gain,
+only extra reads. This is the fifth failed attempt to improve web-driven
+learning by changing what the system reads or when it decides to read
+(query phrasing, retry, typed need + veto, full page, gap widening).
+
+**Conclusion:** the web gap loop can fire and can read, but the relations it
+retrieves still do not reach the emitter as trusted chains in a way that
+changes answers. The authored curriculum scaffold remains the only measured
+substrate gain (thinking 5 -> 13). Stop tuning this loop without a new
+information source; the RAVANA-LEARN-5 components, not more input tweaks,
+are the appropriate next instrument.
