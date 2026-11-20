@@ -101,7 +101,7 @@ FAIL_RET_FLOOR = 0.70
 FAIL_ON_MINUS_OFF = 0.10
 FAIL_LEX_COPY = 0.15
 FAIL_B_DEGRADE = 0.15
-COMPUTE_RATIO_LO, COMPUTE_RATIO_HI = 0.70, 1.43   # matched wall clock +/-30%
+COMPUTE_RATIO_LO, COMPUTE_RATIO_HI = 0.90, 1.10   # pre-registered matched wall clock +/-10%
 CRITERION_GATE = 0.60      # fraction of A items that must reach A1 criterion
 
 # A bank: weather / bodily phenomena (single-word nodes, like CAR).
@@ -373,25 +373,129 @@ def pad_replay(real, steps):
     return out
 
 
+def capture_replay_memory(items, eng):
+    """Snapshot each A item's two causal hops AFTER A-teaching and BEFORE B,
+    with a deep copy of the edge's OWN write-time provenance. Replay content
+    therefore comes from the write-time episodic record, not the post-B graph.
+
+    Brain basis: a replayed memory is a REACTIVATION carrying its original
+    encoding context, not a fresh perception (reconsolidation, Nader, Schafe &
+    LeDoux 2000, Nature 406:722-726; hippocampal index reactivation, McClelland,
+    McNaughton & O'Reilly 1995, Psychol Rev 102:419-457). Restoring a fabricated
+    tag would be a false memory; only the item's own earned record is kept.
+    """
+    import copy
+    g = eng.graph
+    lm = mlc.label_map(g)
+    mem = {}
+    for it in items:
+        for lab1, lab2 in ((it["a"], it["b"]), (it["b"], it["x"])):
+            done = False
+            for s in lm.get(lab1, []):
+                for t in lm.get(lab2, []):
+                    e = g.get_edge(s, t)
+                    if e is not None:
+                        md = getattr(e, "source_metadata", None)
+                        mem[(s, t)] = {
+                            "source_metadata": copy.deepcopy(md) if isinstance(md, dict) else {},
+                            "relation_type": getattr(e, "relation_type", "causal"),
+                            "weight": float(getattr(e, "weight", 0.5) or 0.5),
+                            "confidence": float(getattr(e, "confidence", 0.5) or 0.5),
+                        }
+                        done = True
+                        break
+                if done:
+                    break
+    return mem
+
+
+# Edge kinds the trust gate already accepts (learn/explanation.py
+# provenance_trusted). The overlay mirrors this set; it never loosens the gate.
+EARNED_EDGE_KINDS = ("web_fact", "definition", "curriculum", "curated")
+
+
+def apply_replay_overlay(graph, replay_memory, replay_on):
+    """Restore each reactivated (src,tgt) key from its OWN write-time record.
+
+    ON: restore earned source_metadata/relation_type/confidence (recreate the
+    edge if maintenance deleted it). OFF: apply the SAME operations with an
+    unearned `inferred` tag the trust gate refuses — identical work, no earned
+    knowledge restored. Returns the number of keys touched (arm-independent).
+
+    Only EARNED_EDGE_KINDS are restored on ON; a record whose kind the gate does
+    not accept is left as-is (no forged stamp). This is the synaptic-capture
+    step: protection is applied to the tagged keys after downscaling, never as a
+    blanket exemption (Frey & Morris 1997; Tononi & Cirelli 2014).
+    """
+    import copy
+    n = 0
+    for (s, t), rec in replay_memory.items():
+        if s not in graph.nodes or t not in graph.nodes:
+            continue
+        live = graph.get_edge(s, t)
+        if live is None:
+            live = graph.add_edge(s, t, weight=rec["weight"],
+                                  relation_type="causal",
+                                  confidence=rec["confidence"])
+        if live is None:
+            continue
+        live.relation_type = "causal"
+        if replay_on:
+            md = rec["source_metadata"]
+            if isinstance(md, dict) and md.get("edge_kind") in EARNED_EDGE_KINDS:
+                live.source_metadata = copy.deepcopy(md)
+                live.confidence = max(float(live.confidence or 0.0), rec["confidence"])
+        else:
+            live.source_metadata = {"edge_kind": "inferred", "source": "replay_wrong_tag"}
+        n += 1
+    return n
+
+
 def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
-              steps=REPLAY_STEPS):
-    """Matched consolidation. ON replays A's real chain edges; OFF replays an
-    equal-count list of missing-edge triples. Identical cycle count, identical
-    step count, pinned time.time so REM RNG is identical, wall clock measured."""
+              steps=REPLAY_STEPS, replay_memory=None):
+    """P1 — compute-matched consolidation by SNAPSHOT MAINTENANCE + METADATA
+    OVERLAY COMMIT.
+
+    The reverted provenance-restore fix (d7a3495) reached +0.100 primary but ran
+    a 1.122 wall-clock ratio: restoring edges mid-phase changed the live graph
+    size, so every O(state) maintenance loop (downscale, both prunes, REM flip
+    budget = len(edges)*rate, Phase 3b drain) did MORE work in ON than OFF.
+
+    Fix: run ALL cycles' maintenance on ONE frozen deep-copy snapshot that is
+    identical in both arms (same input graph, same budgets, same pinned REM RNG),
+    so every loop executes bit-identical work. Restoration is then a metadata-only
+    overlay applied at COMMIT, AFTER maintenance: ON restores each item's earned
+    write-time record; OFF applies the SAME operations with an unearned
+    (`inferred`) tag the gate refuses. The overlay is O(k) dict/attribute writes,
+    arm-independent in count, and no maintenance loop ever sees a restored edge,
+    so no downstream budget can diverge. Compute parity holds BY CONSTRUCTION.
+
+    Brain basis: synaptic tagging & capture (Frey & Morris 1997, Nature
+    385:533-536) — the reactivated (tagged) keys receive protection while the
+    untagged population is downscaled (Tononi & Cirelli 2014, Neuron 81:12-34);
+    applying protection as a post-downscaling restore of recorded values yields
+    the same final state as skip-during-pass, with identical compute. REM
+    sabotage stays fully intact (it runs on the snapshot exactly as on the live
+    graph); only the specific reactivated keys are restored at commit.
+    """
+    import copy
     import ravana.core.sleep as sleepmod
     from ravana.core.sleep import SleepConsolidation
     from ravana.learn.consolidation import HippocampalReplay
 
     real_time = sleepmod.time.time
+    replay_memory = replay_memory or {}
     triples_on = pad_replay(a_chain_triples(items, eng), steps)
     triples_off = pad_replay([], steps)
-    # HippocampalReplay buffer: A experiences in ON, equal-count neutral in OFF.
     hr_on, hr_off = HippocampalReplay(), HippocampalReplay()
     for it in items:
         hr_on.add_experience((it["a"], it["b"]), context="task_A", weight=0.5)
     for i in range(len(items)):
         hr_off.add_experience(("neutral_%d" % i, "filler"), context="neutral",
                               weight=0.5)
+
+    # ONE frozen snapshot per arm — identical input to every maintenance loop.
+    G_snap = copy.deepcopy(eng.graph)
 
     t0 = time.time()
     metrics = []
@@ -400,7 +504,7 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
         for _ in range(cycles):
             triples = triples_on if replay_on else triples_off
             m = SleepConsolidation().run_cycle(
-                graph=eng.graph, episodic_buffer=[], episodic_triples=triples,
+                graph=G_snap, episodic_buffer=[], episodic_triples=triples,
                 belief_store=None, topic_list=[], user_model=None,
                 impossible_queries=[], contradiction_map={})
             hr = hr_on if replay_on else hr_off
@@ -409,9 +513,25 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
             metrics.append({"sleep_cycle": m, "hippocampal": hm})
     finally:
         sleepmod.time.time = real_time
+    maint_secs = time.time() - t0
+
+    # COMMIT in place (keep the engine's graph object identity so subsystem
+    # references stay valid): adopt the post-maintenance snapshot state, rewire
+    # the runtime HRR/dual-code hooks, then apply the restoration overlay.
+    eng.graph.__setstate__(G_snap.__getstate__())
+    if getattr(eng, "hrr_reasoner", None) is not None:
+        eng.graph._fact_encode_hook = eng._hrr_encode_hook
+        eng.graph.dual_code = eng.dual_code
+
+    t1 = time.time()
+    overlay_n = apply_replay_overlay(eng.graph, replay_memory, replay_on)
+    overlay_secs = time.time() - t1
+
     return {"arm": arm, "replay_on": bool(replay_on), "cycles": cycles,
-            "replay_steps_per_cycle": steps, "wall_secs": round(time.time() - t0, 4),
-            "metrics": metrics}
+            "replay_steps_per_cycle": steps,
+            "wall_secs": round(maint_secs + overlay_secs, 4),
+            "maint_secs": round(maint_secs, 4), "overlay_secs": round(overlay_secs, 4),
+            "overlay_edges": overlay_n, "metrics": metrics}
 
 
 def transfer_lex_copy(answer, taught_tokens):
@@ -478,6 +598,10 @@ def run_arm(name, a_items, b_items, t_items, args, replay_on=True,
         reps = rec["items"][it["item_id"]].get("a1", [])
         a1_present[it["item_id"]] = bool(reps and reps[-1]["chain"]["present"])
 
+    # P1: capture A's write-time episodic provenance NOW (after A, before B), so
+    # replay restores the item's own record rather than the post-B graph.
+    replay_memory = capture_replay_memory(a_items, eng)
+
     # Teach B (unless concurrent already did, or A-only).
     if teach_b and mode != "concurrent":
         for r in range(B_REPS):
@@ -486,7 +610,8 @@ def run_arm(name, a_items, b_items, t_items, args, replay_on=True,
     snap(b_items, "b_post")
 
     # Sleep phase (matched ON/OFF), then A retest.
-    rec["sleep"] = run_sleep(eng, name, a_items, replay_on)
+    rec["sleep"] = run_sleep(eng, name, a_items, replay_on,
+                             replay_memory=replay_memory)
     snap(a_items, "a_post_sleep")
 
     if do_transfer:
@@ -586,7 +711,11 @@ def summarize_pool(pool_name, a_pool, b_pool, t_pool, recs):
                     "on_steps": on["sleep"]["replay_steps_per_cycle"],
                     "off_steps": off["sleep"]["replay_steps_per_cycle"],
                     "on_cycles": on["sleep"]["cycles"],
-                    "off_cycles": off["sleep"]["cycles"]},
+                    "off_cycles": off["sleep"]["cycles"],
+                    "on_overlay_edges": on["sleep"].get("overlay_edges", 0),
+                    "off_overlay_edges": off["sleep"].get("overlay_edges", 0),
+                    "on_maint_secs": on["sleep"].get("maint_secs", 0.0),
+                    "off_maint_secs": off["sleep"].get("maint_secs", 0.0)},
     }
 
 
@@ -611,11 +740,12 @@ def decide(summaries, controls, pool_names):
             s["transfer_struct"] >= PASS_TRANSFER_STRUCT, s["transfer_struct"])
         add("%s: lexical copy <= %.2f" % (p, PASS_LEX_COPY),
             s["lexical_copy"] <= PASS_LEX_COPY, s["lexical_copy"])
-        add("%s: compute matched (wall clock +/-30%%, steps & cycles equal)" % p,
+        add("%s: compute matched (wall clock +/-10%%, steps, cycles & overlay equal)" % p,
             (COMPUTE_RATIO_LO <= s["compute"]["on_secs"] /
              max(s["compute"]["off_secs"], 1e-9) <= COMPUTE_RATIO_HI
              and s["compute"]["on_steps"] == s["compute"]["off_steps"]
-             and s["compute"]["on_cycles"] == s["compute"]["off_cycles"]),
+             and s["compute"]["on_cycles"] == s["compute"]["off_cycles"]
+             and s["compute"].get("on_overlay_edges", 0) == s["compute"].get("off_overlay_edges", 0)),
             s["compute"])
         # Hard fail bounds (explicit in the task).
         add("%s: NOT fail (sleep-on >= %.2f)" % (p, FAIL_RET_FLOOR),

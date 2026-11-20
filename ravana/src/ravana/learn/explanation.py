@@ -258,10 +258,34 @@ def enumerate_chains(subject_ids: Sequence[int],
         if direction in ("backward", "bidirectional"):
             _walk(sid, forward=False)
 
-    out.sort(key=lambda c: c.score, reverse=True)
-    if len(out) > 1:
-        for i, c in enumerate(out):
-            c.runner_up_score = out[1].score if i == 0 else out[0].score
+    # F3 (trust-first candidate selection): partition by assertable_chain BEFORE
+    # ranking, so a high-weight UNtrusted chain cannot crowd a taught trusted
+    # chain out of the limited traversal budget (measured: honey's curated chain
+    # was present at limit 256 but absent at 64 because untrusted co-occurrence
+    # chains out-scored it on log-weight). Within each partition rank by the
+    # existing score; the score VALUE, grade_chain and every threshold are
+    # unchanged. The runner-up is taken within the SAME trust partition so the
+    # margin compares like-with-like. Brain basis: inhibitory selection of the
+    # target over prepotent competitors (Anderson & Spellman 1995, Psychol Rev
+    # 102:68-100); fast-store episode traces must not be drowned by slow-store
+    # statistics (McClelland, McNaughton & O'Reilly 1995, Psychol Rev 102:419-457).
+    _decorated = [(assertable_chain(c), c.score, c) for c in out]
+    _decorated.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    out = [t[2] for t in _decorated]
+    _i, _n = 0, len(out)
+    while _i < _n:
+        _flag = _decorated[_i][0]
+        _j = _i
+        while _j < _n and _decorated[_j][0] == _flag:
+            _j += 1
+        _part = out[_i:_j]
+        if len(_part) > 1:
+            _top, _second = _part[0].score, _part[1].score
+            for _k, _c in enumerate(_part):
+                _c.runner_up_score = _second if _k == 0 else _top
+        else:
+            _part[0].runner_up_score = _part[0].score
+        _i = _j
     return out[:limit]
 
 
