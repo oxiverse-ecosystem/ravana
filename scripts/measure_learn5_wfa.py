@@ -630,6 +630,7 @@ def decide(summary, checks_ok):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    mfwf.install_frozen_patches()
     started = time.time()
     items = build_items()
     manifest = item_manifest_hash(items)
