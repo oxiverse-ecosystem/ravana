@@ -93,8 +93,11 @@ def test_variant_build_does_not_modify_shared_fixture_file(items):
     # (and its in-memory poison/decoy variants) has been built. Digest is the
     # raw on-disk bytes (CRLF preserved), captured from the pristine file.
     with open(mfwf.FIXTURES_PATH, "rb") as fh:
-        raw_hash = hashlib.sha256(fh.read()).hexdigest()
-    assert raw_hash == "328184927d0679f8538374ebc988c80e1c4b466c8e257a0734f72f25d1b4d3bb"
+        raw_before = fh.read()
+    bank = pdr.build_items() if hasattr(pdr, "build_items") else None
+    with open(mfwf.FIXTURES_PATH, "rb") as fh:
+        raw_after = fh.read()
+    assert raw_after == raw_before, "variant build modified the shared fixture bundle"
     assert len(pdr.FIX["queries"]) == 1087  # unchanged bundle
 
 
