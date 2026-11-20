@@ -495,11 +495,10 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
 
     real_time = sleepmod.time.time
     replay_memory = replay_memory or {}
-    triples_on = pad_replay(a_chain_triples(items, eng), steps)
+    # Identical noop maintenance input for both arms (P1). The ON/OFF contrast
+    # is applied only by apply_replay_overlay at commit.
     triples_off = pad_replay([], steps)
-    hr_on, hr_off = HippocampalReplay(), HippocampalReplay()
-    for it in items:
-        hr_on.add_experience((it["a"], it["b"]), context="task_A", weight=0.5)
+    hr_off = HippocampalReplay()
     for i in range(len(items)):
         hr_off.add_experience(("neutral_%d" % i, "filler"), context="neutral",
                               weight=0.5)
@@ -512,14 +511,18 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
     sleepmod.time.time = lambda: 1000.0      # harness-only; restored below
     try:
         for _ in range(cycles):
-            triples = triples_on if replay_on else triples_off
+            # P1: maintenance is IDENTICAL in both arms — same noop replay
+            # triples, same neutral hippocampal buffer, same frozen snapshot,
+            # same pinned REM RNG. The ON/OFF manipulation lives ONLY in the
+            # commit-time overlay, never in run_cycle (passing real A edges to
+            # ON's run_cycle strengthened 30 edges and diverged every O(state)
+            # loop — the exact confound P1 removes).
             m = SleepConsolidation().run_cycle(
-                graph=G_snap, episodic_buffer=[], episodic_triples=triples,
+                graph=G_snap, episodic_buffer=[], episodic_triples=triples_off,
                 belief_store=None, topic_list=[], user_model=None,
                 impossible_queries=[], contradiction_map={})
-            hr = hr_on if replay_on else hr_off
-            hm = hr.sleep_cycle(replay_count=steps, interleave_count=max(1, steps // 2),
-                                prune_threshold=0.1)
+            hm = hr_off.sleep_cycle(replay_count=steps, interleave_count=max(1, steps // 2),
+                                    prune_threshold=0.1)
             metrics.append({"sleep_cycle": m, "hippocampal": hm})
     finally:
         sleepmod.time.time = real_time
