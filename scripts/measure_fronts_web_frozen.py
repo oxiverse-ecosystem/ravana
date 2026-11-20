@@ -137,12 +137,27 @@ def _blocked_save(self, *args, **kwargs):
 from ravana.web.learner import SearchEngine as _RealSearchEngine
 from ravana.chat.engine import CognitiveChatEngine as _EngineCls
 from ravana.agent import tool_registry as _tool_registry
-_RealSearchEngine.search = _frozen_search
-_RealSearchEngine._call_api = _blocked_call_api
-_EngineCls.kb_describe = _frozen_kb
-_EngineCls.save = _blocked_save
-_tool_registry._web_search_via_intentforge = _frozen_tool
-urllib.request.urlopen = _blocked_urlopen
+_PATCHES_INSTALLED = False
+
+
+def install_frozen_patches() -> None:
+    """Install the fixture provider and tripwires.
+
+    Called from main(), NOT at import time: importing this module from a test
+    or another harness must not monkeypatch a shared pytest process (CI saw
+    FrozenSaveError in unrelated tests because the old import-time patch
+    persisted process-wide).
+    """
+    global _PATCHES_INSTALLED
+    if _PATCHES_INSTALLED:
+        return
+    _RealSearchEngine.search = _frozen_search
+    _RealSearchEngine._call_api = _blocked_call_api
+    _EngineCls.kb_describe = _frozen_kb
+    _EngineCls.save = _blocked_save
+    _tool_registry._web_search_via_intentforge = _frozen_tool
+    urllib.request.urlopen = _blocked_urlopen
+    _PATCHES_INSTALLED = True
 
 # ── ORIGINAL (small-n) probes, kept for provenance only. ────────────────────
 # The 60-item pools below are DISJOINT from every subject in these lists.
@@ -1245,6 +1260,7 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if "--gates-only" in argv:
         return gates_only()
+    install_frozen_patches()
     started = time.time()
 
     # PRE-SCORE GATES: no engine boot, no probe, no front score is reported
