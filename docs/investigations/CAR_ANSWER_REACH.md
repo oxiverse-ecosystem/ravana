@@ -387,3 +387,13 @@ passed `enumerate_chains` + `grade_chain` + `assertable_chain`; the final emit
 guard already exempts `gated_explanation_chain`. Both articulation monitors now
 agree on what counts as retrieved, validated knowledge. No threshold, gate or
 rubric changed. Targeted suite: 132 passed, 1 skipped.
+
+## FINAL full-run verification (2026-11-21)
+
+`scratch/car_full_exemption.log`, `scratch/learn5_car_measured.json` (1312 s,
+exit 0): **all 10 criteria PASS**, `OVERALL: PASS`. Emitted answer reach at
+k=8: primary **1.00** (was 0.30 baseline / 0.40 after label fix), sealed
+**1.00** (was 0.10 / 0.80). Identical-surface echo unchanged (primary 0.50,
+sealed 0.00) — parroting on the exact taught phrasing remains a separate,
+unfixed risk. Graph gains and all controls unchanged: primary Δ curve
+[0.0, 0.9, 0.9, 1.0, 1.0], sealed [0.0, 0.9, 0.9, 0.9, 0.9], reversals 0.0.
