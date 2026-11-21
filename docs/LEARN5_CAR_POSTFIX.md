@@ -73,6 +73,17 @@ this n.
   are n=10 observations. The binding release rule (all criteria, both pools)
   remains unmet.
 
+**Replication result (second run, different Python hash seed):** primary curve
+0,.3,.5,.4,.6 and reversal **−0.1 reproduce exactly**; sealed curve 0,.4,.2,.5,.9
+with reversal **−0.2** (vs −0.3 first run). The sealed reversal is therefore
+**reproducible, not a one-off fluke** — its magnitude varies with teaching
+stochasticities but the adverse k1→k2 step persists at n=10. The item hash is
+sha256-based (`item_hash`), so `PYTHONHASHSEED` does not change the split; the
+small difference comes from teaching stochasticity. This is evidence for a real
+item-composition effect, not power — it does not waive the FAIL and does not
+justify tuning the gate. Fixing it needs either the write/cold-reload path for
+the specific sealed k=2 items or a genuinely larger bank (blocked below).
+
 ## Why n≥40 was not done, and what was done instead
 `_CANDIDATES` in `scripts/measure_learn5_car.py` has **104** distinct
 authored a→b→x triples. The design §3.5 target is ≥40 observations **per k per

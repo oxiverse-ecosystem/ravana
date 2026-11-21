@@ -76,7 +76,9 @@ for evidence; this file locks decisions and ordered next steps.
 - `_CANDIDATES` has 104 triples; design §3.5 needs 800 for ≥40/k/pool. An 8×
   authored-bank expansion would add ~700 more scaffolding items, changing what
   the instrument measures — NOT done silently. A `PYTHONHASHSEED=1` replication
-  at the existing n=10 is running as noise evidence (not a power fix).
+  at the existing n=10 is DONE: primary −0.1 reproduced exactly, sealed −0.2
+  (vs −0.3) — the sealed reversal is reproducible, not a fluke (see
+  `docs/LEARN5_CAR_POSTFIX.md`).
 
 ### Phase 5 — unsaturated WFA/PDR/RSI (D8)
 - Implement the redesigns in WEB_AND_SATURATION.md §4 (paraphrase entailment +
