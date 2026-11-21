@@ -44,11 +44,11 @@ for evidence; this file locks decisions and ordered next steps.
 
 ## Ordered remaining phases
 
-### Phase 1 — CLI run 5/6 verdict (DONE)
-- 6 runs; the final (`scratch/learn5_cli_measured.json`, `docs/LEARN5_CLI_POSTFIX.md`)
-  gives PRIMARY on−off **+0.215**, criterion **0.70**, ret_on **0.929**, wall
-  ratio **1.000**, work counters equal, overlay 5/5; SEALED criterion **0.35**
-  and retention 7/7 in both arms (ceiling → on−off 0). **Suite still FAIL.**
+### Phase 1 — CLI verdict (DONE — PASS)
+- P1 compute parity + P2 write-path repair + literature-grounded REM
+  calibration → **PASS on both pools**, zero failed criteria, ratio 1.000 and
+  equal work counters. See `docs/LEARN5_CLI_PASS.md`. Caveat: SEALED transfer
+  1.00 is G6-saturated.
 
 ### Phase 2 — grounded re-measure post-CAR-fixes (DONE)
 - `scratch/drift_grounded_postfix.json` = **33 (20/60), 0 flips** vs repaired
