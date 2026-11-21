@@ -1543,6 +1543,30 @@ class ConceptGraph:
                         _adj_hub = True
                         break
                 if not _adj_hub:
+                    # Protect traces that carry earned, explicitly-taught
+                    # causal provenance. Synaptic tagging & capture (Frey &
+                    # Morris 1997, Nature 385:533-536) and sleep down-selection
+                    # with protection of the most-activated synapses (Tononi &
+                    # Cirelli 2014, Neuron 81:12-34): a just-taught causal hop
+                    # must not be erased by the homeostatic junk sweep. Without
+                    # this, low-degree singletons carrying curated/web_fact
+                    # causal edges are pruned while their ids remain in
+                    # label indexes, so later writes attach to dead nodes and
+                    # the chain is unreachable (measured: 7 sealed k=2 items).
+                    _trusted = False
+                    for (s, t), e in self.edges.items():
+                        if s != nid and t != nid:
+                            continue
+                        if getattr(e, "relation_type", "") not in (
+                                "causal", "physical_cause"):
+                            continue
+                        md = getattr(e, "source_metadata", None)
+                        if isinstance(md, dict) and md.get("edge_kind") in (
+                                "curated", "web_fact", "definition", "curriculum"):
+                            _trusted = True
+                            break
+                    if _trusted:
+                        continue
                     to_remove.append(nid)
             removed_labels = []
             for nid in to_remove:

@@ -151,7 +151,16 @@ class WebToGraph:
         # reuse engine's label index if the concept already exists
         existing = self.ge._all_labels.get(label_l)
         if existing is not None:
-            return existing
+            # A label index can retain an id after its node was pruned. Verify
+            # liveness at the write choke point: never attach an edge to a dead
+            # endpoint (the chain would exist only in the edge table).
+            _node = getattr(self.ge.graph, "get_node", lambda _i: None)(existing)
+            if _node is not None:
+                return existing
+            # stale id: mint below, and put the fresh id first in the index
+            for _lab, _nids in list((getattr(self.ge, "_concept_keywords", {}) or {}).items()):
+                if _lab == label_l and existing in _nids:
+                    self.ge._concept_keywords[_lab] = [i for i in _nids if i != existing]
         # Round 4 (C1): junk gate. Clear junk is never integrated (not even
         # provisionally tracked, so it cannot accumulate fake reactivation).
         _theta = getattr(self.ge, "_junk_theta", 0.5)

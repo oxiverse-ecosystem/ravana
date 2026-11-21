@@ -1513,9 +1513,22 @@ class GenerationMixin:
         try:
             _tau_low = getattr(self, "_sleep_prune_tau_low", 1)
             _tau_high = getattr(self, "_sleep_prune_tau_high", 8)
+            # Snapshot live ids so we can synchronise label indexes after the
+            # sweep (a stale id in _concept_keywords makes later writes attach
+            # edges to a dead node, measured on 7 sealed CAR k=2 items).
+            _ids_before = set(getattr(self.graph, "nodes", {}) or {})
             _pruned = self.graph.prune_low_degree_junk_nodes(
                 tau_low=_tau_low, tau_high=_tau_high)
             nodes_pruned, removed_labels, hub_labels = _pruned
+            _ids_after = set(getattr(self.graph, "nodes", {}) or {})
+            for _dead in (_ids_before - _ids_after):
+                for _lab, _nids in list((getattr(self, "_concept_keywords", {}) or {}).items()):
+                    if _dead in _nids:
+                        _live = [i for i in _nids if i in _ids_after]
+                        if _live:
+                            self._concept_keywords[_lab] = _live
+                        else:
+                            self._concept_keywords.pop(_lab, None)
             result['junk_nodes_pruned'] = nodes_pruned
             if getattr(self, '_trace_enabled', False) and nodes_pruned:
                 print(f"  [sleep] pruned {nodes_pruned} low-degree junk nodes")

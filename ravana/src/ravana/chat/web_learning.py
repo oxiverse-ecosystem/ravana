@@ -3112,8 +3112,19 @@ class _EngineGraphShim:
     @property
     def _all_labels(self):
         # engine maps label -> list of nids; WebToGraph wants label -> first nid
-        kw = getattr(self._engine, "_concept_keywords", {}) or {}
-        return {lab: nids[0] for lab, nids in kw.items() if nids}
+        kw = self._concept_keywords
+        graph = getattr(self._engine, "graph", None)
+        # Live-only resolution: a stale id (node pruned but index not cleaned)
+        # would make writers attach edges to a dead node, leaving a coherent
+        # chain in the edge table that no enumeration can reach. Omit such
+        # labels so _ensure_node mints a fresh, live node instead.
+        out = {}
+        for lab, nids in kw.items():
+            for nid in (nids or []):
+                if graph is None or getattr(graph, "get_node", lambda _i: None)(nid) is not None:
+                    out[lab] = nid
+                    break
+        return out
 
     @_all_labels.setter
     def _all_labels(self, value):
