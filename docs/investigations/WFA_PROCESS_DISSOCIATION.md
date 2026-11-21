@@ -210,3 +210,35 @@ uv run python -m pytest tests/unit/test_learn5_wfa.py          # fakes only, no 
 All raw observations are written additively to
 `scratch/learn5_wfa_probes.jsonl`; the decision, rules, arms present/missing and
 informativeness caveats are written to `scratch/learn5_wfa_summary.json`.
+
+---
+
+## Real-engine run (2026-11-22) — the instrument can now be wrong
+
+`scratch/learn5_wfa_pd.log`, `scratch/learn5_wfa_summary.json` (exit 1):
+**FAIL**, with every PD criterion failing honestly:
+
+| pool | I | E | R = I−E | exclusion margin | withdrawal after source invalidation |
+|---|---|---|---|---|---|
+| primary | 0.0154 | 0.000 | **0.0154** | 0.0333 | **0.1385** |
+| sealed | 0.0746 | 0.000 | **0.0746** | 0.0000 | **0.0448** |
+
+Thresholds: R ≥ 0.25, margin ≥ 0.10, credible exclusion ≥ 0.70,
+withdrawal ≥ 0.50. All fail on both pools. (Structural gates and all
+instrument controls pass; `answer_only_web_leaks` is now 0 because the old
+parametric arm is inert by default.)
+
+This is the first WFA variant that is **not saturated at 1.00 on the
+attribution endpoints that matter**: the engine answers and attributes freely
+(I) but shows almost no source-controlled exclusion and does not withdraw
+facts when the source is discredited. In Jacoby's terms its behaviour is
+familiarity-driven (F ≈ 0 only because E = 0 makes the estimate degenerate —
+not evidence of healthy recollection). Per Hasher et al., that is exactly the
+illusory-truth failure mode: exposure without source control.
+
+Do not tune the thresholds to rescue this. The next fix is a mechanism: an
+explicit source-evaluation/withdrawal routine (source monitoring, Johnson et
+al. 1993; infant source reevaluation, Open Mind doi:10.1162/opmi_a_00038),
+not a looser gate. Caveat: the cue-based withdrawal test is an experimenter
+proxy, and the regex parser may undercount real wording — inspect stored
+`pd_*_text` / `inv_after` before treating the low numbers as exact.
