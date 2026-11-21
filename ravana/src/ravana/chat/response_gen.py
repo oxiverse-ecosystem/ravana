@@ -8600,6 +8600,30 @@ class ResponseGenMixin(ChainWalkerMixin):
                     float(_g["adequacy"]))
             except Exception:
                 pass
+            # The chain was just grade_chain/assertable_chain verified against
+            # the graph, so its labels ARE retrieved, validated knowledge. The
+            # downstream articulation monitor (`_sm_response_grounded`) only
+            # consults ctx.associated_concepts[:8] (query-neighbour associates)
+            # and definition words; it never saw these labels, so it replaced
+            # the correct narration with a metacognitive uncertainty template
+            # (measured: 7/10 primary + 9/10 sealed k=8 chains discarded after
+            # assembly). Put the verified chain labels at the FRONT of the
+            # associate list so the SAME source-monitor sees grounded content.
+            # No threshold, gate or rubric changes: the chain still had to pass
+            # the grading checks above to reach here.
+            try:
+                _chain_labels = [str(x) for x in _labels
+                                 if self._is_content_word(str(x))]
+                if _chain_labels:
+                    _seen = {str(lbl).lower()
+                             for lbl, _ in (ctx.associated_concepts or [])}
+                    _front = [(lbl, 1.0) for lbl in _chain_labels
+                              if lbl.lower() not in _seen]
+                    if _front:
+                        ctx.associated_concepts = (_front +
+                                                  list(ctx.associated_concepts or []))
+            except Exception:
+                pass
             return (_narr, "gated_explanation_chain")
         except Exception:
             # MEASURED DEFECT (round 2026-11-17): this bare swallow hid TWO
