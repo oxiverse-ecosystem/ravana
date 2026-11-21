@@ -58,6 +58,43 @@ was changed to alter any verdict.
 4. **Rebuild WFA/PDR/RSI with unsaturated items** before treating their PASS
    as capability evidence.
 
+## Post-fix status (2026-11-21, branch `fix/weight-store-durability`)
+
+This section updates the verdict above for work **on this branch**; no
+pre-registered gate or threshold was changed. Details:
+`docs/LEARN5_CAR_POSTFIX.md`, `docs/investigations/{CAR_ROOT_CAUSE,CLI_ROOT_CAUSE,DRIFT_AND_OCEAN,WEB_AND_SATURATION}.md`,
+`docs/investigations/HANDOFF_LEARN5_FIXES.md`.
+
+- **Score drift explained:** the grounded 57→33 drop was a **truncated
+  authoritative pickle** (save killed mid-write) followed by a silent cold
+  start, not a code regression (same-weights A/B byte-identical). pkl repaired
+  from a salvage + mirror merge; atomic save / load recovery / provenance mirror
+  shipped. The lost web_fact provenance cannot be reconstructed — grounded is
+  honestly **33** until those facts are re-learned.
+- **Ocean test: fixed** (genuine ocean water-cycle priors), 17/17 pass.
+- **CAR:** primary monotonicity reversal **−0.50 → −0.10 (criterion 7 PASS)**
+  via F1/F3/F5 (provenance-preserving re-seed, trust-first ranking, shared
+  mechanism-predicate guard). A sealed reversal (−0.30) appeared at n=10; no
+  gate was tuned to chase it, and n≥40 replication is required. Suite still FAIL.
+- **CLI:** the reverted fix's 1.122 compute ratio was a real confound — restoring
+  edges mid-phase diverged every O(state) maintenance loop. P1 now shares ONE
+  maintained snapshot (+ write-time capture) between ON and OFF, applies the
+  contrast only as a commit-time overlay, and matches compute by construction
+  (measured ratio 1.001, work counters equal). Three subtle integration bugs
+  were found and fixed (healthy-edge stripping, divergent maintenance input,
+  aliased cached state). Final retention verdict is being re-measured; do not
+  claim a CLI PASS until the run with the deepcopy fix completes.
+- **WFA/PDR/RSI** remain G6-saturated; unsaturated redesigns are specified but
+  not yet implemented.
+- **Web loop** root cause is corpus poverty + read-path rarity (all five prior
+  tweaks tuned the read schedule); a curiosity-gated single-fact encoding
+  mechanism is designed (default-OFF) but not yet A/B tested.
+
+**Bottom line unchanged in substance:** three passes are still saturated mechanism
+checks, and the suite requires both pools on all five components to PASS. The
+work above repairs located defects and prevents recurrence; it does not yet
+establish open-ended learning.
+
 ## Artifacts
 
 `scripts/measure_learn5_{car,wfa,pdr,cli,rsi}.py`,
