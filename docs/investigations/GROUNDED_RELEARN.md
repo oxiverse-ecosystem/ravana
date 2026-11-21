@@ -56,3 +56,26 @@ parser gap (`subject -> "that"`), which re-teaching cannot fix.
 
 Honest current numbers after this experiment: repaired production state is
 still **33**; a re-taught isolated copy measures **45** cold.
+
+## After the provenance-prune repair (2026-11-21, PR #459)
+
+Census over ALL incident edges confirmed the hypothesis for 5/6 lost subjects:
+`asteroid`, `eclipse`, `comet`, `canyon`, `reef` had **zero** `grounded.local`
+edges at T2 — their newly taught `is_a`/`semantic` facts carried earned
+provenance but were pruned by the sleep junk sweep during the intervening
+60-turn front, because the F4 protection covered only causal relations.
+
+Fix: protect every earned edge kind (`curated`/`web_fact`/`definition`/
+`curriculum`) regardless of grammatical relation. Re-run of the identical A/B:
+
+| stage | before fix | after fix |
+|---|---|---|
+| T0 baseline | 33 | **38** |
+| T1 immediate | 55 | **60** |
+| T2 cold reload | 45 | **52** |
+
+T0 itself rose by 5: the baseline front run also triggers sleep pruning, and
+broader protection now preserves five pre-existing facts that were previously
+swept. Cold delta is +14 vs +12. The T1→T2 gap narrowed from 10 to 8 but is
+not eliminated — the remaining loss is a separate open question, not claimed
+as fixed.
