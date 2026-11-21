@@ -73,6 +73,20 @@ this n.
   are n=10 observations. The binding release rule (all criteria, both pools)
   remains unmet.
 
+## Re-measure after the P2 write-path fix (2026-11-21)
+`scratch/car_full_p2.log`, `scratch/learn5_car_measured.json` (1333 s):
+primary Δ_cold curve **[0.0, 0.8, 0.8, 0.7, 0.8]**, worst reversal **−0.10
+(criterion 7 PASS)**, Δ8 **0.80** (up from 0.60); sealed curve
+**[0.0, 0.7, 0.3, 0.5, 0.9]**, worst reversal **−0.40 (criterion 8 FAIL)**.
+Primary reach8 0.30 / echo 0.50; sealed reach8 0.10.
+P2 strengthened acquisition overall but the sealed k=2 dip persisted/worsened.
+Per-item audit: 7/10 sealed k=2 items have `raw_chains=0` in-process (before
+cold reload) — bruise, echo, webbing, cocoon, snore, boil, tsunami — while
+hiccup/voice/pearl acquire. A single-exposure probe writes bruise's chain
+correctly, so this is **acquisition under a 100-item teaching load at only 2
+exposures**, not a write-path or reload defect. It is the n=10 item-composition
+effect already documented, now reproduced across three runs.
+
 **Replication result (second run, different Python hash seed):** primary curve
 0,.3,.5,.4,.6 and reversal **−0.1 reproduce exactly**; sealed curve 0,.4,.2,.5,.9
 with reversal **−0.2** (vs −0.3 first run). The sealed reversal is therefore
