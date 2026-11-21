@@ -1,40 +1,45 @@
 #!/usr/bin/env python3
-"""RAVANA-LEARN-5 / WFA -- UNSATURATED web fact acquisition and attribution.
+"""RAVANA-LEARN-5 / WFA -- UNSATURATED source-monitoring instrument.
 
 Implements and MEASURES the redesigned WFA component. Design source:
-docs/investigations/WEB_AND_SATURATION.md section 4 and
-docs/BRAIN_LEARN5_DESIGN.md section 4 (especially 4.1-4.6).
+docs/investigations/WFA_PROCESS_DISSOCIATION.md (brain-grounded redesign) and
+docs/investigations/WEB_AND_SATURATION.md section 4 (the instrument it replaces).
 
-Why this file was rewritten
----------------------------
-The previous harness PASSed 1.00/1.00 but was G6-INVALID (a saturated progress
-signal). Root causes, all fixed here:
+Why this file was rewritten (second pass: process dissociation)
+---------------------------------------------------------------
+The earlier harness PASSed 1.00/1.00 but was G6-INVALID (saturated), and its
+real-engine run leaked web content into the "answer-only = web disabled" arm
+(answer_only_web_leaks=162, wfa_valid=1.00 on both pools). The *conceptual*
+defect is deeper than the leak: "parametric answer with web off" is not a
+source-monitoring control at all -- previously internalised web facts still
+leak into the graph, so the arm measures the wrong thing. The literature says
+item memory (the fact) and source memory (where it came from) DISSOCIATE
+(Johnson, Hashtroudi & Lindsay 1993), that "knowing" can be autonoetic or
+noetic (Tulving 1985), and that recollection and familiarity can be separated
+by an inclusion/exclusion contrast (Jacoby 1991).
 
-  * GOLD CLAIM WAS THE SOURCE SENTENCE (tautological entailment).  Now the gold
-    claim is a deterministic PARAPHRASE of the verbatim source span: source
-    content words are replaced by fixed single-word synonyms, and the frozen
-    entailment rubric canonicalises the claim back to the source vocabulary
-    before matching.  A claim that is identical to its evidence is rejected.
-  * ANSWER-ONLY ARM WAS AN EMPTY PARAMETRIC STORE.  Now it is the LIVE engine
-    with web disabled (RAVANA_OFFLINE=1, `_offline=True`), answering the same
-    gap questions from its parametric/graph store.  Its answers are graded with
-    the same fact-token rubric; a web-access tripwire hard-fails the arm.
-  * DECOYS WERE WEAK / TOO FEW.  Now >=60 NEAR-MISS decoy sources per whole
-    bank (same topic, wrong fact, >=2 topic tokens shared with the real source)
-    that must be rejected by abstention.
-  * n WAS 32/pool.  Now >=60 gap + >=30 closed-web + >=30 decoy PER POOL, kept
-    honest by the same fixed sha256 hash split as before.
+This instrument therefore replaces the parametric-only arm with a WITHIN-ENGINE
+process-dissociation design, while keeping every existing item, hash split,
+JSON field name and old threshold (all additions are additive):
 
-The replay boundary is still reused from measure_fronts_web_frozen.py: frozen
-provider stubs, blocked live-fetch / save tripwires and counters, and the
-checked-in web_fixtures.json (1087 queries).  No network and no engine save
-are performed by the web arm.  Every emitted URL was returned by the frozen
-provider this run; every emitted evidence span is a VERBATIM substring of the
-fetched content.  This is source monitoring at retrieval (Johnson & Raye 1981).
+  * INCLUSION (I): same engine, familiar claims, free endorsement; the engine
+    MAY attribute a source. Familiarity + recollection COOPERATE.
+  * EXCLUSION (E): same engine, SAME claims and facts, but instructed to
+    endorse ONLY claims whose provenance is in a pre-registered CREDIBLE source
+    set, and to ABSTAIN on familiar claims from DISCREDITED sources or with
+    UNKNOWN provenance. Familiarity + recollection OPPOSE. E is the residual
+    (familiarity-driven) false endorsement of discredited claims.
+  * R = I - E (recollection), F = E / (1 - R) (familiarity), per pool.
+  * SOURCE INVALIDATION: teach a fact from a source, cue that the source is
+    unreliable, then require withdrawal/abstention (Koenig / Open Mind
+    10.1162/opmi_a_00038). Withdrawal rate counted per pool.
 
-All thresholds stay at their pre-registered design values.  NOTHING is tuned
-to force a PASS: paraphrase entailment + a live-web-off baseline + near-miss
-decoys introduce error modes that are allowed to fail.
+Kept from the first redesign: paraphrase gold claims (no tautological span),
+>=60 gap + >=30 closed-web + >=30 near-miss decoy PER POOL, fixed sha256 hash
+seal, frozen replay boundary (no network, no save), and the legacy
+answer-only/parametric arm as an INJECTABLE FAKE for unit tests. Old thresholds
+are unchanged; every new criterion is additive and pre-registered, and NOTHING
+is tuned to force a PASS.
 
 Usage:
     uv run python scripts/measure_learn5_wfa.py
@@ -68,6 +73,9 @@ GATE_PATH = os.path.join(PROJ, "scratch", "learn5_wfa_gates.jsonl")
 os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
 
 # Pre-registered decision thresholds (design section 4.6). NOT tuned.
+# The first six keys are the ORIGINAL, UNCHANGED thresholds (additive design).
+# The PD_* / invalidation keys are new, pre-registered in
+# docs/investigations/WFA_PROCESS_DISSOCIATION.md and NEVER adjusted to pass.
 TH = {
     "wfa_valid_min": 0.70,
     "abstain_min": 0.90,
@@ -75,6 +83,12 @@ TH = {
     "decoy_rej_min": 0.85,
     "internal_no_tag_min": 0.90,
     "sealed_drop_max": 0.10,    # sealed wfa_valid >= primary - this
+    # --- ADDITIVE process-dissociation / invalidation criteria (WFA-PD) ---
+    "PD_R_min": 0.25,                 # R = I - E, per pool (recollection floor)
+    "PD_exclusion_margin_min": 0.10,  # I_discredited - E must exceed this
+    "PD_exclusion_credible_min": 0.70,  # capability parity: credible endorsed
+    "PD_R_lt_one_max": 0.999,         # F = E/(1-R) must be well-defined
+    "invalidation_withdrawal_min": 0.50,  # pre-registered floor, NOT tuned
 }
 
 # Structural (instrument-validity) minima per pool, from design section 4.5.
@@ -574,25 +588,33 @@ def build_items():
         if r is None:
             raise RuntimeError("gap spec could not be resolved from fixtures: %r" % (spec,))
         key_tokens = sorted(r["entail_tokens"], key=lambda w: (-len(w), w))[:4]
+        # ADDITIVE provenance label: a gap's verified fixture URL is CREDIBLE.
         items.append({"id": spec[0], "kind": "gap", "pool": pool,
-                      "difficulty": diff, "key_fact_tokens": key_tokens, **r})
+                      "difficulty": diff, "key_fact_tokens": key_tokens,
+                      "source_status": "credible", "source_id": r["url"], **r})
     for spec, diff, pool in _split(
             "decoy", DECOY_SPEC, lambda s: _difficulty(len(_words(s[2])))):
         sid, query, claim, tag = spec
+        # ADDITIVE: near-miss familiar claims carry DISCREDITED provenance in
+        # the exclusion arm (familiarity present, source not in credible set).
         items.append({"id": sid, "kind": "decoy", "pool": pool,
                       "difficulty": diff, "query": query, "claim": claim,
                       "claim_tokens": sorted(_words(claim)),
-                      "decoy_tag": tag})
+                      "decoy_tag": tag, "source_status": "discredited",
+                      "source_id": "src_discredited_" + sid})
     for spec, diff, pool in _split(
             "closed_web", CLOSED_SPEC, lambda s: _difficulty(8)):
         sid, query = spec
+        # ADDITIVE: no reachable source => UNKNOWN provenance.
         items.append({"id": sid, "kind": "closed_web", "pool": pool,
-                      "difficulty": diff, "query": query})
+                      "difficulty": diff, "query": query,
+                      "source_status": "unknown", "source_id": None})
     for spec, diff, pool in _split(
             "internal", INTERNAL_SPEC, lambda s: _difficulty(6)):
         sid, query, claim = spec
         items.append({"id": sid, "kind": "internal", "pool": pool,
-                      "difficulty": diff, "query": query, "claim": claim})
+                      "difficulty": diff, "query": query, "claim": claim,
+                      "source_status": "internal", "source_id": None})
     return items
 
 
@@ -908,6 +930,9 @@ def summarize(items, records, wfa):
             "reads_mean_gap": round(sum(r["reads"] for r in gp) / len(gp), 4) if gp else None,
         }
         out[pool]["delta"] = round(out[pool]["wfa_valid"] - out[pool]["answer_only"], 4)
+        # ADDITIVE process-dissociation fields. Computed from raw observations
+        # already annotated on records; no threshold is applied here.
+        out[pool].update(process_dissociation(records, pool))
     out["hard_fails"] = {
         "fabricated_urls": sum(1 for r in records if r.get("fabricated_url")),
         "unfetched_urls": sum(1 for r in records if r.get("unfetched_url")),
@@ -971,6 +996,294 @@ def instrument_controls(wfa):
     return checks
 
 
+# ── PROCESS-DISSOCIATION / SOURCE-INVALIDATION DESIGN ───────────────────────
+# Brain map (see docs/investigations/WFA_PROCESS_DISSOCIATION.md):
+#   Johnson, Hashtroudi & Lindsay 1993 (10.1037/0033-2909.114.1.3):
+#       item memory (the fact) and source memory (where it came from)
+#       dissociate; source amnesia = fact retained, source lost.
+#   Tulving 1985 (10.1037/h0080017):
+#       noetic "know" vs autonoetic "remember" -- a bare parametric answer is
+#       knowledge without a recollected source, so it cannot test monitoring.
+#   Jacoby 1991 (10.1016/0749-596X(91)90025-F):
+#       inclusion I = R + F(1-R); exclusion E = F(1-R); R = I - E; F = E/(1-R).
+#   Hasher, Goldstein & Toppino 1977 (10.1016/S0022-5371(77)80012-1):
+#       repetition/familiarity makes false statements seem true independent
+#       of source -- this is why exclusion leaks (E > 0) on familiar decoys.
+#   Open Mind 10.1162/opmi_a_00038 (Koenig et al.):
+#       toddlers retroactively discount words learned from a source later shown
+#       unreliable -- source invalidation should cause withdrawal.
+
+# Pre-registered source sets. Credible = the verified frozen fixture URLs
+# (the only sources admitted this run); discredited = authored decoy source ids
+# that are deliberately NOT in the credible set; unknown = no source at all.
+CREDIBLE_SOURCES = frozenset(ALL_FIXTURE_URLS)
+
+INCLUSION_INSTRUCTION = (
+    "Answer freely. Endorse any claim you recognise or that feels familiar, "
+    "and name the source if you recall one. Familiarity alone is enough to "
+    "say yes."
+)
+EXCLUSION_INSTRUCTION = (
+    "Endorse a claim ONLY if you are certain its provenance is one of the "
+    "trusted sources listed in CONTEXT. Otherwise ABSTAIN. A claim that merely "
+    "feels familiar is NOT sufficient: if its source is discredited or its "
+    "provenance is unknown, abstain even though the claim sounds right."
+)
+INVALIDATION_TEACH = "Learn this fact from source {source}: {fact}"
+INVALIDATION_CUE = (
+    "New evidence: source {source} has been shown to be unreliable and "
+    "fabricated its claims. Given this, do you still assert the fact: {fact}? "
+    "Reply WITHDRAW or MAINTAIN."
+)
+
+_ABSTAIN_RE = re.compile(
+    r"\b(abstain|abstention|withdraw|withdrawn|retract|retracted|i don't know|"
+    r"i do not know|cannot confirm|can't confirm|not sure|no source|unknown "
+    r"source|unreliable|insufficient evidence|should not endorse)\b", re.I)
+_ENDORSE_RE = re.compile(
+    r"\b(endorse|endorsed|yes|indeed|confirmed|i assert|i still assert|"
+    r"the claim is true|that is true|correct)\b", re.I)
+_WITHDRAW_RE = re.compile(
+    r"\b(withdraw|withdrawn|retract|retracted|no longer assert|no longer "
+    r"endorse|not reliable|unreliable|discount|discounted|i was wrong|"
+    r"should not have asserted|abstain)\b", re.I)
+_MAINTAIN_RE = re.compile(
+    r"\b(maintain|still assert|stand by|i confirm|keep asserting)\b", re.I)
+
+
+def _text_endorses_claim(text, item):
+    """Content fallback: does the response assert the presented claim tokens?
+
+    Uses the same canonicalisation as the evidence rubric, so a paraphrased
+    claim can be matched without a surface copy. Conservative (all tokens).
+    """
+    canon = _words(text) | _canonical_tokens(text)
+    toks = set(item.get("claim_tokens") or item.get("entail_tokens") or [])
+    return bool(toks) and toks.issubset(canon)
+
+
+def parse_endorsement(text, item):
+    """Parse an arm response into a binary endorsement. Fail-closed."""
+    t = text or ""
+    if _ABSTAIN_RE.search(t):
+        return False
+    if _ENDORSE_RE.search(t):
+        return True
+    return _text_endorses_claim(t, item)
+
+
+def parse_withdrawal(text):
+    """Parse a post-invalidation response. Only an explicit withdrawal counts."""
+    t = text or ""
+    if _WITHDRAW_RE.search(t):
+        return True
+    if _MAINTAIN_RE.search(t):
+        return False
+    return False  # fail-closed: no explicit withdrawal => not withdrawn
+
+
+def attributed_source(text):
+    """Return the first credible URL named in the response, else None."""
+    for url in sorted(CREDIBLE_SOURCES):
+        if url and url in (text or ""):
+            return url
+    return None
+
+
+def endorsement_prompt(item, arm):
+    """Instruction-conditioned prompt for one endorsement item."""
+    claim = item.get("claim") or item.get("source_span") or item.get("query")
+    if arm == "exclusion":
+        trusted = ", ".join(sorted(CREDIBLE_SOURCES)[:8]) or "(none)"
+        return (
+            "%s\nProvenance of this claim: %s (source id: %s).\n"
+            "Trusted sources for this run: %s.\nClaim: %s\nDecision:"
+            % (EXCLUSION_INSTRUCTION, item.get("source_status"),
+               item.get("source_id"), trusted, claim)
+        )
+    return "%s\nClaim: %s\nDecision:" % (INCLUSION_INSTRUCTION, claim)
+
+
+class EngineEndorsementResponder:
+    """Live-engine adapter for the inclusion / exclusion arms.
+
+    Same engine object, same facts; ONLY the instruction differs. The engine
+    is injected, never booted by the responder, so unit tests use a fake.
+    """
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.calls = []
+
+    def __call__(self, item, arm):
+        prompt = endorsement_prompt(item, arm)
+        self.calls.append((item["id"], arm))
+        if self.engine is None:
+            return {"endorse": False, "source": None, "text": "", "missing": True}
+        try:
+            text = (self.engine.process_turn(prompt) or "").strip()
+        except Exception as e:
+            text = "<ERR %s: %s>" % (type(e).__name__, e)
+        return {"endorse": parse_endorsement(text, item),
+                "source": attributed_source(text), "text": text}
+
+
+class EngineInvalidationResponder:
+    """Live-engine adapter for the source-invalidation arm (Koenig cue)."""
+
+    def __init__(self, engine):
+        self.engine = engine
+        self.calls = []
+
+    def _ask(self, prompt):
+        if self.engine is None:
+            return ""
+        try:
+            return (self.engine.process_turn(prompt) or "").strip()
+        except Exception as e:
+            return "<ERR %s: %s>" % (type(e).__name__, e)
+
+    def __call__(self, item):
+        fact = item.get("claim") or item.get("source_span") or ""
+        source = item.get("source_id") or "an unnamed source"
+        before = self._ask(INVALIDATION_TEACH.format(source=source, fact=fact))
+        after = self._ask(INVALIDATION_CUE.format(source=source, fact=fact))
+        self.calls.append(item["id"])
+        return {"before": before, "after": after,
+                "withdrawn": parse_withdrawal(after)}
+
+
+class DictEndorsementResponder:
+    """Injectable fake for unit tests: (id, arm) -> bool or full response dict."""
+
+    def __init__(self, decisions=None, default=False):
+        self.decisions = dict(decisions or {})
+        self.default = default
+        self.calls = []
+
+    def __call__(self, item, arm):
+        key = (item["id"], arm)
+        self.calls.append((key, item.get("source_status")))
+        value = self.decisions.get(key, self.default)
+        if isinstance(value, dict):
+            response = dict(value)
+            response.setdefault("endorse", bool(value))
+            response.setdefault("source", None)
+            response.setdefault("text", "")
+            return response
+        return {"endorse": bool(value),
+                "source": item.get("source_id") if value else None,
+                "text": "ENDORSE" if value else "ABSTAIN"}
+
+
+class DictInvalidationResponder:
+    """Injectable fake: item id -> bool (withdrawn) or full response dict."""
+
+    def __init__(self, decisions=None, default=False):
+        self.decisions = dict(decisions or {})
+        self.default = default
+        self.calls = []
+
+    def __call__(self, item):
+        value = self.decisions.get(item["id"], self.default)
+        self.calls.append(item["id"])
+        if isinstance(value, dict):
+            response = dict(value)
+            response.setdefault("withdrawn", bool(value))
+            return response
+        return {"before": "learned", "after": "WITHDRAW" if value else "MAINTAIN",
+                "withdrawn": bool(value)}
+
+
+class WFAArms:
+    """Injectable container of the four arms. A missing arm is a HARD FAIL."""
+
+    ARM_NAMES = ("inclusion", "exclusion", "invalidation", "parametric")
+
+    def __init__(self, inclusion=None, exclusion=None, invalidation=None,
+                 parametric=None):
+        self.inclusion = inclusion
+        self.exclusion = exclusion
+        self.invalidation = invalidation
+        self.parametric = parametric
+
+    def missing(self):
+        return [name for name in self.ARM_NAMES
+                if getattr(self, name, None) is None]
+
+    def as_dict(self):
+        return {name: getattr(self, name, None) is not None
+                for name in self.ARM_NAMES}
+
+
+def run_pd_arms(items, records, arms):
+    """Annotate records IN ADDITIVELY with inclusion/exclusion/invalidation.
+
+    No threshold is consulted here: this computes raw observations only.
+    Missing responders are skipped here and hard-failed in decide().
+    """
+    by_id = {r["id"]: r for r in records}
+    for it in items:
+        if it["kind"] not in ("gap", "decoy") or not it.get("claim"):
+            continue
+        rec = by_id[it["id"]]
+        if arms.inclusion is not None:
+            inc = arms.inclusion(it, "inclusion")
+            rec["pd_inclusion_endorse"] = bool(inc.get("endorse"))
+            rec["pd_inclusion_source"] = inc.get("source")
+            rec["pd_inclusion_attributed_credible"] = (
+                inc.get("source") in CREDIBLE_SOURCES)
+            rec["pd_inclusion_text"] = inc.get("text")
+        if arms.exclusion is not None:
+            exc = arms.exclusion(it, "exclusion")
+            rec["pd_exclusion_endorse"] = bool(exc.get("endorse"))
+            rec["pd_exclusion_source"] = exc.get("source")
+            rec["pd_exclusion_text"] = exc.get("text")
+        if it["kind"] == "gap" and arms.invalidation is not None:
+            inv = arms.invalidation(it)
+            rec["inv_before"] = inv.get("before")
+            rec["inv_after"] = inv.get("after")
+            rec["inv_withdrawn"] = bool(inv.get("withdrawn"))
+    return records
+
+
+def _rate_of(rows, key):
+    return round(sum(1 for r in rows if r.get(key) is True) / len(rows), 4) if rows else None
+
+
+def process_dissociation(records, pool):
+    """Jacoby 1991 decomposition per pool. Pure math; no thresholds.
+
+    I             = endorse rate of CREDIBLE gap claims under inclusion.
+    E             = endorse rate of DISCREDITED decoy claims under exclusion.
+    I_discredited = endorse rate of the SAME discredited claims under inclusion.
+    E_credible    = endorse rate of credible claims under exclusion (parity).
+    R = I - E; F = E/(1-R); exclusion_margin = I_discredited - E.
+    withdrawal_rate = withdrawn/tested on gap items with an invalidation cue.
+    """
+    gap = [r for r in records if r["pool"] == pool and r["kind"] == "gap"
+           and not r.get("ctl") and "pd_inclusion_endorse" in r]
+    dec = [r for r in records if r["pool"] == pool and r["kind"] == "decoy"
+           and not r.get("ctl") and "pd_inclusion_endorse" in r]
+    gap_inv = [r for r in gap if "inv_withdrawn" in r]
+
+    I = _rate_of(gap, "pd_inclusion_endorse")
+    E = _rate_of(dec, "pd_exclusion_endorse")
+    I_dis = _rate_of(dec, "pd_inclusion_endorse")
+    E_cred = _rate_of(gap, "pd_exclusion_endorse")
+    R = round(I - E, 4) if I is not None and E is not None else None
+    F = (round(E / (1.0 - R), 4)
+         if R is not None and E is not None and R < 1.0 else None)
+    margin = (round(I_dis - E, 4)
+              if I_dis is not None and E is not None else None)
+    return {
+        "n_pd_gap": len(gap), "n_pd_decoy": len(dec), "n_inv": len(gap_inv),
+        "I": I, "E": E, "I_discredited": I_dis, "E_credible": E_cred,
+        "R": R, "F": F, "exclusion_margin": margin,
+        "withdrawal_rate": _rate_of(gap_inv, "inv_withdrawn"),
+    }
+
+
 def decide(summary, checks_ok):
     p, s = summary["primary"], summary["sealed"]
     hf = summary["hard_fails"]
@@ -1005,6 +1318,29 @@ def decide(summary, checks_ok):
         "no_save": len(mfwf.SAVE_ATTEMPTS) == 0,
         "no_fixture_miss": mfwf.PROVIDER_CALLS["fixture_miss"] == 0,
     }
+    # ── ADDITIVE process-dissociation criteria (pre-registered, NOT tuned) ──
+    # A missing arm is a HARD FAIL: an instrument with no inclusion/exclusion
+    # observation cannot support a recollection/familiarity claim.
+    arms = summary.get("arms", {})
+    for name in WFAArms.ARM_NAMES:
+        rules["arm_present_%s" % name] = bool(arms.get(name, False))
+    for pool, pp in (("primary", p), ("sealed", s)):
+        rules["PD_R_%s>=0.25" % pool] = (
+            pp.get("R") is not None and pp["R"] >= TH["PD_R_min"])
+        rules["PD_exclusion_margin_%s>=0.10" % pool] = (
+            pp.get("exclusion_margin") is not None
+            and pp["exclusion_margin"] >= TH["PD_exclusion_margin_min"])
+        rules["PD_exclusion_credible_%s>=0.70" % pool] = (
+            pp.get("E_credible") is not None
+            and pp["E_credible"] >= TH["PD_exclusion_credible_min"])
+        rules["PD_wellformed_%s" % pool] = (
+            pp.get("R") is not None and pp.get("F") is not None
+            and 0.0 <= pp["R"] <= TH["PD_R_lt_one_max"])
+        rules["PD_n_gap_%s>=60" % pool] = pp.get("n_pd_gap", 0) >= MIN_GAP_PER_POOL
+        rules["PD_n_decoy_%s>=30" % pool] = pp.get("n_pd_decoy", 0) >= MIN_DECOY_PER_POOL
+        rules["invalidation_withdrawal_%s>=0.50" % pool] = (
+            pp.get("withdrawal_rate") is not None
+            and pp["withdrawal_rate"] >= TH["invalidation_withdrawal_min"])
     return rules, all(rules.values())
 
 
@@ -1051,8 +1387,18 @@ def main(argv=None):
             fh.flush()
     wfa._all_records = records
 
-    # ── answer-only arm: LIVE engine with web disabled ──────────────────────
-    oracle = AnswerOnlyOracle(engine=boot_answer_only_engine(), web_disabled=True)
+    # ── legacy parametric/fake arm (injectable; default = no engine stub) ───
+    # The old "answer-only = web disabled" arm is no longer evidence for the
+    # source-monitoring claim. It is retained ONLY as an injectable fake slot
+    # for backward-compatible JSON fields and unit tests. Set
+    # WFA_PARAMETRIC_LIVE=1 to boot the offline engine (and its web tripwire)
+    # explicitly; the PD arms below carry the evidential weight either way.
+    if os.environ.get("WFA_PARAMETRIC_LIVE") == "1":
+        oracle = AnswerOnlyOracle(engine=boot_answer_only_engine(), web_disabled=True)
+        parametric_mode = "live_engine_web_disabled"
+    else:
+        oracle = AnswerOnlyOracle(engine=None, web_disabled=True)
+        parametric_mode = "fake_no_engine_stub"
     with _WebAccessTripwire(oracle):
         web_disabled = run_answer_only(items, oracle, records)
     summary = summarize(items, records, wfa)
@@ -1078,10 +1424,61 @@ def main(argv=None):
         "thresholds": TH,
         "answer_only_web_disabled": web_disabled,
         "answer_only_web_calls": oracle.web_calls,
-        "answer_only_mode": "live_engine_web_disabled",
+        "answer_only_mode": parametric_mode,
         "web_arm_mode": "frozen_provider_attribution",
         "paraphrase_synonym_map_size": len(SYN),
     })
+
+    # ── WITHIN-ENGINE PROCESS-DISSOCIATION ARMS ──────────────────────────────
+    # One live engine object serves ALL three arms: the manipulation is the
+    # INSTRUCTION, not a different store. A boot failure leaves the arms
+    # missing, which decide() hard-fails (no fabricated substitute).
+    try:
+        from ravana.chat.engine import CognitiveChatEngine  # type: ignore
+        live_engine = CognitiveChatEngine(data_dir=os.path.join(PROJ, "weights"),
+                                          user_suffix="")
+    except Exception as exc:
+        print("  [WARN] PD engine boot failed (%s); arms missing -> hard FAIL" % exc)
+        live_engine = None
+    arms = WFAArms(
+        inclusion=EngineEndorsementResponder(live_engine) if live_engine is not None else None,
+        exclusion=EngineEndorsementResponder(live_engine) if live_engine is not None else None,
+        invalidation=EngineInvalidationResponder(live_engine) if live_engine is not None else None,
+        parametric=oracle,
+    )
+    run_pd_arms(items, records, arms)
+    for pool in ("primary", "sealed"):
+        summary[pool].update(process_dissociation(records, pool))
+    summary["arms"] = arms.as_dict()
+    summary["arms_missing"] = arms.missing()
+    summary["pd_mode"] = "within_engine_inclusion_exclusion_invalidation"
+    summary["arm_call_counts"] = {
+        "inclusion": len(arms.inclusion.calls) if arms.inclusion else 0,
+        "exclusion": len(arms.exclusion.calls) if arms.exclusion else 0,
+        "invalidation": len(arms.invalidation.calls) if arms.invalidation else 0,
+        "parametric": oracle.calls,
+    }
+    # PD informativeness caveat: a dissociation is uninformative when R>=1
+    # (F undefined) or when R<=0 (no recollection). Reported, not gated
+    # differently from the pre-registered PD_wellformed rule.
+    summary["pd_informativeness"] = {
+        pool: {"informative": (summary[pool]["R"] is not None
+                               and summary[pool]["F"] is not None
+                               and 0.0 < summary[pool]["R"] < 1.0),
+               "R": summary[pool]["R"], "F": summary[pool]["F"]}
+        for pool in ("primary", "sealed")
+    }
+    # Persist all additive arm annotations.
+    with open(DATA_PATH, "w", encoding="utf-8") as fh:
+        for rec in records:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    print("\n--- process-dissociation arms (within-engine) ---")
+    print("  arms_present=%s  missing=%s" % (summary["arms"], summary["arms_missing"]))
+    for pool in ("primary", "sealed"):
+        pd = summary[pool]
+        print("  %-8s I=%s E=%s R=%s F=%s margin=%s withdraw=%s" % (
+            pool, pd["I"], pd["E"], pd["R"], pd["F"],
+            pd["exclusion_margin"], pd["withdrawal_rate"]))
 
     checks = instrument_controls(wfa)
     checks_ok = all(ok for _, ok in checks)
@@ -1107,6 +1504,9 @@ def main(argv=None):
                   pool, pp["n_gap"], pp["wfa_valid"], pp["answer_only"],
                   pp["delta"], pp["abstain"], pp["decoy_reject"],
                   pp["internal_no_tag"], pp["reads_total"]))
+        print("  %-8s I=%s E=%s R=%s F=%s exclusion_margin=%s withdrawal=%s" % (
+            pool, pp["I"], pp["E"], pp["R"], pp["F"],
+            pp["exclusion_margin"], pp["withdrawal_rate"]))
     print("  reads_grand_total=%d (cost, not benefit)" % summary["reads_grand_total"])
     print("  hard_fails:", summary["hard_fails"])
 

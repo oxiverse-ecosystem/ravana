@@ -84,6 +84,8 @@ def test_hash_split_is_stable(items):
     h = wfa.item_manifest_hash(items)
     assert re_is_hex(h)
     assert h == wfa.item_manifest_hash(wfa.build_items())
+    # Pre-run seal: unchanged by the additive source_status/source_id fields.
+    assert h == "119b9d91fe43a06087d001b1fb02a554edd4d08d665b99041528d93533818164"
 
 
 def re_is_hex(s):
@@ -221,10 +223,16 @@ def _base_summary():
         "wfa_valid": 1.0, "answer_only": 0.0, "delta": 1.0,
         "abstain": 1.0, "decoy_reject": 1.0, "near_miss_decoy_reject": 1.0,
         "internal_no_tag": 1.0, "reads_total": 1, "reads_mean_gap": 1.0,
+        # additive PD fields: a clean, well-formed process dissociation
+        "n_pd_gap": 65, "n_pd_decoy": 30, "n_inv": 65,
+        "I": 0.85, "E": 0.35, "I_discredited": 0.75, "E_credible": 0.85,
+        "R": 0.50, "F": 0.70, "exclusion_margin": 0.40,
+        "withdrawal_rate": 0.80,
     }
     return {
         "primary": dict(per), "sealed": dict(per),
         "answer_only_web_disabled": True,
+        "arms": {name: True for name in wfa.WFAArms.ARM_NAMES},
         "hard_fails": {"fabricated_urls": 0, "unfetched_urls": 0,
                        "nonverbatim_spans": 0, "attribution_on_closed_web": 0,
                        "non_paraphrase_claims": 0, "answer_only_web_leaks": 0},
@@ -299,3 +307,194 @@ def test_decision_fails_on_verbatim_claim():
     s["hard_fails"]["non_paraphrase_claims"] = 1
     rules, passed = wfa.decide(s, True)
     assert not passed and not rules["non_paraphrase_claims==0"]
+
+
+# ── PROCESS-DISSOCIATION / SOURCE-INVALIDATION (fakes only, no engine boot) ──
+def test_source_status_labels_are_additive_and_hash_seal_is_unchanged(items):
+    statuses = {(i["kind"], i["source_status"]) for i in items}
+    assert ("gap", "credible") in statuses
+    assert ("decoy", "discredited") in statuses
+    assert ("closed_web", "unknown") in statuses
+    assert ("internal", "internal") in statuses
+    # the additive labels did not perturb the pre-run hash seal
+    assert wfa.item_manifest_hash(items) == wfa.item_manifest_hash(wfa.build_items())
+
+
+def test_pd_well_formed_summary_passes_all_criteria():
+    rules, passed = wfa.decide(_base_summary(), True)
+    assert passed, [k for k, v in rules.items() if not v]
+    assert all(rules["arm_present_%s" % n] for n in wfa.WFAArms.ARM_NAMES)
+
+
+def test_parse_endorsement_and_withdrawal_are_fail_closed():
+    item = {"claim_tokens": ["compass", "magnet"]}
+    assert wfa.parse_endorsement("ENDORSE - the magnet explanation", item) is True
+    assert wfa.parse_endorsement("ABSTAIN: no reliable source", item) is False
+    assert wfa.parse_endorsement("I don't know", item) is False
+    assert wfa.parse_withdrawal("WITHDRAW: that source was unreliable") is True
+    assert wfa.parse_withdrawal("MAINTAIN - I still assert it") is False
+    assert wfa.parse_withdrawal("") is False   # no explicit withdrawal != withdrawn
+
+
+def _pd_rec(pool, kind, inc, exc, inv=None):
+    rec = {"pool": pool, "kind": kind, "ctl": False,
+           "pd_inclusion_endorse": inc, "pd_exclusion_endorse": exc}
+    if inv is not None:
+        rec["inv_withdrawn"] = inv
+    return rec
+
+
+def test_pd_math_known_values():
+    records = [
+        _pd_rec("primary", "gap", True, True, True),
+        _pd_rec("primary", "gap", True, True, False),
+        _pd_rec("primary", "gap", True, False, True),
+        _pd_rec("primary", "gap", False, False, True),
+        _pd_rec("primary", "decoy", True, False),
+        _pd_rec("primary", "decoy", True, True),
+        _pd_rec("primary", "decoy", True, False),
+        _pd_rec("primary", "decoy", True, False),
+    ]
+    pd = wfa.process_dissociation(records, "primary")
+    assert pd["I"] == 0.75          # 3/4 credible endorsed in inclusion
+    assert pd["E"] == 0.25          # 1/4 discredited endorsed in exclusion
+    assert pd["I_discredited"] == 1.0
+    assert pd["E_credible"] == 0.5
+    assert pd["R"] == 0.50          # I - E
+    assert pd["F"] == 0.50          # E/(1-R) = 0.25/0.5
+    assert pd["exclusion_margin"] == 0.75
+    assert pd["withdrawal_rate"] == 0.75
+    assert pd["n_pd_gap"] == 4 and pd["n_pd_decoy"] == 4
+
+
+def test_pd_math_degenerate_r_is_not_fabricated():
+    # I == 1 and E == 0 -> R == 1 -> F = 0/(1-R) undefined; must be None.
+    records = [_pd_rec("primary", "gap", True, True),
+               _pd_rec("primary", "decoy", True, False)]
+    pd = wfa.process_dissociation(records, "primary")
+    assert pd["I"] == 1.0 and pd["E"] == 0.0 and pd["R"] == 1.0
+    assert pd["F"] is None
+    rules, passed = wfa.decide(_base_summary_with(pd), True)
+    assert not passed and not rules["PD_wellformed_primary"]
+
+
+def _base_summary_with(pd):
+    s = _base_summary()
+    s["primary"].update(pd)
+    return s
+
+
+class _PromptEngine:
+    """Fake engine: inclusion endorses, exclusion abstains. No boot."""
+
+    def __init__(self):
+        self.prompts = []
+
+    def process_turn(self, prompt):
+        self.prompts.append(prompt)
+        return "ABSTAIN" if "ONLY if you are certain" in prompt else "ENDORSE"
+
+
+def test_inclusion_and_exclusion_differ_only_by_instruction(items):
+    decoy = next(i for i in items if i["kind"] == "decoy")
+    eng = _PromptEngine()
+    inc = wfa.EngineEndorsementResponder(eng)(decoy, "inclusion")
+    exc = wfa.EngineEndorsementResponder(eng)(decoy, "exclusion")
+    assert inc["endorse"] is True and exc["endorse"] is False
+    assert len(eng.prompts) == 2 and eng.prompts[0] != eng.prompts[1]
+    assert "trusted sources" in eng.prompts[1].lower()
+    assert "only if you are certain" in eng.prompts[1].lower()
+    assert "familiarity alone" in eng.prompts[0].lower()
+
+
+def test_exclusion_abstention_drives_familiarity_leak_measure(items):
+    gaps = [i for i in items if i["kind"] == "gap"][:4]
+    decoys = [i for i in items if i["kind"] == "decoy"][:4]
+    decisions = {(i["id"], "inclusion"): True for i in gaps + decoys}
+    decisions.update({(i["id"], "exclusion"): False for i in gaps + decoys})
+    inc = wfa.DictEndorsementResponder(decisions)
+    exc = wfa.DictEndorsementResponder(decisions)
+    arms = wfa.WFAArms(inclusion=inc, exclusion=exc,
+                       invalidation=wfa.DictInvalidationResponder(),
+                       parametric=object())
+    records = [{"id": i["id"], "kind": i["kind"], "pool": i["pool"],
+                "query": i.get("query"), "claim": i.get("claim")}
+               for i in gaps + decoys]
+    out = wfa.run_pd_arms(gaps + decoys, records, arms)
+    pd = wfa.process_dissociation(out, gaps[0]["pool"])
+    assert pd["E"] == 0.0            # exclusion abstains on every discredited claim
+    assert pd["I_discredited"] == 1.0
+    assert pd["exclusion_margin"] == 1.0
+    assert pd["R"] == pd["I"]        # E == 0 => R == I
+
+
+def test_invalidation_withdrawal_rate_counted_per_pool(items):
+    gaps = [i for i in items if i["kind"] == "gap" and i["pool"] == "primary"]
+    ids = [i["id"] for i in gaps]
+    decisions = {sid: (idx % 2 == 0) for idx, sid in enumerate(ids)}
+    inv = wfa.DictInvalidationResponder(decisions)
+    records = [{"id": i["id"], "kind": i["kind"], "pool": i["pool"]}
+               for i in gaps]
+    arms = wfa.WFAArms(inclusion=wfa.DictEndorsementResponder(),
+                       exclusion=None, invalidation=inv,
+                       parametric=object())
+    wfa.run_pd_arms(gaps, records, arms)
+    pd = wfa.process_dissociation(records, gaps[0]["pool"])
+    expected = round(sum(decisions[s] for s in ids if s in decisions) / len(ids), 4)
+    assert pd["withdrawal_rate"] == expected
+    assert pd["n_inv"] == len(ids)
+
+
+def test_missing_arm_hard_fails_decide():
+    for arm in wfa.WFAArms.ARM_NAMES:
+        s = _base_summary()
+        s["arms"][arm] = False
+        rules, passed = wfa.decide(s, True)
+        assert not passed, arm
+        assert not rules["arm_present_%s" % arm], arm
+
+
+def test_pd_criteria_are_active_and_pre_registered():
+    s = _base_summary()
+    s["primary"]["R"] = 0.10
+    s["primary"]["F"] = 0.50
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["PD_R_primary>=0.25"]
+
+    s = _base_summary()
+    s["sealed"]["exclusion_margin"] = 0.0
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["PD_exclusion_margin_sealed>=0.10"]
+
+    s = _base_summary()
+    s["primary"]["withdrawal_rate"] = 0.10
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["invalidation_withdrawal_primary>=0.50"]
+
+
+def test_thresholds_do_not_enter_arm_computation():
+    # threshold neutrality: raw observations and R/F math are independent of
+    # the decision thresholds; only decide() reads TH.
+    records = [_pd_rec("primary", "gap", True, False, True),
+               _pd_rec("primary", "gap", True, False, False),
+               _pd_rec("primary", "decoy", True, True),
+               _pd_rec("primary", "decoy", True, False)]
+    before = wfa.process_dissociation(records, "primary")
+    keys = ["PD_R_min", "PD_exclusion_margin_min", "invalidation_withdrawal_min"]
+    saved = {k: wfa.TH[k] for k in keys}
+    try:
+        for k in keys:
+            wfa.TH[k] = 0.99
+        after = wfa.process_dissociation(records, "primary")
+    finally:
+        wfa.TH.update(saved)
+    assert before == after
+
+
+def test_fake_parametric_arm_is_injectable_and_not_a_boot():
+    q = "how do lungs exchange gases"
+    oracle = wfa.AnswerOnlyOracle(engine=_FakeEngine({q: "parametric answer"}),
+                                  web_disabled=True)
+    arms = wfa.WFAArms(parametric=oracle)
+    assert arms.missing() == ["inclusion", "exclusion", "invalidation"]
+    assert oracle.answer(q) == "parametric answer"
