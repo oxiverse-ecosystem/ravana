@@ -930,6 +930,27 @@ class GraphMixin:
                     kind = md.get("edge_kind")
                     if kind not in (None, "curated"):
                         continue  # never downgrade a web/conversation edge
+                    # F1 (provenance-preserving re-seed): a conversation-taught
+                    # edge is stamped edge_kind='curated' by intake (user ->
+                    # curated, intake.py:80), so the guard above admits it and
+                    # the update below USED TO overwrite its episode record
+                    # (source/evidence/acquired_by) with curriculum defaults —
+                    # measured on rust: oxidation->rust curated 0.168/0.702 ->
+                    # curriculum 0.79/0.297 across a cold reload. The schema may
+                    # CREATE absent hops but must not rewrite an episode record
+                    # (synaptic tagging: the tag survives capture, Frey & Morris
+                    # 1997; reconsolidation: restabilize, don't replace, Nader et
+                    # al. 2000; schema assimilation: Tse et al. 2007). Relabel
+                    # only untagged edges or authored-seed curated edges.
+                    _src = str(md.get("source") or "")
+                    _acq = str(md.get("acquired_by") or "")
+                    _is_episode = (
+                        _acq == "user_assertion"
+                        or _src.startswith("conversation")
+                        or _src.startswith("user")
+                    )
+                    if kind == "curated" and _is_episode:
+                        continue  # preserve the conversation episode record
                     md.update({
                         "edge_kind": "curriculum",
                         "source": "curriculum:authored:" + subject,

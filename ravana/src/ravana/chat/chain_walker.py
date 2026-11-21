@@ -1028,6 +1028,20 @@ class ChainWalkerMixin:
 
                 before_words = self._extract_content_words(before)
                 after_words = self._extract_content_words(after)
+                # A causal connective is a RELATIONAL OPERATOR, not a concept:
+                # do(X) in the do-calculus (Pearl) / the function-word skeleton
+                # of a proposition. The GloVe seed detector already identifies
+                # these words above (score >= 0.30); letting the same words back
+                # into the argument cross-product makes "causes"/"happens"
+                # concept nodes wired causally to every mentioned entity. Those
+                # unprovenanced junk chains fill the 64-path traversal budget and
+                # crowd out the taught chain (measured: CLI criterion_rate).
+                # Filter them from BOTH argument lists; the connective is still
+                # used to split the clauses, it just cannot become an argument.
+                before_words = [w for w in before_words
+                                if self._word_causal_score(w) < 0.30]
+                after_words = [w for w in after_words
+                               if self._word_causal_score(w) < 0.30]
 
                 if before_words and after_words:
                     for bw in before_words:

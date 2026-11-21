@@ -2027,6 +2027,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Phase 18: Curiosity Drive - autonomous topic selection for background learning
         self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
         self._curiosity_cycles_this_session: int = 0  # bg auto-select count per idle session
+        # Phase 3 (web loop): curiosity-gated encoding. Default OFF — the five
+        # prior read-schedule tweaks failed, so this untried axis (an EXTERNAL
+        # information-gap signal: re-ask or correction, Kang 2009 / Gruber 2014)
+        # is gated behind an env flag and must earn its place in an A/B.
+        self._curiosity_gate_enabled: bool = os.environ.get("RAVANA_CURIOSITY_GATE", "0") == "1"
+        self._curiosity_signals: dict = {}          # content word -> turn marked
+        self._prev_query_words: list = []
+        self._curiosity_reads_this_session: int = 0
         self._concept_visit_count: Dict[str, int] = {}  # how many times each concept was visited
         self._concept_learning_progress: Dict[str, float] = {}  # rate of prediction error decrease per concept
         self._concept_pe_delta: Dict[str, float] = {}  # per-step PE delta (positive = learning progress)
@@ -8128,8 +8136,71 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             return
 
+    _CURIOSITY_STOP = frozenset({
+        "what", "why", "how", "does", "did", "do", "is", "are", "was", "were",
+        "the", "a", "an", "and", "or", "for", "with", "about", "from", "that",
+        "this", "you", "your", "me", "my", "tell", "explain", "mean", "means",
+        "really", "actually", "happen", "happens", "know", "think", "much",
+    })
+
+    def _curiosity_content_words(self, text: str) -> list:
+        """Stable content-word set from an utterance (no graph/engine dependency)."""
+        import re as _re
+        return [w for w in _re.findall(r"[a-z]+", (text or "").lower())
+                if len(w) >= 4 and w not in self._CURIOSITY_STOP]
+
+    def _track_curiosity_signal(self, user_input: str) -> None:
+        """Record EXTERNAL information-gap signals, never self-rated gaps.
+
+        Two signals the environment actually provides: (a) a re-ask — content
+        words recurring within a short window, i.e. the previous answer did not
+        close the gap; (b) an explicit correction ("no, actually ..."), which
+        marks the previous utterance's topic. A quality score derived from the
+        system's own output would be a self-confirming loop (skill §7).
+        """
+        if not self._curiosity_gate_enabled:
+            return
+        words = self._curiosity_content_words(user_input)
+        t = int(getattr(self, "turn_count", 0))
+        correction = bool(__import__("re").search(
+            r"^\s*(?:no[,!.]|nope[,!.]|actually[, ]|you(?:'re| are) wrong|wrong[,!.]|"
+            r"that'?s not|incorrect[,!.])", (user_input or ""), __import__("re").IGNORECASE))
+        if correction and self._prev_query_words:
+            for w in self._prev_query_words:
+                self._curiosity_signals[w] = t
+        overlap = set(words) & set(self._prev_query_words)
+        for w in overlap:
+            self._curiosity_signals[w] = t
+        self._prev_query_words = words
+        # bounded memory: drop signals older than 10 turns
+        self._curiosity_signals = {k: v for k, v in self._curiosity_signals.items()
+                                   if t - v <= 10}
+
+    def _curiosity_need(self, subject: str) -> bool:
+        """True when the environment has signalled an unresolved gap for `subject`."""
+        if not self._curiosity_gate_enabled:
+            return False
+        t = int(getattr(self, "turn_count", 0))
+        return any(t - v <= 10 for k, v in self._curiosity_signals.items()
+                   if k in (subject or "").lower())
+
+    def _curiosity_gate_allows(self, subject: str) -> bool:
+        """Gate a synchronous web read. Flag OFF = prior behaviour unchanged.
+        Flag ON = require an EXTERNAL signal (re-ask/correction) and a bounded
+        per-session budget (Kang 2009 / Gruber 2014: selective encoding)."""
+        if not self._curiosity_gate_enabled:
+            return True
+        if self._curiosity_reads_this_session >= 3:
+            return False
+        if self._curiosity_need(subject):
+            self._curiosity_reads_this_session += 1
+            return True
+        return False
+
     def _process_turn_impl(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # External information-gap signals (default OFF; see flag in __init__).
+        self._track_curiosity_signal(user_input)
         # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
         # so affect realizers can read the user's own felt-label ("i feel
         # hollow") even when the disclosure context passed downstream only
@@ -11460,7 +11531,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # asked about, not just entity familiarity.
                 _fok_query = user_input if (user_input and self._is_informational_query(user_input, subject)) else \
                     f"{subject} definition meaning explained"
-                if self.baby_mode and not self._fok_pause_done:
+                if (self.baby_mode and not self._fok_pause_done
+                        and self._curiosity_gate_allows(subject)):
                     self._fok_pause_done = True
                     if self._trace_enabled:
                         print(f"  [LPFC] Pausing generation — searching '{_fok_query}'...")
@@ -13216,8 +13288,61 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # branch would otherwise abort the ENTIRE load -- silently booting a
             # blank mind every round. ravana_unpickler degrades just that class
             # to an inert placeholder and records it. See state_compat.py.
-            with open(self._save_path, 'rb') as f:
-                state = ravana_unpickler(f).load()
+            try:
+                with open(self._save_path, 'rb') as f:
+                    state = ravana_unpickler(f).load()
+            except Exception as _parse_err:
+                # The primary snapshot is unreadable (e.g. a truncated pickle
+                # from a save killed mid-write — EOFError). Do NOT silently cold
+                # start and discard the learned graph. Rehydrate from the ACID
+                # SQLite mirror written on every save(): complementary learning
+                # systems (McClelland, McNaughton & O'Reilly 1995, Psychol Rev
+                # 102:419-457) — the slow, durable neocortical store retains the
+                # semantic structure when the fast hippocampal snapshot is
+                # damaged. Provenance is preserved wherever the mirror holds it
+                # (source_metadata column); non-graph state resets to defaults.
+                print(f"  [Load recover] primary snapshot unreadable "
+                      f"({type(_parse_err).__name__}: {_parse_err}); rehydrating "
+                      f"graph from the ACID SQLite mirror instead of cold start.")
+                _rec_graph = ConceptGraph(dim=self.dim,
+                                          max_nodes=getattr(self, '_max_nodes', 20000),
+                                          rng=self.rng)
+                try:
+                    self.db.load_graph(_rec_graph)
+                except Exception as _db_err:
+                    print(f"  [Load recover] SQLite mirror unavailable "
+                          f"({_db_err}); falling back to cold start.")
+                    return False
+                if not _rec_graph.nodes:
+                    print("  [Load recover] mirror empty; falling back to cold start.")
+                    return False
+                _ck = {}
+                for _nid, _n in _rec_graph.nodes.items():
+                    if getattr(_n, 'label', None):
+                        _ck.setdefault(_n.label.lower(), []).append(_nid)
+                if self.hrr_reasoner is not None:
+                    _rec_graph._fact_encode_hook = self._hrr_encode_hook
+                    _rec_graph.dual_code = self.dual_code
+                state = {
+                    'graph': _rec_graph,
+                    'concept_keywords': _ck,
+                    'turn_count': 0,
+                    'last_responses': [],
+                    'last_strategy': '',
+                    'free_energy': self._free_energy,
+                    'learning_count': 0,
+                    'identity_state': self.identity.state,
+                    'identity_momentum': 0.0,
+                    'vad_valence': self.emotion.state.valence,
+                    'vad_arousal': self.emotion.state.arousal,
+                    'vad_dominance': self.emotion.state.dominance,
+                    'meaning_accumulated': self.meaning.accumulated_meaning,
+                    'rng_state': self.rng.get_state(),
+                    'definitions': self.db.load_metadata('definitions') or {},
+                    'curated_definitions': self.db.load_metadata('curated_definitions') or [],
+                }
+                print(f"  [Load recover] rehydrated {len(_rec_graph.nodes)} nodes / "
+                      f"{len(_rec_graph.edges)} edges; non-graph state reset to defaults.")
             _dropped = report_dropped()
             if _dropped:
                 print(_dropped)

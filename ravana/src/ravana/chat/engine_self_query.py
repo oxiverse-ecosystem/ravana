@@ -2445,7 +2445,17 @@ class SelfQueryMixin:
         """
         try:
             from ravana.learn.explanation import enumerate_chains, assertable_chain
+            from .response_gen import mechanism_intent
             from .brain_regions import _singular_candidates
+            # F5: one shared, paraphrase-invariant predicate at every router
+            # (skill §4). The old direction regex (why|what causes|what makes)
+            # rejected 'how is X produced?' / 'what is the mechanism behind X?'
+            # and walked forward for 'how', so a taught A->B->X chain (incoming
+            # at X) was unreachable and a stored definition shadowed the
+            # mechanism. mechanism_intent carries admit + direction.
+            direction = mechanism_intent(text)
+            if direction is None:
+                return False
             ck = getattr(self, "_concept_keywords", {}) or {}
             ids, seen = [], set()
             for nid in (ck.get(subject) or []):
@@ -2455,14 +2465,28 @@ class SelfQueryMixin:
                 for nid in (ck.get(cand) or []):
                     if nid not in seen:
                         seen.add(nid); ids.append(nid)
+            # F5 narrow resolution fallback: ONLY when the resolved subject maps
+            # to no node, match the longest graph label present in the raw query
+            # as a REPLACEMENT seed (not an additional one — the reverted
+            # experiment added seeds unconditionally and regressed unrelated
+            # fronts). Encoding specificity / transfer-appropriate processing:
+            # the altered cue must still address the taught trace (Tulving &
+            # Thomson 1973; Morris, Bransford & Franks 1977).
+            if not ids:
+                _labels = getattr(self, "_concept_labels", set()) or set()
+                _tl = (text or "").lower()
+                _present = [l for l in _labels if l and len(l) >= 3 and l in _tl]
+                if _present:
+                    _best = max(_present, key=len)
+                    for nid in (ck.get(_best) or []):
+                        if nid not in seen:
+                            seen.add(nid); ids.append(nid)
             if not ids:
                 return False
-            backward = bool(re.search(r"\b(why|what\s+causes|what\s+makes)\b",
-                                      text or "", re.IGNORECASE))
             chains = enumerate_chains(
                 ids, self.graph,
-                direction=("backward" if backward else "forward"),
-                min_steps=2, max_steps=4, limit=3)
+                direction=direction,
+                min_steps=2, max_steps=4, limit=64)
             return any(assertable_chain(c) for c in chains)
         except Exception:
             return False

@@ -88,7 +88,10 @@ def test_lexical_copy_detector_fires_on_taught_token_only():
 
 def test_compute_parity_bounds_are_fixed():
     assert 0 < cli.COMPUTE_RATIO_LO < 1 < cli.COMPUTE_RATIO_HI
-    assert cli.COMPUTE_RATIO_LO * cli.COMPUTE_RATIO_HI > 0.99  # symmetric +/-30%
+    # Pre-registered +/-10% band (restored from the reverted +/-30% band).
+    assert cli.COMPUTE_RATIO_LO == 0.90
+    assert cli.COMPUTE_RATIO_HI == 1.10
+    assert abs(cli.COMPUTE_RATIO_LO * cli.COMPUTE_RATIO_HI - 0.99) < 1e-9
 
 
 def test_thresholds_are_not_tuned_down():
@@ -140,3 +143,140 @@ def test_no_eng_save_and_isolated_data_dir_in_script():
     assert "eng.save()" not in src
     assert "eng_save_called\": False" in src
     assert "os.path.join(SCRATCH, \"learn5_cli\")" in src
+
+
+# ── P1: snapshot-maintenance + metadata-overlay commit ──────────────────────
+# These validate the restoration mechanism on a synthetic graph WITHOUT booting
+# the chat engine: earned write-time provenance restores an assertable chain;
+# the wrong-tag control restores nothing the gate accepts; no unearned kind is
+# ever forged; and the overlay touches an arm-independent number of keys.
+
+def _taught_graph():
+    import numpy as np
+    from ravana_ml.graph import ConceptGraph
+    g = ConceptGraph(dim=8)
+    ids = {}
+    for lab in ("chill", "condensation", "fog"):
+        v = np.random.RandomState(abs(hash(lab)) % 1000).randn(8).astype("float32")
+        v /= (np.linalg.norm(v) + 1e-9)
+        n = g.add_node(vector=v, label=lab)
+        ids[lab] = n.id
+    for s, t in (("chill", "condensation"), ("condensation", "fog")):
+        e = g.add_edge(ids[s], ids[t], weight=0.8, relation_type="causal",
+                       confidence=0.9)
+        e.source_metadata = {"edge_kind": "curated", "source": "conversation:1",
+                             "acquired_by": "user_assertion"}
+    return g, ids
+
+
+def _assertable_from_x(g, x_id):
+    from ravana.learn.explanation import enumerate_chains, assertable_chain
+    chains = enumerate_chains([x_id], g, direction="backward",
+                              min_steps=2, max_steps=4, limit=64)
+    return any(assertable_chain(c) for c in chains)
+
+
+def test_capture_replay_memory_records_write_time_provenance():
+    import types
+    g, ids = _taught_graph()
+    eng = types.SimpleNamespace(graph=g)
+    items = [{"a": "chill", "b": "condensation", "x": "fog"}]
+    mem = cli.capture_replay_memory(items, eng)
+    assert (ids["chill"], ids["condensation"]) in mem
+    assert (ids["condensation"], ids["fog"]) in mem
+    rec = mem[(ids["chill"], ids["condensation"])]
+    assert rec["source_metadata"]["edge_kind"] == "curated"
+    assert rec["source_metadata"]["acquired_by"] == "user_assertion"
+    assert rec["relation_type"] == "causal"
+
+
+def test_overlay_earned_restores_chain_wrong_tag_does_not():
+    import copy
+    import types
+    g, ids = _taught_graph()
+    eng = types.SimpleNamespace(graph=g)
+    items = [{"a": "chill", "b": "condensation", "x": "fog"}]
+    mem = cli.capture_replay_memory(items, eng)
+    assert _assertable_from_x(g, ids["fog"])  # intact before damage
+
+    # REM-style damage: flip one hop non-causal, delete the other.
+    g.get_edge(ids["chill"], ids["condensation"]).relation_type = "semantic"
+    g.remove_edge(ids["condensation"], ids["fog"])
+    assert not _assertable_from_x(g, ids["fog"])
+
+    # ON: earned overlay restores both hops -> assertable again.
+    g_on = copy.deepcopy(g)
+    n_on = cli.apply_replay_overlay(g_on, mem, replay_on=True)
+    assert n_on == 2
+    assert _assertable_from_x(g_on, ids["fog"])
+
+    # OFF: identical operations, wrong tag -> gate still refuses.
+    g_off = copy.deepcopy(g)
+    n_off = cli.apply_replay_overlay(g_off, mem, replay_on=False)
+    assert n_off == n_on                       # arm-independent work
+    assert not _assertable_from_x(g_off, ids["fog"])
+    assert g_off.get_edge(ids["chill"], ids["condensation"]).source_metadata["edge_kind"] == "inferred"
+
+
+def test_overlay_never_forges_an_unearned_kind():
+    import types
+    g, ids = _taught_graph()
+    # A record whose kind the gate does NOT accept must not be stamped trusted.
+    mem = {(ids["chill"], ids["condensation"]): {
+        "source_metadata": {"edge_kind": "co_occurrence", "source": "web"},
+        "relation_type": "causal", "weight": 0.8, "confidence": 0.9}}
+    g.get_edge(ids["chill"], ids["condensation"]).source_metadata = {"edge_kind": "unknown"}
+    cli.apply_replay_overlay(g, mem, replay_on=True)
+    # co_occurrence is not earned -> the live edge keeps its (untrusted) kind.
+    assert g.get_edge(ids["chill"], ids["condensation"]).source_metadata["edge_kind"] == "unknown"
+
+
+def test_shared_maintenance_cache_is_isolated_from_live_overlay():
+    """Regression: __getstate__ shares dicts by reference, so ON's overlay used
+    to mutate the cached snapshot that OFF reused (OFF overlay 0, contrast lost).
+    The cached state and capture must be deep copies, isolated from both arms.
+    """
+    import copy
+    import types
+    g, ids = _taught_graph()
+    eng = types.SimpleNamespace(graph=g, hrr_reasoner=None)
+    items = [{"a": "chill", "b": "condensation", "x": "fog"}]
+    # Force a damaged hop before maintenance (this tiny graph is below REM's
+    # sabotage rate, so without this both arms would see only healthy hops).
+    g.get_edge(ids["chill"], ids["condensation"]).relation_type = "semantic"
+    mem = cli.capture_replay_memory(items, eng)
+    key = ("testpool", "seqB", ("x",), ("y",))
+    cli._SHARED_MAINT.clear()
+    r_on = cli.run_sleep(eng, "testpool_on", items, True, cycles=1, steps=2,
+                         replay_memory=mem, share_key=key)
+    cached = cli._SHARED_MAINT[key]
+    cached_kinds = {k: dict(e.source_metadata).get("edge_kind")
+                    for k, e in cached["state"]["edges"].items()}
+    cached_mem = copy.deepcopy(cached["replay_memory"])
+
+    # A second arm with a DIFFERENT capture must reuse the cached one and get
+    # a pristine (un-repaired) snapshot to overlay.
+    eng2 = types.SimpleNamespace(graph=copy.deepcopy(g), hrr_reasoner=None)
+    r_off = cli.run_sleep(eng2, "testpool_off", items, False, cycles=1, steps=2,
+                          replay_memory={}, share_key=key)
+    assert r_on["work"] == r_off["work"]                 # identical maintenance
+    assert r_off["overlay_edges"] > 0                    # OFF still has damaged hops to tag
+    assert cached["replay_memory"] == cached_mem         # capture isolated
+    assert {k: dict(e.source_metadata).get("edge_kind")
+            for k, e in cached["state"]["edges"].items()} == cached_kinds  # state isolated
+
+
+def test_overlay_recreates_deleted_edge_only_from_its_record():
+    import copy
+    import types
+    g, ids = _taught_graph()
+    eng = types.SimpleNamespace(graph=g)
+    mem = cli.capture_replay_memory([{"a": "chill", "b": "condensation", "x": "fog"}], eng)
+    g.remove_edge(ids["chill"], ids["condensation"])
+    g.remove_edge(ids["condensation"], ids["fog"])
+    assert g.get_edge(ids["chill"], ids["condensation"]) is None
+    cli.apply_replay_overlay(g, mem, replay_on=True)
+    e = g.get_edge(ids["chill"], ids["condensation"])
+    assert e is not None and e.relation_type == "causal"
+    assert e.source_metadata["edge_kind"] == "curated"
+    assert _assertable_from_x(g, ids["fog"])

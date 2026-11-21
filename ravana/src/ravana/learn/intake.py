@@ -519,6 +519,17 @@ class SchemaConsistencyGate:
         for e in self._out_edges(ge, subj_id):
             if self._edge_relation(e) != edge_type:
                 continue
+            # One-to-one slot exclusivity is a property of FUNCTIONAL relations
+            # (capital_of, born_in, is_a), NOT of causal links: one cause can
+            # have many effects. Treating "cooling causes condensation" and
+            # "cooling causes moisture" as competitors sends the second fact to
+            # the episodic buffer by default (measured margin 0.08 < 0.10), so a
+            # taught 2-hop chain never reaches the graph before the criterion is
+            # scored. Reconsolidation should ADD an effect to the causal model,
+            # not overwrite a legitimate incumbent (Nader, Schafe & LeDoux 2000,
+            # Nature 406:722-726; causal Bayes nets: many children per parent).
+            if edge_type in ("causal", "physical_cause"):
+                continue
             old_label = self._target_label(ge, e)
             if not old_label or old_label == new_label:
                 continue
@@ -720,6 +731,18 @@ class KnowledgeIntake:
                 meta["revisions"] = int(meta.get("revisions", 0)) + 1
                 meta["edge_kind"] = _EDGE_KIND_FOR_SOURCE.get(
                     v.provenance.source_type, "learned")
+            # Reconsolidation (Nader, Schafe & LeDoux 2000, Nature 406:722-726):
+            # retrieving an existing association opens a labile window in which
+            # NEW information is written INTO that trace. If the incumbent is a
+            # weak semantic co-occurrence but the trusted teaching fact asserts
+            # a causal relation, upgrade the relation_type (never downgrade).
+            # Without this, "moisture causes dew" only bumps the confidence of a
+            # pre-existing semantic moisture->dew edge, the chain detector skips
+            # it (_edge_is_causal), and a taught item never reaches criterion.
+            if (edge_type in ("causal", "physical_cause")
+                    and getattr(existing, "relation_type", "") not in
+                    ("causal", "physical_cause")):
+                existing.relation_type = edge_type
             return True
         edge = graph.add_edge(
             source=subj_id, target=obj_id, weight=0.5,

@@ -71,7 +71,18 @@ class _GraphEngineShim:
     def _all_labels(self) -> Dict[str, int]:
         """label -> first node id (the shape WebToGraph expects)."""
         kw = self._concept_keywords
-        return {lab: nids[0] for lab, nids in kw.items() if nids}
+        graph = getattr(self._engine, "graph", None)
+        # Live-only resolution: a stale id (node pruned but index not cleaned)
+        # would make writers attach edges to a dead node, leaving a coherent
+        # chain in the edge table that no enumeration can reach. Omit such
+        # labels so _ensure_node mints a fresh, live node instead.
+        out = {}
+        for lab, nids in kw.items():
+            for nid in (nids or []):
+                if graph is None or getattr(graph, "get_node", lambda _i: None)(nid) is not None:
+                    out[lab] = nid
+                    break
+        return out
 
     @property
     def _promote_min_sources(self) -> int:

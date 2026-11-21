@@ -3221,6 +3221,17 @@ class ReasoningMixin:
             # Flagged in docs/AUTHORED_CAUSAL_SKELETON.md; this is the first
             # entry removed from that review.
             ("water", "life", "causal", 0.85),
+            # Ocean water-cycle priors (2026-11-20): `ocean` was a world-scale
+            # entity like sun/earth/moon but had ZERO causal edges in the
+            # skeleton, so "if the ocean vanished" fail-closed to None on every
+            # downstream path (gated chain 0 candidates, removal BFS []) while
+            # the sibling sun/earth/moon params passed. These are genuine causal
+            # priors — ocean evaporation drives the water cycle — not a
+            # co-occurrence prior (cf. the removed gravity->earth above).
+            ("ocean", "evaporation", "causal", 0.9),
+            ("evaporation", "clouds", "causal", 0.9),
+            ("clouds", "rain", "causal", 0.9),
+            ("ocean", "life", "causal", 0.8),
         # M3-E: world-skeleton (above) + Human-Likeness Plan (A2): the classic
         # "tree falls in a forest" counterfactual has no causal edges in the
         # lived graph, so the forward-simulator returns [] and the query fell

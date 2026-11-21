@@ -88,10 +88,19 @@ class WebToGraph:
         self._topic_edges: Dict[str, int] = {}
         self._fact_count = 0
 
-    def _provenance(self, source_url: str) -> Provenance:
+    def _provenance(self, source_url: str, source_type: str = "web") -> Provenance:
+        """Build provenance for an ingest.
+
+        `source_type` defaults to "web" (an arbitrary page, reliability 0.5).
+        An explicitly authored TEACHING source may declare "seed" (reliability
+        0.8), which lets the intake gate reconsolidate a contradicted incumbent
+        instead of buffering the fact forever (source monitoring, Johnson,
+        Hashtroudi & Lindsay 1993, *Psychol Bull* 114:3–34). Callers must
+        declare this explicitly — arbitrary web pages never get it by default.
+        """
         return Provenance(
             source=source_url or self.source,
-            source_type="web",
+            source_type=source_type,
             url=source_url,
             extractor="openie",
             operations=("openie-triple",),
@@ -142,7 +151,16 @@ class WebToGraph:
         # reuse engine's label index if the concept already exists
         existing = self.ge._all_labels.get(label_l)
         if existing is not None:
-            return existing
+            # A label index can retain an id after its node was pruned. Verify
+            # liveness at the write choke point: never attach an edge to a dead
+            # endpoint (the chain would exist only in the edge table).
+            _node = getattr(self.ge.graph, "get_node", lambda _i: None)(existing)
+            if _node is not None:
+                return existing
+            # stale id: mint below, and put the fresh id first in the index
+            for _lab, _nids in list((getattr(self.ge, "_concept_keywords", {}) or {}).items()):
+                if _lab == label_l and existing in _nids:
+                    self.ge._concept_keywords[_lab] = [i for i in _nids if i != existing]
         # Round 4 (C1): junk gate. Clear junk is never integrated (not even
         # provisionally tracked, so it cannot accumulate fake reactivation).
         _theta = getattr(self.ge, "_junk_theta", 0.5)
@@ -205,7 +223,8 @@ class WebToGraph:
 
     def learn_text(self, text: str, source_url: str = "",
                  context: Optional[str] = None,
-                 salience: float = 1.0) -> int:
+                 salience: float = 1.0,
+                 source_type: str = "web") -> int:
         """Extract facts from text and write them as typed edges.
 
         Returns number of NEW facts written (dedup by existing edge).
@@ -267,7 +286,7 @@ class WebToGraph:
                     # Same-context re-sighting: route through the gate so the
                     # bounded update, provenance and retrieval-practice
                     # scheduling all apply.
-                    v = self.intake.intake(f, self._provenance(source_url),
+                    v = self.intake.intake(f, self._provenance(source_url, source_type),
                                            salience=salience)
                     if v.route in ("fast_merge", "novel_write", "revise"):
                         written += 1
@@ -277,7 +296,7 @@ class WebToGraph:
                     existing.confidence = min(1.0, existing.confidence + 0.05)
                 continue
             if self.intake is not None:
-                v = self.intake.intake(f, self._provenance(source_url),
+                v = self.intake.intake(f, self._provenance(source_url, source_type),
                                        salience=salience)
                 if v.route in ("fast_merge", "novel_write", "revise"):
                     written += 1
