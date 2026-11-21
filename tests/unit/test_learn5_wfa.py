@@ -1,15 +1,17 @@
-"""Unit tests for the RAVANA-LEARN-5 WFA measurement harness.
+"""Unit tests for the UNSATURATED RAVANA-LEARN-5 WFA harness.
 
 These pin the load-bearing claims of scripts/measure_learn5_wfa.py:
-  * every emitted URL is a frozen, fetched URL; every span is verbatim
+  * the gold claim is a PARAPHRASE of the verbatim source span, never the span
+  * the frozen paraphrase-entailment rubric finds the source and rejects
+    near-miss (same-topic, wrong-fact) decoy claims
   * decoys / closed-web items abstain; internal claims carry no web tag
-  * the entailment rubric refuses non-entailing spans
-  * the decision rule FAILS on fabrication, low validity, or a sealed drop
-  * the hash split is stable across processes
-No network and no engine save are involved; the frozen replay boundary is
-reused from measure_fronts_web_frozen.
+  * the answer-only arm is the LIVE engine with web DISABLED and is graded
+    against the same gold facts -- exercised here with a FAKE engine only
+  * the decision rule FAILS on fabrication, low validity, sealed drop, web
+    leakage or an under-sized bank; the hash split is stable across builds
+No network, no engine boot and no engine save are involved. All fakes are
+local; the frozen replay boundary is reused from measure_fronts_web_frozen.
 """
-import hashlib
 import os
 import sys
 
@@ -29,27 +31,47 @@ def items():
     return wfa.build_items()
 
 
-# ── item-bank validity ──────────────────────────────────────────────────────
+# ── item-bank validity and sample size (design section 4.5) ─────────────────
 def test_all_items_validate(items):
     assert wfa.validate_items(items) == []
 
 
-def test_gap_claim_is_verbatim_and_url_frozen(items):
+def test_pool_sizes_meet_unsaturation_minima(items):
+    for pool in ("primary", "sealed"):
+        n_gap = sum(1 for i in items if i["pool"] == pool and i["kind"] == "gap")
+        n_closed = sum(1 for i in items if i["pool"] == pool and i["kind"] == "closed_web")
+        n_decoy = sum(1 for i in items if i["pool"] == pool and i["kind"] == "decoy")
+        assert n_gap >= wfa.MIN_GAP_PER_POOL, (pool, n_gap)
+        assert n_closed >= wfa.MIN_CLOSED_PER_POOL, (pool, n_closed)
+        assert n_decoy >= wfa.MIN_DECOY_PER_POOL, (pool, n_decoy)
+
+
+def test_gap_gold_claim_is_a_paraphrase_of_source(items):
     gaps = [i for i in items if i["kind"] == "gap"]
-    assert len(gaps) == 64
+    assert gaps
     for it in gaps:
-        assert it["claim"] in it["content"], it["id"]
+        assert it["source_span"] in it["content"], it["id"]
         assert it["url"] in wfa.ALL_FIXTURE_URLS, it["id"]
-        assert it["claim_tokens"]
+        # NOT the tautology the old harness had:
+        assert it["claim"] != it["source_span"], it["id"]
+        assert it["claim"] not in it["content"], it["id"]
+        # genuine surface change, and canonicalisation restores source facts
+        assert it["paraphrase_subs"] >= wfa.MIN_PARAPHRASE_SUBS, it["id"]
+        assert it["claim_tokens"] == it["entail_tokens"], it["id"]
+        assert it["key_fact_tokens"], it["id"]
 
 
-def test_decoys_are_non_entailing(items):
+def test_decoys_are_near_miss_and_non_entailing(items):
     probe = wfa.WFAComponent(None)
     for it in items:
         if it["kind"] != "decoy":
             continue
+        src_words = set()
         for h in wfa.FIX["queries"][wfa.NORM(it["query"])]["hits"][:2]:
-            assert probe.find_entailing_span(h["content"], it["claim_tokens"]) is None, it["id"]
+            src_words |= wfa._words(h["content"])
+            assert probe.find_entailing_span(
+                h["content"], set(it["claim_tokens"])) is None, it["id"]
+        assert len(src_words & set(it["claim_tokens"])) >= 2, it["id"]
 
 
 def test_closed_web_queries_absent_from_fixtures(items):
@@ -68,14 +90,24 @@ def re_is_hex(s):
     return len(s) == 64 and all(c in "0123456789abcdef" for c in s)
 
 
-# ── rubric / component behaviour ────────────────────────────────────────────
-def test_entailment_rubric_refuses_non_entailing_span():
+# ── paraphrase rubric / component behaviour ─────────────────────────────────
+def test_paraphraser_produces_distinct_claim_with_restorable_tokens():
+    source = "A compass points north because the Earth behaves like a giant bar magnet."
+    claim, tokens, nsubs = wfa._paraphrase(source)
+    assert claim != source
+    assert nsubs >= 1
+    assert tokens == sorted(wfa._words(source))
+
+
+def test_entailment_rubric_matches_paraphrase_and_rejects_wrong_fact():
     comp = wfa.WFAComponent(None)
     content = ("A compass points north because the Earth behaves like a giant "
                "bar magnet.")
-    assert comp.find_entailing_span(content, wfa._words("a giant bar magnet")) is not None
-    assert comp.find_entailing_span(
-        content, wfa._words("a tachyonic aether current pulls it")) is None
+    claim, tokens, _ = wfa._paraphrase(content)
+    assert comp.find_entailing_span(content, tokens) is not None
+    # near-miss: same topic, wrong fact -> canonical tokens not all present
+    wrong = "The compass points north because a tachyonic aether current pulls it."
+    assert comp.find_entailing_span(content, wfa._words(wrong)) is None
 
 
 def test_fabricated_url_rejected_by_allowlist():
@@ -84,8 +116,7 @@ def test_fabricated_url_rejected_by_allowlist():
 
 def test_decoy_run_abstains_without_url(items):
     comp = wfa.WFAComponent(wfa.FROZEN_SEARCH)
-    decoys = [i for i in items if i["kind"] == "decoy"][:3]
-    for it in decoys:
+    for it in [i for i in items if i["kind"] == "decoy"][:4]:
         rec = comp.run_item(it)
         assert rec["verdict"] == "abstain"
         assert rec["url"] is None and rec["span"] is None
@@ -93,8 +124,7 @@ def test_decoy_run_abstains_without_url(items):
 
 def test_closed_web_run_abstains_without_url(items):
     comp = wfa.WFAComponent(wfa.FROZEN_SEARCH)
-    closed = [i for i in items if i["kind"] == "closed_web"][:3]
-    for it in closed:
+    for it in [i for i in items if i["kind"] == "closed_web"][:4]:
         rec = comp.run_item(it)
         assert rec["verdict"] == "abstain"
         assert rec["url"] is None
@@ -102,38 +132,102 @@ def test_closed_web_run_abstains_without_url(items):
 
 def test_internal_run_carries_no_web_tag(items):
     comp = wfa.WFAComponent(wfa.FROZEN_SEARCH)
-    internal = [i for i in items if i["kind"] == "internal"][:3]
-    for it in internal:
+    for it in [i for i in items if i["kind"] == "internal"][:4]:
         rec = comp.run_item(it)
         assert rec["url"] is None and rec["external_tag"] is False
 
 
-def test_gap_run_attr_url_is_frozen_and_span_verbatim(items):
+def test_gap_run_emits_paraphrase_not_the_source_span(items):
     comp = wfa.WFAComponent(wfa.FROZEN_SEARCH)
-    gap = [i for i in items if i["kind"] == "gap"][0]
-    rec = comp.run_item(gap)
-    assert rec["verdict"] == "attributed"
-    assert rec["url"] in wfa.ALL_FIXTURE_URLS
-    assert rec["url"] in _urls_for(gap["query"])
-    assert rec["span"] in gap["content"]
-    assert rec["external_tag"] is True
+    for it in [i for i in items if i["kind"] == "gap"][:6]:
+        rec = comp.run_item(it)
+        assert rec["verdict"] == "attributed"
+        assert rec["url"] in wfa.ALL_FIXTURE_URLS
+        assert rec["url"] in _urls_for(it["query"])
+        assert rec["span"] == it["source_span"]
+        assert rec["output"] == it["claim"] != it["source_span"]
+        assert rec["external_tag"] is True
 
 
 def _urls_for(query):
     return {h.get("url") for h in wfa.FIX["queries"][wfa.NORM(query)]["hits"]}
 
 
-# ── decision rule: fabrication / weakness flips FAIL ───────────────────────
+# ── answer-only arm: LIVE engine with web disabled (FAKES, no boot) ─────────
+class _FakeEngine:
+    """A stand-in that only exposes the engine method the oracle calls."""
+
+    def __init__(self, answers=None):
+        self.answers = answers or {}
+        self.turns = []
+
+    def process_turn(self, q):
+        self.turns.append(q)
+        return self.answers.get(q, "")
+
+
+def test_answer_only_oracle_uses_injected_engine_not_a_boot():
+    q = "how do lungs exchange gases"
+    oracle = wfa.AnswerOnlyOracle(engine=_FakeEngine({q: "the parametric answer"}),
+                                  web_disabled=True)
+    assert oracle.answer(q) == "the parametric answer"
+    assert oracle.calls == 1
+    assert oracle.engine.turns == [q]
+
+
+def test_answer_only_oracle_surfaces_errors_without_crashing():
+    class Broken:
+        def process_turn(self, q):
+            raise RuntimeError("boom")
+    oracle = wfa.AnswerOnlyOracle(engine=Broken(), web_disabled=True)
+    assert oracle.answer("x").startswith("<ERR RuntimeError")
+
+
+def test_answer_asserts_fact_uses_key_fact_tokens(items):
+    gap = next(i for i in items if i["kind"] == "gap")
+    assert wfa.answer_asserts_fact(gap["source_span"], gap) is True
+    assert wfa.answer_asserts_fact("", gap) is False
+    assert wfa.answer_asserts_fact("<ERR RuntimeError: x>", gap) is False
+    assert wfa.answer_asserts_fact("a completely unrelated topic about keyboards",
+                                  gap) is False
+
+
+def test_run_answer_only_rejects_web_enabled_arm(items):
+    gap = next(i for i in items if i["kind"] == "gap")
+    rec = {"id": gap["id"], "kind": "gap", "pool": gap["pool"]}
+    oracle = wfa.AnswerOnlyOracle(
+        engine=_FakeEngine({gap["query"]: gap["source_span"]}),
+        web_disabled=False)   # web ON -> must NOT earn the baseline
+    wfa.run_answer_only([gap], oracle, [rec])
+    assert oracle.calls == 1
+    assert rec["answer_only_output"] == gap["source_span"]
+    assert rec["answer_only_correct"] is False
+
+
+def test_run_answer_only_grades_web_off_parametric_answer(items):
+    gap = next(i for i in items if i["kind"] == "gap")
+    rec = {"id": gap["id"], "kind": "gap", "pool": gap["pool"]}
+    oracle = wfa.AnswerOnlyOracle(
+        engine=_FakeEngine({gap["query"]: gap["source_span"]}),
+        web_disabled=True)
+    wfa.run_answer_only([gap], oracle, [rec])
+    assert rec["answer_only_correct"] is True
+
+
+# ── decision rule: fabrication / weakness / leakage flip FAIL ──────────────
 def _base_summary():
     per = {
+        "n_gap": 65, "n_closed": 30, "n_decoy": 30, "n_internal": 10,
         "wfa_valid": 1.0, "answer_only": 0.0, "delta": 1.0,
-        "abstain": 1.0, "decoy_reject": 1.0, "internal_no_tag": 1.0,
-        "reads_total": 1, "reads_mean_gap": 1.0,
+        "abstain": 1.0, "decoy_reject": 1.0, "near_miss_decoy_reject": 1.0,
+        "internal_no_tag": 1.0, "reads_total": 1, "reads_mean_gap": 1.0,
     }
     return {
         "primary": dict(per), "sealed": dict(per),
+        "answer_only_web_disabled": True,
         "hard_fails": {"fabricated_urls": 0, "unfetched_urls": 0,
-                       "nonverbatim_spans": 0, "attribution_on_closed_web": 0},
+                       "nonverbatim_spans": 0, "attribution_on_closed_web": 0,
+                       "non_paraphrase_claims": 0, "answer_only_web_leaks": 0},
     }
 
 
@@ -157,6 +251,14 @@ def test_decision_fails_on_low_wfa_valid():
     assert not passed and not rules["wfa_valid_primary>=0.70"]
 
 
+def test_decision_fails_on_no_real_delta():
+    s = _base_summary()
+    s["primary"]["answer_only"] = 1.0
+    s["primary"]["delta"] = 0.0
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["delta_primary>=0.20"]
+
+
 def test_decision_fails_on_sealed_drop():
     s = _base_summary()
     s["sealed"]["wfa_valid"] = 0.80
@@ -169,3 +271,31 @@ def test_decision_fails_on_closed_web_attribution():
     s["hard_fails"]["attribution_on_closed_web"] = 1
     rules, passed = wfa.decide(s, True)
     assert not passed and not rules["attribution_on_closed_web==0"]
+
+
+def test_decision_fails_on_under_sized_pool():
+    s = _base_summary()
+    s["primary"]["n_gap"] = 59
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["n_gap_primary>=60"]
+
+
+def test_decision_fails_when_answer_only_web_was_enabled():
+    s = _base_summary()
+    s["answer_only_web_disabled"] = False
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["answer_only_web_disabled"]
+
+
+def test_decision_fails_on_web_tripwire_leak():
+    s = _base_summary()
+    s["hard_fails"]["answer_only_web_leaks"] = 1
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["answer_only_web_leaks==0"]
+
+
+def test_decision_fails_on_verbatim_claim():
+    s = _base_summary()
+    s["hard_fails"]["non_paraphrase_claims"] = 1
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["non_paraphrase_claims==0"]
