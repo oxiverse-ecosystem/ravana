@@ -44,24 +44,15 @@ for evidence; this file locks decisions and ordered next steps.
 
 ## Ordered remaining phases
 
-### Phase 1 — CLI run 5 verdict (IN PROGRESS, background)
-- Run: `PYTHONPATH=scripts PYTHONHASHSEED=0 RAVANA_OFFLINE=1 uv run python scripts/measure_learn5_cli.py` (already running as of writing; log `scratch/cli_full_postfix5.log`).
-- **Done when:** log has `CLI_EXIT=` and `scratch/learn5_cli_measured.json` has
-  `instrument_valid` + both pool summaries. Check per pool: criterion_rate≥0.60,
-  ret_on≥0.85, on−off≥0.15, compute ratio∈[0.90,1.10] AND on_work==off_work AND
-  overlay counts equal, b_degrade≤0.10, transfer≥0.60, lex_copy≤0.10.
-- If compute parity holds but a retention criterion fails: report honestly,
-  diagnose the lost items (per-item `arm_records`), do NOT relax gates.
-- Write `docs/LEARN5_CLI_POSTFIX.md` with the curves + verdict (mirror
-  `docs/LEARN5_CAR_POSTFIX.md` format). Commit.
+### Phase 1 — CLI run 5/6 verdict (DONE)
+- 6 runs; the final (`scratch/learn5_cli_measured.json`, `docs/LEARN5_CLI_POSTFIX.md`)
+  gives PRIMARY on−off **+0.215**, criterion **0.70**, ret_on **0.929**, wall
+  ratio **1.000**, work counters equal, overlay 5/5; SEALED criterion **0.35**
+  and retention 7/7 in both arms (ceiling → on−off 0). **Suite still FAIL.**
 
-### Phase 2 — grounded re-measure post-CAR-fixes (engine free after Phase 1)
-- Run: `RAVANA_OFFLINE=1 PYTHONHASHSEED=0 uv run python scratch/drift_grounded.py postfix`
-  (writes `scratch/drift_grounded_postfix.json`; ~16 s + boot).
-- **Done when:** score compared to 33 baseline; F3/F5 falsifier checked — if
-  grounded regresses below 33 beyond noise, investigate trust-first ranking /
-  guard wiring before keeping (CAR_ROOT_CAUSE F3/F5 falsifiers). Append result
-  to DRIFT_AND_OCEAN.md. Commit.
+### Phase 2 — grounded re-measure post-CAR-fixes (DONE)
+- `scratch/drift_grounded_postfix.json` = **33 (20/60), 0 flips** vs repaired
+  baseline → F3/F5 falsifiers satisfied; no regression.
 
 ### Phase 3 — web encoding-gate mechanism (D7), default-OFF
 - Implement `curiosity_need` from external re-ask/correction signals + single

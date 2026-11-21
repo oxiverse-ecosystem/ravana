@@ -82,8 +82,10 @@ pre-registered gate or threshold was changed. Details:
   contrast only as a commit-time overlay, and matches compute by construction
   (measured ratio 1.001, work counters equal). Three subtle integration bugs
   were found and fixed (healthy-edge stripping, divergent maintenance input,
-  aliased cached state). Final retention verdict is being re-measured; do not
-  claim a CLI PASS until the run with the deepcopy fix completes.
+  aliased cached state). **Final result: PRIMARY on−off +0.215 at ratio 1.000
+  with equal work counters (real replay gain); suite still FAIL** because SEALED
+  criterion rate 0.35 (<0.60) and SEALED retention saturates 7/7 in both arms
+  (ceiling → on−off 0). See `docs/LEARN5_CLI_POSTFIX.md`.
 - **WFA/PDR/RSI** remain G6-saturated; unsaturated redesigns are specified but
   not yet implemented.
 - **Web loop** root cause is corpus poverty + read-path rarity (all five prior

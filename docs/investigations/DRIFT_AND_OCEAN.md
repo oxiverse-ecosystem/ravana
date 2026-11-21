@@ -282,6 +282,10 @@ must re-acquire them with provenance); the durability fixes guarantee that
 future learning survives a killed save. The 20-hard-probe subject resolution is
 the next capability lever (separate from the drift).
 
+**Post-CAR-fix re-measure (F1/F3/F5 applied):** `scratch/drift_grounded_postfix.json`
+= **33 (20/60), 0 flips** vs the repaired baseline — the CAR trust-first ranking
+and guard wiring do NOT regress grounded (F3/F5 falsifiers satisfied).
+
 ### Ocean test — FIXED
 `_seed_physics_causal` (`engine_reasoning.py`) had no `ocean` causal edges, so
 "if the ocean vanished" fail-closed to None on every path while sun/earth/moon
