@@ -280,7 +280,14 @@ def teach_web(eng, spec, definition=False, ungated=False):
     try:
         for u in urls:
             try:
-                counts.append(int(w.learn_text(text, source_url=u)))
+                # Authored TEACHING material (teach.local), not an arbitrary web
+                # page: declare it as a high-reliability seed so a genuine
+                # contradiction with a curriculum incumbent can be reconsoli-
+                # dated instead of buffering the fact forever (source monitoring,
+                # Johnson, Hashtroudi & Lindsay 1993). Arbitrary web ingests keep
+                # the default source_type="web".
+                counts.append(int(w.learn_text(text, source_url=u,
+                                               source_type="seed")))
             except Exception as e:
                 errs.append("%s: %s" % (type(e).__name__, e))
     finally:

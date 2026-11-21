@@ -262,6 +262,44 @@ suppression and one-hop provenance), not only a replay repair.
 
 ---
 
+## P2 resolution (2026-11-21, parent execution owner)
+
+Execution-owner probes (`scratch/p2_write_probe.py`, `p2_write_trace.py`,
+`p2_openie.py`, `p2_gate_after_conv.py`) pinned Class 1 to two WRITE-time
+defects, both confirmed on the failing item `dew` (a=cooling, b=moisture):
+
+1. **Causal effects treated as contradictions.** `intake.detect_contradiction`
+   treated ANY same-(subject, relation_type) pair with a different object as a
+   competing value. Pre-existing `cooling→condensation` (curriculum) made the
+   taught `cooling→moisture` route to `episodic_buffer` ("margin 0.08 < 0.10")
+   — buffered facts never reach the graph before the A1 criterion. Causal
+   relations are many-to-many (one cause has many effects); slot exclusivity
+   belongs to functional relations. Fixed by excluding causal/physical_cause
+   from contradiction detection (reconsolidation ADDS an effect; Nader, Schafe
+   & LeDoux 2000, Nature 406:722–726). Functional relations still contradict.
+2. **Existing semantic edge never upgraded.** `moisture→dew` existed as a weak
+   semantic edge; teaching "moisture causes dew" only bumped its confidence and
+   left `relation_type="semantic"`, so `enumerate_chains` skipped the hop.
+   Fixed: `_write_edge` upgrades a non-causal incumbent to causal when a trusted
+   causal fact reconsolidates it (never downgrades).
+
+Supporting fixes:
+- Causal CONNECTIVE words ("causes"/"happens") were fed back into the GloVe
+  cross-product as arguments, minting unprovenanced junk causal edges to every
+  mentioned entity; they now filter out of both argument lists (connectives are
+  relational operators, not concepts — the do-calculus function-word skeleton).
+- `WebToGraph.learn_text` gained an explicit `source_type` param (default "web");
+  the authored teaching channel (`teach.local`) declares `source_type="seed"`
+  (reliability 0.8) so it is source-monitored as teaching material, not an
+  arbitrary page (Johnson, Hashtroudi & Lindsay 1993, Psychol Bull 114:3–34).
+
+Verified: after the fixes, `dew` has both taught hops as causal+curated and
+`raw_chains=13` with `[cooling, moisture, dew]` FIRST; `present=True` on all
+4 teaching reps (was False/raw=0). 68 intake/contradiction/chain-walker tests
+and 4 new `test_cli_write_path` tests pass. Full CLI harness re-measuring.
+
+---
+
 ## 4. Q3 — raw_chains=0 after sleep: erosion and lightning (node vs edge loss)
 
 Post-sleep ON-arm census (from JSON):
