@@ -55,6 +55,10 @@ for evidence; this file locks decisions and ordered next steps.
   baseline → F3/F5 falsifiers satisfied; no regression.
 
 ### Phase 3 — web encoding-gate mechanism (D7), default-OFF
+- (Pre-work DONE) Both live and frozen web harnesses now support `--resume`
+  keyed by `commit:weights-mtime`; `test_web_front_resume` = 3 passed. The frozen
+  mean-77 is stale (measured on the degraded cold-start graph) and a full
+  re-measure is infeasible in-session (~2 min/probe on the repaired graph).
 - Implement `curiosity_need` from external re-ask/correction signals + single
   `web_fact`/definition writes anchored to graph neighbours, behind a flag.
 - A/B on the frozen fixture corpus (`scripts/measure_fronts_web_frozen.py`

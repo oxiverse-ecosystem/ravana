@@ -141,6 +141,25 @@ Design for `scripts/measure_fronts_web.py` (or a new `measure_fronts_web_resumab
 
 This makes the live arm reproducible and resumable without raising the budget.
 
+**Implemented 2026-11-21:** both `measure_fronts_web.py` and
+`measure_fronts_web_frozen.py` now support `--resume`. Each probe row carries a
+`state_id` = `commit:weight-pkl-mtime`; on resume, only rows from the SAME code
+and weight state are reused (their ~57 s web turn is skipped), rows from any
+other state are ignored as stale evidence, and the log is opened in append mode.
+`tests/unit/test_web_front_resume.py` = 3 passed.
+
+**Measured limitation found while re-measuring:** the frozen arm's old mean-77
+summary (preserved as `scratch/front_probes_web_frozen_summary_STALE.json`) was
+recorded on the **degraded cold-start graph** (209 PMI concepts), not on the
+repaired learned graph. On the repaired 18,984-edge store the same harness runs
+~2 min per probe (vs 161 s for the whole 434-probe run before repair) — a ~100×
+slowdown from graph-size-dependent turn processing. A full frozen re-measure is
+therefore infeasible in-session; the resume harnesses make it possible to
+continue it across sessions. The interrupted re-run truncated the old per-probe
+`scratch/front_probes_web_frozen.jsonl` (the summary and the Nov-20 full run log
+`scratch/front_probes_web_frozen_run.log` preserve the evidence). **Treat mean 77
+as stale and not a current result.**
+
 ---
 
 ## 4. Unsaturated WFA / PDR / RSI redesigns (G6-invalid passes)

@@ -90,7 +90,11 @@ pre-registered gate or threshold was changed. Details:
   not yet implemented.
 - **Web loop** root cause is corpus poverty + read-path rarity (all five prior
   tweaks tuned the read schedule); a curiosity-gated single-fact encoding
-  mechanism is designed (default-OFF) but not yet A/B tested.
+  mechanism is designed (default-OFF) but not yet A/B tested. Both web
+  harnesses now support `--resume` keyed by `commit:weights-mtime`, so the
+  195/434-probe loss cannot recur. The frozen mean-77 is explicitly stale:
+  it was measured on the degraded cold-start graph, and a re-measure on the
+  repaired graph runs ~2 min/probe (infeasible in-session).
 
 **Bottom line unchanged in substance:** three passes are still saturated mechanism
 checks, and the suite requires both pools on all five components to PASS. The
