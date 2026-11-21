@@ -72,6 +72,26 @@ class CognitiveDB:
                 )
             """)
 
+            # Provenance migration (2026-11-20): the mirror used to drop
+            # source_metadata, so a graph rehydrated from SQLite lost every
+            # edge_kind/provenance stamp and the trust gate fail-closed on the
+            # whole learned graph (the grounded-front collapse after the
+            # 2026-11-19 pickle truncation). Persist provenance so the ACID
+            # mirror is a TRUE backup of the trusted graph, not just topology.
+            # Complementary-learning-systems rationale: the slow neocortical
+            # store must retain the SAME content as the fast hippocampal
+            # snapshot, including its source tags (McClelland, McNaughton &
+            # O'Reilly 1995, Psychol Rev 102:419-457).
+            self._ensure_column("edges", "source_metadata", "BLOB")
+            self._ensure_column("concepts", "source_metadata", "BLOB")
+
+    def _ensure_column(self, table: str, column: str, decl: str):
+        """Add a column if absent (SQLite has no ADD COLUMN IF NOT EXISTS)."""
+        cols = [r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")]
+        if column not in cols:
+            with self.conn:
+                self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
     def close(self):
         """Close connection."""
         if self.conn:
@@ -90,39 +110,45 @@ class CognitiveDB:
 
     def save_concept(self, node_id: str, label: str, node_type: str,
                      vector: np.ndarray, sensorimotor: Optional[np.ndarray] = None,
-                     stability: float = 0.5, confidence: float = 0.1):
+                     stability: float = 0.5, confidence: float = 0.1,
+                     source_metadata: Optional[dict] = None):
         """Upsert a concept node in the database."""
         vector_blob = self._vector_to_blob(vector)
         sm_blob = self._vector_to_blob(sensorimotor)
+        md_blob = pickle.dumps(source_metadata) if source_metadata else None
         
         with self.conn:
             self.conn.execute("""
-                INSERT INTO concepts (id, label, node_type, vector, sensorimotor, stability, confidence, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO concepts (id, label, node_type, vector, sensorimotor, stability, confidence, created_at, source_metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     label = excluded.label,
                     node_type = excluded.node_type,
                     vector = excluded.vector,
                     sensorimotor = excluded.sensorimotor,
                     stability = excluded.stability,
-                    confidence = excluded.confidence
-            """, (node_id, label, node_type, vector_blob, sm_blob, stability, confidence, time.time()))
+                    confidence = excluded.confidence,
+                    source_metadata = excluded.source_metadata
+            """, (node_id, label, node_type, vector_blob, sm_blob, stability, confidence, time.time(), md_blob))
 
     def save_edge(self, source_id: str, target_id: str, weight: float,
                   edge_type: str = "excitatory", relation_type: str = "semantic",
-                  confidence: float = 0.5, stability: float = 0.3):
+                  confidence: float = 0.5, stability: float = 0.3,
+                  source_metadata: Optional[dict] = None):
         """Upsert a concept edge in the database."""
+        md_blob = pickle.dumps(source_metadata) if source_metadata else None
         with self.conn:
             self.conn.execute("""
-                INSERT INTO edges (source_id, target_id, weight, edge_type, relation_type, confidence, stability)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO edges (source_id, target_id, weight, edge_type, relation_type, confidence, stability, source_metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(source_id, target_id) DO UPDATE SET
                     weight = excluded.weight,
                     edge_type = excluded.edge_type,
                     relation_type = excluded.relation_type,
                     confidence = excluded.confidence,
-                    stability = excluded.stability
-            """, (source_id, target_id, weight, edge_type, relation_type, confidence, stability))
+                    stability = excluded.stability,
+                    source_metadata = excluded.source_metadata
+            """, (source_id, target_id, weight, edge_type, relation_type, confidence, stability, md_blob))
 
     def save_episode(self, timestamp: float, content: str, concepts: str) -> int:
         """Insert a new episode/memory log. Returns the generated ID."""
@@ -167,7 +193,8 @@ class CognitiveDB:
                 vector=node.vector,
                 sensorimotor=getattr(node, 'sensorimotor_vector', None),
                 stability=node.stability,
-                confidence=node.confidence
+                confidence=node.confidence,
+                source_metadata=getattr(node, 'source_metadata', None)
             )
             
         # Bulk save edges
@@ -179,15 +206,16 @@ class CognitiveDB:
                 edge_type=getattr(edge, 'edge_type', 'excitatory'),
                 relation_type=getattr(edge, 'relation_type', 'semantic'),
                 confidence=edge.confidence,
-                stability=edge.stability
+                stability=edge.stability,
+                source_metadata=getattr(edge, 'source_metadata', None)
             )
 
     def load_graph(self, graph: ConceptGraph):
         """Load all nodes and edges from SQLite into the given ConceptGraph."""
         # 1. Load concepts
-        cursor = self.conn.execute("SELECT id, label, node_type, vector, sensorimotor, stability, confidence FROM concepts")
+        cursor = self.conn.execute("SELECT id, label, node_type, vector, sensorimotor, stability, confidence, source_metadata FROM concepts")
         for row in cursor.fetchall():
-            node_id_str, label, node_type, vec_blob, sm_blob, stability, confidence = row
+            node_id_str, label, node_type, vec_blob, sm_blob, stability, confidence, md_blob = row
             node_id = int(node_id_str)
             vector = self._blob_to_vector(vec_blob)
             
@@ -214,11 +242,16 @@ class CognitiveDB:
             node.confidence = confidence
             if sm_blob is not None:
                 node.sensorimotor_vector = self._blob_to_vector(sm_blob)
+            if md_blob:
+                try:
+                    node.source_metadata = pickle.loads(md_blob)
+                except Exception:
+                    pass
                 
         # 2. Load edges
-        cursor = self.conn.execute("SELECT source_id, target_id, weight, edge_type, relation_type, confidence, stability FROM edges")
+        cursor = self.conn.execute("SELECT source_id, target_id, weight, edge_type, relation_type, confidence, stability, source_metadata FROM edges")
         for row in cursor.fetchall():
-            s_id_str, t_id_str, weight, edge_type, relation_type, confidence, stability = row
+            s_id_str, t_id_str, weight, edge_type, relation_type, confidence, stability, md_blob = row
             s_id, t_id = int(s_id_str), int(t_id_str)
             
             # Add or update edge
@@ -234,6 +267,11 @@ class CognitiveDB:
                 edge.relation_type = relation_type
                 edge.confidence = confidence
                 edge.stability = stability
+                if md_blob:
+                    try:
+                        edge.source_metadata = pickle.loads(md_blob)
+                    except Exception:
+                        pass
 
 
 def migrate_pickle_to_sqlite(pickle_path: str, db_path: str) -> bool:

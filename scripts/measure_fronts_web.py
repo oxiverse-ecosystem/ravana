@@ -58,6 +58,39 @@ import front_gates
 DATA_PATH = os.path.join(PROJ, "scratch", "front_probes_web.jsonl")
 SUMMARY_PATH = os.path.join(PROJ, "scratch", "front_probes_web_summary.json")
 GATE_LOG_PATH = os.path.join(PROJ, "scratch", "front_probes_web_gates.jsonl")
+# ── Resumable live arm (2026-11-21) ─────────────────────────────────────────
+# The live arm previously died at 195/434 probes (~57 s/web turn) and lost all
+# progress because main() opened the log with "w". With --resume, completed probe
+# rows for the CURRENT commit are loaded first and their expensive web turns are
+# skipped; only missing probes are re-run. Rows from an earlier commit are
+# ignored (their answers came from different code and are not valid evidence).
+RESUME_MODE = "--resume" in sys.argv
+_RUN_COMMIT = "unknown"
+if os.path.isdir(os.path.join(PROJ, ".git")):
+    try:
+        _RUN_COMMIT = os.popen(
+            "git -C %s rev-parse --short HEAD" % PROJ).read().strip() or "unknown"
+    except Exception:
+        pass
+# A commit hash alone is not enough: the weight store drifts between saves, so
+# include the authoritative pkl's mtime. Rows from a different state are ignored.
+_WEIGHTS_PKL = os.path.join(PROJ, "weights", "ravana_weights.pkl")
+_STATE_ID = _RUN_COMMIT + ":" + (
+    str(int(os.path.getmtime(_WEIGHTS_PKL)))
+    if os.path.exists(_WEIGHTS_PKL) else "no-weights")
+_RESUME_ROWS = {}
+if RESUME_MODE and os.path.exists(DATA_PATH):
+    with open(DATA_PATH, encoding="utf-8") as _rf:
+        for _line in _rf:
+            try:
+                _r = json.loads(_line)
+            except Exception:
+                continue
+            if _r.get("state_id") == _STATE_ID and not _r.get("control"):
+                _RESUME_ROWS[(_r.get("front"), _r.get("probe_index"))] = _r
+    print(f"[resume] {len(_RESUME_ROWS)} cached probe rows (state {_STATE_ID}); "
+          f"only missing probes will use the network")
+
 os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
 _LOGFH = None
 
@@ -643,6 +676,7 @@ def _log(front, idx, subject, query, response, passed, reason,
     rec = {
         "front": front,
         "probe_index": idx,
+        "state_id": _STATE_ID,
         "subject": subject,
         "query": query,
         "response": response,
@@ -1041,12 +1075,23 @@ def pool_scores(records, pool):
 def run_query_front(eng, name, probes, judge, judge_needs_query):
     ok = 0
     for i, (subject, q, difficulty, pool) in enumerate(probes, 1):
-        a = _ask(eng, q)
-        good, reason = (judge(a, q) if judge_needs_query else judge(a))
-        _log(name, i, subject, q, a, good, reason,
-             pool=pool, difficulty=difficulty)
+        cached = _RESUME_ROWS.get((name, i))
+        if cached is not None:
+            # Completed in an earlier (interrupted) run at THIS commit: reuse
+            # the recorded answer/judgment, skip the ~57 s web turn, do not
+            # re-log (the row is already in the JSONL).
+            a = cached["response"]
+            good = bool(cached["passed"])
+            reason = cached["reason"]
+            src = "cached"
+        else:
+            a = _ask(eng, q)
+            good, reason = (judge(a, q) if judge_needs_query else judge(a))
+            _log(name, i, subject, q, a, good, reason,
+                 pool=pool, difficulty=difficulty)
+            src = "live"
         ok += good
-        print(f"  [{ 'ok' if good else 'BAD'}] {q!r:44} -> {a[:80]}")
+        print(f"  [{'ok' if good else 'BAD'}] ({src:6}) {q!r:44} -> {a[:80]}")
     return round(100 * ok / len(probes))
 
 
@@ -1180,12 +1225,14 @@ def main(argv=None):
           f"boots={len(cold.get('boots', []))}")
 
     eng = _boot()
-    with open(DATA_PATH, "w", encoding="utf-8") as fh:
+    _log_mode = "a" if RESUME_MODE else "w"
+    with open(DATA_PATH, _log_mode, encoding="utf-8") as fh:
         _LOGFH = fh
         print("=" * 78)
-        print("RAVANA capability fronts -- baseline (n30 held-out)")
+        print("RAVANA capability fronts -- baseline (n30 held-out)"
+              + (" [RESUME]" if RESUME_MODE else ""))
         print("=" * 78)
-        print(f"  data -> {DATA_PATH}")
+        print(f"  data -> {DATA_PATH} (mode={_log_mode})")
         print("\n--- instrument controls ---")
         ctrl_fail = run_controls()
 
