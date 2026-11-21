@@ -231,6 +231,41 @@ def test_overlay_never_forges_an_unearned_kind():
     assert g.get_edge(ids["chill"], ids["condensation"]).source_metadata["edge_kind"] == "unknown"
 
 
+def test_shared_maintenance_cache_is_isolated_from_live_overlay():
+    """Regression: __getstate__ shares dicts by reference, so ON's overlay used
+    to mutate the cached snapshot that OFF reused (OFF overlay 0, contrast lost).
+    The cached state and capture must be deep copies, isolated from both arms.
+    """
+    import copy
+    import types
+    g, ids = _taught_graph()
+    eng = types.SimpleNamespace(graph=g, hrr_reasoner=None)
+    items = [{"a": "chill", "b": "condensation", "x": "fog"}]
+    # Force a damaged hop before maintenance (this tiny graph is below REM's
+    # sabotage rate, so without this both arms would see only healthy hops).
+    g.get_edge(ids["chill"], ids["condensation"]).relation_type = "semantic"
+    mem = cli.capture_replay_memory(items, eng)
+    key = ("testpool", "seqB", ("x",), ("y",))
+    cli._SHARED_MAINT.clear()
+    r_on = cli.run_sleep(eng, "testpool_on", items, True, cycles=1, steps=2,
+                         replay_memory=mem, share_key=key)
+    cached = cli._SHARED_MAINT[key]
+    cached_kinds = {k: dict(e.source_metadata).get("edge_kind")
+                    for k, e in cached["state"]["edges"].items()}
+    cached_mem = copy.deepcopy(cached["replay_memory"])
+
+    # A second arm with a DIFFERENT capture must reuse the cached one and get
+    # a pristine (un-repaired) snapshot to overlay.
+    eng2 = types.SimpleNamespace(graph=copy.deepcopy(g), hrr_reasoner=None)
+    r_off = cli.run_sleep(eng2, "testpool_off", items, False, cycles=1, steps=2,
+                          replay_memory={}, share_key=key)
+    assert r_on["work"] == r_off["work"]                 # identical maintenance
+    assert r_off["overlay_edges"] > 0                    # OFF still has damaged hops to tag
+    assert cached["replay_memory"] == cached_mem         # capture isolated
+    assert {k: dict(e.source_metadata).get("edge_kind")
+            for k, e in cached["state"]["edges"].items()} == cached_kinds  # state isolated
+
+
 def test_overlay_recreates_deleted_edge_only_from_its_record():
     import copy
     import types
