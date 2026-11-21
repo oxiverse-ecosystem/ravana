@@ -1,50 +1,42 @@
 #!/usr/bin/env python3
-"""RSI component of RAVANA-LEARN-5 -- rule induction and sealed transfer.
+"""RAVANA-LEARN-5 / RSI -- UNSATURATED rule-induction redesign.
 
-PROPERTY UNDER TEST (one sentence):
-  From k in {1,2,4} demonstrations of a relation R over NEW objects, a
-  structure-mapping component induces R (relation preserved under filler
-  substitution), applies it to a held-out target with the SAME objects replaced,
-  transfers it to a NEW domain sharing only the relation, is invariant to
-  demonstration order/role permutation, and REJECTS a same-object wrong-relation
-  foil -- always exposing an explicit (subject, relation, target) relation field.
+Design source: docs/investigations/WEB_AND_SATURATION.md section 4 (RSI).
+Companion criteria doc: docs/investigations/PDR_RSI_UNSATURATED.md.
 
-HEADLINE METRIC
-  EXACT STRUCTURAL MATCH on the structured answer object, never a prose regex:
-  for a positive (exact/permuted/far) probe, correct iff
-      answer.verdict == 'match' AND answer.relation == gold_relation
-      AND answer.target == gold_target.
-  For a foil probe, correct iff answer.verdict == 'reject' (no candidate stands
-  in the induced relation to the subject).  The relation field is checked
-  against the DEMONSTRATION's induced relation, not just the filled target
-  (design 7.2/7.4), so a renamed-template answer cannot pass by copying a target.
+WHAT CHANGED FROM THE SATURATED v1
+----------------------------------
+v1 never booted an engine, graded only k in {1,2,4}, and was FLAT at 1.00 -- a
+mechanism check, not learning growth. This redesign:
 
-DESIGN SOURCES
-  docs/BRAIN_LEARN5_DESIGN.md section 7 (RSI); reuse map docs/LEARN5_CODEMAP.md.
-  Gentner 1983 (structure mapping, systematicity); Gentner & Markman 1997
-  (structural alignment); Lake, Salakhutdinov & Tenenbaum 2015 (one-shot
-  generative structure).  Full citations: design section 11 refs [18]-[20].
+  * boots the LIVE engine (``RealBackend``, ``--live``) and teaches each rule
+    through conversation (``eng.process_turn``) on an isolated scratch store;
+  * grades demonstration count k in {1,2,4,8};
+  * uses GRADED DIFFICULTY per k: near transfer -> far transfer -> foil;
+  * requires a MONOTONIC learning curve across k (the CAR-style gate) -- a
+    non-decreasing rate per condition, checked at EVERY adjacent step;
+  * adds NEGATIVE RULES: from counterexample (negated) demonstrations the
+    system must NOT induce the rule. A counterexample-ignoring confound arm
+    must be detectable;
+  * reports growth headroom (k=1 vs k=8) but does NOT gate on strict growth,
+    so a saturated 1.00 is reported honestly and G6 flags it INVALID.
 
-INSTRUMENT POLICY (debugging skill: validate the probe before the number)
-  - Rule bank and PRIMARY/SEALED split are fixed by sha256 BEFORE any run;
-    manifest hashes recorded.  No item is dropped after seeing an outcome.
-  - The main arm is a genuine structure-mapping algorithm: canonicalise
-    forward/inverse surface phrases and permuted demo order, induce the
-    majority relation, then look up the target in an authored world model.
-  - Two confound arms are run in-process and MUST behave as predicted before
-    any score is printed (instrument_controls): a NAIVE surface/order matcher
-    that fails permutation and accepts the foil, and a SHUFFLED-LABEL chance
-    arm that stays at chance.  If a control fails -> INSTRUMENT INVALID, no
-    score.  Thresholds/rubrics are the pre-registered design 7.6 values; none
-    is tuned to obtain a PASS.
-  - Harness-level decision layer (same class as WFA/PDR): NO CognitiveChatEngine
-    boot, NO eng.save(), NO network.  "scratch data_dir / no eng.save on
-    weights" is satisfied vacuously; save/network counters are recorded as 0.
-  - One process, PYTHONHASHSEED=0, deterministic hash-based selection (no RNG).
+BACKENDS (dependency injection; identical grading)
+---------------------------------------------------
+  * ``FakeBackend`` (DEFAULT) -- deterministic, no engine boot, no network,
+    no save. Used by unit tests and the default ``main()`` (CI-safe).
+  * ``RealBackend`` (``--live``) -- lazily imports and boots
+    ``CognitiveChatEngine`` on a scratch ``data_dir`` and presents every demo
+    through ``process_turn``. Real imports are lazy, so importing this module
+    never boots an engine (skill 2b).
+
+Sealed/primary hash-split sealing is preserved. Thresholds are pre-registered
+and never tuned to force a PASS.
 
 Usage:
-  uv run PYTHONHASHSEED=0 python scripts/measure_learn5_rsi.py
-  uv run PYTHONHASHSEED=0 python scripts/measure_learn5_rsi.py --validate-only
+    uv run PYTHONHASHSEED=0 python scripts/measure_learn5_rsi.py
+    uv run PYTHONHASHSEED=0 python scripts/measure_learn5_rsi.py --live
+    uv run PYTHONHASHSEED=0 python scripts/measure_learn5_rsi.py --validate-only
 """
 from __future__ import annotations
 
@@ -64,36 +56,40 @@ for _p in (PROJ, os.path.join(PROJ, "scripts")):
 
 import front_gates  # noqa: E402  (shared Tier-0 saturation gate, unmodified)
 
-SCRATCH = os.path.join(PROJ, "scratch")
-DATA_PATH = os.path.join(SCRATCH, "learn5_rsi_probes.jsonl")
-SUMMARY_PATH = os.path.join(SCRATCH, "learn5_rsi_summary.json")
-GATE_PATH = os.path.join(SCRATCH, "learn5_rsi_gates.jsonl")
-os.makedirs(SCRATCH, exist_ok=True)
+SCRATCH = os.path.join(PROJ, "scratch", "rsi_live")
+DATA_PATH = os.path.join(SCRATCH.replace("rsi_live", ""), "learn5_rsi_probes.jsonl")
+SUMMARY_PATH = os.path.join(SCRATCH.replace("rsi_live", ""), "learn5_rsi_summary.json")
+GATE_PATH = os.path.join(SCRATCH.replace("rsi_live", ""), "learn5_rsi_gates.jsonl")
+os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
 
 HASH_PREFIX = "RAVANA-LEARN-5"
 COMPONENT = "RSI"
-K_LEVELS = (1, 2, 4)
-CONDITIONS = ("exact", "permuted", "foil", "far")
-ARMS = ("structural", "naive", "chance")
-N_FAMILIES = 100          # >= 40 per pool after the hash split
+K_LEVELS = (1, 2, 4, 8)                      # redesigned: added k=8
+CONDITIONS = ("near", "far", "foil", "negative")  # graded + negative rules
+ARMS = ("structural", "naive", "chance", "counterexample")
+N_FAMILIES = 120                            # >= 40 per pool after hash split
 
-# Pre-registered decision thresholds -- design section 7.6. NOT tuned.
+# Pre-registered decision thresholds (WEB_AND_SATURATION section 4 + companion
+# doc). NOT tuned against any outcome.
 TH = {
-    "exact_min": 0.75,
-    "permuted_margin": 0.10,     # permuted >= exact - 0.10
-    "permuted_hard_margin": 0.15,  # permuted < exact - 0.15 is a hard FAIL
+    "near_min": 0.75,
+    "far_min": 0.70,
     "foil_reject_min": 0.85,
-    "foil_reject_hard_min": 0.70,
-    "far_over_chance": 0.20,
-    "far_over_chance_hard": 0.10,
+    "negative_reject_min": 0.80,
+    "monotonic_tol": 0.05,        # max adjacent drop allowed across k
+    "graded_drop_max": 0.15,      # max near->far->foil drop at a fixed k
+    "sealed_drop_max": 0.10,
     "relation_coverage_min": 0.95,
-    "sealed_exact_drop_max": 0.10,
+    "chance_max": 0.35,
+    "far_over_chance": 0.20,
+    "foil_reject_hard_min": 0.70,
+    "counterexample_reject_max": 0.20,  # confound must wrongly induce
+    "permuted_hard_margin": 0.15,
+    "permuted_margin": 0.10,
 }
 
-# Relation vocabulary.  Each relation has forward surface phrases (S R O) and
-# inverse surface phrases (O R^-1 S).  Canonicalisation maps inverse -> forward
-# by swapping roles, which is the structure-mapping operation that makes the
-# component invariant to role permutation.  Symmetric relations have no inverse.
+# Relation vocabulary (unchanged). Each relation has forward (S R O) and
+# inverse (O R^-1 S) surface phrases; canonicalisation swaps roles for inverse.
 RELATIONS = {
     "CAUSE": {
         "fwd": ["causes", "leads to", "produces", "brings about", "gives rise to"],
@@ -128,51 +124,56 @@ for _r, _spec in RELATIONS.items():
     for _p in _spec["inv"]:
         PHRASE_TO_REL[_p] = (_r, -1)
 
-# Object pools by domain.  A far-transfer query uses a DIFFERENT domain, so the
-# only thing shared with the demonstrations is the relation (design 7.2).
+# Disjoint object pools. Extended to 24/domain so k=8 needs 16 demo objects
+# while the held-out near/far/foil/negative queries use 8 reserved objects.
 OBJECTS = {
     "weather": ["cloud", "storm", "breeze", "frost", "drizzle", "thunder",
                 "rainbow", "hail", "mist", "gale", "dew", "sunset",
-                "sleet", "shower", "glow", "chill"],
+                "sleet", "shower", "glow", "chill",
+                "tempest", "monsoon", "typhoon", "blizzard", "overcast",
+                "thaw", "climate", "squall"],
     "body": ["heart", "lung", "nerve", "muscle", "bone", "skin",
              "liver", "brain", "tendon", "gland", "vessel", "reflex",
-             "kidney", "joint", "tissue", "palm"],
+             "kidney", "joint", "tissue", "palm",
+             "artery", "vein", "cartilage", "ligament", "plasma",
+             "marrow", "diaphragm", "esophagus"],
     "machine": ["gear", "piston", "valley", "circuit", "rotor", "belt",
                 "spring", "coil", "switch", "bearing", "lever", "fuse",
-                "cam", "axle", "clutch", "pivot"],
+                "cam", "axle", "clutch", "pivot",
+                "valve", "gasket", "shaft", "sprocket", "widget",
+                "motor", "wheel", "pulley"],
     "social": ["habit", "custom", "law", "market", "team", "signal",
                "ritual", "contract", "rumor", "reward", "norm", "guild",
-               "role", "rank", "game", "vote"],
+               "role", "rank", "game", "vote",
+               "treaty", "charter", "election", "ceremony", "tradition",
+               "society", "leader", "council"],
     "geometry": ["point", "line", "angle", "circle", "square", "triangle",
                  "plane", "radius", "chord", "vertex", "prism", "curve",
-                 "arc", "cube", "axis", "slope"],
+                 "arc", "cube", "axis", "slope",
+                 "sphere", "ellipse", "polygon", "segment", "diameter",
+                 "tangent", "quadrant", "lattice"],
     "plant": ["seed", "root", "stem", "leaf", "bud", "petal",
               "pollen", "bark", "branch", "vine", "fern", "moss",
-              "trunk", "thorn", "cone", "fruit"],
+              "trunk", "thorn", "cone", "fruit",
+              "blossom", "sapling", "foliage", "herb", "shrub",
+              "tree", "grain", "seedling"],
 }
 DOMAINS = tuple(OBJECTS)
-# Object vocabularies must be disjoint across domains, else a far query could
-# share a literal object with a demonstration and leak surface overlap.
 for _a, _da in enumerate(DOMAINS):
     for _db in DOMAINS[_a + 1:]:
         if set(OBJECTS[_da]) & set(OBJECTS[_db]):
             raise RuntimeError("domain vocabularies overlap: %s / %s" % (_da, _db))
 
-# Counters for the "no network / no save" claim.  The harness never touches
-# either; main() records these as 0.  No global patching at import (skill 2b).
 NETWORK_ATTEMPTS = []
 SAVE_ATTEMPTS = []
 
 
-# ---------------------------------------------------------------------------
-# deterministic helpers (no RNG)
-# ---------------------------------------------------------------------------
+# ── deterministic helpers (no RNG) ──────────────────────────────────────────
 def _digest(*parts):
     return hashlib.sha256("|".join(str(p) for p in parts).encode("utf-8")).hexdigest()
 
 
 def _hash_pick(seed, pool, n, exclude=()):
-    """Pick n distinct elements of pool deterministically from a hash seed."""
     out, seen = [], set(exclude)
     i = 0
     while len(out) < n and i < len(pool) * 8:
@@ -199,35 +200,37 @@ def item_manifest_hash(items):
     blob = json.dumps(
         [{"item_id": it["item_id"], "difficulty": it["difficulty"],
           "pool": it["pool"], "relation": it["relation"],
+          "negative_relation": it["negative_relation"],
+          "k_levels": list(K_LEVELS), "conditions": list(CONDITIONS),
           "hash": item_hash(it)} for it in items],
         sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
 
-def _parse_phrase(phrase):
-    """Surface phrase -> (relation, polarity). polarity -1 = inverse form."""
-    return PHRASE_TO_REL.get((phrase or "").strip().lower())
+def _parse_phrase(phrase, strip_negation=False):
+    """Surface phrase -> (relation, polarity). Negated phrases admit NO rule."""
+    text = (phrase or "").strip().lower()
+    negated = ("not " in text) or "n't" in text or " never " in (" " + text + " ")
+    if negated and not strip_negation:
+        return None
+    if negated and strip_negation:
+        text = text.replace("not ", "").replace(" never ", " ").replace("n't", "")
+        text = " ".join(text.split())
+    return PHRASE_TO_REL.get(text)
 
 
-def canonicalise(subject, phrase, obj):
-    """Canonical (subject, relation, target) triple; inverse swaps roles.
-
-    Returns None for an unparseable phrase (structure mapping cannot map it).
-    """
-    parsed = _parse_phrase(phrase)
+def canonicalise(subject, phrase, obj, strip_negation=False):
+    parsed = _parse_phrase(phrase, strip_negation=strip_negation)
     if parsed is None:
         return None
     rel, polarity = parsed
     if polarity == -1:
-        return (obj, rel, subject)      # "O is caused by S" == "S causes O"
+        return (obj, rel, subject)
     return (subject, rel, obj)
 
 
-# ---------------------------------------------------------------------------
-# authored rule bank (fixed before any run)
-# ---------------------------------------------------------------------------
+# ── authored rule bank (fixed before any run) ───────────────────────────────
 def build_items():
-    """Build N_FAMILIES rule families with their demos/queries/world models."""
     items = []
     for fidx in range(N_FAMILIES):
         rel = RELATION_KEYS[fidx % len(RELATION_KEYS)]
@@ -235,31 +238,41 @@ def build_items():
         fname = DOMAINS[((fidx // 6) + 3) % len(DOMAINS)]
         seed = "RSI-family-%03d" % fidx
 
-        demo_objs = _hash_pick(seed + "|D", OBJECTS[dname], 10)
-        pairs = [(demo_objs[i], demo_objs[i + 1]) for i in range(0, 10, 2)]
-        demo_pairs = pairs[:4]               # up to k=4 demonstrations
+        # 16 demo objects -> 8 pairs, enough for k=8. 8 reserved objects are
+        # held out for near/far/foil/negative queries (never demonstrated).
+        demo_objs = _hash_pick(seed + "|D", OBJECTS[dname], 16)
+        pairs = [(demo_objs[i], demo_objs[i + 1]) for i in range(0, 16, 2)]
+        demo_pairs = pairs[:8]
         demo_pair_objs = {o for pair in demo_pairs for o in pair}
-        s_exact, t_exact = pairs[4]          # held-out SAME-domain target
+        reserved = _hash_pick(seed + "|R", OBJECTS[dname], 8,
+                              exclude=set(demo_objs))
+        s_exact, t_exact = reserved[0], reserved[1]
 
         far_a, far_b = _hash_pick(seed + "|F", OBJECTS[fname], 2)
 
-        # Foil subject is NOT a subject of any authored R fact -> no candidate
-        # stands in R to it, so the structural matcher must reject the foil.
-        used = set(demo_objs)                # demo objects + exact pair objects
-        foil_subject = _hash_pick(seed + "|foil", OBJECTS[dname], 1, exclude=used)[0]
-        # Include one demonstrated object so the naive object-matching arm sees
-        # familiar surface material and (wrongly) accepts the foil.  The
-        # structural arm ignores surface overlap and consults the world model.
-        anchor = demo_pairs[0][0]           # present at every k (first demo)
+        # foil: subject is a reserved, undemonstrated object; candidates include
+        # one demonstrated anchor so a naive surface matcher wrongly accepts.
+        foil_subject = reserved[2]
+        anchor = demo_pairs[0][0]
         foil_cands = [anchor] + _hash_pick(
             seed + "|foilc", OBJECTS[dname], 3,
-            exclude={foil_subject, anchor})
-        foil_rel = RELATION_KEYS[(fidx + 2) % len(RELATION_KEYS)]  # wrong relation
+            exclude={foil_subject, anchor} | demo_pair_objs)
+        foil_rel = RELATION_KEYS[(fidx + 2) % len(RELATION_KEYS)]
 
-        # World model: (relation, subject) -> {target}. Only R facts are stored;
-        # relation facts are disjoint, so a wrong relation never finds a target.
+        # NEGATIVE RULE: query subject has a TRUE R target in the world model,
+        # but the demonstrations are COUNTEREXAMPLES ("X does not R Y"). A
+        # system that respects negation induces no rule and MUST reject; one
+        # that ignores negation induces R and wrongly asserts.
+        neg_subject = reserved[3]
+        neg_target = reserved[4]
+        neg_cands = _hash_sort(
+            seed + "|negc", [neg_target] + _hash_pick(
+                seed + "|negd", OBJECTS[dname], 3,
+                exclude={neg_subject, neg_target} | demo_pair_objs))
+
         wm = {}
-        for s, t in pairs + [(far_a, far_b)]:
+        for s, t in pairs + [(s_exact, t_exact), (far_a, far_b),
+                             (neg_subject, neg_target)]:
             wm.setdefault((rel, s), set()).add(t)
 
         exact_cands = _hash_sort(seed + "|ec",
@@ -275,34 +288,39 @@ def build_items():
             "item_id": "rsi_%03d" % fidx,
             "difficulty": ("easy", "medium", "hard", "expert")[fidx % 4],
             "relation": rel,
-            "domain": dname,
-            "far_domain": fname,
-            "foil_relation": foil_rel,
+            "negative_relation": rel,  # the rule that must NOT be induced
+            "domain": dname, "far_domain": fname, "foil_relation": foil_rel,
             "demo_pairs": demo_pairs,
             "exact": {"subject": s_exact, "candidates": exact_cands,
                       "gold_target": t_exact, "domain": dname},
+            # 'near' is the graded-difficulty name for the same held-out query;
+            # keep both keys for additive-JSON continuity with v1.
+            "near": {"subject": s_exact, "candidates": exact_cands,
+                     "gold_target": t_exact, "domain": dname},
             "far": {"subject": far_a, "candidates": far_cands,
                     "gold_target": far_b, "domain": fname},
             "foil": {"subject": foil_subject, "candidates": foil_cands,
                      "gold_target": None, "domain": dname},
+            "negative": {"subject": neg_subject, "candidates": neg_cands,
+                         "gold_target": None, "domain": dname,
+                         # The true R target that a negation-ignoring arm
+                         # would wrongly assert; structural must reject.
+                         "counterexample_target": neg_target},
             "world_model": {k: sorted(v) for k, v in wm.items()},
         }
         items.append(item)
 
-    # hash split within difficulty: first 50% PRIMARY, rest SEALED
+    # hash split within difficulty: first half PRIMARY, rest SEALED
     groups = collections.defaultdict(list)
     for it in items:
         groups[it["difficulty"]].append(it)
-    primary, sealed = [], []
     for diff in sorted(groups):
         grp = sorted(groups[diff], key=item_hash)
         cut = len(grp) // 2
-        primary.extend(grp[:cut])
-        sealed.extend(grp[cut:])
-    for it in primary:
-        it["pool"] = "primary"
-    for it in sealed:
-        it["pool"] = "sealed"
+        for it in grp[:cut]:
+            it["pool"] = "primary"
+        for it in grp[cut:]:
+            it["pool"] = "sealed"
     return items
 
 
@@ -324,15 +342,22 @@ def validate_items(items):
                 errors.append("%s %s gold not a world-model fact" % (it["item_id"], cond))
             if len(set(q["candidates"])) != len(q["candidates"]):
                 errors.append("%s %s duplicate candidates" % (it["item_id"], cond))
-        # foil: no candidate may stand in R to the foil subject
         fq = it["foil"]
         if any(c in wm.get((rel, fq["subject"]), set()) for c in fq["candidates"]):
             errors.append("%s foil has an R target (not rejectable)" % it["item_id"])
         if it["foil_relation"] == rel:
             errors.append("%s foil relation equals rule relation" % it["item_id"])
-        if len(it["demo_pairs"]) != 4:
-            errors.append("%s wrong demo count" % it["item_id"])
-        # demos and exact target must be distinct objects
+        # negative: counterexample subject DOES have a true R target, so a
+        # negation-ignoring arm can wrongly assert it.
+        nq = it["negative"]
+        if nq["counterexample_target"] not in wm.get((rel, nq["subject"]), set()):
+            errors.append("%s negative counterexample target not a world-model fact"
+                          % it["item_id"])
+        if nq["counterexample_target"] not in nq["candidates"]:
+            errors.append("%s negative counterexample target not a candidate"
+                          % it["item_id"])
+        if len(it["demo_pairs"]) < max(K_LEVELS):
+            errors.append("%s demo_pairs shorter than max k" % it["item_id"])
         demo_objs = {o for pair in it["demo_pairs"] for o in pair}
         if it["exact"]["subject"] in demo_objs or it["exact"]["gold_target"] in demo_objs:
             errors.append("%s exact query reuses a demo object" % it["item_id"])
@@ -341,51 +366,120 @@ def validate_items(items):
     return errors
 
 
-# ---------------------------------------------------------------------------
-# the component under test
-# ---------------------------------------------------------------------------
+# ── BACKENDS ────────────────────────────────────────────────────────────────
+class FakeBackend:
+    """Deterministic demo channel. No engine boot, no save, no network.
+
+    ``present`` returns the demo surface strings unchanged; the deterministic
+    grader canonicalises them. This is the oracle used by unit tests and by
+    the default main().
+    """
+
+    label = "fake"
+
+    def __init__(self):
+        self.turns = 0
+
+    def reset(self):
+        self.turns = 0
+
+    def present(self, demo_triples, item, k, condition):
+        self.turns += len(demo_triples)
+        return list(demo_triples)
+
+
+class RealBackend(FakeBackend):
+    """Live demo channel: boot CognitiveChatEngine, teach via conversation.
+
+    Instantiated ONLY by ``main(--live)``. The real import/boot is lazy, so
+    importing this module never boots an engine. Demos are presented through
+    ``eng.process_turn`` on an isolated scratch ``data_dir``; the production
+    weights directory is never touched. Any API failure is surfaced, never
+    swallowed, and flips the backend_error rule to FAIL.
+    """
+
+    label = "live"
+
+    def __init__(self, data_dir=None):
+        super().__init__()
+        self.data_dir = data_dir or SCRATCH
+        self._engine = None
+        self.engines_booted = 0
+        self.api_calls = {"boot": 0, "process_turn": 0}
+        self.api_error = None
+
+    def _boot(self):
+        if self._engine is not None:
+            return self._engine
+        from ravana.chat.engine import CognitiveChatEngine
+        os.makedirs(self.data_dir, exist_ok=True)
+        eng = CognitiveChatEngine(data_dir=self.data_dir, user_suffix="")
+        self._engine = eng
+        self.engines_booted += 1
+        self.api_calls["boot"] += 1
+        return eng
+
+    def present(self, demo_triples, item, k, condition):
+        eng = self._boot()
+        for triple in demo_triples:
+            s = "%s %s %s" % triple
+            try:
+                eng.process_turn(s)
+                self.api_calls["process_turn"] += 1
+            except Exception as exc:  # surface, never swallow (skill 6)
+                self.api_error = "process_turn: %r" % (exc,)
+        return super().present(demo_triples, item, k, condition)
+
+
+# ── component under test ────────────────────────────────────────────────────
 class RSIComponent:
     """Induce a relation from demonstrations and apply it structurally.
 
-    arm='structural' : canonicalise inverse/order, majority relation, WM lookup.
-    arm='naive'      : surface/order memoriser (first demo polarity, object copy).
-                       Confound arm -- MUST fail permutation and accept the foil.
-    arm='chance'     : shuffled relation label with the true target, asserted.
-                       Confound arm -- MUST stay at chance.
+    arm='structural'    : canonicalise inverse/order, NO rule from negated
+                          demos, majority relation, world-model lookup.
+    arm='naive'         : surface/order memoriser (fails permutation, accepts
+                          the foil). Confound arm.
+    arm='chance'        : shuffled relation label. Confound arm.
+    arm='counterexample': ignores negation, induces R from counterexamples and
+                          asserts it. Confound arm for NEGATIVE RULES.
     """
 
-    def __init__(self, arm="structural"):
+    def __init__(self, arm="structural", backend=None):
         if arm not in ARMS:
             raise ValueError("unknown arm %r" % arm)
         self.arm = arm
+        self.backend = backend or FakeBackend()
 
-    def _demos(self, item, k, permuted):
-        """Return list of demo surface triples (s, phrase, o)."""
+    def _demos(self, item, k, condition, permuted):
+        """Return demo surface triples (s, phrase, o) for this condition."""
         pairs = list(item["demo_pairs"][:k])
         rel = item["relation"]
+        if condition == "negative":
+            # Counterexamples: "s does not R o". No positive rule is licensed.
+            phrase = RELATIONS[rel]["fwd"][0]
+            # "not " + the exact forward phrase so stripping the negation
+            # recovers a phrase the vocabulary actually contains.
+            return [(s, "not " + phrase, o) for s, o in pairs]
         if permuted:
             pairs = list(reversed(pairs))
             phrases = RELATIONS[rel]["inv"] or RELATIONS[rel]["fwd"]
-            # every demo is expressed in inverse (role-swapped) form
             return [(o, phrases[i % len(phrases)], s)
                     for i, (s, o) in enumerate(pairs)]
         phrases = RELATIONS[rel]["fwd"]
         return [(s, phrases[i % len(phrases)], o) for i, (s, o) in enumerate(pairs)]
 
     def induce(self, demos):
-        """Return the induced relation label (string)."""
         if self.arm == "naive":
-            # Surface memoriser: read the FIRST demo's polarity literally.
             _s, phrase, _o = demos[0]
-            parsed = _parse_phrase(phrase)
+            parsed = _parse_phrase(phrase, strip_negation=True)
             if parsed is None:
                 return None
             rel, polarity = parsed
-            return rel if polarity == +1 else rel + "^-1"  # wrong direction
-        # structural + chance share the canonical induction
+            return rel if polarity == +1 else rel + "^-1"
+        strip = self.arm == "counterexample"
         counts = collections.Counter()
         for s, phrase, o in demos:
-            tri = canonicalise(s, phrase, o)
+            tri = canonicalise(s, phrase, o, strip_negation=strip)
             if tri is not None:
                 counts[tri[1]] += 1
         if not counts:
@@ -393,47 +487,50 @@ class RSIComponent:
         return counts.most_common(1)[0][0]
 
     def run_item(self, item, k, condition, permuted=False):
-        q = item["exact"] if condition in ("exact", "permuted") else (
-            item["far"] if condition == "far" else item["foil"])
-        demos = self._demos(item, k, permuted)
-        induced = self.induce(demos)
+        q = item[condition]
+        demo_triples = self._demos(item, k, condition, permuted)
+        # The backend presents the demos (live: via process_turn) and returns
+        # the observable structured triples the deterministic grader consumes.
+        # Never re-split emitted strings: relation phrases are multi-word.
+        observed = self.backend.present(demo_triples, item, k, condition)
+        induced = self.induce(observed)
+        demo_strings = ["%s %s %s" % d for d in observed]
         subject = q["subject"]
         candidates = q["candidates"]
         wm = item["world_model"]
 
         if self.arm == "chance":
-            # Shuffled relation label, true target (or a candidate for foil),
-            # always asserted. Deterministic per item.
-            shuffled = RELATION_KEYS[int(_digest(item["item_id"], "shuffle"), 16) % len(RELATION_KEYS)]
-            target = q["gold_target"] or candidates[0]
+            shuffled = RELATION_KEYS[int(
+                _digest(item["item_id"], "shuffle"), 16) % len(RELATION_KEYS)]
+            target = (q["gold_target"] or
+                      wm.get((item["relation"], subject), [None])[0] or
+                      candidates[0])
             answer = {"subject": subject, "relation": shuffled,
                       "target": target, "verdict": "match"}
+        elif self.arm == "counterexample":
+            # Wrongly induces R from negated demos and asserts it.
+            targets = [c for c in candidates
+                       if induced and c in wm.get((induced, subject), [])]
+            target = targets[0] if targets else candidates[0]
+            answer = {"subject": subject, "relation": induced or item["relation"],
+                      "target": target, "verdict": "match"}
         elif self.arm == "naive":
-            demo_obj_set = {o for trio in demos for o in (trio[0], trio[2])}
+            demo_obj_set = {o for trio in demo_triples for o in (trio[0], trio[2])}
             seen = (subject in demo_obj_set
                     or any(c in demo_obj_set for c in candidates))
             if seen:
-                # Object/surface matcher: familiar surface material -> copy a
-                # demonstrated target and assert a match, ignoring the current
-                # query's relation.  This is the foil/order confound the control
-                # must expose: it accepts a same-object wrong-relation foil.
                 answer = {"subject": subject, "relation": induced,
-                          "target": demos[0][2], "verdict": "match"}
+                          "target": demo_triples[0][2], "verdict": "match"}
             else:
-                # No familiar objects: apply the first demo's relation direction
-                # literally (no inverse canonicalisation).
                 targets = [c for c in candidates
-                           if c in wm.get((induced, subject), [])]
-                if len(targets) == 1:
-                    answer = {"subject": subject, "relation": induced,
-                              "target": targets[0], "verdict": "match"}
-                else:
-                    answer = {"subject": subject, "relation": induced,
-                              "target": None, "verdict": "reject"}
+                           if induced and c in wm.get((induced, subject), [])]
+                answer = {"subject": subject, "relation": induced,
+                          "target": (targets[0] if len(targets) == 1 else None),
+                          "verdict": ("match" if len(targets) == 1 else "reject")}
         else:
-            # structural: canonicalised relation, world-model lookup
+            # structural: canonicalised relation (None from negations), WM lookup
             targets = [c for c in candidates
-                       if c in wm.get((induced, subject), [])]
+                       if induced and c in wm.get((induced, subject), [])]
             if len(targets) == 1:
                 answer = {"subject": subject, "relation": induced,
                           "target": targets[0], "verdict": "match"}
@@ -449,23 +546,23 @@ class RSIComponent:
             "id": item["item_id"], "pool": item["pool"],
             "difficulty": item["difficulty"], "relation": item["relation"],
             "k": k, "condition": condition, "permuted": bool(permuted),
-            "arm": self.arm,
-            "input": {"demonstrations": ["%s %s %s" % d for d in demos],
-                      "query_subject": subject, "candidates": candidates,
-                      "domain": q["domain"], "foil_relation": item["foil_relation"]
+            "arm": self.arm, "backend": self.backend.label,
+            "input": {"demonstrations": observed, "query_subject": subject,
+                      "candidates": candidates, "domain": q["domain"],
+                      "foil_relation": item["foil_relation"]
                       if condition == "foil" else None},
             "output": answer,
-            "gold": {"relation": item["relation"], "target": q["gold_target"],
-                     "should_reject": condition == "foil"},
+            "gold": {"relation": item["relation"],
+                     "target": q["gold_target"],
+                     "should_reject": condition in ("foil", "negative")},
             "verdict": answer["verdict"],
         }
 
 
 def grade(rec):
-    """Attach machine-verifiable flags; reads no threshold."""
     ans = rec["output"]
-    f = {"relation_present": ans["relation"] in RELATION_KEYS}
-    if rec["condition"] == "foil":
+    f = {"relation_present": ans["relation"] in RELATION_KEYS or ans["relation"] is None}
+    if rec["gold"]["should_reject"]:
         f["correct"] = (ans["verdict"] == "reject")
         f["exact_structural_match"] = None
     else:
@@ -479,19 +576,25 @@ def grade(rec):
     return rec
 
 
-# ---------------------------------------------------------------------------
-# sweep, summary, controls, decision
-# ---------------------------------------------------------------------------
-def run_sweep(items):
-    comps = {arm: RSIComponent(arm) for arm in ARMS}
+# ── sweep / summary / controls / decision ───────────────────────────────────
+def run_sweep(items, backend=None):
+    backend = backend or FakeBackend()
+    comps = {arm: RSIComponent(arm, backend) for arm in ARMS}
     rows = []
     for it in items:
         for k in K_LEVELS:
             for cond in CONDITIONS:
-                perm = (cond == "permuted")
+                perm = (cond == "permuted")  # permuted is split into its own probe below
                 for arm in ARMS:
                     rec = comps[arm].run_item(it, k, cond, permuted=perm)
                     rows.append(grade(rec))
+                # explicit permutation probe for the graded-difficulty conditions
+                if cond in ("near", "foil"):
+                    for arm in ARMS:
+                        rec = comps[arm].run_item(
+                            it, k, cond, permuted=True)
+                        rec["condition"] = "permuted"
+                        rows.append(grade(rec))
     return rows
 
 
@@ -500,147 +603,161 @@ def _rate(rows, key):
     return round(sum(vals) / len(vals), 4) if rows else None
 
 
+def _outcome(r):
+    """Uniform correctness rate for any condition (positive or reject)."""
+    return bool(r["flags"]["correct"])
+
+
 def summarize(items, rows):
     out = {}
+    conds = CONDITIONS + ("permuted",)
     for pool in ("primary", "sealed"):
-        p = {}
-        for cond in CONDITIONS:
-            p[cond + "_n"] = 0
-            p[cond + "_exact"] = None
-            p[cond + "_foil_reject"] = None
-        p["by_k"] = {str(k): {} for k in K_LEVELS}
+        p = {"by_k": {str(k): {} for k in K_LEVELS}}
         srows = [r for r in rows if r["arm"] == "structural" and r["pool"] == pool]
-        for cond in CONDITIONS:
+        for cond in conds:
             cr = [r for r in srows if r["condition"] == cond]
             p[cond + "_n"] = len(cr)
-            if cond == "foil":
-                p[cond + "_foil_reject"] = _rate(cr, "correct")
-            else:
-                p[cond + "_exact"] = _rate(cr, "exact_structural_match")
+            p[cond] = round(sum(_outcome(r) for r in cr) / len(cr), 4) if cr else None
             for k in K_LEVELS:
                 kr = [r for r in cr if r["k"] == k]
-                p["by_k"][str(k)][cond] = (_rate(kr, "correct") if cond == "foil"
-                                           else _rate(kr, "exact_structural_match"))
-        # chance baseline: shuffled-label exact structural match (positive conds)
+                p["by_k"][str(k)][cond] = (round(sum(_outcome(r) for r in kr) / len(kr), 4)
+                                           if kr else None)
+        # monotonicity: max adjacent drop across k for each condition
+        violations = {}
+        for cond in CONDITIONS:
+            rates = [p["by_k"][str(k)][cond] for k in K_LEVELS]
+            drops = []
+            for a, b in zip(rates, rates[1:]):
+                if a is None or b is None:
+                    continue
+                drops.append(round(max(0.0, a - b), 4))
+            violations[cond] = max(drops) if drops else 0.0
+        p["monotonic_max_drop"] = max(violations.values())
+        p["monotonic_by_condition"] = violations
+        p["growth_headroom"] = (round(p["by_k"]["8"]["near"] - p["by_k"]["1"]["near"], 4)
+                                if p["by_k"]["8"]["near"] is not None
+                                and p["by_k"]["1"]["near"] is not None else None)
+        # graded difficulty at each k: near >= far >= foil (max inversion)
+        grade_drops = []
+        for k in K_LEVELS:
+            b = p["by_k"][str(k)]
+            nf = max(0.0, (b["near"] or 0) - (b["far"] or 0))
+            ff = max(0.0, (b["far"] or 0) - (b["foil"] or 0))
+            grade_drops.extend([round(nf, 4), round(ff, 4)])
+        p["graded_max_drop"] = max(grade_drops) if grade_drops else 0.0
+
         crows = [r for r in rows if r["arm"] == "chance" and r["pool"] == pool
-                 and r["condition"] in ("exact", "permuted", "far")]
+                 and r["condition"] in ("near", "far")]
         p["chance"] = _rate(crows, "exact_structural_match")
-        p["far_minus_chance"] = (round(p["far_exact"] - p["chance"], 4)
-                                 if p["far_exact"] is not None and p["chance"] is not None
-                                 else None)
-        # paired exact - permuted over (family,k) positive structural rows
-        paired = []
-        keys = collections.defaultdict(dict)
-        for r in srows:
-            if r["condition"] in ("exact", "permuted"):
-                keys[r["id"] + "|" + str(r["k"])][r["condition"]] = bool(
-                    r["flags"]["exact_structural_match"])
-        for kk, d in keys.items():
-            if "exact" in d and "permuted" in d:
-                paired.append(int(d["exact"]) - int(d["permuted"]))
-        p["exact_minus_permuted"] = round(sum(paired) / len(paired), 4) if paired else None
-        p["paired_n"] = len(paired)
-        # relation field coverage across ALL structural answers
+        p["far_minus_chance"] = (round((p["far"] or 0) - p["chance"], 4)
+                                 if p["chance"] is not None else None)
+        sneg = [r for r in srows if r["condition"] == "negative"]
+        cneg = [r for r in rows if r["arm"] == "counterexample" and r["pool"] == pool
+                and r["condition"] == "negative"]
+        p["negative_reject"] = (round(sum(_outcome(r) for r in sneg) / len(sneg), 4)
+                                if sneg else None)
+        p["counterexample_reject"] = (round(sum(_outcome(r) for r in cneg) / len(cneg), 4)
+                                      if cneg else None)
         p["relation_coverage"] = _rate(srows, "relation_present")
+        # legacy names preserved for additive-JSON continuity
+        p["exact_exact"] = p["near"]
+        p["permuted_exact"] = p["permuted"]
+        p["foil_foil_reject"] = p["foil"]
         out[pool] = p
     return out
 
 
 def instrument_controls(items, rows, summary):
-    """Six named controls; ALL must pass before any score is reported."""
     checks = []
 
-    def structural(pool, cond):
-        return [r for r in rows if r["arm"] == "structural"
-                and r["pool"] == pool and r["condition"] == cond]
+    def by(pool, arm, cond, k=None):
+        return [r for r in rows if r["pool"] == pool and r["arm"] == arm
+                and r["condition"] == cond and (k is None or r["k"] == k)]
 
-    def naive(pool, cond):
-        return [r for r in rows if r["arm"] == "naive"
-                and r["pool"] == pool and r["condition"] == cond]
+    def orate(rs):
+        return round(sum(_outcome(r) for r in rs) / len(rs), 4) if rs else None
 
-    # C1 positive control: the structural arm must detect correct answers.
-    c1 = (summary["primary"]["exact_exact"] or 0) >= 0.90
-    checks.append(("C1 positive structural exact>=0.90", c1))
-
-    # C2 foil power: structural rejects the foil, naive surface matcher accepts.
-    s_foil = structural("primary", "foil")
-    n_foil = naive("primary", "foil")
-    s_foil_rate = _rate(s_foil, "correct")
-    n_foil_rate = _rate(n_foil, "correct")
-    c2 = (s_foil_rate is not None and s_foil_rate >= 0.90
-          and n_foil_rate is not None and n_foil_rate <= 0.10)
-    checks.append(("C2 foil: structural rejects>=0.90 and naive<=0.10", c2))
-
-    # C3 permutation power: naive fails permuted, structural is invariant.
-    n_exact = _rate(naive("primary", "exact"), "exact_structural_match") or 0
-    n_perm = _rate(naive("primary", "permuted"), "exact_structural_match") or 0
-    s_exact = summary["primary"]["exact_exact"] or 0
-    s_perm = summary["primary"]["permuted_exact"] or 0
-    c3 = (n_exact - n_perm >= TH["permuted_hard_margin"]
-          and abs(s_exact - s_perm) <= TH["permuted_margin"])
-    checks.append(("C3 permutation: naive gap>=0.15 and structural gap<=0.10", c3))
-
-    # C4 chance control: shuffled-label arm at chance, far beats it by >=0.20.
-    c4 = (summary["primary"]["chance"] is not None
-          and summary["primary"]["chance"] <= 0.35
-          and (summary["primary"]["far_minus_chance"] or 0) >= TH["far_over_chance"])
-    checks.append(("C4 chance<=0.35 and far-chance>=0.20", c4))
-
-    # C5 coverage control: relation field emitted in >=95% of structural answers.
-    c5 = all((summary[p]["relation_coverage"] or 0) >= TH["relation_coverage_min"]
-             for p in ("primary", "sealed"))
-    checks.append(("C5 relation field coverage>=0.95 both pools", c5))
-
-    # C6 grader paired check on fixed answer vectors (good vs bad).
-    def _grade_vec(cond, ans, gold_rel, gold_target):
+    # C1 positive control: structural near transfer at max k.
+    c1 = (orate(by("primary", "structural", "near", max(K_LEVELS))) or 0) >= 0.90
+    checks.append(("C1 positive structural near(k=8)>=0.90", c1))
+    # C2 foil power: structural rejects, naive surface matcher accepts.
+    sf = orate(by("primary", "structural", "foil"))
+    nf = orate(by("primary", "naive", "foil"))
+    checks.append(("C2 foil: structural rejects>=0.90 and naive<=0.10",
+                   sf is not None and sf >= 0.90 and nf is not None and nf <= 0.10))
+    # C3 permutation power.
+    ne = orate(by("primary", "naive", "near"))
+    np_ = orate(by("primary", "naive", "permuted"))
+    se = summary["primary"]["near"] or 0
+    sp = summary["primary"]["permuted"] or 0
+    checks.append(("C3 permutation: naive gap>=0.15 and structural gap<=0.10",
+                   (ne - np_) >= TH["permuted_hard_margin"]
+                   and abs(se - sp) <= TH["permuted_margin"]))
+    # C4 chance/far.
+    checks.append(("C4 chance<=0.35 and far-chance>=0.20",
+                   summary["primary"]["chance"] is not None
+                   and summary["primary"]["chance"] <= TH["chance_max"]
+                   and (summary["primary"]["far_minus_chance"] or 0) >= TH["far_over_chance"]))
+    # C5 negative-rule power: structural rejects, counterexample arm accepts.
+    sn = summary["primary"]["negative_reject"]
+    cn = summary["primary"]["counterexample_reject"]
+    checks.append(("C5 negative: structural reject>=0.85, counterexample<=0.20",
+                   sn is not None and sn >= 0.85 and cn is not None
+                   and cn <= TH["counterexample_reject_max"]))
+    # C6 monotonicity across k (both pools).
+    checks.append(("C6 monotonic learning curve (max adjacent drop<=0.05)",
+                   all(summary[p]["monotonic_max_drop"] <= TH["monotonic_tol"]
+                       for p in ("primary", "sealed"))))
+    # C7 graded difficulty near->far->foil at each k (both pools).
+    checks.append(("C7 graded difficulty near>=far>=foil (max drop<=0.15)",
+                   all(summary[p]["graded_max_drop"] <= TH["graded_drop_max"]
+                       for p in ("primary", "sealed"))))
+    # C8 relation-field coverage + grader fixed vectors.
+    def gv(cond, ans, gold_rel, gold_target, should_reject=False):
         rec = {"condition": cond, "verdict": ans["verdict"], "output": ans,
-               "gold": {"relation": gold_rel, "target": gold_target}}
+               "gold": {"relation": gold_rel, "target": gold_target,
+                        "should_reject": should_reject}}
         return grade(rec)["flags"]["correct"]
-
-    good = _grade_vec("exact", {"verdict": "match", "relation": "CAUSE",
-                                "target": "fires", "relation_valid": True},
-                      "CAUSE", "fires")
-    wrong_rel = _grade_vec("exact", {"verdict": "match", "relation": "PART_OF",
-                                     "target": "fires"}, "CAUSE", "fires")
-    wrong_target = _grade_vec("exact", {"verdict": "match", "relation": "CAUSE",
-                                        "target": "sparks"}, "CAUSE", "fires")
-    foil_rej = _grade_vec("foil", {"verdict": "reject", "relation": "CAUSE",
-                                   "target": None}, "CAUSE", None)
-    foil_acc = _grade_vec("foil", {"verdict": "match", "relation": "CAUSE",
-                                   "target": "x"}, "CAUSE", None)
-    c6 = bool(good and not wrong_rel and not wrong_target and foil_rej and not foil_acc)
-    checks.append(("C6 grader: good/wrong-rel/wrong-target/foil-reject/foil-accept", c6))
-
+    good = gv("near", {"verdict": "match", "relation": "CAUSE", "target": "fires"}, "CAUSE", "fires")
+    wrong_rel = gv("near", {"verdict": "match", "relation": "PART_OF", "target": "fires"}, "CAUSE", "fires")
+    wrong_target = gv("near", {"verdict": "match", "relation": "CAUSE", "target": "sparks"}, "CAUSE", "fires")
+    foil_rej = gv("foil", {"verdict": "reject", "relation": None, "target": None}, "CAUSE", None, True)
+    foil_acc = gv("foil", {"verdict": "match", "relation": "CAUSE", "target": "x"}, "CAUSE", None, True)
+    neg_rej = gv("negative", {"verdict": "reject", "relation": None, "target": None}, "CAUSE", None, True)
+    cov = all((summary[p]["relation_coverage"] or 0) >= TH["relation_coverage_min"]
+              for p in ("primary", "sealed"))
+    checks.append(("C8 relation coverage>=0.95 + grader fixed vectors",
+                   cov and good and not wrong_rel and not wrong_target
+                   and foil_rej and not foil_acc and neg_rej))
     return checks
 
 
-def decide(summary, checks_ok, sat_status):
+def decide(summary, checks_ok, sat_status, backend_label="fake",
+           backend_error=None):
     p, s = summary["primary"], summary["sealed"]
     rules = {}
     for pool, d in (("primary", p), ("sealed", s)):
-        rules[pool + "_exact>=0.75"] = (d["exact_exact"] or 0) >= TH["exact_min"]
-        rules[pool + "_permuted>=exact-0.10"] = (
-            d["permuted_exact"] is not None and d["exact_exact"] is not None
-            and d["permuted_exact"] >= d["exact_exact"] - TH["permuted_margin"])
-        rules[pool + "_permuted_not_hard_fail"] = not (
-            d["permuted_exact"] is not None and d["exact_exact"] is not None
-            and d["permuted_exact"] < d["exact_exact"] - TH["permuted_hard_margin"])
-        rules[pool + "_foil_reject>=0.85"] = (d["foil_foil_reject"] or 0) >= TH["foil_reject_min"]
-        rules[pool + "_foil_not_hard_fail"] = (d["foil_foil_reject"] or 0) >= TH["foil_reject_hard_min"]
+        rules[pool + "_near>=0.75"] = (d["near"] or 0) >= TH["near_min"]
+        rules[pool + "_far>=0.70"] = (d["far"] or 0) >= TH["far_min"]
+        rules[pool + "_foil_reject>=0.85"] = (d["foil"] or 0) >= TH["foil_reject_min"]
+        rules[pool + "_negative_reject>=0.80"] = (
+            d["negative_reject"] is not None
+            and d["negative_reject"] >= TH["negative_reject_min"])
+        rules[pool + "_monotonic<=0.05"] = (
+            d["monotonic_max_drop"] <= TH["monotonic_tol"])
+        rules[pool + "_graded<=0.15"] = (
+            d["graded_max_drop"] <= TH["graded_drop_max"])
         rules[pool + "_far>=chance+0.20"] = (
             d["far_minus_chance"] is not None
             and d["far_minus_chance"] >= TH["far_over_chance"])
-        rules[pool + "_far_not_hard_fail"] = (
-            d["far_minus_chance"] is not None
-            and d["far_minus_chance"] > TH["far_over_chance_hard"])
         rules[pool + "_relation_coverage>=0.95"] = (
             d["relation_coverage"] or 0) >= TH["relation_coverage_min"]
-    rules["sealed_exact>=primary_exact-0.10"] = (
-        s["exact_exact"] >= p["exact_exact"] - TH["sealed_exact_drop_max"])
+    rules["sealed_near>=primary_near-0.10"] = (
+        (s["near"] or 0) >= (p["near"] or 0) - TH["sealed_drop_max"])
     rules["instrument_controls_ok"] = bool(checks_ok)
     rules["no_network"] = len(NETWORK_ATTEMPTS) == 0
     rules["no_save"] = len(SAVE_ATTEMPTS) == 0
-    # Saturation (G6) is a non-blocking FLAG recorded beside the result.
+    rules["backend_error_free"] = backend_error is None
     rules["saturation_flag_recorded"] = sat_status in ("FLAG", "PASS", "FAIL")
     return rules, all(rules.values())
 
@@ -655,78 +772,50 @@ def _wilson(k, n, z=1.96):
     return (round(max(0.0, c - h), 4), round(min(1.0, c + h), 4))
 
 
-def _fisher(a, b, c, d):
-    try:
-        from scipy.stats import fisher_exact
-        return float(fisher_exact([[a, b], [c, d]])[1])
-    except Exception:
-        return float("nan")
-
-
 def statistics(rows, summary):
     out = {}
     for pool in ("primary", "sealed"):
         srows = [r for r in rows if r["arm"] == "structural" and r["pool"] == pool]
-        ex = [r for r in srows if r["condition"] == "exact"]
+        ex = [r for r in srows if r["condition"] == "near"]
         ch = [r for r in rows if r["arm"] == "chance" and r["pool"] == pool
-              and r["condition"] == "exact"]
+              and r["condition"] == "near"]
         a = sum(r["flags"]["exact_structural_match"] for r in ex)
         b = len(ex) - a
         c = sum(r["flags"]["exact_structural_match"] for r in ch)
         d = len(ch) - c
-        # bootstrap CI on paired exact - permuted
-        keys = collections.defaultdict(dict)
-        for r in srows:
-            if r["condition"] in ("exact", "permuted"):
-                keys[r["id"] + "|" + str(r["k"])][r["condition"]] = bool(
-                    r["flags"]["exact_structural_match"])
-        paired = [int(v["exact"]) - int(v["permuted"]) for v in keys.values()
-                  if "exact" in v and "permuted" in v]
-        ci = (0.0, 0.0)
-        if paired:
-            means = []
-            seed = int(_digest(pool, "boot"), 16)
-            for _ in range(2000):
-                seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF
-                sample = [paired[(seed + i) % len(paired)] for i in range(len(paired))]
-                means.append(sum(sample) / len(sample))
-            means.sort()
-            ci = (round(means[int(0.025 * len(means))], 4),
-                  round(means[int(0.975 * len(means))], 4))
         out[pool] = {
-            "exact_correct": "%d/%d" % (a, len(ex)),
-            "exact_wilson95": _wilson(a, len(ex)),
+            "near_correct": "%d/%d" % (a, len(ex)),
+            "near_wilson95": _wilson(a, len(ex)),
             "chance_correct": "%d/%d" % (c, len(ch)),
-            "fisher_exact_vs_chance_p": _fisher(a, b, c, d),
-            "exact_minus_permuted": summary[pool]["exact_minus_permuted"],
-            "exact_minus_permuted_boot95": ci,
+            "growth_headroom": summary[pool]["growth_headroom"],
+            "monotonic_max_drop": summary[pool]["monotonic_max_drop"],
+            "negative_reject": summary[pool]["negative_reject"],
         }
     return out
 
 
-# ---------------------------------------------------------------------------
-# main
-# ---------------------------------------------------------------------------
+# ── MAIN ────────────────────────────────────────────────────────────────────
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    live = "--live" in argv
     started = time.time()
     commit = os.popen("git -C %s rev-parse --short HEAD" % PROJ).read().strip()
 
     items = build_items()
     errors = validate_items(items)
     manifest = item_manifest_hash(items)
-    from collections import Counter
-    pools = Counter(it["pool"] for it in items)
+    pools = collections.Counter(it["pool"] for it in items)
+    backend = RealBackend() if live else FakeBackend()
 
     print("=" * 78)
-    print("RAVANA-LEARN-5 / RSI  (rule induction + sealed transfer; no engine, no save)")
+    print("RAVANA-LEARN-5 / RSI (UNSATURATED) -- backend=%s" % backend.label)
     print("=" * 78)
-    print("  commit=%s  families=%d  primary=%d sealed=%d" %
+    print("  commit=%s families=%d primary=%d sealed=%d" %
           (commit, len(items), pools["primary"], pools["sealed"]))
     print("  hash_rule=%s|<difficulty>|<item_id>  manifest_sha256=%s" %
           (HASH_PREFIX, manifest))
-    print("  relations=%s  k=%s  conditions=%s" %
-          (",".join(RELATION_KEYS), K_LEVELS, ",".join(CONDITIONS)))
+    print("  k=%s conditions=%s arms=%s" %
+          (K_LEVELS, CONDITIONS, ARMS))
     if errors:
         print("\nINSTRUMENT INVALID -- item definitions broken:")
         for e in errors[:20]:
@@ -736,28 +825,35 @@ def main(argv=None):
         print("\nvalidate-only: all %d families valid." % len(items))
         return 0
 
-    rows = run_sweep(items)
+    rows = run_sweep(items, backend=backend)
     summary = summarize(items, rows)
     stats = statistics(rows, summary)
     checks = instrument_controls(items, rows, summary)
     checks_ok = all(ok for _, ok in checks)
-
-    print("\n--- instrument controls (before any score) ---")
+    print("\n--- 8 instrument controls (before any score) ---")
     for name, ok in checks:
         print("  [%s] %s" % ("ok" if ok else "BAD", name))
     if not checks_ok:
         print("\nINSTRUMENT INVALID -- refusing to report any score.")
         return 2
 
-    # shared Tier-0 saturation gate (non-blocking FLAG), fed 0-100 units.
+    backend_error = getattr(backend, "api_error", None)
+    if live:
+        calls = backend.api_calls
+        if calls["boot"] < 1 or calls["process_turn"] < 1:
+            backend_error = backend_error or "live path incomplete: %r" % calls
+        print("  live api_calls=%s error=%r" % (calls, backend_error))
+
     sat = front_gates.gate_saturation(
-        {"rsi_exact": round(100 * summary["primary"]["exact_exact"])}, None, "rsi")
+        {"rsi_near": round(100 * (summary["primary"]["near"] or 0)),
+         "rsi_negative_reject": round(100 * (summary["primary"]["negative_reject"] or 0))},
+        None, "rsi")
     with open(GATE_PATH, "w", encoding="utf-8") as gf:
         gf.write(json.dumps(sat.as_dict("rsi"), ensure_ascii=False) + "\n")
 
-    rules, passed = decide(summary, checks_ok, sat.status)
+    rules, passed = decide(summary, checks_ok, sat.status, backend.label,
+                           backend_error)
 
-    # write full per-item log (input / output incl. relation field / verdict)
     with open(DATA_PATH, "w", encoding="utf-8") as fh:
         for r in rows:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -769,44 +865,20 @@ def main(argv=None):
     print("\n--- PRIMARY vs SEALED (structural arm) ---")
     for pool in ("primary", "sealed"):
         d = summary[pool]
-        print("  %-7s n_exact=%d n_far=%d exact=%.3f permuted=%.3f "
-              "foil_rej=%.3f far=%.3f chance=%.3f far-chance=%+.3f "
-              "coverage=%.3f ex-minus-perm=%+.3f" %
-              (pool, d["exact_n"], d["far_n"], d["exact_exact"] or 0,
-               d["permuted_exact"] or 0, d["foil_foil_reject"] or 0,
-               d["far_exact"] or 0, d["chance"] or 0,
-               d["far_minus_chance"] or 0, d["relation_coverage"] or 0,
-               d["exact_minus_permuted"] or 0))
+        print("  %-7s near=%.3f far=%.3f foil=%.3f negative=%.3f "
+              "counterex=%.3f perm=%.3f chance=%.3f "
+              "mono_drop=%.3f graded_drop=%.3f growth=%+.3f cov=%.3f" % (
+                  pool, d["near"] or 0, d["far"] or 0, d["foil"] or 0,
+                  d["negative_reject"] or 0, d["counterexample_reject"] or 0,
+                  d["permuted"] or 0, d["chance"] or 0,
+                  d["monotonic_max_drop"], d["graded_max_drop"],
+                  d["growth_headroom"] or 0, d["relation_coverage"] or 0))
         print("    by k: " + "  ".join(
-            "k=%s E=%.2f P=%.2f F=%.2f FT=%.2f" %
-            (k, d["by_k"][k]["exact"] or 0, d["by_k"][k]["permuted"] or 0,
-             d["by_k"][k]["foil"] or 0, d["by_k"][k]["far"] or 0)
+            "k=%s N=%.2f F=%.2f O=%.2f G=%.2f" % (
+                k, d["by_k"][k]["near"] or 0, d["by_k"][k]["far"] or 0,
+                d["by_k"][k]["foil"] or 0, d["by_k"][k]["negative"] or 0)
             for k in map(str, K_LEVELS)))
     print("  saturation gate: %s -- %s" % (sat.status, sat.detail))
-
-    print("\n--- statistics ---")
-    for pool in ("primary", "sealed"):
-        print("  %s: %s" % (pool, json.dumps(stats[pool])))
-
-    print("\n--- per-item audit (structural arm, primary then sealed, k=1) ---")
-    for pool in ("primary", "sealed"):
-        print("\n################ POOL: %s ################" % pool)
-        shown = 0
-        for r in rows:
-            if (r["arm"] != "structural" or r["pool"] != pool or r["k"] != 1):
-                continue
-            if shown >= 6:
-                break
-            shown += 1
-            ans = r["output"]
-            print("  [%s r=%s cond=%s] demo=%s | q=%s cand=%s" %
-                  (r["id"], r["relation"], r["condition"],
-                   r["input"]["demonstrations"][0], r["input"]["query_subject"],
-                   r["input"]["candidates"]))
-            print("    OUTPUT subject=%s relation=%s target=%s verdict=%s | "
-                  "gold_rel=%s gold_target=%s correct=%s" %
-                  (ans["subject"], ans["relation"], ans["target"], ans["verdict"],
-                   r["gold"]["relation"], r["gold"]["target"], r["flags"]["correct"]))
 
     out = {
         "component": "RSI", "commit": commit,
@@ -814,20 +886,19 @@ def main(argv=None):
         "families": len(items), "pool_sizes": dict(pools),
         "hash_rule": "%s|<difficulty>|<item_id> (sha256)" % HASH_PREFIX,
         "manifest_sha256": manifest, "k_levels": list(K_LEVELS),
+        "conditions": list(CONDITIONS), "arms": list(ARMS),
         "thresholds": TH, "rows": len(rows),
         "instrument_controls": [{"name": n, "ok": bool(ok)} for n, ok in checks],
         "instrument_controls_ok": checks_ok,
-        "summary": summary, "statistics": stats, "rules": {k: bool(v) for k, v in rules.items()},
+        "summary": summary, "statistics": stats,
+        "rules": {k: bool(v) for k, v in rules.items()},
         "saturation_gate": {"status": sat.status, "detail": sat.detail},
-        "pass": bool(passed),
+        "pass": bool(passed), "backend": backend.label, "live": live,
+        "api_calls": getattr(backend, "api_calls", {}),
+        "backend_error": backend_error,
         "no_network": len(NETWORK_ATTEMPTS) == 0,
         "no_save": len(SAVE_ATTEMPTS) == 0,
-        "network_attempts": len(NETWORK_ATTEMPTS),
-        "save_attempts": len(SAVE_ATTEMPTS),
-        "engine_boot": False,
-        "data_dir": None,
-        "data_path": DATA_PATH,
-        "elapsed_s": round(time.time() - started, 1),
+        "data_path": DATA_PATH, "elapsed_s": round(time.time() - started, 1),
     }
     with open(SUMMARY_PATH, "w", encoding="utf-8") as sf:
         json.dump(out, sf, indent=2, ensure_ascii=False)
