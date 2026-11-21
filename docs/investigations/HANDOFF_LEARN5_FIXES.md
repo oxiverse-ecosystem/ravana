@@ -72,10 +72,11 @@ for evidence; this file locks decisions and ordered next steps.
   else revert and record the negative (skill §7a). Also re-measure the frozen
   web arm post-intent-fix (the mean-77 number is stale).
 
-### Phase 4 — CAR replication at n≥40 (D4)
-- Extend `scripts/measure_learn5_car.py` bank to ≥40/k/pool (design §3.5),
-  same config twice, fixed hash split. **Done when:** both runs reported;
-  the sealed reversal confirmed or refuted at power. No gate edits.
+### Phase 4 — CAR replication at n≥40 (D4) — BLOCKED by bank size
+- `_CANDIDATES` has 104 triples; design §3.5 needs 800 for ≥40/k/pool. An 8×
+  authored-bank expansion would add ~700 more scaffolding items, changing what
+  the instrument measures — NOT done silently. A `PYTHONHASHSEED=1` replication
+  at the existing n=10 is running as noise evidence (not a power fix).
 
 ### Phase 5 — unsaturated WFA/PDR/RSI (D8)
 - Implement the redesigns in WEB_AND_SATURATION.md §4 (paraphrase entailment +

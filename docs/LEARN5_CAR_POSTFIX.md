@@ -73,6 +73,17 @@ this n.
   are n=10 observations. The binding release rule (all criteria, both pools)
   remains unmet.
 
+## Why n≥40 was not done, and what was done instead
+`_CANDIDATES` in `scripts/measure_learn5_car.py` has **104** distinct
+authored a→b→x triples. The design §3.5 target is ≥40 observations **per k per
+pool** = 400 per pool = **800 total** — an 8× bank expansion requiring ~700 new
+authored triples. Those triples would be *more authored scaffolding* (the same
+category the result doc warns must not be cited as learning), so silently
+expanding the bank would change what the instrument measures. Not done.
+Instead, a **different-hash-split replication** (`PYTHONHASHSEED=1`, same design,
+same n=10) is running to test whether the sealed reversal survives a different
+item/k assignment — evidence on noise, not a power fix. Result to be appended.
+
 ## Reproduction
 ```
 cd C:/Users/Likhith/Documents/projects/ravana
