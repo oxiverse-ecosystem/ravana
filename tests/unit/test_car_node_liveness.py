@@ -76,6 +76,19 @@ def test_ensure_node_ignores_dead_index_id():
     assert live not in ge._concept_keywords.get("bruise", [])
 
 
+def test_trusted_definition_node_survives_junk_prune():
+    """Measured cause of the grounded re-learning T1->T2 loss: a just-taught
+    is_a/semantic fact with earned provenance was pruned by the junk sweep."""
+    g = ConceptGraph(dim=8)
+    a, b = _node(g, "asteroid_fact"), _node(g, "rocky_body")
+    e = g.add_edge(a, b, weight=0.5, relation_type="is_a", confidence=0.6)
+    e.source_metadata = {"edge_kind": "web_fact", "source": "http://grounded.local/asteroid"}
+    junk = _node(g, "scrape_noise_token")
+    g.prune_low_degree_junk_nodes(tau_low=1, tau_high=8)
+    assert a in g.nodes and b in g.nodes
+    assert junk not in g.nodes
+
+
 def test_fix_source_present():
     src = open(os.path.join(PROJ, "ravana", "src", "ravana", "chat",
                             "engine_generation.py"), encoding="utf-8").read()

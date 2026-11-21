@@ -1543,22 +1543,19 @@ class ConceptGraph:
                         _adj_hub = True
                         break
                 if not _adj_hub:
-                    # Protect traces that carry earned, explicitly-taught
-                    # causal provenance. Synaptic tagging & capture (Frey &
-                    # Morris 1997, Nature 385:533-536) and sleep down-selection
-                    # with protection of the most-activated synapses (Tononi &
-                    # Cirelli 2014, Neuron 81:12-34): a just-taught causal hop
-                    # must not be erased by the homeostatic junk sweep. Without
-                    # this, low-degree singletons carrying curated/web_fact
-                    # causal edges are pruned while their ids remain in
-                    # label indexes, so later writes attach to dead nodes and
-                    # the chain is unreachable (measured: 7 sealed k=2 items).
+                    # Protect traces with earned, explicitly-taught provenance.
+                    # Synaptic tagging & capture (Frey & Morris 1997) and sleep
+                    # down-selection with protection of tagged synapses (Tononi
+                    # & Cirelli 2014): a just-taught fact must not be erased by
+                    # the homeostatic junk sweep. Measured on grounded
+                    # re-learning: 5/6 subjects that lost a T1 gain had ZERO
+                    # surviving taught edges at T2 because definition/is_a facts
+                    # (edge_kind curated/web_fact) were pruned during the
+                    # intervening 60-turn front run. Trust is a property of
+                    # provenance, not of the edge's grammatical relation.
                     _trusted = False
                     for (s, t), e in self.edges.items():
                         if s != nid and t != nid:
-                            continue
-                        if getattr(e, "relation_type", "") not in (
-                                "causal", "physical_cause"):
                             continue
                         md = getattr(e, "source_metadata", None)
                         if isinstance(md, dict) and md.get("edge_kind") in (
