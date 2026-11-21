@@ -73,6 +73,32 @@ this n.
   are n=10 observations. The binding release rule (all criteria, both pools)
   remains unmet.
 
+## FINAL: CAR all criteria PASS (2026-11-21, branch `fix/weight-store-durability`)
+
+`scratch/car_full_stratified.log`, `scratch/learn5_car_measured.json` (1290 s,
+exit 0). All 10 criteria PASS, `OVERALL: PASS`:
+primary Δ curve **[0.0, 0.9, 0.9, 1.0, 1.0]**, sealed **[0.0, 0.9, 0.9, 0.9,
+0.9]**; both monotonicity reversals **0.0**; k=0 and definition-only 0.0;
+cold-reload gain retained in both pools.
+
+Two independent defects were behind the historical sealed k=2 dip:
+1. **Stale node ids** after sleep's junk prune (selected by the shared-token
+   cluster `spinning` ×3 / `impact` ×2 / `heating` ×3): the label index kept
+   dead ids, writers attached curated causal hops to those dead endpoints, and
+   enumeration (live nodes only) saw `raw_chains=0` in-process. Fixed in
+   `ravana_ml/graph.py` (never prune trusted causal nodes),
+   `chat/engine_generation.py` (sync index after prune), and the `_all_labels`
+   / `_ensure_node` resolution path. Evidence:
+   `docs/investigations/CAR_K2_ROOT_CAUSE.md`.
+2. **Baseline ceiling confound**: after fix (1), all primary k levels had cold
+   rate 1.00, but `rust` and `earthquake` already had the taught chain at T0
+   and both landed in k=2, depressing that level's *gain* by 0.2. Fixed with a
+   deterministic baseline-stratified fixed Latin square — no gate, threshold
+   or rubric changed.
+
+Brain-mechanism context and verified citations for the interference /
+two-exposure question: `docs/investigations/CAR_K2_BRAIN.md`.
+
 ## Re-measure after the P2 write-path fix (2026-11-21)
 `scratch/car_full_p2.log`, `scratch/learn5_car_measured.json` (1333 s):
 primary Δ_cold curve **[0.0, 0.8, 0.8, 0.7, 0.8]**, worst reversal **−0.10

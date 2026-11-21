@@ -10,7 +10,7 @@ No threshold or rubric was changed to alter any verdict.
 
 | component | verdict | headline primary / sealed |
 |---|---|---|
-| CAR — conversational acquisition | **FAIL** | trusted-chain delta at k=8 +0.80 / +0.50, survives cold reload; monotonicity reversal −0.50; emitted-answer reach ≤0.10 |
+| CAR — conversational acquisition | **PASS (post-fix)** | all 10 criteria PASS: Δ8 primary 1.0 / sealed 0.9, cold-reload gain retained, both monotonicity reversals 0.0, k=0 and definition-only 0.0. Baseline FAIL was reversal −0.50 with answer reach ≤0.10 |
 | WFA — web attribution | PASS (limited) | attribution-valid 1.00 / 1.00, zero fabricated URLs; saturated, partly tautological |
 | PDR — poison resistance | PASS (limited) | poison intrusion 0.00 / 0.00, original retention 1.00 / 1.00; saturated, in-memory variants |
 | CLI — continual learning | **PASS (post-fix)** | see `docs/LEARN5_CLI_PASS.md`: PRIMARY on−off +0.267, SEALED +0.154, both at ratio 1.000; historical baseline 0.000/0.000 |
