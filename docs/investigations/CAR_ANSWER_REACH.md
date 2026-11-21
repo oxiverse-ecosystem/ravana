@@ -356,3 +356,34 @@ controls and at least two unrelated fronts.
   instrumentation is the test that would confirm or refute it.
 - **No gates, thresholds, rubrics, weights, source files, or existing docs were
   modified.** This document is the sole artifact.
+
+---
+
+## Measured refinement (2026-11-21, after the first fix)
+
+The static root cause above was confirmed, but the first fix (prepending verified
+chain labels to `ctx.associated_concepts`) only moved reach from
+**0.30 → 0.40 primary / 0.10 → 0.80 sealed**. Instrumenting the exact saved CAR
+state on the still-failing item `cough` showed:
+
+```
+[CHAIN] subj='cough'  out="('tickling leads to expulsion, and expulsion leads to cough', 'gated_explanation_chain')"
+[SM]    subj='cough'  text='tickling leads to expulsion, and expulsion leads to cough' out=False
+[SM]    subj='sneeze' text='irritation leads to reflex, and reflex leads to sneeze' out=True
+```
+
+So the chain is assembled and handed off; `_sm_response_grounded` still rejects
+it. GloVe diagnostics: for `sneeze`, content-word similarities 0.347/0.299
+clear the 0.30 fraction gate; for `cough`, 0.218/0.118 give mean-vector
+**alignment < 0.10**, so the topical-coherence check fails. The graph-anchored
+rescue `_sentence_is_about_subject` requires two direct graph-neighbour hits;
+a backward chain `a→b→X` contributes only ONE direct neighbour (`b→X`) — `a`
+is two hops away — so it cannot rescue. The earlier outgoing-only neighbour
+scan compounded this.
+
+**Final fix (gate-preserving):** byte-exact exemption for the narration when
+`ctx._verified_chain_text` equals the response text. The chain has already
+passed `enumerate_chains` + `grade_chain` + `assertable_chain`; the final emit
+guard already exempts `gated_explanation_chain`. Both articulation monitors now
+agree on what counts as retrieved, validated knowledge. No threshold, gate or
+rubric changed. Targeted suite: 132 passed, 1 skipped.

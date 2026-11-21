@@ -93,6 +93,7 @@ class CognitiveResponseContext:
     situation_vector: Any = None
     situation_narrative: Dict[str, Any] = field(default_factory=dict)
     decomposition: Any = None
+    _verified_chain_text: str = ""  # byte-exact graph-verified chain narration
     sub_questions: List[Dict[str, Any]] = field(default_factory=list)
     # B4: when the user frames a query with a simplification request ("like i'm
     # five", "in simple terms", "for a child"), the metacommunicative frame is

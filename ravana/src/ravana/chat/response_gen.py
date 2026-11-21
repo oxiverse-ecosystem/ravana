@@ -4507,10 +4507,22 @@ class ResponseGenMixin(ChainWalkerMixin):
         words = {str(w).lower().strip() for w in content_words}
         try:
             # (a) graph neighbours
+            # (a) graph neighbours — BOTH directions. A taught causal chain
+            # for `why/how is X produced` is incoming at X (a->b->X); checking
+            # only outgoing edges made the graph-anchored aboutness rescue
+            # unreachable for exactly the chains the system just learned.
+            # Aboutness is associative; causal direction is still enforced by
+            # enumerate_chains/assertable_chain upstream, so this does not
+            # weaken the chain gate.
             nids = self._concept_keywords.get(subject, [])
             if nids:
                 nid = nids[0]
+                _neighbours = []
                 for tgt, _edge in (self.graph._outgoing.get(nid, []) or []):
+                    _neighbours.append(tgt)
+                for _src, _edge in (self.graph._incoming.get(nid, []) or []):
+                    _neighbours.append(_src)
+                for tgt in _neighbours:
                     node = self.graph.nodes.get(tgt)
                     if node is not None and node.label:
                         if str(node.label).lower().strip() in words:
@@ -4798,6 +4810,19 @@ class ResponseGenMixin(ChainWalkerMixin):
 
         Cheaper than running the GRU: a couple of set/GloVe lookups.
         """
+        # A chain narration returned by `_why_how_causal_chain` has already
+        # passed enumerate_chains + grade_chain + assertable_chain and is
+        # assembled ONLY from those verified labels. Re-judging its exact
+        # wording with GloVe coherence (a lexical-resemblance test) rejected
+        # perfectly grounded backward chains where causes are incoming at the
+        # subject (measured: 'tickling leads to expulsion... and cough' had
+        # alignment < 0.10 while the identical-form 'sneeze' chain passed).
+        # The final emit guard already exempts this strategy; make both
+        # articulation monitors agree. Byte-exact match only: no other text
+        # can borrow the exemption.
+        _verified = getattr(ctx, "_verified_chain_text", None)
+        if _verified and str(response_text).strip() == str(_verified).strip():
+            return True
         if not response_text or not response_text.strip():
             return False
         # Look up the HEAD NOUN, not the raw phrase. See `_grounding_subject`:
@@ -8622,6 +8647,7 @@ class ResponseGenMixin(ChainWalkerMixin):
                     if _front:
                         ctx.associated_concepts = (_front +
                                                   list(ctx.associated_concepts or []))
+                    ctx._verified_chain_text = _narr
             except Exception:
                 pass
             return (_narr, "gated_explanation_chain")
