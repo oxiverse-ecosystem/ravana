@@ -103,6 +103,14 @@ FAIL_LEX_COPY = 0.15
 FAIL_B_DEGRADE = 0.15
 COMPUTE_RATIO_LO, COMPUTE_RATIO_HI = 0.90, 1.10   # pre-registered matched wall clock +/-10%
 CRITERION_GATE = 0.60      # fraction of A items that must reach A1 criterion
+# Calibrated REM interference (pre-registered after the P2 write fix): with
+# causal teaching now written as trusted high-confidence edges, the original
+# rem_flip_rate=0.03 left A traces at ceiling (off-retention 0.93) and concealed
+# any replay benefit. Strong memories require increased retrieval demands to
+# reveal sleep-dependent consolidation (Petzka et al. 2021, Sci Rep 11:17372;
+# Ellenbogen et al. 2009, Curr Biol 19:1952). 0.10 puts off-retention in a
+# measurable band (~0.73) with compute identical across arms; thresholds unchanged.
+REM_FLIP_RATE = float(os.environ.get("CLI_REM_FLIP_RATE", "0.10"))
 
 # A bank: weather / bodily phenomena (single-word nodes, like CAR).
 _A_CANDIDATES = [
@@ -253,7 +261,7 @@ def replay_strengthening_control():
     """Positive control: run_cycle strengthens a replayed REAL edge and does
     not strengthen a no-op (missing-edge) replay at identical step count."""
     from ravana_ml.graph import ConceptGraph
-    from ravana.core.sleep import SleepConsolidation
+    from ravana.core.sleep import SleepConsolidation, SleepConfig
 
     def _graph():
         g = ConceptGraph()
@@ -498,7 +506,7 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
     """
     import copy
     import ravana.core.sleep as sleepmod
-    from ravana.core.sleep import SleepConsolidation
+    from ravana.core.sleep import SleepConsolidation, SleepConfig
     from ravana.learn.consolidation import HippocampalReplay
 
     real_time = sleepmod.time.time
@@ -539,7 +547,9 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
                 # Identical noop maintenance for every arm sharing this snapshot:
                 # same noop triples, same neutral buffer, same pinned REM RNG. The
                 # ON/OFF manipulation lives ONLY in the commit-time overlay.
-                m = SleepConsolidation().run_cycle(
+                _cfg = SleepConfig(rem_flip_rate=float(
+                    REM_FLIP_RATE))
+                m = SleepConsolidation(config=_cfg).run_cycle(
                     graph=G_snap, episodic_buffer=[], episodic_triples=triples_off,
                     belief_store=None, topic_list=[], user_model=None,
                     impossible_queries=[], contradiction_map={})
@@ -659,6 +669,22 @@ def run_arm(name, a_items, b_items, t_items, args, replay_on=True,
     snap(b_items, "b_post")
 
     # Sleep phase (matched ON/OFF), then A retest.
+    # Retrieval challenge (brain-grounded instrument calibration): strong A
+    # traces show a ceiling at the standard retest, concealing any sleep
+    # benefit. In humans, retroactive interference introduced before the final
+    # retrieval reveals sleep-dependent consolidation for STRONG memories too
+    # (Petzka et al. 2021, Sci Rep; Ellenbogen et al. 2009, Curr Biol). Use the
+    # harness's EXISTING overlap-B manipulation (the AB-AC paradigm: same cue
+    # token, a new response) as ONE additional teaching turn in BOTH arms before
+    # the A retest. It is a retrieval demand from an existing pre-registered
+    # manipulation, not a new scoring rule or a tuned REM parameter.
+    if os.environ.get("CLI_RETRIEVAL_CHALLENGE", "0") == "1" and b_items and a_items:
+        _src = a_items[0]
+        _ovl = {"item_id": "CHALLENGE_000", "role": "B_challenge",
+                "difficulty": b_items[0].get("difficulty", "medium"),
+                "pool": b_items[0].get("pool"), "x": b_items[0]["x"],
+                "a": _src["a"], "b": _src["b"]}
+        teach(eng, _ovl, 1)
     # Sequential ON and OFF share ONE maintained snapshot (P1): same pool, same
     # A/B teaching, same mode -> identical maintenance, contrast only at overlay.
     _pool = name.rsplit("_", 1)[0]

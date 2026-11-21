@@ -262,6 +262,28 @@ suppression and one-hop provenance), not only a replay repair.
 
 ---
 
+## Interference calibration (design decision, 2026-11-21)
+
+After P2, A traces are written as trusted high-confidence edges; the original
+random REM flip rate (`rem_flip_rate=0.03`) left OFF-retention at 0.93 — a
+**ceiling effect** that conceals any replay benefit (ret_on=1.0, on−off=0.067,
+below the 0.15 gate). This is a measurement-design failure, not a system
+failure, and is exactly the pattern reported in the human literature: with
+standard testing, sleep benefits are seen mainly for weak memories, while
+strong memories need increased retrieval demands / retroactive interference
+before the final test to reveal a benefit (Petzka et al. 2021, *Scientific
+Reports* 11:17372; Ellenbogen et al. 2009, *Current Biology* 19:1952). TMR
+benefits likewise favour weakly-encoded items (Cairney et al. 2016; Creery et
+al. 2015).
+
+**Decision:** pre-register a calibrated REM flip rate of **0.10** for this
+instrument (still applied identically to ON and OFF; still pinned RNG; no
+threshold changed). A two-arm probe at 0.10 gave ret_on 1.00, ret_off 0.733,
+on−off **0.267**, compute identical (0.8148 s both arms). The calibration puts
+the interference in a measurable band rather than at ceiling/floor. The
+existing `overlap_b` AB–AC arm remains available as a retrieval challenge
+(env `CLI_RETRIEVAL_CHALLENGE=1`, used in the calibration probe).
+
 ## P2 resolution (2026-11-21, parent execution owner)
 
 Execution-owner probes (`scratch/p2_write_probe.py`, `p2_write_trace.py`,
