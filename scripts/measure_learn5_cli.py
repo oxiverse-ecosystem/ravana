@@ -556,10 +556,14 @@ def run_sleep(eng, arm, items, replay_on, cycles=SLEEP_CYCLES,
             for kk in work:
                 work[kk] += int(mm["sleep_cycle"].get(kk, 0))
         if share_key:
-            _SHARED_MAINT[share_key] = {"state": G_snap.__getstate__(),
+            # DEEP copy the state: __getstate__ shares the nodes/edges dicts by
+            # reference with the live graph, so ON's overlay would otherwise
+            # mutate the cached state that OFF reuses (already repaired -> OFF
+            # overlay 0, contrast collapsed). A fresh deepcopy isolates them.
+            _SHARED_MAINT[share_key] = {"state": copy.deepcopy(G_snap.__getstate__()),
                                         "maint_secs": maint_secs,
                                         "metrics": metrics, "work": dict(work),
-                                        "replay_memory": replay_memory}
+                                        "replay_memory": copy.deepcopy(replay_memory)}
         # COMMIT in place (keep the engine's graph object identity so subsystem
         # references stay valid), then rewire the runtime HRR/dual-code hooks.
         eng.graph.__setstate__(G_snap.__getstate__())
