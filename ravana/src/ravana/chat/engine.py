@@ -2027,6 +2027,14 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # Phase 18: Curiosity Drive - autonomous topic selection for background learning
         self._curiosity_drive_enabled: bool = True  # can be disabled via --no-curiosity
         self._curiosity_cycles_this_session: int = 0  # bg auto-select count per idle session
+        # Phase 3 (web loop): curiosity-gated encoding. Default OFF — the five
+        # prior read-schedule tweaks failed, so this untried axis (an EXTERNAL
+        # information-gap signal: re-ask or correction, Kang 2009 / Gruber 2014)
+        # is gated behind an env flag and must earn its place in an A/B.
+        self._curiosity_gate_enabled: bool = os.environ.get("RAVANA_CURIOSITY_GATE", "0") == "1"
+        self._curiosity_signals: dict = {}          # content word -> turn marked
+        self._prev_query_words: list = []
+        self._curiosity_reads_this_session: int = 0
         self._concept_visit_count: Dict[str, int] = {}  # how many times each concept was visited
         self._concept_learning_progress: Dict[str, float] = {}  # rate of prediction error decrease per concept
         self._concept_pe_delta: Dict[str, float] = {}  # per-step PE delta (positive = learning progress)
@@ -8128,8 +8136,71 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         except Exception:
             return
 
+    _CURIOSITY_STOP = frozenset({
+        "what", "why", "how", "does", "did", "do", "is", "are", "was", "were",
+        "the", "a", "an", "and", "or", "for", "with", "about", "from", "that",
+        "this", "you", "your", "me", "my", "tell", "explain", "mean", "means",
+        "really", "actually", "happen", "happens", "know", "think", "much",
+    })
+
+    def _curiosity_content_words(self, text: str) -> list:
+        """Stable content-word set from an utterance (no graph/engine dependency)."""
+        import re as _re
+        return [w for w in _re.findall(r"[a-z]+", (text or "").lower())
+                if len(w) >= 4 and w not in self._CURIOSITY_STOP]
+
+    def _track_curiosity_signal(self, user_input: str) -> None:
+        """Record EXTERNAL information-gap signals, never self-rated gaps.
+
+        Two signals the environment actually provides: (a) a re-ask — content
+        words recurring within a short window, i.e. the previous answer did not
+        close the gap; (b) an explicit correction ("no, actually ..."), which
+        marks the previous utterance's topic. A quality score derived from the
+        system's own output would be a self-confirming loop (skill §7).
+        """
+        if not self._curiosity_gate_enabled:
+            return
+        words = self._curiosity_content_words(user_input)
+        t = int(getattr(self, "turn_count", 0))
+        correction = bool(__import__("re").search(
+            r"^\s*(?:no[,!.]|nope[,!.]|actually[, ]|you(?:'re| are) wrong|wrong[,!.]|"
+            r"that'?s not|incorrect[,!.])", (user_input or ""), __import__("re").IGNORECASE))
+        if correction and self._prev_query_words:
+            for w in self._prev_query_words:
+                self._curiosity_signals[w] = t
+        overlap = set(words) & set(self._prev_query_words)
+        for w in overlap:
+            self._curiosity_signals[w] = t
+        self._prev_query_words = words
+        # bounded memory: drop signals older than 10 turns
+        self._curiosity_signals = {k: v for k, v in self._curiosity_signals.items()
+                                   if t - v <= 10}
+
+    def _curiosity_need(self, subject: str) -> bool:
+        """True when the environment has signalled an unresolved gap for `subject`."""
+        if not self._curiosity_gate_enabled:
+            return False
+        t = int(getattr(self, "turn_count", 0))
+        return any(t - v <= 10 for k, v in self._curiosity_signals.items()
+                   if k in (subject or "").lower())
+
+    def _curiosity_gate_allows(self, subject: str) -> bool:
+        """Gate a synchronous web read. Flag OFF = prior behaviour unchanged.
+        Flag ON = require an EXTERNAL signal (re-ask/correction) and a bounded
+        per-session budget (Kang 2009 / Gruber 2014: selective encoding)."""
+        if not self._curiosity_gate_enabled:
+            return True
+        if self._curiosity_reads_this_session >= 3:
+            return False
+        if self._curiosity_need(subject):
+            self._curiosity_reads_this_session += 1
+            return True
+        return False
+
     def _process_turn_impl(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed."""
+        # External information-gap signals (default OFF; see flag in __init__).
+        self._track_curiosity_signal(user_input)
         # C-fix (round 2026-08-08b): stash the FULL user utterance on the engine
         # so affect realizers can read the user's own felt-label ("i feel
         # hollow") even when the disclosure context passed downstream only
@@ -11460,7 +11531,8 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 # asked about, not just entity familiarity.
                 _fok_query = user_input if (user_input and self._is_informational_query(user_input, subject)) else \
                     f"{subject} definition meaning explained"
-                if self.baby_mode and not self._fok_pause_done:
+                if (self.baby_mode and not self._fok_pause_done
+                        and self._curiosity_gate_allows(subject)):
                     self._fok_pause_done = True
                     if self._trace_enabled:
                         print(f"  [LPFC] Pausing generation — searching '{_fok_query}'...")

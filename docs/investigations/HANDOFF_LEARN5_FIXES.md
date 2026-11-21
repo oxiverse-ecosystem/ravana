@@ -59,8 +59,11 @@ for evidence; this file locks decisions and ordered next steps.
   keyed by `commit:weights-mtime`; `test_web_front_resume` = 3 passed. The frozen
   mean-77 is stale (measured on the degraded cold-start graph) and a full
   re-measure is infeasible in-session (~2 min/probe on the repaired graph).
-- Implement `curiosity_need` from external re-ask/correction signals + single
-  `web_fact`/definition writes anchored to graph neighbours, behind a flag.
+- (Code DONE, A/B pending) `engine.py` tracks EXTERNAL curiosity signals
+  (re-ask/correction), gates the synchronous FOK web read behind
+  `RAVANA_CURIOSITY_GATE=1` (default OFF) with a 3-read budget.
+  `test_curiosity_gate` = 6 passed; offline differential 6/6 identical.
+  Keep OFF until the frozen-corpus A/B shows single-fact gain + flat negatives.
 - A/B on the frozen fixture corpus (`scripts/measure_fronts_web_frozen.py`
   pattern), identical state, one process. Positive metric: provenance-stamped
   single-fact count + emitted reach on previously-failed subjects. Negative

@@ -148,6 +148,22 @@ and weight state are reused (their ~57 s web turn is skipped), rows from any
 other state are ignored as stale evidence, and the log is opened in append mode.
 `tests/unit/test_web_front_resume.py` = 3 passed.
 
+**Implemented 2026-11-21 (default OFF):** `engine.py` now tracks EXTERNAL
+information-gap signals (re-ask within 10 turns, explicit correction) in
+`_track_curiosity_signal`/`_curiosity_need`, and gates the synchronous FOK web
+read through `_curiosity_gate_allows` with a 3-reads-per-session budget. The flag
+`RAVANA_CURIOSITY_GATE=1` is required; with it off the prior path is byte-identical.
+Citations: Kang et al. 2009 *Psychol Sci* 20:963–973,
+doi:10.1111/j.1467-9280.2009.02402.x; Gruber, Gelman & Ranganath 2014 *Neuron*
+84:486–496, doi:10.1016/j.neuron.2014.08.060.
+`tests/unit/test_curiosity_gate.py` = 6 passed; offline differential probe
+`scratch/curiosity_diff_probe.py` = 6/6 identical answers flag-off vs flag-on,
+with 3 curiosity signals recorded only when enabled.
+**A/B on the frozen corpus remains unrun** — the repaired graph makes web turns
+~2 min each, so a powered A/B needs the resumable harness across sessions. Keep
+the flag OFF until that A/B shows positive single-fact acquisition with flat
+untrusted-edge counts and known-bad rejections.
+
 **Measured limitation found while re-measuring:** the frozen arm's old mean-77
 summary (preserved as `scratch/front_probes_web_frozen_summary_STALE.json`) was
 recorded on the **degraded cold-start graph** (209 PMI concepts), not on the
