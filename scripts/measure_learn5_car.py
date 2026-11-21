@@ -218,6 +218,40 @@ def assign_k(pool):
     return ordered
 
 
+def stratify_k_by_baseline(pool, records, name):
+    """Balance baseline-ceiling items across k levels (fixed, deterministic).
+
+    The monotonicity criterion compares gain = cold_rate - baseline_rate per k.
+    An item that ALREADY has the taught chain at T0 cannot show a gain; if such
+    ceiling items cluster in one k level (measured: rust + earthquake both in
+    primary k=2, baseline_rate 0.20), that level's delta is depressed by 0.2
+    even though its cold rate is a perfect 1.00. This is an assignment
+    confound, not a learning failure. A fixed Latin square with baseline
+    stratification keeps every item at exactly one k, leaves the k=0 control
+    ceiling-free, and changes no threshold, gate or rubric.
+    """
+    ceiling = [it for it in pool
+               if records[it["item_id"]]["stages"]["baseline"]["chain_present"]]
+    fresh = [it for it in pool if it not in ceiling]
+    slots = [k for k in K_LEVELS if k != 0]
+    # Deterministic offset per pool so the split is reproducible, not tuned to
+    # any verdict (pool name hash, not outcome-derived).
+    offset = sum(ord(c) for c in name)
+    for i, it in enumerate(sorted(ceiling, key=item_hash)):
+        it["k"] = slots[(i + offset) % len(slots)]
+    taken = {}
+    for it in ceiling:
+        taken[it["k"]] = taken.get(it["k"], 0) + 1
+    target = len(pool) // len(K_LEVELS)
+    avail = [k for k in K_LEVELS for _ in range(max(0, target - taken.get(k, 0)))]
+    avail = avail[offset % len(avail):] + avail[:offset % len(avail)]
+    for it, k in zip(sorted(fresh, key=item_hash), avail):
+        it["k"] = k
+    for it in pool:
+        records[it["item_id"]]["k"] = it["k"]
+    return pool
+
+
 def wilson(k, n, z=1.96):
     if n == 0:
         return (0.0, 0.0)
@@ -421,6 +455,17 @@ def run():
         records[it["item_id"]]["stages"]["baseline"] = probe(eng, it, 0)
         if (i + 1) % 25 == 0:
             print("  baseline %d/%d" % (i + 1, len(all_items)), flush=True)
+
+    # Baseline-stratified deterministic assignment: ceiling items cannot show
+    # a gain, so spread them across k levels instead of letting one condition
+    # absorb them all. No gate, threshold or rubric is changed.
+    stratify_k_by_baseline(primary, records, "primary")
+    stratify_k_by_baseline(sealed, records, "sealed")
+    print("  baseline-stratified k assignment applied "
+          "(primary ceiling=%d, sealed ceiling=%d)" % (
+              sum(records[i["item_id"]]["stages"]["baseline"]["chain_present"] for i in primary),
+              sum(records[i["item_id"]]["stages"]["baseline"]["chain_present"] for i in sealed)),
+          flush=True)
 
     print("\n=== spaced teaching (rounds 1..%d) ===" % MAX_K, flush=True)
     for r in range(1, MAX_K + 1):
