@@ -56,12 +56,6 @@ NANOGPT_LM_SPECS = {
 }
 
 NANOGPT_BENCHMARK_SCORES = {
-    "lamp_test": {
-        "score": 0.000,
-        "name": "Lamp Test (Causal Reasoning)",
-        "capability": "3-premise causal chaining",
-        "rationale": "Base autoregressive LM lacks deductive premise chaining and causal graph; generates pseudo-Shakespearean completion.",
-    },
     "reasoning": {
         "score": 0.250,
         "name": "Logical Reasoning (LogiQA)",
@@ -116,24 +110,6 @@ NANOGPT_BENCHMARK_SCORES = {
 # ═══════════════════════════════════════════════════════════════════════════
 # Scoring helpers
 # ═══════════════════════════════════════════════════════════════════════════
-
-def grade_lamp_test(response: str) -> float:
-    """Grade 3-premise lamp test: causal chain reasoning."""
-    r = response.lower()
-    has_negation = any(w in r for w in ["no explosion", "won't explode", "doesn't explode"])
-    has_explosion = any(w in r for w in ["explosion", "explode", "explodes", "blast"])
-    has_light = any(w in r for w in ["light", "lights", "lit", "glow", "bright", "shines"])
-    
-    if has_negation:
-        return 0.0
-    if has_explosion and has_light:
-        return 1.0
-    if has_explosion:
-        return 0.7
-    if has_light:
-        return 0.3
-    return 0.0
-
 
 def grade_reasoning(response: str, keywords: list) -> float:
     """Grade reasoning responses by key concept coverage."""
@@ -927,28 +903,10 @@ def _init_benchmarks():
     """Populate BENCHMARKS with real and retained synthetic benchmarks."""
     global BENCHMARKS
     
-    # ── 1. Lamp Test ────────────────────────────────────────────
-    BENCHMARKS["lamp_test"] = {
-        "name": "Lamp Test (3-Premise Causal Reasoning)",
-        "description": "Tests causal chain: lamp -> turn on -> lights up -> explosion",
-        "grader": grade_lamp_test,
-        "cases": [
-            {
-                "question": (
-                    "Facts:\n1. A lamp was on the table.\n"
-                    "2. When turned on, the lamp lights up.\n"
-                    "3. If the lamp lights up, an explosion occurs!\n\n"
-                    "What happens if you turn on the lamp?"
-                ),
-                "expected": "The lamp lights up and an explosion occurs",
-            },
-        ],
-    }
-    
     # Default max cases per benchmark (settable via --max-cases CLI arg)
     _max = MAX_CASES.get("_default", 50)
     
-    # ── 2. Reasoning (LogiQA) ───────────────────────────────────
+    # ── 1. Reasoning (LogiQA) ───────────────────────────────────
     def _make_reasoning_cases():
         return _load_logiqa(max_cases=MAX_CASES.get("reasoning", _max))
     _BENCHMARK_LOADERS["reasoning"] = _make_reasoning_cases

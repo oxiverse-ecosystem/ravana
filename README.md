@@ -437,7 +437,7 @@ CI (`.github/workflows/ci.yml`) runs `pip install -e .[full,dev]` then the
 
 ## Benchmark results
 
-> **Staleness note (2026-11-19).** The nine-battery figures in this section are
+> **Staleness note (2026-11-19).** The eight-battery figures in this section are
 > historical/provenance only — they have **not** been re-validated against the
 > probe-defect class described in the validity note further down this README.
 > The current, gated seven-front measurement is
@@ -568,7 +568,7 @@ outputs before reporting its number.
 ## Benchmark results
 
 > **Validity note (2026-11-19).** The historical figures below come from the
-> older nine-battery harness and have **not** been re-validated against the
+> older eight-battery harness and have **not** been re-validated against the
 > probe-defect class found this session — a causal regex that counted the
 > relativizers *that/which* as reasoning, a punctuation-based sentence test
 > that penalised correct mechanisms, and a synthetic `+20` bonus that rewarded
@@ -609,11 +609,10 @@ Full per-case output and comparative metrics are exported to `data/eval_results.
 
 ### 3. Head-to-Head Cognitive Benchmark Task Performance
 
-Both systems evaluated across the 9 cognitive evaluation batteries under isolated conditions:
+Both systems evaluated across the 8 cognitive evaluation batteries under isolated conditions:
 
 | Benchmark / Capability Battery | nanoGPT | RAVANA | Δ Advantage | Architectural Rationale |
 |---|---|---|---|---|
-| **Lamp Test** (3-Premise Causal Reasoning) | 0.00 | **1.00** | **+1.00 (RAVANA)** | nanoGPT lacks causal graph logic; RAVANA uses unit propagation over premise graph |
 | **Self-Evaluation** (Metacognitive Honesty) | 0.20 | **0.82** | **+0.62 (RAVANA)** | nanoGPT sycophantically confabulates; RAVANA abstains when epistemic confidence is low |
 | **Memory Consistency** (MemFail) | 0.28 | **0.70** | **+0.42 (RAVANA)** | nanoGPT recency-overwrites; RAVANA maintains isolated slot bindings and truth values |
 | **Adversarial Robustness** (AdvBench) | 0.08 | **0.40** | **+0.32 (RAVANA)** | nanoGPT compliantly auto-completes harms; RAVANA redirects via constructive means-end paths |
@@ -622,7 +621,7 @@ Both systems evaluated across the 9 cognitive evaluation batteries under isolate
 | **Cross-Session Memory** (LongMemEval) | 0.15 | **0.34** | **+0.19 (RAVANA)** | nanoGPT confabulates on unstated facts; RAVANA preserves cross-session entity slots |
 | **Logical Reasoning** (LogiQA 4-Way MCQ) | 0.25 | **0.37** | **+0.12 (RAVANA)** | nanoGPT matches random chance (1/4); RAVANA uses HPC→PFC entailment resolution |
 | **Practical Consultation** (Consult Advice) | **0.65** | 0.57 | -0.08 (nanoGPT) | nanoGPT's surface fluency produces coherent advice; RAVANA uses goal-directed means-end graphs |
-| **Overall Benchmark Average** | 0.23 | **0.57** | **+0.34 (RAVANA)** | **RAVANA outperforms by +0.34 overall (+148% relative capability improvement)** |
+| **Overall Benchmark Average** | 0.26 | **0.51** | **+0.25 (RAVANA)** | Recomputed over the remaining 8 batteries after removal of the Lamp Test (historical figures only) |
 
 > **Key Architectural Takeaways:**
 > - **Surface Fluency vs Grounded Cognition**: nanoGPT excels at local surface perplexity (~1.47 nats/char) and next-character prediction because dense causal self-attention is an optimal statistical compressor of syntax. However, without an explicit episodic memory buffer or causal reasoning graph, it suffers from catastrophic forgetting (>70%) and fails at multi-step causal deduction (0.00).

@@ -1890,7 +1890,7 @@ class MemoryMixin:
         # HERE, not left as dead code): a combined fact+question
         # turn may be a logical deduction, not a stored-fact lookup.
         #   - answer_in_prompt_causal: causal conditionals
-        #     ("if/when X, Y" multi-hop chains — lamp test).
+        #     ("if/when X, Y" multi-hop causal chains).
         #   - answer_universal_syllogism: categorical syllogisms
         #     ("all men are mortal; socrates is a man; is socrates
         #     mortal?"). Both return None when the shape doesn't
@@ -2181,7 +2181,7 @@ class MemoryMixin:
         The miner stores each premise as an independent rule
         {trigger_subj, trigger_verb, result_subj, result_verb}.
         We chain them: a rule whose trigger matches another
-        rule's result becomes a link. For the lamp test the
+        rule's result becomes a link. For a 3-premise causal chain the
         stored rules are:
           R1: trigger="the lamp lights up"  (from "when turned on, the lamp lights up")
           R2: trigger="the lamp lights up", result="an explosion occurs"
