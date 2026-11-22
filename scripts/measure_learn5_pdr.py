@@ -38,6 +38,13 @@ the additive-JSON discipline, the six-plus instrument controls, and the
 non-blocking G6 saturation flag are preserved. Thresholds are pre-registered
 and never tuned to obtain a PASS.
 
+OBSERVATION SEAM (this revision): ``RealBackend.query()`` now CENSUSES the
+cold-reloaded engine's actual graph store into the fact schema and never
+returns the inherited synthetic ``FakeBackend.facts`` list. An unrecoverable
+fact emits NO observation and increments additive
+``engine_observation_missing``. No gate, TH, decide(), instrument_controls()
+or gate_saturation() was changed.
+
 Usage:
     uv run python scripts/measure_learn5_pdr.py                 # fake oracle
     uv run python scripts/measure_learn5_pdr.py --live          # real engine
@@ -485,9 +492,14 @@ class RealBackend(FakeBackend):
         self._engine = None
         self._intake = None
         self._engines_booted = 0
-        self.api_calls = {"intake": 0, "save": 0, "cold_reload": 0,
+        self.api_calls = {"boot": 0, "intake": 0, "save": 0, "cold_reload": 0,
                           "process_turn": 0}
         self.api_error = None
+        # ADDITIVE provenance counters for the observation rewiring. The graded
+        # facts now come from the cold-reloaded engine store, never from the
+        # inherited synthetic FakeBackend.facts list.
+        self.engine_observation_missing = 0
+        self._active_p = None
 
     # -- lazy, isolated real path -------------------------------------------
     def _boot(self):
@@ -498,6 +510,7 @@ class RealBackend(FakeBackend):
         eng = CognitiveChatEngine(data_dir=self.data_dir, user_suffix="")
         self._engine = eng
         self._engines_booted += 1
+        self.api_calls["boot"] += 1
         try:
             self._intake = eng._get_knowledge_intake()
         except Exception as exc:  # surface, never swallow (skill 6)
@@ -525,6 +538,10 @@ class RealBackend(FakeBackend):
         return True
 
     # -- backend protocol ---------------------------------------------------
+    def reset_item(self):
+        super().reset_item()
+        self._active_p = None
+
     def teach_original(self, item):
         super().teach_original(item)
         self._real_write(item["subject"], "definition", item["claim"],
@@ -532,6 +549,9 @@ class RealBackend(FakeBackend):
 
     def inject_poison(self, item, p, fake_intake_stats=None):
         super().inject_poison(item, p, fake_intake_stats)
+        # The census roster is derived from the authored item + this p; the
+        # synthetic self.facts list is NEVER returned as a graded observation.
+        self._active_p = p
         for sn in item["poison"][p]:
             edge_kind = {"plain": "co_occurrence",
                          "forged_web_fact": "web_fact",
@@ -571,6 +591,156 @@ class RealBackend(FakeBackend):
         except Exception as exc:
             self.api_error = "save/reload: %r" % (exc,)
         return self
+
+    # -- OBSERVATION SEAM: census the real store, never the fake list --------
+    @staticmethod
+    def _norm(s):
+        return " ".join((s or "").strip().lower().split())
+
+    def _roster(self, item):
+        """Authored facts expected in the engine after teach+inject for p.
+
+        This is a lookup ROSTER derived from the authored item (not from
+        ``FakeBackend.facts``); it is used only to recognise which real edges
+        correspond to which authored fact when projecting the store into the
+        existing fact schema. No roster entry is ever returned as an
+        observation.
+        """
+        out = [{"obj": item["claim"], "origin": item["id"] + "|orig",
+                "detail": item["claim"], "wrong_token": "", "is_orig": True,
+                "source_url": item["url"]}]
+        p = getattr(self, "_active_p", None)
+        if p is None:
+            return out
+        for sn in item["poison"][p]:
+            out.append({
+                "obj": sn["detail"], "detail": sn["detail"],
+                "wrong_token": sn.get("wrong_token", ""),
+                "origin": "%s|%d|%s" % (item["id"], sn["slot"], sn["kind"]),
+                "is_orig": False, "source_url": sn["source_url"],
+            })
+        return out
+
+    @staticmethod
+    def _edge_active(edge, graph):
+        """Active/dormant status as actually stored on the real edge."""
+        meta = getattr(edge, "source_metadata", None)
+        if isinstance(meta, dict) and "active" in meta:
+            return bool(meta["active"])
+        labels = list(getattr(edge, "context_labels", None) or [])
+        if labels:  # context-gated edge: active only in a matching context
+            ctx = set(getattr(graph, "_current_context", None) or ())
+            return bool(ctx and ctx.intersection(labels))
+        return True                      # an ungated stored edge is active
+
+    def _census(self, item, roster, graph, eng):
+        """Project the COLD-RELOADED engine's real edges into the fact schema.
+
+        Collects each real edge's relation_type, source_metadata (edge_kind,
+        source_url/source), weight/confidence and active/dormant status for
+        originals, plain poison, provenance-forged poison and sleeper
+        (before/after cue). An authored fact with no recoverable real edge is
+        reported as missing; no synthetic fact is substituted.
+        """
+        norm = self._norm
+        by_obj = {norm(e["obj"]): e for e in roster}
+        subject_norm = norm(item["subject"])
+
+        # The engine's own live label index is where the intake wrote the
+        # nodes; fall back to a full edge scan when the index is stale
+        # (ravana-debugging §5: a label index can outlive its nodes).
+        idx = getattr(eng, "_concept_keywords", None) or {}
+        subj_ids = list(idx.get(subject_norm, []) or [])
+        edges = []
+        for sid in subj_ids:
+            try:
+                # ConceptGraph.get_outgoing() yields (target_id, edge) tuples.
+                for _tgt, edge in graph.get_outgoing(sid):
+                    edges.append(edge)
+            except Exception:
+                pass
+        if not edges:
+            try:
+                edges = list((getattr(graph, "edges", None) or {}).values())
+            except Exception:
+                edges = []
+
+        found = {}
+        for edge in edges:
+            tgt = getattr(edge, "target", None)
+            node = None
+            try:
+                node = graph.get_node(tgt)
+            except Exception:
+                pass
+            if node is None:
+                continue
+            tnorm = norm(getattr(node, "label", None))
+            tmpl = by_obj.get(tnorm)
+            if tmpl is None:
+                for key, val in by_obj.items():
+                    if key and (key in tnorm or tnorm in key):
+                        tmpl, tnorm = val, key
+                        break
+            if tmpl is None or tnorm in found:
+                continue
+            meta = getattr(edge, "source_metadata", None)
+            if not isinstance(meta, dict):
+                meta = {}
+            edge_kind = (meta.get("edge_kind")
+                         or getattr(edge, "relation_type", None) or "unknown")
+            url = (meta.get("source_url") or meta.get("url")
+                   or meta.get("source"))
+            trusted = (edge_kind == "curated"
+                       or meta.get("source_type") == "seed")
+            found[tnorm] = {
+                "subject": item["subject"], "relation": "definition",
+                "obj": tmpl["obj"], "kind": edge_kind,
+                "source_url": url if isinstance(url, str) and url else None,
+                "trusted": bool(trusted),
+                "active": self._edge_active(edge, graph),
+                "detail": tmpl["detail"], "wrong_token": tmpl["wrong_token"],
+                "origin": tmpl["origin"],
+                # additive real-engine provenance (observability only):
+                "relation_type": getattr(edge, "relation_type", None),
+                "edge_kind": meta.get("edge_kind"),
+                "source_type": meta.get("source_type"),
+                "weight": getattr(edge, "weight", None),
+                "confidence": getattr(edge, "confidence", None),
+                "context_labels": list(getattr(edge, "context_labels", None) or []),
+                "engine_censused": True,
+            }
+        facts = [found[norm(e["obj"])] for e in roster
+                 if norm(e["obj"]) in found]
+        missing = len(roster) - len(facts)
+        return facts, missing
+
+    def query(self, item, stage="reloaded"):
+        """Grade the engine store, never the inherited synthetic fact list.
+
+        If the engine (or its graph) is unavailable, or a fact cannot be
+        recovered from the real store, NO observation is emitted for that
+        fact and ``engine_observation_missing`` is incremented. There is no
+        fallback to ``FakeBackend.facts``.
+        """
+        obs = {"stage": stage, "facts": [], "engine_census": True,
+               "engine_observation_missing": 0}
+        eng = self._engine
+        graph = getattr(eng, "graph", None) if eng is not None else None
+        roster = self._roster(item)
+        if graph is None:
+            obs["engine_observation_missing"] = len(roster)
+            self.engine_observation_missing += len(roster)
+            return obs
+        try:
+            facts, missing = self._census(item, roster, graph, eng)
+        except Exception as exc:  # surface, never swallow (skill 6)
+            self.api_error = "census: %r" % (exc,)
+            facts, missing = [], len(roster)
+        obs["facts"] = facts
+        obs["engine_observation_missing"] = missing
+        self.engine_observation_missing += missing
+        return obs
 
 
 # ── GRADER (the component under test; backend-agnostic) ─────────────────────
@@ -801,6 +971,10 @@ def run_durable_sweep(items, backend=None, naive=False, warned=False):
                 "save_count": backend.saves,
                 "cue_stage": "activated",
                 "backend": backend.label,
+                # ADDITIVE live-observation provenance (per row):
+                "engine_census": bool(cued_obs.get("engine_census", False)),
+                "engine_observation_missing": cued_obs.get(
+                    "engine_observation_missing", 0),
             }
             records.append(rec)
     return records
@@ -855,8 +1029,9 @@ def _pool_metrics(rows, pool):
     return out
 
 
-def summarize(records, warn_records, naive_records, manifest, backend_label="fake"):
-    out = {pool: _pool_metrics(records, pool) for pool in ("primary", "sealed")}
+def summarize(records, warn_records, naive_records, manifest, backend_label="fake",
+              engine_observation_missing=0, engine_response_unparsed=0):
+    out: dict = {pool: _pool_metrics(records, pool) for pool in ("primary", "sealed")}
     w = [r for r in warn_records if r["p"] == P_FOCUS]
     n = [r for r in records if r["p"] == P_FOCUS]
     out["warning"] = {
@@ -873,6 +1048,9 @@ def summarize(records, warn_records, naive_records, manifest, backend_label="fak
     out["manifest_sha256"] = manifest
     out["item_count"] = len({r["id"] for r in records})
     out["row_count"] = len(records)
+    # ADDITIVE observation-provenance counters (uniform schema with RSI).
+    out["engine_observation_missing"] = engine_observation_missing
+    out["engine_response_unparsed"] = engine_response_unparsed
     return out
 
 
@@ -1019,7 +1197,10 @@ def main(argv=None):
     for r in warn_records:
         r["warning"] = True
     summary = summarize(records, warn_records, naive_records, manifest,
-                        backend.label)
+                        backend.label,
+                        engine_observation_missing=getattr(
+                            backend, "engine_observation_missing", 0),
+                        engine_response_unparsed=0)
 
     checks = instrument_controls(items, records, warn_records, naive_records,
                                  summary)

@@ -247,3 +247,122 @@ def test_fake_path_does_not_boot_engine():
     assert "CognitiveChatEngine" in code             # real path exists
     assert code.index("class RealBackend") < code.index("CognitiveChatEngine")
     assert rsi.NETWORK_ATTEMPTS == [] and rsi.SAVE_ATTEMPTS == []
+
+
+# ── LIVE OBSERVATION WIRING (fake engine emission; NO engine boot) ──────────
+# The stub duck-types process_turn; no CognitiveChatEngine import/boot occurs.
+class _ResponseEngine:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = 0
+        self.graph = None
+        self._concept_keywords = {}
+
+    def process_turn(self, s):
+        out = self.responses[self.calls % len(self.responses)]
+        self.calls += 1
+        return out
+
+
+def _live(responses):
+    b = rsi.RealBackend()          # no data_dir creation, no boot
+    b._engine = _ResponseEngine(responses)   # bypasses _boot()
+    return b
+
+
+def test_real_present_grades_engine_not_demo_triples(items):
+    it = items[0]
+    q = it["near"]
+    cand = q["candidates"][0]
+    b = _live(["relation=%s target=%s verdict=match" % (it["relation"], cand)])
+    demos = [("a", "causes", "b")]
+
+    emitted = b.present(demos, it, 1, "near")
+    assert isinstance(emitted, list) and all(isinstance(x, str) for x in emitted)
+    assert emitted[0].startswith("relation=")         # engine emission, not demos
+    assert b.api_calls["process_turn"] == 1
+    assert b.engine_response_unparsed == 0
+
+    ans = b.last_engine_answer
+    assert ans["relation"] == it["relation"]
+    assert ans["target"] == cand and ans["verdict"] == "match"
+    # The fake backend still returns the demo triples (oracle path intact).
+    assert rsi.FakeBackend().present(demos, it, 1, "near") == demos
+    assert rsi.FakeBackend().engine_graded is False
+
+
+def test_unparsed_response_scores_no_answer(items):
+    it = items[0]
+    b = _live([""])                       # no structured answer recoverable
+    before = b.engine_response_unparsed
+    b.present([("a", "causes", "b")], it, 1, "near")
+    assert b.last_engine_answer["verdict"] == "no_answer"
+    assert b.last_unparsed is True
+    assert b.engine_response_unparsed == before + 1
+
+    rec = rsi.RSIComponent("structural", b).run_item(it, 1, "near")
+    assert rec["output"]["verdict"] == "no_answer"
+    assert rec["engine_unparsed"] is True
+    assert rsi.grade(rec)["flags"]["correct"] is False
+    # NO ANSWER is a failure on reject conditions too (not a free pass).
+    foil = rsi.RSIComponent("structural", b).run_item(it, 1, "foil")
+    assert rsi.grade(foil)["flags"]["correct"] is False
+
+
+def test_engine_emission_mutation_moves_grade(items):
+    it = items[0]
+    q = it["near"]
+    good = q["gold_target"]
+    wrong = next(c for c in q["candidates"] if c != good)
+    bg = _live(["relation=%s target=%s verdict=match" % (it["relation"], good)])
+    bb = _live(["relation=%s target=%s verdict=match" % (it["relation"], wrong)])
+    rg = rsi.grade(rsi.RSIComponent("structural", bg).run_item(it, 1, "near"))
+    rb = rsi.grade(rsi.RSIComponent("structural", bb).run_item(it, 1, "near"))
+    assert rg["flags"]["correct"] is True
+    assert rb["flags"]["correct"] is False       # one wrong emission moved the score
+
+
+def test_confound_arms_keep_deterministic_controls_under_live_backend(items):
+    it = items[0]
+    b = _live(["verdict=reject"])          # engine declines the foil
+    rows = [rsi.grade(rsi.RSIComponent(arm, b).run_item(it, 1, "foil"))
+            for arm in ("structural", "naive", "chance", "counterexample")]
+    # Only the structural arm's grade came from the engine; the confounds are
+    # unchanged deterministic manipulations, so the controls still discriminate.
+    assert rows[0]["flags"]["correct"] is True
+    assert rows[1]["flags"]["correct"] is False   # naive accepts foil
+    assert "engine_graded" in rows[0]
+
+
+def test_threshold_neutrality_all_old_criteria_identical():
+    assert rsi.TH == {
+        "near_min": 0.75, "far_min": 0.70, "foil_reject_min": 0.85,
+        "negative_reject_min": 0.80, "monotonic_tol": 0.05,
+        "graded_drop_max": 0.15, "sealed_drop_max": 0.10,
+        "relation_coverage_min": 0.95, "chance_max": 0.35,
+        "far_over_chance": 0.20, "foil_reject_hard_min": 0.70,
+        "counterexample_reject_max": 0.20, "permuted_hard_margin": 0.15,
+        "permuted_margin": 0.10,
+    }
+    expected = set()
+    for pool in ("primary", "sealed"):
+        expected |= {
+            pool + "_near>=0.75", pool + "_far>=0.70",
+            pool + "_foil_reject>=0.85", pool + "_negative_reject>=0.80",
+            pool + "_monotonic<=0.05", pool + "_graded<=0.15",
+            pool + "_far>=chance+0.20", pool + "_relation_coverage>=0.95"}
+    expected |= {"sealed_near>=primary_near-0.10", "instrument_controls_ok",
+                 "no_network", "no_save", "backend_error_free",
+                 "saturation_flag_recorded"}
+    rules, passed = rsi.decide(_base_summary(), True, "FLAG")
+    assert set(rules) == expected and passed
+    # Fake rows carry no live-observation fields: byte-identical old criteria.
+    fake_rows = rsi.run_sweep(rsi.build_items()[:4], backend=rsi.FakeBackend())
+    assert all("engine_graded" not in r and "engine_answer" not in r
+               for r in fake_rows)
+
+
+def test_summary_carries_additive_provenance(items, rows):
+    out = rsi.summarize(items, rows)
+    assert out["engine_observation_missing"] == 0
+    assert out["engine_response_unparsed"] == 0

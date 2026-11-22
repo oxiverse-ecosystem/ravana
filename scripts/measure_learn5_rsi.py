@@ -33,6 +33,13 @@ BACKENDS (dependency injection; identical grading)
 Sealed/primary hash-split sealing is preserved. Thresholds are pre-registered
 and never tuned to force a PASS.
 
+OBSERVATION SEAM (this revision): ``RealBackend.present()`` now GRADEs the
+engine's ``process_turn`` response, parsed into the existing
+``{relation, target, verdict}`` answer shape. No structured answer ->
+additive ``engine_response_unparsed`` counter and a NO ANSWER verdict; the
+input demo triples are never returned as the graded observation. No gate, TH,
+decide(), instrument_controls() or gate_saturation() was changed.
+
 Usage:
     uv run PYTHONHASHSEED=0 python scripts/measure_learn5_rsi.py
     uv run PYTHONHASHSEED=0 python scripts/measure_learn5_rsi.py --live
@@ -46,6 +53,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sys
 import time
 
@@ -366,6 +374,71 @@ def validate_items(items):
     return errors
 
 
+# ── ENGINE RESPONSE PARSER ───────────────────────────────────────────────────
+def _parse_engine_answer(responses, item, condition, subject, candidates):
+    """Parse raw ``process_turn`` text into the existing answer shape.
+
+    Accepts an explicit structured form (``relation=X target=Y verdict=Z``)
+    or recovers a known relation phrase + candidate target from natural text.
+    Returns ``None`` when NO structured answer is recoverable; the caller then
+    records ``engine_response_unparsed`` and scores NO ANSWER. The input demo
+    triples are never used as a substitute.
+    """
+    text = " ".join(str(r) for r in (responses or []) if r is not None)
+    low = " ".join(text.lower().split())
+    if not low:
+        return None
+
+    rel = None
+    target = None
+    verdict = None
+    cand_lower = {c.lower(): c for c in candidates}
+
+    # 1) explicit key=value form (auditable, deterministic)
+    m = re.search(r"\brelation\s*[:=]\s*([a-z_-]+)", low)
+    if m and m.group(1).upper() in RELATION_KEYS:
+        rel = m.group(1).upper()
+    m = re.search(r"\btarget\s*[:=]\s*([a-z0-9_-]+)", low)
+    if m and m.group(1) in cand_lower:
+        target = cand_lower[m.group(1)]
+    m = re.search(r"\bverdict\s*[:=]\s*([a-z_]+)", low)
+    if m and m.group(1) in ("match", "reject", "no_answer"):
+        verdict = m.group(1)
+
+    # 2) natural-language fallback: recover a known relation phrase and a
+    #    candidate actually mentioned in the emission.
+    if rel is None:
+        for phrase, (r, _pol) in PHRASE_TO_REL.items():
+            if phrase in low:
+                neg_phrase = "not " + phrase
+                if neg_phrase in low and low.count(phrase) == low.count(neg_phrase):
+                    continue                      # only ever negated
+                rel = r
+                break
+    if target is None:
+        for c in candidates:
+            if re.search(r"\b" + re.escape(c.lower()) + r"\b", low):
+                target = c
+                break
+
+    neg = any(tok in low for tok in
+              ("not ", "n't", "never ", " no ", "cannot", "can't",
+               "unknown", "reject", "no answer"))
+    if verdict is None:
+        if neg:
+            verdict = "reject"
+        elif rel and target:
+            verdict = "match"
+        elif rel or target:
+            verdict = "no_answer"                 # partial -> NO ANSWER
+        else:
+            return None                           # nothing structured
+    if verdict == "match" and not (rel and target):
+        verdict = "no_answer"
+    return {"subject": subject, "relation": rel,
+            "target": target, "verdict": verdict}
+
+
 # ── BACKENDS ────────────────────────────────────────────────────────────────
 class FakeBackend:
     """Deterministic demo channel. No engine boot, no save, no network.
@@ -376,9 +449,12 @@ class FakeBackend:
     """
 
     label = "fake"
+    engine_graded = False       # no live engine; oracle derives from demo triples
 
     def __init__(self):
         self.turns = 0
+        self.last_engine_answer = None
+        self.last_unparsed = False
 
     def reset(self):
         self.turns = 0
@@ -399,14 +475,21 @@ class RealBackend(FakeBackend):
     """
 
     label = "live"
+    engine_graded = True        # graded answer comes from process_turn output
 
     def __init__(self, data_dir=None):
         super().__init__()
         self.data_dir = data_dir or SCRATCH
         self._engine = None
         self.engines_booted = 0
-        self.api_calls = {"boot": 0, "process_turn": 0}
+        self.api_calls = {"boot": 0, "intake": 0, "save": 0, "cold_reload": 0,
+                          "process_turn": 0}
         self.api_error = None
+        # ADDITIVE observation-provenance counters. The graded answer now
+        # comes from the engine's process_turn response, never the demo triples.
+        self.engine_response_unparsed = 0
+        self.engine_observation_missing = 0
+        self.last_engine_answer = None
 
     def _boot(self):
         if self._engine is not None:
@@ -421,14 +504,29 @@ class RealBackend(FakeBackend):
 
     def present(self, demo_triples, item, k, condition):
         eng = self._boot()
+        responses = []
         for triple in demo_triples:
             s = "%s %s %s" % triple
             try:
-                eng.process_turn(s)
+                responses.append(eng.process_turn(s))
                 self.api_calls["process_turn"] += 1
             except Exception as exc:  # surface, never swallow (skill 6)
                 self.api_error = "process_turn: %r" % (exc,)
-        return super().present(demo_triples, item, k, condition)
+                responses.append("")
+        q = item[condition]
+        answer = _parse_engine_answer(responses, item, condition,
+                                      q["subject"], q["candidates"])
+        unparsed = answer is None
+        if unparsed:
+            self.engine_response_unparsed += 1
+            answer = {"subject": q["subject"], "relation": None,
+                      "target": None, "verdict": "no_answer"}
+        self.last_engine_answer = answer
+        self.last_unparsed = unparsed
+        # Return the raw ENGINE emissions (never the input demo triples) as
+        # the observation list; the parsed, graded answer is carried on
+        # ``last_engine_answer`` for ``run_item`` to consume.
+        return list(responses)
 
 
 # ── component under test ────────────────────────────────────────────────────
@@ -489,17 +587,25 @@ class RSIComponent:
     def run_item(self, item, k, condition, permuted=False):
         q = item[condition]
         demo_triples = self._demos(item, k, condition, permuted)
-        # The backend presents the demos (live: via process_turn) and returns
-        # the observable structured triples the deterministic grader consumes.
-        # Never re-split emitted strings: relation phrases are multi-word.
+        # LIVE: the backend returns raw engine emissions; the graded answer
+        # was parsed from them. FAKE: the backend returns the demo triples and
+        # the deterministic oracle derives the answer from them. Never
+        # re-split emitted strings: relation phrases are multi-word.
         observed = self.backend.present(demo_triples, item, k, condition)
-        induced = self.induce(observed)
-        demo_strings = ["%s %s %s" % d for d in observed]
+        is_engine = bool(getattr(self.backend, "engine_graded", False))
+        engine_responses = list(observed) if is_engine else None
+        engine_answer = (getattr(self.backend, "last_engine_answer", None)
+                         if is_engine else None)
+        induced = self.induce(demo_triples)   # authored demos (oracle/audit)
         subject = q["subject"]
         candidates = q["candidates"]
         wm = item["world_model"]
 
-        if self.arm == "chance":
+        if is_engine and self.arm == "structural":
+            # GRADE THE ENGINE: no world-model shortcut, no demo triple.
+            answer = dict(engine_answer or {})
+            answer["subject"] = subject
+        elif self.arm == "chance":
             shuffled = RELATION_KEYS[int(
                 _digest(item["item_id"], "shuffle"), 16) % len(RELATION_KEYS)]
             target = (q["gold_target"] or
@@ -542,12 +648,12 @@ class RSIComponent:
                 answer = {"subject": subject, "relation": induced,
                           "target": pick, "verdict": "match"}
 
-        return {
+        rec = {
             "id": item["item_id"], "pool": item["pool"],
             "difficulty": item["difficulty"], "relation": item["relation"],
             "k": k, "condition": condition, "permuted": bool(permuted),
             "arm": self.arm, "backend": self.backend.label,
-            "input": {"demonstrations": observed, "query_subject": subject,
+            "input": {"demonstrations": demo_triples, "query_subject": subject,
                       "candidates": candidates, "domain": q["domain"],
                       "foil_relation": item["foil_relation"]
                       if condition == "foil" else None},
@@ -557,6 +663,15 @@ class RSIComponent:
                      "should_reject": condition in ("foil", "negative")},
             "verdict": answer["verdict"],
         }
+        if is_engine:
+            # ADDITIVE live-observation provenance (per row): the engine
+            # emission is the observation, never the demo triples.
+            rec["engine_graded"] = True
+            rec["engine_responses"] = engine_responses
+            rec["engine_answer"] = engine_answer
+            rec["engine_unparsed"] = bool(
+                getattr(self.backend, "last_unparsed", False))
+        return rec
 
 
 def grade(rec):
@@ -664,6 +779,10 @@ def summarize(items, rows):
         p["permuted_exact"] = p["permuted"]
         p["foil_foil_reject"] = p["foil"]
         out[pool] = p
+    # ADDITIVE observation-provenance counters (uniform schema with PDR).
+    # main() overwrites these from the live backend before writing the summary.
+    out["engine_observation_missing"] = 0
+    out["engine_response_unparsed"] = 0
     return out
 
 
@@ -896,6 +1015,11 @@ def main(argv=None):
         "pass": bool(passed), "backend": backend.label, "live": live,
         "api_calls": getattr(backend, "api_calls", {}),
         "backend_error": backend_error,
+        # ADDITIVE observation-provenance counters (uniform schema with PDR).
+        "engine_observation_missing": getattr(
+            backend, "engine_observation_missing", 0),
+        "engine_response_unparsed": getattr(
+            backend, "engine_response_unparsed", 0),
         "no_network": len(NETWORK_ATTEMPTS) == 0,
         "no_save": len(SAVE_ATTEMPTS) == 0,
         "data_path": DATA_PATH, "elapsed_s": round(time.time() - started, 1),
