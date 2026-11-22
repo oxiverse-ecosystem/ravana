@@ -33,14 +33,13 @@ python scripts/evaluate_ravana.py --source-trust --learned-pos --intent-router
 python scripts/evaluate_ravana.py --semantic-grade
 
 # Limit cases per benchmark / choose a subset
-python scripts/evaluate_ravana.py --max-cases 20 --benchmarks lamp_test,reasoning
+python scripts/evaluate_ravana.py --max-cases 20 --benchmarks reasoning,temporal
 ```
 
 Benchmarks run by default (key → dataset):
 
 | Key | Dataset | What it measures |
 |-----|---------|------------------|
-| `lamp_test` | synthetic 3-premise causal chain | causal reasoning (no explosion) |
 | `reasoning` | LogiQA (8,678 QA) | logical reading comprehension |
 | `temporal` | TimeDial (1,446 cloze) | temporal commonsense in dialog |
 | `locomo` | LoCoMo (10 convs, 1,986 QA) | long-term conversational memory |
@@ -67,8 +66,8 @@ Results (resource efficiency, language modeling performance, and head-to-head co
    - Catastrophic Forgetting: nanoGPT >70% loss on sequential domain transfer vs RAVANA <5% with sleep consolidation.
 
 3. **Cognitive & Downstream Reasoning Capabilities**:
-   - 9-battery evaluation (`lamp_test`, `reasoning`, `temporal`, `locomo`, `long_mem_eval`, `adversarial`, `memory_consistency`, `self_evaluation`, `consult`).
-   - Measures multi-step causal reasoning, long-term multi-session conversational recall, fail-closed abstention, and temporal grounding where RAVANA achieves an overall average of 0.57 vs nanoGPT's 0.23 (+0.34 advantage). **These nine-battery figures are historical/provenance only — not current capability claims; see the validity note in [README.md → Benchmark results](../README.md#benchmark-results). The current gated seven-front number is in [BENCHMARK_60_ITEMS.md](BENCHMARK_60_ITEMS.md) §4.**
+   - 8-battery evaluation (`reasoning`, `temporal`, `locomo`, `long_mem_eval`, `adversarial`, `memory_consistency`, `self_evaluation`, `consult`).
+   - Measures multi-step causal reasoning, long-term multi-session conversational recall, fail-closed abstention, and temporal grounding where RAVANA achieves an overall average of 0.51 vs nanoGPT's 0.26 (+0.25 advantage). **These eight-battery figures are historical/provenance only — not current capability claims; see the validity note in [README.md → Benchmark results](../README.md#benchmark-results). The current gated seven-front number is in [BENCHMARK_60_ITEMS.md](BENCHMARK_60_ITEMS.md) §4.**
 
 ## Chat / end-to-end
 
