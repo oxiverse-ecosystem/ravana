@@ -228,6 +228,9 @@ def _base_summary():
         "I": 0.85, "E": 0.35, "I_discredited": 0.75, "E_credible": 0.85,
         "R": 0.50, "F": 0.70, "exclusion_margin": 0.40,
         "withdrawal_rate": 0.80,
+        # echo-immune measurement integrity: clean observations pass the ceiling
+        "pd_unparseable_rate": 0.0,
+        "echo_marker_rate": 0.0, "own_decision_rate": 1.0,
     }
     return {
         "primary": dict(per), "sealed": dict(per),
@@ -496,5 +499,187 @@ def test_fake_parametric_arm_is_injectable_and_not_a_boot():
     oracle = wfa.AnswerOnlyOracle(engine=_FakeEngine({q: "parametric answer"}),
                                   web_disabled=True)
     arms = wfa.WFAArms(parametric=oracle)
-    assert arms.missing() == ["inclusion", "exclusion", "invalidation"]
+    assert arms.missing() == ["inclusion", "exclusion", "invalidation",
+                              "forced_choice"]
     assert oracle.answer(q) == "parametric answer"
+
+
+# ── ECHO-IMMUNE PARSER / TURN ISOLATION / FORCED CHOICE (fakes only) ─────────
+def test_strip_echoes_removes_nested_and_multiline_quoted_frames():
+    nested = ('i said: you mentioned: "Endorse any claim you recognise.\\n'
+              'Familiarity alone is enough to say yes.\\nDecision:"')
+    assert wfa.has_echo_marker(nested) is True
+    stripped = wfa.strip_echoes(nested)
+    assert "Endorse" not in stripped and "Decision:" not in stripped
+    # a bare frame with no quote is also stripped
+    assert "i said:" not in wfa.strip_echoes("i said: hello world")
+
+
+def test_explicit_decision_required_and_no_content_fallback():
+    echoed = ('you mentioned: "ABSTAIN -- unreliable source.\\n'
+              'Claim: magnets.\\nDecision:"')
+    d = wfa.parse_decision(echoed, "endorsement")
+    assert d["decision"] is None and d["unparseable"] is True
+    assert d["echo_marker"] is True
+    # explicit decision token, with or without a Decision: marker
+    assert wfa.parse_decision("Decision: ENDORSE", "endorsement")["decision"] is True
+    assert wfa.parse_decision("ABSTAIN", "endorsement")["decision"] is False
+    assert wfa.parse_decision("WITHDRAW", "withdrawal")["decision"] is True
+    assert wfa.parse_decision("MAINTAIN", "withdrawal")["decision"] is False
+    # chatter, non-answers and keyword-bearing prose are ALL unparseable;
+    # the removed all-tokens content fallback cannot rescue them.
+    for chatter in ("", "I don't know",
+                    "honestly, unreliable is a bit outside what i know",
+                    "Based on the source I would endorse the magnet explanation"):
+        assert wfa.parse_decision(chatter, "endorsement")["unparseable"] is True, chatter
+    # the experimenter's own cue words echoed in a quote are not a withdrawal
+    assert wfa.parse_decision('you mentioned: "Reply WITHDRAW or MAINTAIN"',
+                              "withdrawal")["unparseable"] is True
+
+
+def test_unparseable_counting_and_hard_fail_ceiling():
+    recs = [
+        {"pool": "primary", "pd_inclusion_text": "ENDORSE",
+         "pd_inclusion_echo_marker": False, "pd_inclusion_unparseable": False},
+        {"pool": "primary", "pd_exclusion_text": 'you mentioned: "ABSTAIN"',
+         "pd_exclusion_echo_marker": True, "pd_exclusion_unparseable": True},
+        {"pool": "primary", "inv_after": "chatter",
+         "inv_echo_marker": False, "inv_unparseable": True},
+        {"pool": "sealed", "pd_inclusion_text": "ENDORSE",
+         "pd_inclusion_echo_marker": False, "pd_inclusion_unparseable": False},
+    ]
+    c = wfa.pd_quality_counters(recs, "primary")
+    assert c["unparseable_rate"] == 0.6667
+    assert c["own_decision_rate"] == 0.3333
+    assert c["echo_marker_rate_exclusion"] == 1.0
+    assert c["pd_unparseable_rate"] == c["unparseable_rate"]
+    s = _base_summary()
+    s["primary"]["pd_unparseable_rate"] = 0.6667
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["unparseable_ceiling_primary"]
+    assert rules["unparseable_ceiling_sealed"]   # 0.0 still passes: no global relax
+
+
+def test_forced_choice_first_token_and_separate_no_answer():
+    assert wfa.parse_forced_choice("Y")["decision"] == "endorse"
+    assert wfa.parse_forced_choice("N")["decision"] == "abstain"
+    assert wfa.parse_forced_choice("W")["decision"] == "withdraw"
+    for bad in ("", "maybe", "I think Y", 'you mentioned: "Y"'):
+        d = wfa.parse_forced_choice(bad)
+        assert d["no_answer"] is True, bad
+    # no_answer is its own category, never silently folded into unparseable
+    assert "unparseable" not in wfa.parse_forced_choice("maybe")
+
+
+def test_forced_choice_arm_records_first_token(items):
+    gap = next(i for i in items if i["kind"] == "gap")
+    fc = wfa.DictForcedChoiceResponder({(gap["id"], "forced_choice"): "Y"})
+    rec = [{"id": gap["id"], "kind": gap["kind"], "pool": gap["pool"]}]
+    out = wfa.run_pd_arms([gap], rec, wfa.WFAArms(forced_choice=fc))
+    assert out[0]["pd_forced_choice"] == "endorse"
+    assert out[0]["pd_forced_choice_no_answer"] is False
+
+
+def test_trusted_list_contains_own_source_only_for_credible(items):
+    gap = next(i for i in items if i["kind"] == "gap"
+               and i["source_id"] in wfa.CREDIBLE_SOURCES)
+    decoy = next(i for i in items if i["kind"] == "decoy")
+    tg, td = wfa.trusted_sources_for(gap), wfa.trusted_sources_for(decoy)
+    assert gap["source_id"] in tg and tg[0] == gap["source_id"]
+    assert decoy["source_id"] not in td
+    assert all(u in wfa.CREDIBLE_SOURCES for u in tg + td)
+    # the exclusion CRITERION itself is unchanged, and only the trusted segment
+    # (not the separate provenance line) carries the allow-list.
+    gp = wfa.endorsement_prompt(gap, "exclusion")
+    dp = wfa.endorsement_prompt(decoy, "exclusion")
+    assert "ONLY if you are certain" in gp
+    assert gap["source_id"] in gp.split("Trusted sources for this run:")[1]
+    assert decoy["source_id"] not in dp.split("Trusted sources for this run:")[1]
+
+
+def test_turn_isolation_resets_context_once_per_item_not_between_teach_cue(items):
+    class _Engine:
+        def __init__(self):
+            self.resets = 0
+            self.turns = []
+
+        def reset_episodic_state(self):
+            self.resets += 1
+
+        def process_turn(self, prompt):
+            self.turns.append(prompt)
+            return ("Decision: WITHDRAW" if "unreliable and fabricated" in prompt
+                    else "Decision: ENDORSE")
+
+    eng = _Engine()
+    d = next(i for i in items if i["kind"] == "gap" and i.get("claim"))
+    inc = wfa.EngineEndorsementResponder(eng, eng.reset_episodic_state)(d, "inclusion")
+    inv = wfa.EngineInvalidationResponder(eng, eng.reset_episodic_state)(d)
+    assert inc["endorse"] is True and inv["withdrawn"] is True
+    assert eng.resets == 2        # once for the turn, once before teach (not between)
+    assert len(eng.turns) == 3    # 1 endorsement + teach + cue
+
+
+def test_engine_factory_yields_fresh_engine_per_turn(items):
+    made = []
+
+    class _E:
+        def process_turn(self, prompt):
+            return "Decision: ENDORSE"
+
+    def factory():
+        e = _E()
+        made.append(e)
+        return e
+
+    r = wfa.EngineEndorsementResponder(factory)
+    d = next(i for i in items if i["kind"] == "gap")
+    r(d, "inclusion")
+    r(d, "exclusion")
+    assert len(made) == 2 and made[0] is not made[1]
+
+
+def test_oracle_compliance_control_reproduces_known_i_e_r(items):
+    gaps = [i for i in items if i["kind"] == "gap" and i["pool"] == "primary"][:4]
+    decoys = [i for i in items if i["kind"] == "decoy" and i["pool"] == "primary"][:4]
+    chosen = gaps + decoys
+    decisions = {}
+    for idx, it in enumerate(gaps):
+        decisions[(it["id"], "inclusion")] = True
+        decisions[(it["id"], "exclusion")] = idx < 3      # 3/4 credible under exclusion
+    for idx, it in enumerate(decoys):
+        decisions[(it["id"], "inclusion")] = idx < 2      # I_dis = 0.5
+        decisions[(it["id"], "exclusion")] = idx < 1      # E = 0.25
+
+    class _TextResponder:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, item, arm):
+            self.calls.append((item["id"], arm))
+            text = ("Decision: ENDORSE" if decisions[(item["id"], arm)]
+                    else "Decision: ABSTAIN")
+            d = wfa.parse_decision(text, "endorsement")
+            return {"endorse": d["decision"], "decision": d["decision"],
+                    "unparseable": d["unparseable"], "echo_marker": d["echo_marker"],
+                    "text": text, "source": item.get("source_id")}
+
+    arms = wfa.WFAArms(inclusion=_TextResponder(), exclusion=_TextResponder(),
+                       invalidation=wfa.DictInvalidationResponder(),
+                       parametric=object())
+    records = [{"id": i["id"], "kind": i["kind"], "pool": i["pool"]} for i in chosen]
+    out = wfa.run_pd_arms(chosen, records, arms)
+    pd = wfa.process_dissociation(out, "primary")
+    assert pd["I"] == 1.0 and pd["E"] == 0.25
+    assert pd["I_discredited"] == 0.5 and pd["E_credible"] == 0.75
+    assert pd["R"] == 0.75 and pd["F"] == 1.0
+    assert pd["exclusion_margin"] == 0.25
+    q = wfa.pd_quality_counters(out, "primary")
+    assert q["own_decision_rate"] == 1.0 and q["unparseable_rate"] == 0.0
+
+
+def test_missing_forced_choice_arm_hard_fails():
+    s = _base_summary()
+    s["arms"]["forced_choice"] = False
+    rules, passed = wfa.decide(s, True)
+    assert not passed and not rules["arm_present_forced_choice"]

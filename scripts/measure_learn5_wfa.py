@@ -41,6 +41,35 @@ answer-only/parametric arm as an INJECTABLE FAKE for unit tests. Old thresholds
 are unchanged; every new criterion is additive and pre-registered, and NOTHING
 is tuned to force a PASS.
 
+ECHO-IMMUNE REVISION (second pass: measurement repair)
+-----------------------------------------------------
+The process-dissociation run measured an echo artifact, not source monitoring:
+the engine echoed the harness's OWN instruction words ("you mentioned:",
+"i said:"), and the old regex parser scored ABSTAIN/ENDORSE/unreliable from
+those quoted echoes as if they were engine decisions (see
+docs/investigations/WFA_FAILURE_ANALYSIS.md).  All prior R/F/withdrawal numbers
+from that run are VOID.  This revision is ADDITIVE and gate-preserving:
+
+  1. Echo-immune, fail-closed parser: strip quoted echo frames, parse only the
+     final explicit decision span, require an explicit decision token as the
+     first token, otherwise `unparseable`. New additive counters
+     (echo_marker_rate, unparseable_rate, own_decision_rate,
+     pd_unparseable_rate) and a NEW hard-fail ceiling on pd_unparseable_rate.
+     No existing threshold is relaxed; PD math (R=I-E, F=E/(1-R)) is unchanged.
+  2. Turn isolation: one FRESH engine per arm/turn (pass an engine factory),
+     so the manipulation is the instruction alone.  A shared-engine A/B mode
+     (WFA_SHARED_ENGINE=1) is retained for the falsifier in fix 2.
+  3. Self-consistent trusted set: the exclusion allow-list now CONTAINS each
+     credible claim's own source_id (discredited/unknown ids stay excluded),
+     so exclusion is satisfiable for a compliant responder without weakening
+     the exclusion criterion or the G2/fabrication controls.
+  4. Forced-choice arm: a NEW additive arm, single-token Y/N/W parsed from the
+     first token with a separate `no_answer` category, A/B-able on identical
+     state.  Reported, not gated; old gates and PD math are untouched.
+
+Per-item pd_*_text / inv_after AND the new decision/echo flags are persisted in
+both the probe file and the summary (`pd_audit`) for audit.
+
 Usage:
     uv run python scripts/measure_learn5_wfa.py
     uv run python scripts/measure_learn5_wfa.py --validate-only
@@ -89,6 +118,10 @@ TH = {
     "PD_exclusion_credible_min": 0.70,  # capability parity: credible endorsed
     "PD_R_lt_one_max": 0.999,         # F = E/(1-R) must be well-defined
     "invalidation_withdrawal_min": 0.50,  # pre-registered floor, NOT tuned
+    # --- ADDITIVE echo-immune measurement-integrity ceiling (never relaxed) ---
+    # A PD run with more than this fraction of unparseable decision responses
+    # cannot support an I/E/R claim.  New, stricter gate: makes PASS harder.
+    "unparseable_rate_max": 0.50,
 }
 
 # Structural (instrument-validity) minima per pool, from design section 4.5.
@@ -1090,11 +1123,110 @@ def attributed_source(text):
     return None
 
 
+# ── ECHO-IMMUNE, FAIL-CLOSED DECISION PARSER (fix 1) ─────────────────────────
+# The legacy parse_endorsement/parse_withdrawal above scan the WHOLE string and
+# were scored on quoted prior prompts ("you mentioned:", "i said:").  They are
+# retained ONLY for backwards compatibility with older callers/tests and are
+# NOT used by any arm.  The functions below are the scoring path.
+_ECHO_FRAME_RE = re.compile(
+    r"\b(?:earlier\s+i\s+said|i\s+said|you\s+mentioned)\s*:", re.I)
+_QUOTED_ECHO_RE = re.compile(
+    r"\b(?:earlier\s+i\s+said|i\s+said|you\s+mentioned)\s*:\s*"
+    r"(?:\"[^\"]*\"|'[^']*'|\u201c[^\u201d]*\u201d)", re.I | re.S)
+_DECISION_MARK_RE = re.compile(r"\bdecision\s*:", re.I)
+
+# Explicit decision labels.  The decision token must be the FIRST alphabetic
+# token of the final decision span; anything else is unparseable (fail-closed).
+_ENDORSEMENT_LABELS = {"endorse": True, "yes": True,
+                       "abstain": False, "no": False}
+_WITHDRAWAL_LABELS = {"withdraw": True, "withdrawn": True,
+                      "maintain": False}
+_FORCED_CHOICE_LABELS = {"y": "endorse", "n": "abstain", "w": "withdraw"}
+
+
+def has_echo_marker(text):
+    """True iff the raw response contains a quoted-prior-utterance frame."""
+    return bool(_ECHO_FRAME_RE.search(text or ""))
+
+
+def strip_echoes(text):
+    """Remove quoted frames (`you mentioned:` / `i said:` / `earlier i said:`).
+
+    Iterated to a fixed point so nested frames such as
+    `i said: you mentioned: "<prior prompt>"` are fully removed.  Any bare
+    frame marker left without a quoted span is also dropped.  DOTALL lets the
+    quoted prior prompt span the newlines the harness itself inserted.
+    """
+    t = text or ""
+    prev = None
+    while prev != t:
+        prev = t
+        t = _QUOTED_ECHO_RE.sub(" ", t)
+    t = _ECHO_FRAME_RE.sub(" ", t)
+    return t
+
+
+def final_decision_span(stripped_text):
+    """Return only the text after the LAST `Decision:` marker, if present."""
+    parts = _DECISION_MARK_RE.split(stripped_text or "")
+    return parts[-1] if len(parts) > 1 else (stripped_text or "")
+
+
+def _first_token(span):
+    m = re.search(r"[A-Za-z]+", span or "")
+    return m.group(0).lower() if m else None
+
+
+def parse_decision(text, kind):
+    """Echo-immune decision parse. `kind` is 'endorsement' or 'withdrawal'.
+
+    Returns a dict with `decision` (True/False or None), `unparseable`,
+    `echo_marker`, `span` and `token`.  A decision is recognised ONLY when the
+    first alphabetic token of the final (post-echo, post-`Decision:`) span is
+    an explicit label; there is deliberately NO all-tokens content fallback.
+    """
+    echo = has_echo_marker(text)
+    span = final_decision_span(strip_echoes(text))
+    tok = _first_token(span)
+    labels = _ENDORSEMENT_LABELS if kind == "endorsement" else _WITHDRAWAL_LABELS
+    decision = labels.get(tok) if tok is not None else None
+    return {"decision": decision, "unparseable": decision is None,
+            "echo_marker": echo, "span": span, "token": tok}
+
+
+def parse_forced_choice(text):
+    """Single-token arm: first token Y/N/W -> endorse/abstain/withdraw, else
+    the SEPARATE `no_answer` category (never folded into unparseable)."""
+    echo = has_echo_marker(text)
+    span = final_decision_span(strip_echoes(text))
+    tok = _first_token(span)
+    decision = (_FORCED_CHOICE_LABELS.get(tok, "no_answer")
+                if tok is not None else "no_answer")
+    return {"decision": decision, "no_answer": decision == "no_answer",
+            "echo_marker": echo, "span": span, "token": tok}
+
+
+def trusted_sources_for(item):
+    """Self-consistent exclusion allow-list (fix 3).
+
+    A credible claim's OWN source_id is placed first in the displayed trusted
+    set, followed by a bounded sample of other real fixture URLs.  Discredited
+    / unknown ids are NEVER included, so exclusion still abstains on them and
+    G2 / the fabrication controls keep holding.  The criterion itself
+    ('endorse only if provenance is in the trusted set') is unchanged.
+    """
+    base = sorted(CREDIBLE_SOURCES)
+    sid = item.get("source_id")
+    if item.get("source_status") == "credible" and sid in CREDIBLE_SOURCES:
+        return [sid] + [u for u in base if u != sid][:7]
+    return base[:8]
+
+
 def endorsement_prompt(item, arm):
     """Instruction-conditioned prompt for one endorsement item."""
     claim = item.get("claim") or item.get("source_span") or item.get("query")
     if arm == "exclusion":
-        trusted = ", ".join(sorted(CREDIBLE_SOURCES)[:8]) or "(none)"
+        trusted = ", ".join(trusted_sources_for(item)) or "(none)"
         return (
             "%s\nProvenance of this claim: %s (source id: %s).\n"
             "Trusted sources for this run: %s.\nClaim: %s\nDecision:"
@@ -1104,53 +1236,145 @@ def endorsement_prompt(item, arm):
     return "%s\nClaim: %s\nDecision:" % (INCLUSION_INSTRUCTION, claim)
 
 
+FORCED_CHOICE_INSTRUCTION = (
+    "Reply with ONE token only. Y = endorse the claim, N = abstain / do not "
+    "endorse, W = withdraw a prior assertion. No explanation."
+)
+
+
+def forced_choice_prompt(item, arm="forced_choice"):
+    """Single-token prompt for the additive forced-choice arm (fix 4).
+
+    Uses the SAME claim and the SAME self-consistent trusted set as the
+    exclusion arm, so it is A/B-able on identical state; only the response
+    surface (single token vs free text) changes.
+    """
+    claim = item.get("claim") or item.get("source_span") or item.get("query")
+    if arm == "exclusion":
+        trusted = ", ".join(trusted_sources_for(item)) or "(none)"
+        return (
+            "%s\nProvenance of this claim: %s (source id: %s).\n"
+            "Trusted sources for this run: %s.\nClaim: %s\nReply:"
+            % (FORCED_CHOICE_INSTRUCTION, item.get("source_status"),
+               item.get("source_id"), trusted, claim)
+        )
+    return "%s\nClaim: %s\nReply:" % (FORCED_CHOICE_INSTRUCTION, claim)
+
+
 class EngineEndorsementResponder:
     """Live-engine adapter for the inclusion / exclusion arms.
 
-    Same engine object, same facts; ONLY the instruction differs. The engine
-    is injected, never booted by the responder, so unit tests use a fake.
+    Inject either a fixed engine or a zero-ARG engine FACTORY (fix 2). A factory
+    yields one fresh engine per turn so prior arms cannot leak into later
+    decisions; a fixed engine keeps the legacy shared-object behaviour used by
+    the shared-engine A/B falsifier and unit tests. Nothing is booted here.
     """
 
-    def __init__(self, engine):
-        self.engine = engine
+    def __init__(self, engine_or_factory, isolate=None):
+        self._source = engine_or_factory
+        self._isolate = isolate          # called ONCE per item before its turn
         self.calls = []
+
+    @property
+    def engine(self):
+        return self._source
+
+    def _engine_for_turn(self):
+        return self._source() if callable(self._source) else self._source
 
     def __call__(self, item, arm):
         prompt = endorsement_prompt(item, arm)
         self.calls.append((item["id"], arm))
-        if self.engine is None:
-            return {"endorse": False, "source": None, "text": "", "missing": True}
+        eng = self._engine_for_turn()
+        if eng is None:
+            return {"endorse": False, "decision": None, "unparseable": True,
+                    "echo_marker": False, "source": None, "text": "",
+                    "missing": True}
+        if self._isolate is not None:
+            self._isolate()
         try:
-            text = (self.engine.process_turn(prompt) or "").strip()
+            text = (eng.process_turn(prompt) or "").strip()
         except Exception as e:
             text = "<ERR %s: %s>" % (type(e).__name__, e)
-        return {"endorse": parse_endorsement(text, item),
+        d = parse_decision(text, "endorsement")
+        return {"endorse": d["decision"] is True, "decision": d["decision"],
+                "unparseable": d["unparseable"], "echo_marker": d["echo_marker"],
                 "source": attributed_source(text), "text": text}
 
 
 class EngineInvalidationResponder:
     """Live-engine adapter for the source-invalidation arm (Koenig cue)."""
 
-    def __init__(self, engine):
-        self.engine = engine
+    def __init__(self, engine_or_factory, isolate=None):
+        self._source = engine_or_factory
+        self._isolate = isolate          # ONCE per item, before teach (NOT between teach/cue)
         self.calls = []
 
-    def _ask(self, prompt):
-        if self.engine is None:
+    @property
+    def engine(self):
+        return self._source
+
+    def _engine_for_turn(self):
+        return self._source() if callable(self._source) else self._source
+
+    def _ask(self, prompt, eng):
+        if eng is None:
             return ""
         try:
-            return (self.engine.process_turn(prompt) or "").strip()
+            return (eng.process_turn(prompt) or "").strip()
         except Exception as e:
             return "<ERR %s: %s>" % (type(e).__name__, e)
 
     def __call__(self, item):
         fact = item.get("claim") or item.get("source_span") or ""
         source = item.get("source_id") or "an unnamed source"
-        before = self._ask(INVALIDATION_TEACH.format(source=source, fact=fact))
-        after = self._ask(INVALIDATION_CUE.format(source=source, fact=fact))
+        # ONE fresh engine serves BOTH teach and cue for this item, so the
+        # within-item pairing survives while cross-item/turn echoes cannot.
+        eng = self._engine_for_turn()
+        if self._isolate is not None:
+            self._isolate()              # before teach; cue stays on same context
+        before = self._ask(INVALIDATION_TEACH.format(source=source, fact=fact), eng)
+        after = self._ask(INVALIDATION_CUE.format(source=source, fact=fact), eng)
         self.calls.append(item["id"])
+        d = parse_decision(after, "withdrawal")
         return {"before": before, "after": after,
-                "withdrawn": parse_withdrawal(after)}
+                "withdrawn": d["decision"] is True, "decision": d["decision"],
+                "unparseable": d["unparseable"], "echo_marker": d["echo_marker"]}
+
+
+class ForcedChoiceResponder:
+    """Additive single-token arm (fix 4); engine/factory injected, never booted."""
+
+    def __init__(self, engine_or_factory, isolate=None):
+        self._source = engine_or_factory
+        self._isolate = isolate
+        self.calls = []
+
+    @property
+    def engine(self):
+        return self._source
+
+    def _engine_for_turn(self):
+        return self._source() if callable(self._source) else self._source
+
+    def __call__(self, item, arm="forced_choice"):
+        prompt = forced_choice_prompt(item, arm)
+        self.calls.append((item["id"], arm))
+        eng = self._engine_for_turn()
+        if eng is None:
+            return {"forced": "no_answer", "decision": "no_answer",
+                    "no_answer": True, "echo_marker": False, "text": "",
+                    "missing": True}
+        if self._isolate is not None:
+            self._isolate()
+        try:
+            text = (eng.process_turn(prompt) or "").strip()
+        except Exception as e:
+            text = "<ERR %s: %s>" % (type(e).__name__, e)
+        d = parse_forced_choice(text)
+        return {"forced": d["decision"], "decision": d["decision"],
+                "no_answer": d["no_answer"], "echo_marker": d["echo_marker"],
+                "text": text}
 
 
 class DictEndorsementResponder:
@@ -1170,10 +1394,17 @@ class DictEndorsementResponder:
             response.setdefault("endorse", bool(value))
             response.setdefault("source", None)
             response.setdefault("text", "")
+            if "unparseable" not in response:
+                d = parse_decision(response["text"], "endorsement")
+                response.setdefault("decision", d["decision"])
+                response["unparseable"] = d["unparseable"]
+                response["echo_marker"] = d["echo_marker"]
             return response
-        return {"endorse": bool(value),
-                "source": item.get("source_id") if value else None,
-                "text": "ENDORSE" if value else "ABSTAIN"}
+        text = "Decision: ENDORSE" if value else "Decision: ABSTAIN"
+        d = parse_decision(text, "endorsement")
+        return {"endorse": bool(value), "decision": d["decision"],
+                "unparseable": d["unparseable"], "echo_marker": d["echo_marker"],
+                "source": item.get("source_id") if value else None, "text": text}
 
 
 class DictInvalidationResponder:
@@ -1190,22 +1421,53 @@ class DictInvalidationResponder:
         if isinstance(value, dict):
             response = dict(value)
             response.setdefault("withdrawn", bool(value))
+            if "unparseable" not in response:
+                d = parse_decision(response.get("after", ""), "withdrawal")
+                response.setdefault("decision", d["decision"])
+                response["unparseable"] = d["unparseable"]
+                response["echo_marker"] = d["echo_marker"]
             return response
-        return {"before": "learned", "after": "WITHDRAW" if value else "MAINTAIN",
-                "withdrawn": bool(value)}
+        text = "Decision: WITHDRAW" if value else "Decision: MAINTAIN"
+        d = parse_decision(text, "withdrawal")
+        return {"before": "learned", "after": text, "withdrawn": bool(value),
+                "decision": d["decision"], "unparseable": d["unparseable"],
+                "echo_marker": d["echo_marker"]}
+
+
+class DictForcedChoiceResponder:
+    """Injectable forced-choice fake: value is Y/N/W or endorse/abstain/withdraw/no_answer."""
+
+    def __init__(self, decisions=None, default="no_answer"):
+        self.decisions = dict(decisions or {})
+        self.default = default
+        self.calls = []
+
+    def __call__(self, item, arm="forced_choice"):
+        key = (item["id"], arm)
+        self.calls.append(key)
+        value = self.decisions.get(key, self.default)
+        token = {"endorse": "Y", "abstain": "N", "withdraw": "W"}.get(value, value)
+        text = token if isinstance(token, str) else str(token)
+        d = parse_forced_choice(text)
+        return {"forced": d["decision"], "decision": d["decision"],
+                "no_answer": d["no_answer"], "echo_marker": d["echo_marker"],
+                "text": text}
+
 
 
 class WFAArms:
-    """Injectable container of the four arms. A missing arm is a HARD FAIL."""
+    """Injectable container of the arms. A missing arm is a HARD FAIL."""
 
-    ARM_NAMES = ("inclusion", "exclusion", "invalidation", "parametric")
+    ARM_NAMES = ("inclusion", "exclusion", "invalidation", "parametric",
+                 "forced_choice")
 
     def __init__(self, inclusion=None, exclusion=None, invalidation=None,
-                 parametric=None):
+                 parametric=None, forced_choice=None):
         self.inclusion = inclusion
         self.exclusion = exclusion
         self.invalidation = invalidation
         self.parametric = parametric
+        self.forced_choice = forced_choice
 
     def missing(self):
         return [name for name in self.ARM_NAMES
@@ -1234,16 +1496,31 @@ def run_pd_arms(items, records, arms):
             rec["pd_inclusion_attributed_credible"] = (
                 inc.get("source") in CREDIBLE_SOURCES)
             rec["pd_inclusion_text"] = inc.get("text")
+            rec["pd_inclusion_decision"] = inc.get("decision")
+            rec["pd_inclusion_unparseable"] = bool(inc.get("unparseable"))
+            rec["pd_inclusion_echo_marker"] = bool(inc.get("echo_marker"))
         if arms.exclusion is not None:
             exc = arms.exclusion(it, "exclusion")
             rec["pd_exclusion_endorse"] = bool(exc.get("endorse"))
             rec["pd_exclusion_source"] = exc.get("source")
             rec["pd_exclusion_text"] = exc.get("text")
+            rec["pd_exclusion_decision"] = exc.get("decision")
+            rec["pd_exclusion_unparseable"] = bool(exc.get("unparseable"))
+            rec["pd_exclusion_echo_marker"] = bool(exc.get("echo_marker"))
         if it["kind"] == "gap" and arms.invalidation is not None:
             inv = arms.invalidation(it)
             rec["inv_before"] = inv.get("before")
             rec["inv_after"] = inv.get("after")
             rec["inv_withdrawn"] = bool(inv.get("withdrawn"))
+            rec["inv_decision"] = inv.get("decision")
+            rec["inv_unparseable"] = bool(inv.get("unparseable"))
+            rec["inv_echo_marker"] = bool(inv.get("echo_marker"))
+        if arms.forced_choice is not None:
+            fc = arms.forced_choice(it, "forced_choice")
+            rec["pd_forced_choice"] = fc.get("forced")
+            rec["pd_forced_choice_text"] = fc.get("text")
+            rec["pd_forced_choice_no_answer"] = bool(fc.get("no_answer"))
+            rec["pd_forced_choice_echo_marker"] = bool(fc.get("echo_marker"))
     return records
 
 
@@ -1282,6 +1559,56 @@ def process_dissociation(records, pool):
         "R": R, "F": F, "exclusion_margin": margin,
         "withdrawal_rate": _rate_of(gap_inv, "inv_withdrawn"),
     }
+
+
+def pd_quality_counters(records, pool=None):
+    """Additive measurement-integrity counters (fix 1). Pure observation; no gate.
+
+    Echo markers are counted per arm over the persisted texts.  Unparseable /
+    own-decision rates are counted over the three core PD decision arms.  The
+    forced-choice `no_answer` bucket is SEPARATE and is never merged into
+    `unparseable`.  No threshold is read here.
+    """
+    rows = [r for r in records if not r.get("ctl")]
+    if pool is not None:
+        rows = [r for r in rows if r.get("pool") == pool]
+
+    arm_keys = (
+        ("inclusion", "pd_inclusion_echo_marker", "pd_inclusion_text"),
+        ("exclusion", "pd_exclusion_echo_marker", "pd_exclusion_text"),
+        ("invalidation", "inv_echo_marker", "inv_after"),
+        ("forced_choice", "pd_forced_choice_echo_marker", "pd_forced_choice_text"),
+    )
+    out, all_echo = {}, []
+    for name, flag_key, text_key in arm_keys:
+        vals = [r[flag_key] for r in rows if flag_key in r and r.get(text_key) is not None]
+        out["echo_marker_rate_%s" % name] = (
+            round(sum(1 for v in vals if v is True) / len(vals), 4) if vals else None)
+        all_echo.extend(vals)
+
+    core = []
+    for flag_key in ("pd_inclusion_unparseable", "pd_exclusion_unparseable",
+                     "inv_unparseable"):
+        core.extend(r[flag_key] for r in rows if flag_key in r)
+    unparseable = (round(sum(1 for v in core if v is True) / len(core), 4)
+                   if core else None)
+
+    fc = [r.get("pd_forced_choice") for r in rows
+          if r.get("pd_forced_choice") is not None]
+    fc_na = sum(1 for d in fc if d == "no_answer")
+
+    out.update({
+        "echo_marker_rate": (round(sum(1 for v in all_echo if v is True) / len(all_echo), 4)
+                             if all_echo else None),
+        "unparseable_rate": unparseable,
+        "own_decision_rate": (round(1.0 - unparseable, 4)
+                              if unparseable is not None else None),
+        "pd_unparseable_rate": unparseable,
+        "forced_choice_explicit_rate": (round(1.0 - fc_na / len(fc), 4) if fc else None),
+        "forced_choice_no_answer_rate": (round(fc_na / len(fc), 4) if fc else None),
+        "n_quality_observations": len(core),
+    })
+    return out
 
 
 def decide(summary, checks_ok):
@@ -1341,6 +1668,14 @@ def decide(summary, checks_ok):
         rules["invalidation_withdrawal_%s>=0.50" % pool] = (
             pp.get("withdrawal_rate") is not None
             and pp["withdrawal_rate"] >= TH["invalidation_withdrawal_min"])
+    # ── ADDITIVE echo-immune hard-fail (pre-registered ceiling, not tuned) ──
+    # Too many unparseable PD decisions means the response surface is unusable;
+    # refuse to report I/E/R from such a run. This ADDS a stricter gate; it
+    # never relaxes any of the gates above.
+    for pool, pp in (("primary", p), ("sealed", s)):
+        u = pp.get("pd_unparseable_rate")
+        rules["unparseable_ceiling_%s" % pool] = (
+            u is not None and u <= TH["unparseable_rate_max"])
     return rules, all(rules.values())
 
 
@@ -1429,34 +1764,65 @@ def main(argv=None):
         "paraphrase_synonym_map_size": len(SYN),
     })
 
-    # ── WITHIN-ENGINE PROCESS-DISSOCIATION ARMS ──────────────────────────────
-    # One live engine object serves ALL three arms: the manipulation is the
-    # INSTRUCTION, not a different store. A boot failure leaves the arms
-    # missing, which decide() hard-fails (no fabricated substitute).
-    try:
+    # ── PROCESS-DISSOCIATION ARMS (turn-isolated) ────────────────────────────
+    # Fix 2: clear the engine's volatile episodic/recall context before each
+    # arm/turn so the manipulation is the INSTRUCTION alone. CognitiveChatEngine
+    # documents reset_episodic_state() as equivalent to a fresh engine's volatile
+    # state, so this is cheap. Alternatives for the pre-registered falsifier A/B:
+    #   WFA_FRESH_ENGINE=1  -> one brand-new engine per turn (strongest form)
+    #   WFA_SHARED_ENGINE=1 -> old shared, UNISOLATED engine (A/B falsifier arm)
+    # A boot failure leaves the arms missing, which decide() hard-fails.
+    def _boot_pd_engine():
         from ravana.chat.engine import CognitiveChatEngine  # type: ignore
-        live_engine = CognitiveChatEngine(data_dir=os.path.join(PROJ, "weights"),
-                                          user_suffix="")
+        return CognitiveChatEngine(data_dir=os.path.join(PROJ, "weights"),
+                                   user_suffix="")
+
+    engine_factory, isolate, pd_mode = None, None, None
+    shared_engine = None
+    try:
+        shared_engine = _boot_pd_engine()
+        if os.environ.get("WFA_SHARED_ENGINE") == "1":
+            pd_mode = "shared_engine_unisolated_AB"       # falsifier: NO isolation
+        elif os.environ.get("WFA_FRESH_ENGINE") == "1":
+            engine_factory = _boot_pd_engine             # fresh engine per turn
+            pd_mode = "fresh_engine_per_arm_turn"
+        else:
+            isolate = shared_engine.reset_episodic_state  # cheap, per-item clear
+            pd_mode = "cleared_episodic_context_per_turn"
     except Exception as exc:
         print("  [WARN] PD engine boot failed (%s); arms missing -> hard FAIL" % exc)
-        live_engine = None
+        pd_mode = "boot_failed"
+
+    source = engine_factory if engine_factory is not None else (
+        shared_engine if pd_mode not in (None, "boot_failed") else None)
     arms = WFAArms(
-        inclusion=EngineEndorsementResponder(live_engine) if live_engine is not None else None,
-        exclusion=EngineEndorsementResponder(live_engine) if live_engine is not None else None,
-        invalidation=EngineInvalidationResponder(live_engine) if live_engine is not None else None,
+        inclusion=EngineEndorsementResponder(source, isolate) if source is not None else None,
+        exclusion=EngineEndorsementResponder(source, isolate) if source is not None else None,
+        invalidation=EngineInvalidationResponder(source, isolate) if source is not None else None,
         parametric=oracle,
+        forced_choice=ForcedChoiceResponder(source, isolate) if source is not None else None,
     )
     run_pd_arms(items, records, arms)
     for pool in ("primary", "sealed"):
         summary[pool].update(process_dissociation(records, pool))
+        summary[pool].update(pd_quality_counters(records, pool))
+    summary.update(pd_quality_counters(records))   # additive top-level counters
     summary["arms"] = arms.as_dict()
     summary["arms_missing"] = arms.missing()
-    summary["pd_mode"] = "within_engine_inclusion_exclusion_invalidation"
+    summary["pd_mode"] = pd_mode
     summary["arm_call_counts"] = {
         "inclusion": len(arms.inclusion.calls) if arms.inclusion else 0,
         "exclusion": len(arms.exclusion.calls) if arms.exclusion else 0,
         "invalidation": len(arms.invalidation.calls) if arms.invalidation else 0,
         "parametric": oracle.calls,
+        "forced_choice": len(arms.forced_choice.calls) if arms.forced_choice else 0,
+    }
+    # The forced-choice arm is A/B-able on identical state: both surface arms
+    # share the same engine/factory, item texts and self-consistent trusted set;
+    # only the response surface (free text vs single token) differs.
+    summary["forced_choice_ab"] = {
+        "same_state": True, "engine_mode": pd_mode,
+        "surfaces": ["free_text_inclusion_exclusion", "single_token_forced_choice"],
     }
     # PD informativeness caveat: a dissociation is uninformative when R>=1
     # (F undefined) or when R<=0 (no recollection). Reported, not gated
@@ -1468,17 +1834,38 @@ def main(argv=None):
                "R": summary[pool]["R"], "F": summary[pool]["F"]}
         for pool in ("primary", "sealed")
     }
-    # Persist all additive arm annotations.
+    # Persist per-item pd_*_text / inv_after + decision/echo flags for audit,
+    # in BOTH the probe file and the summary (fix 1 / analysis section 5.6).
+    AUDIT_KEYS = (
+        "id", "pool", "kind",
+        "pd_inclusion_text", "pd_inclusion_decision",
+        "pd_inclusion_unparseable", "pd_inclusion_echo_marker",
+        "pd_exclusion_text", "pd_exclusion_decision",
+        "pd_exclusion_unparseable", "pd_exclusion_echo_marker",
+        "inv_before", "inv_after", "inv_decision",
+        "inv_unparseable", "inv_echo_marker",
+        "pd_forced_choice", "pd_forced_choice_text",
+        "pd_forced_choice_no_answer", "pd_forced_choice_echo_marker",
+    )
+    summary["pd_audit"] = [
+        {k: r[k] for k in AUDIT_KEYS if k in r}
+        for r in records
+        if any(k in r for k in ("pd_inclusion_text", "pd_exclusion_text",
+                                "inv_after", "pd_forced_choice_text"))
+    ]
     with open(DATA_PATH, "w", encoding="utf-8") as fh:
         for rec in records:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    print("\n--- process-dissociation arms (within-engine) ---")
+    print("\n--- process-dissociation arms (%s) ---" % pd_mode)
     print("  arms_present=%s  missing=%s" % (summary["arms"], summary["arms_missing"]))
     for pool in ("primary", "sealed"):
         pd = summary[pool]
         print("  %-8s I=%s E=%s R=%s F=%s margin=%s withdraw=%s" % (
             pool, pd["I"], pd["E"], pd["R"], pd["F"],
             pd["exclusion_margin"], pd["withdrawal_rate"]))
+        print("  %-8s echo=%.3f unparseable=%s own_decision=%s fc_explicit=%s" % (
+            pool, pd["echo_marker_rate"] or 0.0, pd["unparseable_rate"],
+            pd["own_decision_rate"], pd["forced_choice_explicit_rate"]))
 
     checks = instrument_controls(wfa)
     checks_ok = all(ok for _, ok in checks)
