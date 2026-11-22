@@ -1,5 +1,15 @@
 # Real-engine runs of the unsaturated WFA / PDR / RSI (2026-11-22)
 
+> **CORRECTION (2026-11-22, PR #467).** The title and the PDR/RSI sections below
+> are wrong: those runs used `backend=fake` (0.2 s / 0.5 s, no engine boot,
+> `api_calls={}`). They are deterministic fake-oracle outputs, not real-engine
+> measurements. Their 1.00s show nothing about the current system's headroom.
+> WFA's run was a real engine run, but its R/withdrawal numbers were later
+> shown to be keyword echoes of the harness's own prompts (see
+> `WFA_FAILURE_ANALYSIS.md`). Use `G6_FLAGS_ANALYSIS.md` for the corrected
+> diagnosis. This document is retained only as a record of the earlier claim.
+
+
 Instruments merged in PRs #461 (WFA) and #462 (PDR/RSI). All runs used isolated
 scratch state, `RAVANA_OFFLINE=1`, fixed hash seed, no network, no save into
 `weights/`. Unit suites: WFA 28 passed; PDR+RSI 46 passed.
