@@ -1,20 +1,22 @@
 # RAVANA-LEARN-5 — consolidated result
 
-**Suite verdict: PASS (with caveats).** The pre-registered release rule in
-`docs/BRAIN_LEARN5_DESIGN.md` requires all five components to PASS; all five
-now do. CAR and CLI pass after the root-cause repairs documented below; WFA,
-PDR and RSI pass only with G6 saturation caveats and are NOT valid progress
-signals. No threshold or rubric was changed to alter any verdict.
+**Suite verdict: FAIL (WFA).** The pre-registered release rule in
+`docs/BRAIN_LEARN5_DESIGN.md` requires all five components to PASS. CAR, CLI,
+PDR and RSI pass; **WFA now FAILs honestly** after being rebuilt as an
+inclusion/exclusion source-monitoring instrument (`R = I−E` 0.015/0.075,
+withdrawal 0.14/0.04 vs bounds 0.25/0.50). PDR and RSI remain G6-FLAGGED and
+are NOT valid progress signals. No threshold or rubric was relaxed to alter
+a verdict.
 
 ## Scorecard
 
 | component | verdict | headline primary / sealed |
 |---|---|---|
 | CAR — conversational acquisition | **PASS (post-fix)** | all 10 criteria PASS: Δ8 primary 1.0 / sealed 0.9, reversals 0.0, cold-reload gain retained. Emitted answer reach now **1.00 / 1.00** (was 0.30 / 0.10); identical-surface echo still 0.50 / 0.00 |
-| WFA — web attribution | PASS (limited) | attribution-valid 1.00 / 1.00, zero fabricated URLs; saturated, partly tautological |
-| PDR — poison resistance | PASS (limited) | poison intrusion 0.00 / 0.00, original retention 1.00 / 1.00; saturated, in-memory variants |
+| WFA — web attribution | **FAIL (rebuilt)** | process-dissociation rebuild: R = I−E **0.015 / 0.075**, withdrawal after source invalidation **0.14 / 0.04** (bounds 0.25 / 0.50); no longer tautological and now falsifiable. See `WFA_PROCESS_DISSOCIATION.md` |
+| PDR — poison resistance | PASS (limited) | durable + provenance-forged + sleeper poison all 1.00; intrusion 0.00; **G6-FLAGGED** (saturated) |
 | CLI — continual learning | **PASS (post-fix)** | see `docs/LEARN5_CLI_PASS.md`: PRIMARY on−off +0.267, SEALED +0.154, both at ratio 1.000; historical baseline 0.000/0.000 |
-| RSI — rule induction | PASS (limited) | exact 1.00 / 1.00, permuted 1.00 / 1.00, far transfer +0.79 over chance; saturated, flat across k |
+| RSI — rule induction | PASS (limited) | live-engine teaching + negative rules added; flat 1.00 across k=1/2/4/8, growth +0.000; **G6-FLAGGED** |
 
 ## What the suite establishes
 
