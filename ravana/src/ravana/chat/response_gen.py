@@ -7557,6 +7557,14 @@ class ResponseGenMixin(ChainWalkerMixin):
                 return None
             _subj = subject if (subject and
                                 str(subject).strip().lower() in _q.lower()) else _q
+            # Last-word extraction can return a phrase like "true thaw" whose
+            # full string is not present in the question ("true OF thaw"). Its
+            # head noun IS present and is the indexed concept; use that rather
+            # than falling back to the whole question.
+            if _subj == _q and subject:
+                _head = str(subject).strip().lower().split()[-1:]
+                if _head and _head[0] in _q.lower():
+                    _subj = _head[0]
             _edges = trusted_candidate_edges_from_graph(
                 getattr(self, "graph", None), _subj,
                 getattr(self, "_concept_keywords", None))
