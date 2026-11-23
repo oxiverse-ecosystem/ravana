@@ -705,3 +705,161 @@ def test_no_synthetic_fallback_when_engine_store_has_no_edges(items):
     assert obs["facts"] == []
     assert obs["engine_observation_missing"] > 0
     assert pdr.PDRGrader().answer_original(it, p, obs)["retained"] is False
+
+
+# ── COLD-RELOAD PROVENANCE (fake store; NO engine boot) ─────────────────────
+# The load-time sanitizer deletes any node whose label is a >=5-word
+# "question phrase" and its incident edges (chat/constants.py:530-556,
+# chat/chain_walker.py:1348-1377). The authored claim/detail is a full
+# sentence, so a node labelled with it used to be pruned on cold reload along
+# with the real stamped edge. `_reload_store` reproduces that structural
+# check plus a pickle round-trip of each edge's state (ConceptEdge.__getstate__
+# keeps source_metadata, ravana_ml/graph.py:304-328).
+import pickle  # noqa: E402
+
+
+def _reload_store(store):
+    """Simulate a cold reload of a fake engine store (no process booted)."""
+    fresh = _StoreEngine()
+    g = fresh.graph
+    live = {}
+    for nid, node in store.graph.nodes.items():
+        label = node.label or ""
+        # _is_question_phrase short-circuits False when there is no space
+        # (constants.py:536) -- that is exactly why _safe_label survives.
+        if " " in label:
+            toks = re.findall(r"[a-z']+", label.lower())
+            if len(toks) >= 5:                 # sentence frame -> pruned
+                continue
+        live[nid] = _Node(nid, node.label)
+        g.nodes[nid] = live[nid]
+    for (s, t), edge in store.graph.edges.items():
+        if s not in live or t not in live:
+            continue
+        state = pickle.loads(pickle.dumps(edge.__dict__))  # metadata survives
+        g.edges[(s, t)] = _Edge(
+            s, t, state["source_metadata"],
+            relation_type=state.get("relation_type", "definition"),
+            weight=state.get("_weight", 0.7),
+            confidence=state.get("_confidence", 0.9))
+    fresh._concept_keywords = {
+        k: [nid for nid in (v or []) if nid in live]
+        for k, v in (store._concept_keywords or {}).items()
+    }
+    fresh._concept_keywords = {k: v for k, v in fresh._concept_keywords.items() if v}
+    return fresh
+
+
+def test_minted_object_node_is_sanitize_safe(items):
+    it = items[0]
+    b = _materializing_backend(it, pdr.P_FOCUS)
+    b._real_write(it["subject"], "definition", it["claim"],
+                  "seed", "curated", it["url"], True)
+    nids = b._engine._concept_keywords.get(_norm(it["claim"]), [])
+    assert nids                                     # authored key still maps
+    node = b._engine.graph.get_node(nids[0])
+    toks = re.findall(r"[a-z']+", (node.label or "").lower())
+    assert " " not in node.label and len(toks) < 5  # survives _sanitize_graph
+
+
+def test_stamp_survives_cold_reload_and_census_reads_real_provenance(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    b = _materializing_backend(it, p)
+    b.teach_original(it)
+    b.inject_poison(it, p)
+    before = b.query(it, "write")
+    assert before["engine_observation_missing"] == 0
+    orig0 = next(f for f in before["facts"] if f["origin"].endswith("|orig"))
+    assert orig0["kind"] == "curated" and orig0["source_url"] == it["url"]
+
+    b._engine = _reload_store(b._engine)           # cold reload simulation
+    after = b.query(it, "cued")
+    assert after["engine_observation_missing"] == 0
+    assert len(after["facts"]) == 1 + len(it["poison"][p])
+    orig = next(f for f in after["facts"] if f["origin"].endswith("|orig"))
+    assert orig["kind"] == "curated"
+    assert orig["trusted"] is True
+    assert orig["source_url"] == it["url"]
+    assert orig["edge_kind"] == "curated"
+    assert orig["source_type"] == "seed"
+    assert orig["engine_censused"] is True
+
+
+def test_census_kind_and_source_correctness_after_reload(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    b = _materializing_backend(it, p)
+    b.teach_original(it)
+    b.inject_poison(it, p)
+    b._engine = _reload_store(b._engine)
+    facts = b.query(it, "cued")["facts"]
+
+    orig = next(f for f in facts if f["origin"].endswith("|orig"))
+    assert orig["kind"] == "curated" and orig["trusted"] is True
+    assert orig["source_url"] == it["url"]
+    for sn in it["poison"][p]:
+        origin = "%s|%d|%s" % (it["id"], sn["slot"], sn["kind"])
+        fact = next(f for f in facts if f["origin"] == origin)
+        expected = {"plain": "co_occurrence",
+                    "forged_web_fact": "web_fact",
+                    "sleeper": "definition"}[sn["kind"]]
+        assert fact["kind"] == expected, (origin, fact["kind"])
+        assert fact["source_url"] == sn["source_url"]
+        assert fact["trusted"] is False
+    sleepers = [f for f in facts if f["origin"].endswith("|sleeper")]
+    assert sleepers and all(f["active"] is False for f in sleepers)
+
+
+def test_no_substring_census_of_unstamped_noise_edge(items):
+    """Regression: an unstamped cold-start edge whose label is a fragment of
+    the full claim must NOT be graded as the authored fact (that is how the
+    graded kind became the ConceptEdge default 'unknown')."""
+    it = items[0]
+    p = pdr.P_FOCUS
+    store = _StoreEngine()
+    g = store.graph
+    sid = 1
+    g.nodes[sid] = _Node(sid, it["subject"])
+    store._concept_keywords[_norm(it["subject"])] = [sid]
+    # Real authored edge, stamped from real provenance.
+    oid = 2
+    g.nodes[oid] = _Node(oid, pdr.RealBackend._safe_label(_norm(it["claim"])))
+    store._concept_keywords[_norm(it["claim"])] = [oid]
+    g.edges[(sid, oid)] = _Edge(
+        sid, oid, {"edge_kind": "curated", "source_type": "seed",
+                   "source_url": it["url"], "active": True})
+    # Unstamped noise edge with a fragment label and DEFAULT metadata.
+    nid = 3
+    g.nodes[nid] = _Node(nid, "diffusion")         # substring of the claim
+    g.edges[(sid, nid)] = _Edge(sid, nid, {})       # edge_kind defaults unknown
+    b = _live(store, p)
+    facts = b.query(it, "cued")["facts"]
+    assert len(facts) == 1
+    assert facts[0]["origin"] == it["id"] + "|orig"
+    assert facts[0]["kind"] == "curated"
+    assert facts[0]["source_url"] == it["url"]
+
+
+def test_mutation_of_one_real_edge_kind_changes_graded_kind(items):
+    """Mutation control: change ONE real edge's kind; the graded kind moves."""
+    it = items[0]
+    p = pdr.P_FOCUS
+    grader = pdr.PDRGrader()
+    b = _materializing_backend(it, p)
+    b.teach_original(it)
+    b.inject_poison(it, p)
+    obs0 = b.query(it, "cued")
+    orig0 = next(f for f in obs0["facts"] if f["origin"].endswith("|orig"))
+    assert orig0["kind"] == "curated"
+    assert grader.answer_original(it, p, obs0)["retained"] is True
+
+    edge = b._find_engine_edge(b._engine, it["subject"], it["claim"])
+    edge.source_metadata["edge_kind"] = "co_occurrence"  # one real edge only
+    obs1 = b.query(it, "cued")
+    orig1 = next(f for f in obs1["facts"] if f["origin"].endswith("|orig"))
+    assert orig1["kind"] == "co_occurrence"              # graded kind moved
+    assert orig1["source_url"] == it["url"]              # source from same edge
+    # NOTE: trusted is an OR (kind=='curated' OR source_type=='seed'); a
+    # kind-only mutation does not flip it. The trust-direction mutation is
+    # covered by test_mutation_of_engine_provenance_moves_graded_observation.

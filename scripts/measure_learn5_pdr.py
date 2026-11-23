@@ -56,6 +56,19 @@ materialized from that SAME verdict/provenance -- never a synthetic fact. No
 gate, route, threshold, item or sealing rule was changed; the sleeper flips
 ``active`` on the real edge after the cue.
 
+COLD-RELOAD PROVENANCE (this revision): the authored object is a FULL SENTENCE
+(>=5 words). The engine's load-time sanitizer prunes any such "question-phrase"
+node and its incident edges (``constants._is_question_phrase``,
+``chain_walker._sanitize_graph``), so the stamped edge was deleted on cold
+reload and the old census recovered an UNSTAMPED cold-start edge by substring
+label matching, grading its ConceptEdge default ``edge_kind='unknown'``. Fix:
+mint the object node with a SHORT sanitize-safe label (the authored full label
+stays the authoritative ``_concept_keywords`` key), and make ``_census``
+resolve each authored fact to the real edge by (subject, object) node identity
+from that index -- with an exact-label and a provenance(source_url) fallback,
+never a substring match. The graded kind/source therefore come from the same
+real engine edge that was stamped at write, both before and after reload.
+
 Usage:
     uv run python scripts/measure_learn5_pdr.py                 # fake oracle
     uv run python scripts/measure_learn5_pdr.py --live          # real engine
@@ -530,6 +543,23 @@ class RealBackend(FakeBackend):
         return eng
 
     # -- fact materialization seam (no gate/route/threshold change) -----------
+    @staticmethod
+    def _safe_label(norm):
+        """Short, sanitize-safe node label for an authored full-sentence fact.
+
+        The cold-reload sanitizer deletes any node whose label is a >=5-word
+        "question phrase" (``chat/constants.py:530-556``) along with its
+        incident edges (``chat/chain_walker.py:1348-1377``, called from
+        ``chat/engine.py:2169``). An authored claim/detail is a full sentence
+        (~20 words), so a node labelled with it is pruned on reload and the
+        real stamped edge disappears. A token with NO spaces short-circuits
+        ``_is_question_phrase`` at ``constants.py:536`` and survives reload.
+        The authored full label is still the authoritative ``_concept_keywords``
+        key, so label resolution and intake's ``_node_id`` keep working.
+        """
+        return "pdr_" + hashlib.sha1(
+            (norm or "").encode("utf-8")).hexdigest()[:16]
+
     def _ensure_engine_node(self, eng, label):
         """Mint/ensure a live node for `label` in the real engine store.
 
@@ -560,7 +590,10 @@ class RealBackend(FakeBackend):
                 pass
         node = None
         try:
-            node = graph.add_node(label=norm)
+            # A full-sentence label would be pruned by the load-time
+            # sanitizer; mint under a short deterministic token instead while
+            # keeping `norm` as the index key (see _safe_label).
+            node = graph.add_node(label=self._safe_label(norm))
         except Exception as exc:  # surface, never swallow (skill 6)
             if self.api_error is None:
                 self.api_error = "add_node: %r" % (exc,)
@@ -600,10 +633,15 @@ class RealBackend(FakeBackend):
             try:
                 sn = graph.get_node(getattr(edge, "source", None))
                 tn = graph.get_node(getattr(edge, "target", None))
-                if (sn is not None and tn is not None
-                        and self._norm(getattr(sn, "label", "")) == s_norm
-                        and self._norm(getattr(tn, "label", "")) == o_norm):
-                    return edge
+                if sn is not None and tn is not None:
+                    src_lbl = self._norm(getattr(sn, "label", ""))
+                    tgt_lbl = self._norm(getattr(tn, "label", ""))
+                    # The object may be stored under a sanitize-safe short
+                    # token (see _safe_label) rather than the full sentence.
+                    tgt_ok = (tgt_lbl == o_norm
+                              or tgt_lbl == self._safe_label(o_norm))
+                    if src_lbl == s_norm and tgt_ok:
+                        return edge
             except Exception:
                 continue
         return None
@@ -800,11 +838,39 @@ class RealBackend(FakeBackend):
         by_obj = {norm(e["obj"]): e for e in roster}
         subject_norm = norm(item["subject"])
 
-        # The engine's own live label index is where the intake wrote the
-        # nodes; fall back to a full edge scan when the index is stale
-        # (ravana-debugging §5: a label index can outlive its nodes).
         idx = getattr(eng, "_concept_keywords", None) or {}
+        # Build a label -> live-id map once. ConceptGraph.nodes is a
+        # Dict[int, ConceptNode]: iterate .items() (never the bare dict, which
+        # yields int ids). This is the stale-index fallback of ravana-debugging
+        # section 5, not the primary resolution path.
+        label_ids = {}
+        try:
+            for nid, node in (getattr(graph, "nodes", None) or {}).items():
+                lbl = norm(getattr(node, "label", None))
+                if lbl:
+                    label_ids.setdefault(lbl, []).append(nid)
+        except Exception:
+            pass
+
+        # The authored full label is the authoritative _concept_keywords key
+        # even though the node itself is stored under a short sanitize-safe
+        # token (see _safe_label). Resolve each authored object to its real
+        # node IDENTITY from that index. Never substring-match the target
+        # node label: an unstamped cold-start edge whose label happens to be a
+        # fragment of a full-sentence claim used to be graded as the authored
+        # fact, yielding the ConceptEdge default edge_kind='unknown'.
+        obj_ids = {}
+        for k in by_obj:
+            ids = set(idx.get(k, []) or [])
+            ids.update(label_ids.get(k, []) or [])
+            obj_ids[k] = ids
+
         subj_ids = list(idx.get(subject_norm, []) or [])
+        if not subj_ids:
+            subj_ids = list(label_ids.get(subject_norm, []) or [])
+
+        # Collect the subject's real outgoing edges; a full edge scan covers a
+        # stale index that no longer names a live subject id.
         edges = []
         for sid in subj_ids:
             try:
@@ -822,32 +888,46 @@ class RealBackend(FakeBackend):
         found = {}
         for edge in edges:
             tgt = getattr(edge, "target", None)
-            node = None
-            try:
-                node = graph.get_node(tgt)
-            except Exception:
-                pass
-            if node is None:
-                continue
-            tnorm = norm(getattr(node, "label", None))
-            tmpl = by_obj.get(tnorm)
-            if tmpl is None:
-                for key, val in by_obj.items():
-                    if key and (key in tnorm or tnorm in key):
-                        tmpl, tnorm = val, key
-                        break
-            if tmpl is None or tnorm in found:
-                continue
             meta = getattr(edge, "source_metadata", None)
             if not isinstance(meta, dict):
                 meta = {}
+            # 1) primary: (subject, object) node identity from the live index.
+            tmpl = key = None
+            for e in roster:
+                k = norm(e["obj"])
+                if tgt in obj_ids.get(k, ()):
+                    tmpl, key = e, k
+                    break
+            # 2) exact stored label (NO substring) for a legacy full-label node.
+            if tmpl is None:
+                node = None
+                try:
+                    node = graph.get_node(tgt)
+                except Exception:
+                    pass
+                if node is not None:
+                    k = norm(getattr(node, "label", None))
+                    if k in by_obj:
+                        tmpl, key = by_obj[k], k
+            # 3) provenance fallback: a real stamped edge is identified by the
+            #    URL/provenance carried at write, never by a label guess.
+            if tmpl is None:
+                stamped_url = (meta.get("source_url") or meta.get("url")
+                               or meta.get("source"))
+                if stamped_url:
+                    for e in roster:
+                        if e.get("source_url") and stamped_url == e["source_url"]:
+                            tmpl, key = e, norm(e["obj"])
+                            break
+            if tmpl is None or key in found:
+                continue
             edge_kind = (meta.get("edge_kind")
                          or getattr(edge, "relation_type", None) or "unknown")
             url = (meta.get("source_url") or meta.get("url")
                    or meta.get("source"))
             trusted = (edge_kind == "curated"
                        or meta.get("source_type") == "seed")
-            found[tnorm] = {
+            found[key] = {
                 "subject": item["subject"], "relation": "definition",
                 "obj": tmpl["obj"], "kind": edge_kind,
                 "source_url": url if isinstance(url, str) and url else None,
