@@ -1,22 +1,24 @@
 # RAVANA-LEARN-5 — consolidated result
 
-**Suite verdict: FAIL (WFA).** The pre-registered release rule in
-`docs/BRAIN_LEARN5_DESIGN.md` requires all five components to PASS. CAR, CLI,
-PDR and RSI pass; **WFA now FAILs honestly** after being rebuilt as an
-inclusion/exclusion source-monitoring instrument (`R = I−E` 0.015/0.075,
-withdrawal 0.14/0.04 vs bounds 0.25/0.50). PDR and RSI remain G6-FLAGGED and
-are NOT valid progress signals. No threshold or rubric was relaxed to alter
-a verdict.
+**Suite verdict: FAIL (WFA); two other passes invalidated.** The release rule
+requires all five components to PASS. CAR and CLI pass on verified engine
+measurements. **WFA FAILs** after echo-free measurement: 0 explicit source
+decisions even under forced choice (`WFA_ECHO_IMMUNE_RESULT.md`). WFA's earlier
+R=0.015 numbers were keyword echoes and are void; PDR's and RSI's 1.00 passes
+were fake-oracle outputs (`G6_FLAGS_ANALYSIS.md`). Rewired live RSI shows
+near/far transfer 0.00 (`RSI_FOCUSED_LIVE.md`); PDR's live census is repaired
+but not yet re-scored (`PDR_FACT_MATERIALIZATION.md`). No threshold or rubric
+was relaxed.
 
 ## Scorecard
 
 | component | verdict | headline primary / sealed |
 |---|---|---|
 | CAR — conversational acquisition | **PASS (post-fix)** | all 10 criteria PASS: Δ8 primary 1.0 / sealed 0.9, reversals 0.0, cold-reload gain retained. Emitted answer reach now **1.00 / 1.00** (was 0.30 / 0.10); identical-surface echo still 0.50 / 0.00 |
-| WFA — web attribution | **FAIL (rebuilt)** | process-dissociation rebuild: R = I−E **0.015 / 0.075**, withdrawal after source invalidation **0.14 / 0.04** (bounds 0.25 / 0.50); no longer tautological and now falsifiable. See `WFA_PROCESS_DISSOCIATION.md` |
-| PDR — poison resistance | PASS (limited) | durable + provenance-forged + sleeper poison all 1.00; intrusion 0.00; **G6-FLAGGED** (saturated) |
+| WFA — web attribution | **FAIL (verified)** | echo-free rerun: `pd_unparseable_rate=1.00`, `forced_choice_explicit_rate=0.00`; 0/272 explicit source decisions. Earlier R=0.015/0.075 was keyword echo and is VOID. See `WFA_ECHO_IMMUNE_RESULT.md` |
+| PDR — poison resistance | **UNVERIFIED** | 1.00s were `backend=fake` oracle outputs. Rewired live census initially failed 6/8 controls (zero-fact census); materialization repaired and unit-tested, full live score not yet run |
 | CLI — continual learning | **PASS (post-fix)** | see `docs/LEARN5_CLI_PASS.md`: PRIMARY on−off +0.267, SEALED +0.154, both at ratio 1.000; historical baseline 0.000/0.000 |
-| RSI — rule induction | PASS (limited) | live-engine teaching + negative rules added; flat 1.00 across k=1/2/4/8, growth +0.000; **G6-FLAGGED** |
+| RSI — rule induction | **FAIL on live probe** | fake 1.00 everywhere vs live near/far 0.00 at k=1/8, foil 1.00, negative 0.5→1.0; 2 items/pool, 1,440 `process_turn` calls. See `RSI_FOCUSED_LIVE.md` |
 
 ## What the suite establishes
 
