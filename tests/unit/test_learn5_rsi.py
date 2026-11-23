@@ -381,3 +381,61 @@ def test_summary_carries_additive_provenance(items, rows):
     out = rsi.summarize(items, rows)
     assert out["engine_observation_missing"] == 0
     assert out["engine_response_unparsed"] == 0
+
+
+# ── hedge-echo immunity: a decline is not a demonstration ───────────────────
+# The live engine declines teaching assertions with uncertainty frames that
+# NAME the relation word and often a candidate entity ("not totally sure
+# about resembles yet", "honestly, X is a bit outside what i know"). Those
+# echoes of the presented vocabulary must not become a parsed relation or
+# target. No gate or threshold is touched: the verdict still says 'reject',
+# and an explicit or genuine assertion still parses.
+def test_hedge_echo_cannot_supply_relation_or_target(items):
+    it = items[0]
+    cand = it["near"]["candidates"][0]
+    for hedge in (
+        "hmm, i'm not totally sure about resembles yet, and that's okay "
+        "wanna figure it out together.",
+        "i don't really have a solid grasp on %s so far what made you "
+        "wonder about that." % cand,
+        "honestly, resembles is a bit outside what i know right now "
+        "what do you make of it.",
+    ):
+        b = _live([hedge])
+        b.present([("a", "resembles", "b")], it, 1, "near")
+        ans = b.last_engine_answer
+        assert ans["relation"] is None, hedge
+        assert ans["target"] is None, hedge
+        assert ans["verdict"] in ("reject", "no_answer"), hedge
+
+
+def test_hedge_strip_keeps_explicit_answer_and_genuine_assertion(items):
+    it = items[0]
+    good = it["near"]["gold_target"]
+    # Explicit key=value form is unaffected (proof no gate was lowered).
+    b = _live(["relation=%s target=%s verdict=match" % (it["relation"], good)])
+    b.present([("a", "causes", "b")], it, 1, "near")
+    assert b.last_engine_answer["verdict"] == "match"
+    assert b.last_engine_answer["target"] == good
+    # A genuine assertion in its own emission still parses, even when the
+    # same item also produced an uncertainty hedge.
+    b2 = _live([
+        "hmm, i'm not totally sure about resembles yet, and that's okay.",
+        "yes, gale causes rainbow.",
+    ])
+    b2.present([("a", "causes", "b"), ("c", "causes", "d")], it, 2, "near")
+    assert b2.last_engine_answer["relation"] == "CAUSE"
+
+
+def test_hedge_strip_is_verdict_neutral_and_fake_path_unchanged(items):
+    # A hedge-only decline still fails-closed exactly as before: the change
+    # removes spurious evidence, not the rejection verdict.
+    it = items[0]
+    b = _live(["hmm, i'm not totally sure about resembles yet, and that's okay."])
+    b.present([("a", "resembles", "b")], it, 1, "near")
+    assert b.last_engine_answer["verdict"] == "reject"
+    # Fake backend never enters the parser; its oracle rows are byte-identical.
+    frows = rsi.run_sweep(items[:4], backend=rsi.FakeBackend())
+    assert all("engine_answer" not in r and "engine_graded" not in r
+               for r in frows)
+    assert rsi.summarize(items[:4], frows)["primary"]["near"] == 1.0
