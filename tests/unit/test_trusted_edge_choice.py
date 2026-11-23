@@ -193,3 +193,11 @@ def test_subject_not_in_question_is_ignored():
     # the generic question fallback finds no matching edge -> no answer.
     assert rg.ResponseGenMixin._trusted_edge_candidate(
         fake, QUERY, "rainbow") is None
+
+
+def test_phrase_subject_falls_back_to_head_noun():
+    """Extractors can yield 'true thaw' for 'what is true of thaw?'."""
+    os.environ[rg.EDGE_CHOICE_ENV] = "1"
+    fake = FakeSelf(*taught_graph())
+    assert rg.ResponseGenMixin._trusted_edge_candidate(
+        fake, QUERY, "true thaw") == "mist"

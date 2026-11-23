@@ -8167,6 +8167,16 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         try:
             _ctx = getattr(self, "_source_gate_ctx", None)
             _subj = getattr(_ctx, "subject", None) if _ctx is not None else None
+            # Most callers (e.g. RSI) do not stage a source-evaluation ctx.
+            # Resolve the subject from the prompt through the SAME read-side
+            # fix used by process_turn, so the hook sees the queried concept
+            # rather than a trailing option token.
+            if not _subj:
+                try:
+                    _subj, _ = self._extract_topic(
+                        self._topic_input_for_prompt(user_input), [])
+                except Exception:
+                    _subj = None
             _choice = self._trusted_edge_candidate(user_input, _subj)
             if _choice is not None:
                 return _choice
