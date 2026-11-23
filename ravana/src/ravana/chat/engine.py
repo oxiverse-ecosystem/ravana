@@ -8046,6 +8046,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return 0.0
 
+    @staticmethod
+    def _topic_input_for_prompt(user_input):
+        """Strip a forced-choice option tail before subject extraction."""
+        try:
+            import re as _re
+            if _re.search(r"\bOptions\s*:", user_input or "", _re.I):
+                user_input = _re.split(r"\bOptions\s*:", user_input,
+                                       maxsplit=1, flags=_re.I)[0]
+            # Drop a leading framing clause ("Considering the examples above,
+            # ...") so last-word extraction sees the question, not the frame.
+            _q = _re.search(r"\b(what|why|how|which|who|where|when)\b",
+                            user_input or "", _re.I)
+            if _q:
+                return user_input[_q.start():]
+        except Exception:
+            pass
+        return user_input
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed.
 
@@ -10784,8 +10802,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                         self.user_model.edge_reactivations[key] = \
                             self.user_model.edge_reactivations.get(key, 0) + 1
 
-        # Step 2: Extract topic with multi-strategy grounding
-        subject, obj = self._extract_topic(user_input, activated)
+        # Step 2: Extract topic with multi-strategy grounding.
+        # A forced-choice prompt ("... Options: a, b, c, d") puts the OPTION
+        # tokens at the end of the utterance; generic last-word extraction then
+        # mistakes an option for the queried subject (measured: "thaw?" ->
+        # "hail"). Ground the subject from the text BEFORE the option marker;
+        # the full utterance is still used everywhere else. This changes the
+        # input to the gate, never a threshold or decision rule.
+        _topic_input = self._topic_input_for_prompt(user_input)
+        subject, obj = self._extract_topic(_topic_input, activated)
         self._last_subject = subject  # for AgentReplyStore capture (D1)
         # Recover the real concept from the raw subject phrase. This strips
         # conditional frames ("if the sun disappeared" -> "sun") AND trailing

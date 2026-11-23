@@ -4753,6 +4753,25 @@ class ResponseGenMixin(ChainWalkerMixin):
             return True
         if subj_lower in getattr(self, '_concept_sources', {}):
             return True
+        # A trusted fact just taught in THIS conversation is genuine evidence
+        # of aboutness (schema assimilation, Tse et al. 2007). GloVe resemblance
+        # asks the wrong question for a taught relation: causes rarely look like
+        # their effect. Admit the provenance-stamped edge as grounding instead
+        # of lowering any similarity threshold.
+        try:
+            _g = getattr(self, "graph", None)
+            _kw = getattr(self, "_concept_keywords", {}) or {}
+            for _nid in _kw.get(subj_lower, []):
+                for (s, t), ed in (_g.edges.items() if _g is not None else []):
+                    if s != _nid and t != _nid:
+                        continue
+                    md = getattr(ed, "source_metadata", None) or {}
+                    if (md.get("edge_kind") in
+                            ("curated", "web_fact", "definition", "curriculum")
+                            and str(md.get("source", "")).lower() == "conversation"):
+                        return True
+        except Exception:
+            pass
 
         subj_vec = self._glove_vector(subject) if hasattr(self, '_glove_vector') else None
         if subj_vec is None:
