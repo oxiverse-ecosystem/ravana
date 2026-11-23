@@ -122,6 +122,13 @@ TH = {
     # A PD run with more than this fraction of unparseable decision responses
     # cannot support an I/E/R claim.  New, stricter gate: makes PASS harder.
     "unparseable_rate_max": 0.50,
+    # --- ADDITIVE internal-source arm thresholds (reported, not gated here) ---
+    # These keys are NEW.  No pre-existing key above was added, removed or
+    # changed, and decide() does not read them: the arm is scored by its own
+    # internal_source_decide() and travels as additive JSON only.
+    "IS_correct_min": 0.90,            # per-condition expected-token rate
+    "IS_gate_invariant_min": 0.95,     # non-ENDORSE emitted text == token
+    "IS_prompt_label_free_min": 1.00,  # source question never states the label
 }
 
 # Structural (instrument-validity) minima per pool, from design section 4.5.
@@ -1679,6 +1686,525 @@ def decide(summary, checks_ok):
     return rules, all(rules.values())
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# INTERNAL-SOURCE ARM — non-tautological, provenance-read from the engine graph
+# ══════════════════════════════════════════════════════════════════════════════
+# Why this arm exists (docs/investigations/WFA_INTERNAL_SOURCE_DESIGN.md):
+# PR #481's gate is deterministic over a caller-supplied ClaimContext. If the
+# harness builds that context from item metadata (`source_status`,
+# `source_id`, expected answer), the harness has already handed the grader the
+# answer and a near-1.00 result is G6 saturation, not source monitoring. This
+# arm removes that shortcut: the fact is FIRST taught into the engine through
+# WebToGraph.learn_text (real `edge.source_metadata`), and the staged context
+# is built ONLY by reading those stored edges back out of the graph. The
+# source question never states credibility. The human analogue is being asked
+# "did you learn this from a credible source?" without being told the source:
+# the answer must come from recollected source information, not the question
+# (Johnson, Hashtroudi & Lindsay 1993; Tulving 1985; Jacoby 1991).
+#
+# The three conditions are defined by what is ACTUALLY STORED:
+#   credible    -> a verifiable origin edge in the graph -> ENDORSE / Y
+#   discredited -> the same origin edge after an explicit source-invalidation
+#                  cue was written into its provenance, after a prior
+#                  endorsement -> WITHDRAW / W
+#   unknown     -> no stored provenance for that origin -> ABSTAIN / N
+# The harness never reads an item's expected answer, source_status or
+# source_id when staging. `source_id` is the ORIGIN WE TAUGHT (an independent
+# variable), deterministically derived from the claim + condition, never from
+# item answer metadata.
+
+IS_FLAG = "RAVANA_SOURCE_EVAL"
+IS_CONDITIONS = ("credible", "discredited", "unknown")
+IS_EXPECTED_TOKEN = {"credible": "Y", "discredited": "W", "unknown": "N"}
+IS_EXPECTED_DECISION = {"credible": "ENDORSE", "discredited": "WITHDRAW",
+                        "unknown": "ABSTAIN"}
+_IS_VERIFIABLE_KINDS = frozenset({"web_fact", "curated"})
+_IS_DISCREDITED_WORDS = frozenset({"discredited", "unreliable", "invalidated"})
+
+SOURCE_QUESTION_INSTRUCTION = (
+    "Reply with ONE token only. Y = yes, N = no / abstain, "
+    "W = withdraw a prior answer. No explanation."
+)
+SOURCE_QUESTION = "Did you learn the following claim from a credible source?"
+
+
+def source_question_prompt(claim):
+    """The source question. It asks ABOUT credibility but never states it.
+
+    This prompt is byte-identical across all three conditions for a given
+    claim: no source id, status, provenance or expected answer is included.
+    """
+    return "%s\n%s\nClaim: %s\nReply:" % (
+        SOURCE_QUESTION_INSTRUCTION, SOURCE_QUESTION, claim or "")
+
+
+def prompt_is_label_free(prompt, source_id=None):
+    """True iff the decision prompt carries no provenance label / expectation."""
+    low = (prompt or "").lower()
+    forbidden = ["provenance", "source_status", "trusted sources",
+                 "discredited", "unreliable", "credibility:"]
+    if source_id:
+        forbidden.append(str(source_id).lower())
+    return not any(tok in low for tok in forbidden)
+
+
+def is_source_id(claim, condition):
+    """Origin id of the source WE teach from. A function of the claim text and
+    the condition ONLY -- never of the item's expected answer or source_status.
+    """
+    digest = hashlib.sha256(("WFA-IS|" + condition + "|" + (claim or ""))
+                            .encode("utf-8")).hexdigest()[:12]
+    return "wfa-internal://%s/%s" % (condition, digest)
+
+
+def _iter_graph_edges(engine_or_graph):
+    """Yield ((src_id, tgt_id), edge) over a ConceptGraph-shaped object.
+
+    Accepts an engine (uses its `.graph`) or a bare graph; unit tests use a
+    tiny fake with the same `.edges` / `.nodes` / `.get_node` surface. This is
+    a READ-ONLY view: nothing here writes to the graph.
+    """
+    g = getattr(engine_or_graph, "graph", engine_or_graph)
+    edges = getattr(g, "edges", None)
+    if isinstance(edges, dict):
+        for key, edge in edges.items():
+            if isinstance(key, (tuple, list)) and len(key) == 2:
+                yield (key[0], key[1]), edge
+            else:
+                yield (getattr(edge, "source", None),
+                       getattr(edge, "target", None)), edge
+    elif edges is not None:
+        for edge in edges:
+            yield ((getattr(edge, "source", None),
+                    getattr(edge, "target", None)), edge)
+
+
+def _graph_node_label(g, nid):
+    node = None
+    get_node = getattr(g, "get_node", None)
+    if callable(get_node):
+        try:
+            node = get_node(nid)
+        except Exception:
+            node = None
+    if node is None and isinstance(getattr(g, "nodes", None), dict):
+        node = g.nodes.get(nid)
+    return str(getattr(node, "label", "") or "")
+
+
+def graph_provenance_for_claim(engine_or_graph, claim, source_id=None):
+    """Read EVERY stored edge whose endpoint labels cover the claim tokens.
+
+    Only `edge.source_metadata` (the engine's own provenance record) and node
+    labels are consulted. Item metadata is not an argument. `source_id`, when
+    given, restricts to the origin we taught from; it never by itself makes
+    the origin credible -- the `edge_kind`/status stored in the graph does.
+    """
+    g = getattr(engine_or_graph, "graph", engine_or_graph)
+    toks = _words(claim)
+    out = []
+    for (src_id, tgt_id), edge in _iter_graph_edges(g):
+        sm = getattr(edge, "source_metadata", None)
+        if not isinstance(sm, dict) or not sm:
+            continue                      # an unprovenanced boot/auto edge
+        origin = str(sm.get("source") or sm.get("url") or "").strip()
+        if source_id is not None and origin != str(source_id):
+            continue
+        labels = (_graph_node_label(g, src_id) + " " +
+                  _graph_node_label(g, tgt_id))
+        overlap = toks & _words(labels)
+        if not overlap:
+            continue
+        status = str(sm.get("source_status") or sm.get("trust_class")
+                     or "").strip().lower()
+        out.append({
+            "source": origin,
+            "url": str(sm.get("url") or ""),
+            "edge_kind": str(sm.get("edge_kind") or ""),
+            "source_type": str(sm.get("source_type") or ""),
+            "source_status": status,
+            "relation_type": str(getattr(edge, "relation_type", "") or ""),
+            "confidence": getattr(edge, "confidence", None),
+            "timestamp": getattr(edge, "timestamp", 0) or 0,
+            "claim_label_overlap": sorted(overlap),
+        })
+    return out
+
+
+def _rank_stored_provenance(rows):
+    """Deterministic choice among stored edges: invalidation tag first, then
+    verifiable kind, then confidence/recency. All inputs are graph fields."""
+    def key(m):
+        conf = m.get("confidence")
+        conf = float(conf) if isinstance(conf, (int, float)) else 0.0
+        ts = m.get("timestamp")
+        ts = float(ts) if isinstance(ts, (int, float)) else 0.0
+        return (m.get("source_status") in _IS_DISCREDITED_WORDS,
+                m.get("edge_kind") in _IS_VERIFIABLE_KINDS, conf, ts)
+    return sorted(rows, key=key, reverse=True)
+
+
+def context_from_graph_provenance(engine_or_graph, claim, source_id=None,
+                                  prior_decision=None, cue_present=False):
+    """Build the staged ClaimContext from STORED EDGE PROVENANCE ONLY.
+
+    Returns ``(ClaimContext, audit)``. Trust is derived exclusively from
+    `edge.source_metadata`: a verifiable kind (web_fact/curated) WITH a real
+    origin yields CREDIBLE plus an explicit stored credibility token; a
+    discredited status tag yields DISCREDITED; everything else (no matching
+    edge, no origin, co_occurrence/auto_expand/boot/inferred, no kind tag)
+    fails closed to UNKNOWN. Confidence is passed as `reliability` and as
+    `familiarity` to prove the evaluator ignores item-strength signals.
+
+    `prior_decision` must come from the engine's own emitted decision audit,
+    never from item metadata. The audit `fingerprint` is a hash of the stored
+    provenance and is the hook the anti-tautology tests assert on.
+    """
+    from ravana.chat.source_evaluation import (ClaimContext, SourceStatus,
+                                               TrustClass)
+    rows = graph_provenance_for_claim(engine_or_graph, claim, source_id)
+    best = _rank_stored_provenance(rows)[0] if rows else None
+    if best is None:
+        origin, kind, status = "", "", ""
+        trust, token = TrustClass.UNKNOWN, None
+        rel = 0.0
+    else:
+        origin = str(best.get("source") or best.get("url") or "").strip()
+        kind = best.get("edge_kind", "")
+        status = best.get("source_status", "")
+        rel = (float(best["confidence"])
+               if isinstance(best.get("confidence"), (int, float)) else 0.0)
+        if status in _IS_DISCREDITED_WORDS:
+            trust, token = TrustClass.DISCREDITED, None
+        elif origin and kind in _IS_VERIFIABLE_KINDS:
+            # The stored `edge_kind` IS the engine's explicit attestation that
+            # this origin was a verified fact; the evaluator still requires a
+            # token, so no numeric strength can substitute for the source.
+            trust, token = TrustClass.CREDIBLE, "credible"
+        else:
+            trust, token = TrustClass.UNKNOWN, None
+    src = SourceStatus(
+        origin_id=origin, source_type=kind or "unknown", reliability=rel,
+        trust_class=trust, active=True, credibility_token=token)
+    invalidated = status in _IS_DISCREDITED_WORDS
+    ctx = ClaimContext(source=src, prior_decision=prior_decision,
+                       cue_present=cue_present, invalidated=invalidated,
+                       familiarity=rel)
+    audit = {
+        "context_source": "engine_graph_provenance",
+        "n_matching_edges": len(rows),
+        "origin": origin, "edge_kind": kind, "source_status": status,
+        "trust_class": trust.value,
+        "credibility_token": token,
+        "fingerprint": hashlib.sha256(json.dumps(
+            [[m["source"], m["edge_kind"], m["source_status"]]
+             for m in sorted(rows, key=lambda r: str(r["source"]))],
+            sort_keys=True).encode("utf-8")).hexdigest(),
+    }
+    return ctx, audit
+
+
+def stage_context_for_item(engine_or_graph, item, source_id,
+                           prior_decision=None):
+    """Anti-tautology wrapper: it accepts an item but reads ONLY `claim`.
+
+    Changing `source_status`, `expected_answer`, `source_id`, reliability or
+    any other item field cannot change the staged context; that contract is
+    asserted directly by the unit tests.
+    """
+    return context_from_graph_provenance(
+        engine_or_graph, item["claim"], source_id=source_id,
+        prior_decision=prior_decision)
+
+
+def teach_claim_into_graph(engine, claim, source_id, source_type="seed"):
+    """Teach through the engine's REAL ingest path: WebToGraph.learn_text.
+
+    Writes typed edges whose `source_metadata` carries the origin we taught.
+    Returns the number of facts written. Failures are surfaced (the arm then
+    sees no provenance and reports a wrong answer) rather than swallowed.
+    """
+    w2g = None
+    getter = getattr(engine, "_get_web_to_graph", None)
+    if callable(getter):
+        try:
+            w2g = getter()
+        except Exception:
+            w2g = None
+    if w2g is None:
+        from ravana.web.web_to_graph import WebToGraph  # lazy; no boot here
+        w2g = WebToGraph(engine, source=source_id or "internal", xdg=False,
+                         intake=None)
+    return w2g.learn_text(claim, source_url=source_id or "",
+                          source_type=source_type, context=source_id or "internal")
+
+
+def apply_source_invalidation(engine, source_id):
+    """Write the experimenter's source-invalidation cue into the engine's own
+    stored provenance (Dautriche et al. 2021: source unreliability cue). The
+    cue is an extrapolation -- a verbal/metadata proxy for the child's
+    behavioural reevaluation -- and is recorded as such in the design doc.
+
+    Returns the number of stored edges tagged. Only edges whose stored origin
+    equals `source_id` are touched; no item metadata is consulted.
+    """
+    changed = 0
+    for _, edge in _iter_graph_edges(engine):
+        sm = getattr(edge, "source_metadata", None)
+        if not isinstance(sm, dict):
+            continue
+        if str(sm.get("source") or sm.get("url") or "").strip() != str(source_id):
+            continue
+        sm["source_status"] = "discredited"
+        sm["invalidated"] = True
+        changed += 1
+    return changed
+
+
+def _is_process_turn(engine, prompt):
+    """Call the engine turn; return (text, error_string_or_None)."""
+    try:
+        return (engine.process_turn(prompt) or "").strip(), None
+    except Exception as exc:
+        return "<ERR %s: %s>" % (type(exc).__name__, exc), str(exc)
+
+
+def run_internal_source_condition(engine, claim, condition, source_id,
+                                  teach_fn=None, invalidate_fn=None,
+                                  prior_decision=None):
+    """Run ONE internal-source condition on a (possibly fake) engine.
+
+    The returned observation contains the engine's OWN emitted decision
+    (`engine._last_source_evaluation`), the emitted text, the source-question
+    prompt, and the graph-provenance audit used for staging. No decision is
+    computed here: grading only compares the engine's token to the expected
+    one. `teach_fn` / `invalidate_fn` are injectable for fake-based tests.
+    """
+    from ravana.chat.source_evaluation import Decision  # lazy, pure module
+    if condition not in IS_EXPECTED_TOKEN:
+        raise ValueError("unknown internal-source condition: %r" % condition)
+    obs = {"condition": condition, "claim": claim, "source_id": source_id,
+           "decision": None, "token": None, "text": "", "missing": False,
+           "teached": 0, "invalidated": 0, "prior_decision": None,
+           "prompt": source_question_prompt(claim)}
+    if engine is None:
+        obs["missing"] = True
+        return obs
+    reset = getattr(engine, "reset_episodic_state", None)
+    if callable(reset):
+        try:
+            reset()
+        except Exception:
+            pass
+
+    prior = prior_decision
+    if condition == "unknown":
+        # Nothing is taught for this origin: source amnesia / no attribution.
+        obs["teached"] = 0
+    else:
+        teach = teach_fn or (lambda e, c, s: teach_claim_into_graph(e, c, s))
+        obs["teached"] = teach(engine, claim, source_id)
+        if condition == "discredited":
+            # FIRST decision turn: commit to the claim while the source is
+            # still credible. The prior decision comes from the ENGINE's audit
+            # object, never from the harness's bookkeeping of item answers.
+            ctx0, _ = context_from_graph_provenance(
+                engine, claim, source_id=source_id)
+            engine.set_source_context_for_turn(claim, ctx0)
+            _is_process_turn(engine, obs["prompt"])
+            first = getattr(engine, "_last_source_evaluation", None)
+            if first is not None:
+                prior = first.decision
+            obs["prior_decision"] = prior.value if prior is not None else None
+            invalidate = invalidate_fn or (
+                lambda e, s: apply_source_invalidation(e, s))
+            obs["invalidated"] = invalidate(engine, source_id)
+
+    ctx, audit = context_from_graph_provenance(
+        engine, claim, source_id=source_id, prior_decision=prior)
+    obs.update({"staged_" + k: v for k, v in audit.items()})
+    engine.set_source_context_for_turn(claim, ctx)
+    text, err = _is_process_turn(engine, obs["prompt"])
+    obs["text"] = text
+    obs["error"] = err
+    decision = getattr(engine, "_last_source_evaluation", None)
+    obs["decision"] = decision.decision.value if decision is not None else None
+    obs["token"] = decision.token if decision is not None else None
+    obs["rule"] = decision.rule if decision is not None else None
+    # Gate invariant: a non-ENDORSE decision MUST be the engine's single
+    # decision token; an ENDORSE leaves the generated text untouched.
+    obs["gate_ok"] = bool(
+        decision is not None and
+        (decision.decision is Decision.ENDORSE
+         or text.strip() == decision.token))
+    obs["prompt_label_free"] = prompt_is_label_free(obs["prompt"], source_id)
+    return obs
+
+
+def grade_internal_source_condition(obs, condition):
+    """Attach additive flags; reads no threshold and computes no decision."""
+    expected = IS_EXPECTED_TOKEN[condition]
+    tok, dec = obs.get("token"), obs.get("decision")
+    return {
+        "condition": condition,
+        "decision": dec,
+        "token": tok,
+        "expected_token": expected,
+        "correct": tok == expected,
+        "decision_expected": dec == IS_EXPECTED_DECISION[condition],
+        "gate_ok": bool(obs.get("gate_ok")),
+        "prompt_label_free": bool(obs.get("prompt_label_free")),
+        "context_from_graph": obs.get("staged_context_source") ==
+                              "engine_graph_provenance",
+        "fingerprint": obs.get("staged_fingerprint"),
+        "rule": obs.get("rule"),
+        "missing": bool(obs.get("missing")),
+        "teached": obs.get("teached", 0),
+        "invalidated": obs.get("invalidated", 0),
+        "prompt": obs.get("prompt"),
+    }
+
+
+class InternalSourceArms:
+    """Injectable container; a missing condition is reported, never faked."""
+
+    CONDITIONS = IS_CONDITIONS
+
+    def __init__(self, credible=None, discredited=None, unknown=None):
+        self.credible = credible
+        self.discredited = discredited
+        self.unknown = unknown
+
+    def missing(self):
+        return [c for c in self.CONDITIONS if getattr(self, c, None) is None]
+
+    def as_dict(self):
+        return {c: getattr(self, c, None) is not None for c in self.CONDITIONS}
+
+
+def run_internal_source_arms(items, records, arms):
+    """Annotate records IN ADDITIVELY with the three internal-source arms."""
+    by_id = {r["id"]: r for r in records}
+    for it in items:
+        if it["kind"] != "gap" or not it.get("claim"):
+            continue
+        rec = by_id[it["id"]]
+        for cond in IS_CONDITIONS:
+            fn = getattr(arms, cond, None)
+            if fn is None:
+                continue
+            obs = fn(it, cond)
+            flags = grade_internal_source_condition(obs, cond)
+            rec["is_%s_flags" % cond] = flags
+            for key in ("token", "decision", "correct", "gate_ok",
+                        "prompt_label_free", "context_from_graph", "missing"):
+                rec["is_%s_%s" % (cond, key)] = flags[key]
+    return records
+
+
+def internal_source_summary(records, max_per_pool=0):
+    """Rates per condition and pool, from raw observations; no threshold read.
+
+    All keys are additive; no existing summary field is renamed or removed.
+    """
+    out = {"arm_present": True, "conditions": list(IS_CONDITIONS),
+           "flag": IS_FLAG, "context_source": "engine_graph_provenance",
+           "anti_tautology_contract": (
+               "context_from_graph_provenance() reads only graph provenance; "
+               "item answer/status/id fields are never passed to it"),
+           "pools": {}}
+    for pool in ("primary", "sealed"):
+        rows = [r for r in records if r.get("pool") == pool and
+                "is_credible_flags" in r]
+        if max_per_pool and len(rows) > max_per_pool:
+            rows = rows[:max_per_pool]
+        per = {"n": len(rows), "conditions": {}}
+        for cond in IS_CONDITIONS:
+            sel = [r for r in rows if "is_%s_flags" % cond in r]
+            def rate(key):
+                return (round(sum(1 for r in sel
+                                  if r["is_%s_flags" % cond].get(key) is True)
+                              / len(sel), 4) if sel else None)
+            per["conditions"][cond] = {
+                "n": len(sel),
+                "correct": rate("correct"),
+                "decision_expected": rate("decision_expected"),
+                "gate_ok": rate("gate_ok"),
+                "prompt_label_free": rate("prompt_label_free"),
+                "context_from_graph": rate("context_from_graph"),
+                "endorse_rate": (round(sum(
+                    1 for r in sel if r["is_%s_flags" % cond]["decision"]
+                    == "ENDORSE") / len(sel), 4) if sel else None),
+                "abstain_rate": (round(sum(
+                    1 for r in sel if r["is_%s_flags" % cond]["decision"]
+                    == "ABSTAIN") / len(sel), 4) if sel else None),
+                "withdraw_rate": (round(sum(
+                    1 for r in sel if r["is_%s_flags" % cond]["decision"]
+                    == "WITHDRAW") / len(sel), 4) if sel else None),
+            }
+        per["anti_tautology_ok"] = all(
+            r.get("is_%s_context_from_graph" % c) is True and
+            r.get("is_%s_prompt_label_free" % c) is True
+            for r in rows for c in IS_CONDITIONS
+            if "is_%s_flags" % c in r)
+        out["pools"][pool] = per
+    out["audit"] = [
+        {k: r[k] for k in ("id", "pool", "is_credible_flags",
+                          "is_discredited_flags", "is_unknown_flags")
+         if k in r}
+        for r in records if "is_credible_flags" in r]
+    return out
+
+
+def internal_source_decide(summary):
+    """Pre-registered criteria for the NEW arm, kept SEPARATE from decide().
+
+    Existing gates and thresholds are untouched: this function produces only
+    `summary['internal_source']['rules'/'pass']`, an additive JSON subtree.
+    """
+    rules = {"IS_arm_present": bool(summary.get("arm_present")),
+             "IS_flag_enabled": bool(summary.get("flag_enabled"))}
+    for pool, pp in summary.get("pools", {}).items():
+        for cond in IS_CONDITIONS:
+            cc = pp.get("conditions", {}).get(cond, {})
+            rules["IS_%s_correct_%s>=%.2f" % (cond, pool, TH["IS_correct_min"])] = (
+                cc.get("correct") is not None and
+                cc.get("correct") >= TH["IS_correct_min"])
+            rules["IS_%s_gate_%s>=%.2f" % (cond, pool, TH["IS_gate_invariant_min"])] = (
+                cc.get("gate_ok") is not None and
+                cc.get("gate_ok") >= TH["IS_gate_invariant_min"])
+            rules["IS_%s_label_free_%s" % (cond, pool)] = (
+                cc.get("prompt_label_free") is not None and
+                cc.get("prompt_label_free") >= TH["IS_prompt_label_free_min"])
+        rules["IS_anti_tautology_%s" % pool] = bool(pp.get("anti_tautology_ok"))
+        rules["IS_n_%s>=20" % pool] = pp.get("n", 0) >= 20
+    return rules, all(rules.values())
+
+
+def internal_source_provenance_mutation_control(claim, source_id, graph,
+                                                prior_decision):
+    """Mutation control: flip ONLY stored provenance and require the decision
+    to move ENDORSE -> WITHDRAW. A staged context that ignores the graph fails.
+    Pure; works on a graph snapshot or a fake, no engine boot.
+    """
+    from ravana.chat.source_evaluation import Decision, evaluate_source
+    before, _ = context_from_graph_provenance(graph, claim, source_id,
+                                              prior_decision=prior_decision)
+    d_before = evaluate_source(claim, before).decision
+    for _, edge in _iter_graph_edges(graph):
+        sm = getattr(edge, "source_metadata", None)
+        if (isinstance(sm, dict) and
+                str(sm.get("source") or sm.get("url") or "").strip() == source_id):
+            sm["source_status"] = "discredited"
+            sm["invalidated"] = True
+    after, _ = context_from_graph_provenance(graph, claim, source_id,
+                                             prior_decision=prior_decision)
+    d_after = evaluate_source(claim, after).decision
+    return {"before": d_before.value, "after": d_after.value,
+            "moved": d_before is Decision.ENDORSE and
+                     d_after is Decision.WITHDRAW}
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     mfwf.install_frozen_patches()
@@ -1866,6 +2392,79 @@ def main(argv=None):
         print("  %-8s echo=%.3f unparseable=%s own_decision=%s fc_explicit=%s" % (
             pool, pd["echo_marker_rate"] or 0.0, pd["unparseable_rate"],
             pd["own_decision_rate"], pd["forced_choice_explicit_rate"]))
+
+    # ── INTERNAL-SOURCE ARM: ClaimContext read from the engine's OWN graph ──
+    # One dedicated engine (booted sequentially, never concurrently) serves
+    # all conditions; each item's origin id is derived from its claim text, so
+    # an invalidation on one item cannot leak into another item's context.
+    is_mode, is_engine = "not_run", None
+    if source is not None:
+        try:
+            is_engine = _boot_pd_engine()
+            is_mode = "dedicated_engine_graph_derived_context"
+        except Exception as exc:
+            is_mode = "boot_failed: %s" % type(exc).__name__
+    max_is = int(os.environ.get("WFA_IS_MAX_PER_POOL", "0") or 0)
+    is_flag_prev = os.environ.get(IS_FLAG)
+    os.environ[IS_FLAG] = "1"          # opt-in for this arm only; restored below
+    try:
+        is_items = items
+        if max_is > 0:                 # deterministic bounded subset (still >=20/pool)
+            seen, keep, kept = Counter(), [], set()
+            for it in items:
+                if it["kind"] != "gap":
+                    kept.add(it["id"])
+                    continue
+                if seen[it["pool"]] < max_is:
+                    keep.append(it)
+                    seen[it["pool"]] += 1
+                    kept.add(it["id"])
+            is_items = [it for it in items if it["id"] in kept]
+
+        def _is_fn(cond):
+            # The staged origin comes from is_source_id(claim, cond), NEVER
+            # from it['source_id'] / it['source_status'] / expected answer.
+            return lambda it, c: run_internal_source_condition(
+                is_engine, it["claim"], c, is_source_id(it["claim"], c))
+
+        is_arms = InternalSourceArms(credible=_is_fn("credible"),
+                                     discredited=_is_fn("discredited"),
+                                     unknown=_is_fn("unknown"))
+        run_internal_source_arms(is_items, records, is_arms)
+    finally:
+        if is_flag_prev is None:
+            os.environ.pop(IS_FLAG, None)
+        else:
+            os.environ[IS_FLAG] = is_flag_prev
+
+    summary["internal_source"] = internal_source_summary(records, max_is)
+    summary["internal_source"].update({
+        "flag_enabled": is_engine is not None,
+        "flag_restored": os.environ.get(IS_FLAG) == is_flag_prev,
+        "mode": is_mode, "max_per_pool": max_is,
+        "missing_conditions": is_arms.missing(),
+        "arm_call_counts": {
+            c: sum(1 for r in records if "is_%s_flags" % c in r)
+            for c in IS_CONDITIONS},
+    })
+    is_rules, is_pass = internal_source_decide(summary["internal_source"])
+    summary["internal_source"]["rules"] = {k: bool(v) for k, v in is_rules.items()}
+    summary["internal_source"]["pass"] = is_pass
+    # Persist additive is_* fields alongside all other per-item observations.
+    with open(DATA_PATH, "w", encoding="utf-8") as fh:
+        for rec in records:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    print("\n--- internal-source arm (context read from engine graph) ---")
+    print("  mode=%s flag_restored=%s" %
+          (is_mode, summary["internal_source"]["flag_restored"]))
+    for pool in ("primary", "sealed"):
+        ipp = summary["internal_source"]["pools"][pool]
+        print("  %-8s n=%d credible=%s discredited=%s unknown=%s anti_tautology=%s" % (
+            pool, ipp["n"],
+            ipp["conditions"]["credible"]["correct"],
+            ipp["conditions"]["discredited"]["correct"],
+            ipp["conditions"]["unknown"]["correct"],
+            ipp["anti_tautology_ok"]))
 
     checks = instrument_controls(wfa)
     checks_ok = all(ok for _, ok in checks)
