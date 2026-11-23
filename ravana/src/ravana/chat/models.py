@@ -104,3 +104,11 @@ class CognitiveResponseContext:
     cleaned_input: str = ""
     # Pivot M1: structured non-linguistic intent for the emitter.
     message: Any = None
+    # Source-monitoring gate (opt-in via RAVANA_SOURCE_EVAL=1). All additive,
+    # default-off: nothing below changes any existing caller. `source_context`
+    # is supplied by the harness through engine.set_source_context_for_turn()
+    # as a (claim: str, ClaimContext) pair; the other two fields are written by
+    # the gate as the per-turn audit trail. No WFA wording is stored here.
+    source_context: Any = None
+    source_evaluation_decision: Any = None
+    source_evaluation_reason: str = ""
