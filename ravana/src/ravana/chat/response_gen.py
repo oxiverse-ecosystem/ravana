@@ -33,6 +33,155 @@ def _is_meta(label):
     return (label or "").lower() in _META_SELF
 
 
+# ── H3: trusted-edge forced-choice answer construction (default OFF) ─────────
+# Brain basis (DOIs verified in docs/investigations/RSI_DECLARATION_STORAGE.md):
+# a single provenance-trusted causal trace is an OBSERVATION that licenses a
+# candidate (schema assimilation: Tse et al. 2007); it is not an asserted
+# schema. Distinct traces must CONVERGE on the same candidate or the selector
+# fail-closes (pattern separation: Yassa & Stark 2011; "schemas propose, sources
+# admit": Webb et al. 2016). Nothing here reads or lowers a score threshold.
+EDGE_CHOICE_ENV = "RAVANA_EDGE_CHOICE"
+TRUSTED_EDGE_CHOICE_KINDS = frozenset(
+    ("curated", "web_fact", "definition", "curriculum"))
+TRUSTED_CAUSAL_RELATIONS = frozenset(("causal", "physical_cause"))
+EDGE_CHOICE_SOURCE = "conversation"
+
+
+def edge_choice_enabled() -> bool:
+    """Default-OFF opt-in. Unset means byte-identical behavior everywhere."""
+    try:
+        return os.environ.get(EDGE_CHOICE_ENV, "0") == "1"
+    except Exception:
+        return False
+
+
+@dataclass(frozen=True)
+class CandidateEdge:
+    """Read-only view of one graph edge with RESOLVED endpoint labels."""
+    source_label: str = ""
+    target_label: str = ""
+    relation_type: str = ""
+    edge_kind: str = ""
+    edge_source: str = ""
+
+
+def parse_forced_choice(text: str) -> Tuple[str, List[str]]:
+    """Structural split of a forced-choice prompt -> (question, candidates).
+
+    Keys off the ``Options:`` frame and list punctuation only -- never item
+    wording or option URLs. Without that frame the input is returned unchanged
+    with an empty candidate list, so all callers stay byte-identical on every
+    other query shape.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return ("", [])
+    m = re.search(r"\boptions?\s*:\s*", text, re.IGNORECASE)
+    if not m:
+        return (text.strip(), [])
+    question = text[:m.start()].strip()
+    tail = text[m.end():].strip()
+    # Drop a trailing instruction clause structurally ("Answer briefly."),
+    # not by matching any particular prompt wording.
+    tail = re.split(
+        r"(?<=[.!?])\s+(?=(?:answer|reply|respond|choose|pick|select)\b)",
+        tail, flags=re.IGNORECASE)[0]
+    tail = re.sub(r"\b[A-Za-z]\s*[\)\]:]\s*", "", tail)  # A) / B) markers
+    opts: List[str] = []
+    # chr(10)/chr(13) keep this split free of escaped-newline literals.
+    for part in re.split("[,;" + chr(10) + chr(13) + "]+", tail):
+        part = part.strip().strip(" .!?")
+        if part:
+            opts.append(part)
+    return (question, opts)
+
+
+def select_trusted_candidate(subject: str, candidates: List[str],
+                             edges) -> Optional[str]:
+    """Pure selector: a trusted incoming causal edge admits one candidate.
+
+    Every condition is gate-preserving; no weight, confidence or similarity
+    threshold is read, strengthened, regraded or lowered:
+      * edge_kind in the already-trusted set;
+      * provenance source == 'conversation';
+      * relation_type causal / physical_cause;
+      * DIRECTED INTO the subject (edge.target_label == subject);
+      * edge.source_label is one of the supplied candidates.
+    Distinct supported candidates must CONVERGE to exactly one; anything else
+    (zero, or two or more) fails closed. No engine, no state, no env read.
+    """
+    if not subject or not candidates:
+        return None
+    s = str(subject).strip().lower()
+    if not s:
+        return None
+    canon: Dict[str, str] = {}
+    for c in candidates:
+        key = str(c).strip().lower()
+        if key:
+            canon.setdefault(key, str(c).strip())
+    if not canon:
+        return None
+    supported = set()
+    for e in (edges or ()):
+        if e is None:
+            continue
+        if str(getattr(e, "edge_kind", "") or "").strip().lower() \
+                not in TRUSTED_EDGE_CHOICE_KINDS:
+            continue
+        if str(getattr(e, "edge_source", "") or "").strip().lower() \
+                != EDGE_CHOICE_SOURCE:
+            continue
+        if str(getattr(e, "relation_type", "") or "").strip().lower() \
+                not in TRUSTED_CAUSAL_RELATIONS:
+            continue
+        if str(getattr(e, "target_label", "") or "").strip().lower() != s:
+            continue  # outgoing / unrelated edges cannot license a candidate
+        src = str(getattr(e, "source_label", "") or "").strip().lower()
+        if src in canon:
+            supported.add(canon[src])
+    if len(supported) == 1:
+        return next(iter(supported))
+    return None
+
+
+def trusted_candidate_edges_from_graph(graph, subject: str,
+                                       keyword_index=None) -> List[CandidateEdge]:
+    """Adapt a live ConceptGraph to CandidateEdge views (pure read only).
+
+    Endpoints are resolved by integer id -- ``graph.nodes`` is a dict, so
+    iterating it directly would yield ids, not nodes. Only edges whose TARGET
+    resolves to the subject node are adapted; direction is preserved.
+    """
+    if graph is None or not subject:
+        return []
+    s = str(subject).strip().lower()
+    nids = set()
+    for nid in ((keyword_index or {}).get(s, ()) or ()):
+        nids.add(nid)
+    nodes = getattr(graph, "nodes", None) or {}
+    if not nids:
+        for _nid, _node in nodes.items():
+            if str(getattr(_node, "label", "") or "").strip().lower() == s:
+                nids.add(_nid)
+    if not nids:
+        return []
+    out: List[CandidateEdge] = []
+    for (_sid, _tid), _ed in (getattr(graph, "edges", None) or {}).items():
+        if _tid not in nids:  # incoming only
+            continue
+        md = getattr(_ed, "source_metadata", None) or {}
+        _snode = graph.get_node(_sid) if hasattr(graph, "get_node") else None
+        _tnode = graph.get_node(_tid) if hasattr(graph, "get_node") else None
+        out.append(CandidateEdge(
+            source_label=str(getattr(_snode, "label", "") or ""),
+            target_label=str(getattr(_tnode, "label", "") or ""),
+            relation_type=str(getattr(_ed, "relation_type", "") or ""),
+            edge_kind=str(md.get("edge_kind", "") or ""),
+            edge_source=str(md.get("source", "") or ""),
+        ))
+    return out
+
+
 # ── Cognition-driven generation seed (NO authored reply strings) ──────────────
 # Minimal growable *structure*, not answers. Each entry maps a gap-type to a
 # (relation, slot-kind) pair; the Realizer fills the slots from live store
@@ -7391,6 +7540,30 @@ class ResponseGenMixin(ChainWalkerMixin):
                 
         return score
 
+    def _trusted_edge_candidate(self, raw_input: str,
+                                subject: Optional[str] = None) -> Optional[str]:
+        """Forced-choice candidate licensed by an incoming trusted taught edge.
+
+        Stateless and flag-gated. Returns None (no answer) unless the input has
+        forced-choice structure AND exactly one candidate is supported by a
+        provenance-trusted causal edge into the subject. Every other case is a
+        no-op for the caller, so fail-closed behavior is byte-identical.
+        """
+        if not edge_choice_enabled():
+            return None
+        try:
+            _q, _opts = parse_forced_choice(raw_input)
+            if len(_opts) < 2 or not _q:
+                return None
+            _subj = subject if (subject and
+                                str(subject).strip().lower() in _q.lower()) else _q
+            _edges = trusted_candidate_edges_from_graph(
+                getattr(self, "graph", None), _subj,
+                getattr(self, "_concept_keywords", None))
+            return select_trusted_candidate(_subj, _opts, _edges)
+        except Exception:
+            return None
+
     def _human_like_uncertainty(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Graceful, curious turn taken when FOK is low and the topic is ungrounded.
 
@@ -7398,6 +7571,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         signal uncertainty and turn the floor back to the speaker. We mirror this:
         acknowledge the gap lightly, stay curious, and ask a question.
         """
+        # H3 answer-construction hook: a forced-choice query whose subject has
+        # an incoming provenance-trusted causal edge may answer with that edge's
+        # candidate instead of a hedge. Flag-off / no-candidate paths fall
+        # through unchanged, so existing chain articulation is untouched.
+        try:
+            _choice = self._trusted_edge_candidate(
+                (getattr(ctx, "raw_input", "") or ""),
+                getattr(ctx, "subject", None))
+            if _choice is not None:
+                return (_choice, _choice)
+        except Exception:
+            pass
         subject = ctx.subject
         subj_cap = self._capitalize_subject(subject, getattr(ctx, 'raw_input', subject) or subject) if subject else "that"
         # D5 (round 2026-08-08b-d): for self/identity-questions ("do you know

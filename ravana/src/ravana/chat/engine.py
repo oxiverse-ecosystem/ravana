@@ -502,7 +502,8 @@ from .engine_self_query import SelfQueryMixin
 from .engine_persistence import PersistenceMixin
 from .engine_monitor import MonitorMixin
 from .response_gen import (is_productive_use_request,
-                           extract_construction_cue, find_taught_term)
+                           extract_construction_cue, find_taught_term,
+                           edge_choice_enabled)
 
 
 class _SkipEpisodicEcho(Exception):
@@ -7510,6 +7511,15 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                     return _hits[0]
             except Exception:
                 pass
+        # H3 (default-OFF env RAVANA_EDGE_CHOICE=1): a single incoming
+        # provenance-trusted causal edge from a taught premise to the question
+        # subject admits the matching candidate. Consulted only after every
+        # evidence-based handler abstained; fail-closed otherwise, so this
+        # cannot preempt a genuine evidence answer.
+        if edge_choice_enabled():
+            _ec = self._trusted_edge_candidate(user_input)
+            if _ec is not None:
+                return _ec
         # Section 6.4 additive candidate: learned triplet inference,
         # consulted only after EVERY evidence-based handler above
         # abstained, and only ahead of the forced-choice fluency
@@ -8142,6 +8152,28 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return decision.token
         return response
 
+    def _apply_trusted_edge_choice(self, response: str, user_input: str) -> str:
+        """Emission-boundary forced-choice hook (default OFF, stateless).
+
+        The generative path can turn a trusted-edge query into fluent chatter
+        that names no candidate (pre-registered falsifier F2). When the flag is
+        on, a single candidate admitted by an incoming trusted causal edge
+        becomes the emitted answer; no candidate, no forced-choice structure,
+        or any failure leaves ``response`` byte-for-byte unchanged. No state is
+        stored, so nothing can leak into a later turn.
+        """
+        if not edge_choice_enabled():
+            return response
+        try:
+            _ctx = getattr(self, "_source_gate_ctx", None)
+            _subj = getattr(_ctx, "subject", None) if _ctx is not None else None
+            _choice = self._trusted_edge_candidate(user_input, _subj)
+            if _choice is not None:
+                return _choice
+        except Exception:
+            pass
+        return response
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed.
 
@@ -8196,12 +8228,21 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._source_gate_ctx = None
         try:
             response = self._process_turn_impl(user_input)
+            # H3 answer-construction hook (opt-in via RAVANA_EDGE_CHOICE=1).
+            # Runs on the FINAL response so no downstream gate can rewrite the
+            # selected candidate; inert and byte-identical when flag is off.
+            # Fake engines in older unit tests duck-type process_turn without
+            # this newer hook; skip it rather than breaking their contract.
+            _edge_choice = getattr(self, "_apply_trusted_edge_choice", None)
+            if _edge_choice is not None:
+                response = _edge_choice(response, user_input)
             # Emission-boundary source monitor (opt-in via RAVANA_SOURCE_EVAL=1).
             # Runs on the FINAL response so no downstream salad / uncertainty /
             # correction guard can rewrite the decision token. Inert and
             # byte-identical when the flag is off or no context was supplied.
-            response = self._apply_source_monitoring_gate(
-                response, self._source_gate_ctx)
+            _src_gate = getattr(self, "_apply_source_monitoring_gate", None)
+            if _src_gate is not None:
+                response = _src_gate(response, getattr(self, "_source_gate_ctx", None))
         finally:
             # Consume the staged context for exactly ONE turn: no cross-turn
             # leakage even if generation raised.
