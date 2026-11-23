@@ -17,6 +17,12 @@ from .constants import junk_score as _junk_score  # Round 4 (C1) read-time gate
 from .chain_walker import ChainWalkerMixin
 from .realizer_lexicon import RealizerLexicon, default_lexicon, has_clean_topic
 from ravana.language.surface_realizer import DiscourseState
+# Schema-hypothesis wiring (RSI_SCHEMA_WIRING.md). Pure helpers only; no engine
+# import, no state, inert unless RAVANA_SCHEMA=1 (schema_enabled).
+from .schema_induction import (
+    SCHEMA_ENV_FLAG, schema_enabled, EdgeView,
+    traces_from_edges, induce_schema_hypotheses, rank_candidates_for_unseen_subject,
+)
 
 # Self-referential / meta tokens that should not be treated as ordinary
 # concepts in generative or humour graph walks (shared by _handle_humor and
@@ -180,6 +186,103 @@ def trusted_candidate_edges_from_graph(graph, subject: str,
             edge_source=str(md.get("source", "") or ""),
         ))
     return out
+
+
+# ── H4: read-only graph adapters for schema hypothesis ranking (RAVANA_SCHEMA) ─
+# Module-level (not mixin methods) so duck-typed engines and plain fakes that
+# expose only `.graph` / `._concept_keywords` can run the hook. No writes, no
+# thresholds, no env reads; the pure ranker lives in schema_induction.py.
+
+def schema_trusted_edges_from_graph(graph) -> List[EdgeView]:
+    """Read every provenance-trusted graph edge into an EdgeView.
+
+    Mirrors the read shape of ``trusted_candidate_edges_from_graph`` but is not
+    restricted to one subject: the DEMONSTRATIONS are the whole trusted set.
+    Provenance decisions stay in ``schema_induction._is_trusted_edge``.
+    """
+    if graph is None:
+        return []
+    nodes = getattr(graph, "nodes", None) or {}
+    out: List[EdgeView] = []
+    for (sid, tid), edge in (getattr(graph, "edges", None) or {}).items():
+        md = getattr(edge, "source_metadata", None) or {}
+        sn = nodes.get(sid)
+        tn = nodes.get(tid)
+        out.append(EdgeView(
+            source=str(getattr(sn, "label", "") or ""),
+            relation_type=str(getattr(edge, "relation_type", "") or ""),
+            target=str(getattr(tn, "label", "") or ""),
+            edge_kind=str(md.get("edge_kind", "") or ""),
+            edge_source=str(md.get("source", "") or ""),
+        ))
+    return out
+
+
+def schema_association_scores_from_graph(graph, keyword_index, subject,
+                                         candidates, instance_pairs,
+                                         glove_vector=None):
+    """Cosine association of candidates and demo pairs, as DATA for the ranker.
+
+    Stored node vectors are preferred; the lazy GloVe projection is an optional
+    fallback supplied by the caller. No threshold is read or lowered; a missing
+    vector yields 0.0 ("cannot judge"), which fails closed in the pure ranker.
+    """
+    if graph is None:
+        return {}, {}
+    nodes = getattr(graph, "nodes", None) or {}
+    kw = keyword_index or {}
+
+    def _node(label):
+        key = str(label).strip().lower()
+        ids = list(kw.get(key, ()) or ())
+        if not ids:
+            for nid, nd in nodes.items():
+                if str(getattr(nd, "label", "") or "").strip().lower() == key:
+                    ids.append(nid)
+        for nid in ids:
+            nd = nodes.get(nid)
+            if nd is not None:
+                return nd
+        return None
+
+    def _vec(nd):
+        if nd is None:
+            return None
+        v = getattr(nd, "vector", None)
+        if v is None and callable(glove_vector):
+            try:
+                v = glove_vector(getattr(nd, "label", ""))
+            except Exception:
+                v = None
+        return v
+
+    def _cos(a, b):
+        if a is None or b is None:
+            return 0.0
+        try:
+            den = float(np.linalg.norm(a)) * float(np.linalg.norm(b))
+            if den <= 0:
+                return 0.0
+            return float(np.dot(a, b)) / den
+        except Exception:
+            return 0.0
+
+    svec = _vec(_node(subject))
+    scores: Dict[str, float] = {}
+    for c in (candidates or ()):
+        key = str(c).strip().lower()
+        if not key or key in scores:
+            continue
+        scores[key] = _cos(svec, _vec(_node(c)))
+    inst: Dict[Tuple[str, str], float] = {}
+    for pair in (instance_pairs or ()):
+        if not pair or len(pair) != 2:
+            continue
+        v = _cos(_vec(_node(pair[0])), _vec(_node(pair[1])))
+        if v > 0:
+            inst[(str(pair[0]).strip().lower(),
+                  str(pair[1]).strip().lower())] = v
+    return scores, inst
 
 
 # ── Cognition-driven generation seed (NO authored reply strings) ──────────────
@@ -7572,6 +7675,64 @@ class ResponseGenMixin(ChainWalkerMixin):
         except Exception:
             return None
 
+    # ── H4: schema-hypothesis candidate ranking (default OFF, RAVANA_SCHEMA=1) ──
+    # A converged set of >=2 trusted demonstrations of the SAME relation forms
+    # an UNassertable hypothesis. For an unseen subject with NO directly taught
+    # edge deciding, the hypothesis may only RANK candidates by graph
+    # association; it never writes an edge and never asserts a relation
+    # ("schemas propose, sources admit": Tse 2007; Webb et al. 2016; skill 7a).
+    # Fail closed on every uncertain path so foil/negative rejection and CAR
+    # chain articulation are untouched. No state is kept between turns.
+    # The read-only graph adapters are MODULE-LEVEL functions (see H4 block at
+    # the top of this file) so this hook also works with duck-typed engines and
+    # plain fakes that expose only `.graph` / `._concept_keywords`.
+    def _schema_candidate(self, raw_input: str,
+                          subject: Optional[str] = None) -> Optional[str]:
+        """Rank a forced-choice candidate from a converged schema, else None.
+
+        Called AFTER the directly-taught-edge hook (H3): if H3 already decides,
+        this hook defers (returns None) and never overrides it. Requires the
+        explicit RAVANA_SCHEMA=1 opt-in; otherwise returns None before any work.
+        """
+        if not schema_enabled():
+            return None
+        try:
+            q, opts = parse_forced_choice(raw_input)
+            if len(opts) < 2 or not q:
+                return None
+            subj = subject if (subject and
+                               str(subject).strip().lower() in q.lower()) else q
+            if subj == q and subject:
+                head = str(subject).strip().lower().split()[-1:]
+                if head and head[0] in q.lower():
+                    subj = head[0]
+
+            # (c) Directly taught edge decides -> defer to the H3 hook. Never
+            # override a provenance-admitted answer with a mere hypothesis.
+            incident = trusted_candidate_edges_from_graph(
+                getattr(self, "graph", None), subj,
+                getattr(self, "_concept_keywords", None))
+            if select_trusted_candidate(subj, opts, incident) is not None:
+                return None
+
+            # Build traces from ALL trusted edges (the demonstrations) and
+            # induce hypotheses; one demo or mismatched relations -> none.
+            edges = schema_trusted_edges_from_graph(getattr(self, "graph", None))
+            traces = traces_from_edges(edges)
+            hypotheses = induce_schema_hypotheses(traces)
+            if not hypotheses:
+                return None
+
+            pairs = [pair for h in hypotheses for pair in h.instances]
+            cscores, iscores = schema_association_scores_from_graph(
+                getattr(self, "graph", None),
+                getattr(self, "_concept_keywords", None),
+                subj, opts, pairs, getattr(self, "_glove_vector", None))
+            return rank_candidates_for_unseen_subject(
+                subj, opts, hypotheses, traces, cscores, iscores)
+        except Exception:
+            return None
+
     def _human_like_uncertainty(self, ctx: CognitiveResponseContext) -> Tuple[str, str]:
         """Graceful, curious turn taken when FOK is low and the topic is ungrounded.
 
@@ -7589,6 +7750,20 @@ class ResponseGenMixin(ChainWalkerMixin):
                 getattr(ctx, "subject", None))
             if _choice is not None:
                 return (_choice, _choice)
+        except Exception:
+            pass
+        # H4 (default OFF, RAVANA_SCHEMA=1): a converged, UNassertable schema
+        # hypothesis may rank a candidate for an unseen subject ONLY when the
+        # directly-taught-edge hook above did not decide. Defensive getattr so
+        # duck-typed engines/fakes without this hook stay byte-identical.
+        try:
+            _schema_hook = getattr(self, "_schema_candidate", None)
+            if callable(_schema_hook):
+                _schema_choice = _schema_hook(
+                    (getattr(ctx, "raw_input", "") or ""),
+                    getattr(ctx, "subject", None))
+                if _schema_choice is not None:
+                    return (_schema_choice, _schema_choice)
         except Exception:
             pass
         subject = ctx.subject
