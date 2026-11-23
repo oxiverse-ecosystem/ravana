@@ -1938,6 +1938,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         # config surface — purely respects the existing documented flag.
         self._offline = (os.environ.get("RAVANA_OFFLINE") == "1")
 
+        # ── Source-monitoring gate (opt-in via RAVANA_SOURCE_EVAL=1) ──────────
+        # A caller (e.g. the WFA harness) supplies a structured (claim,
+        # ClaimContext) pair for ONE turn via set_source_context_for_turn().
+        # The gate reads it at the articulation boundary and replaces the
+        # emitted response with the decision token when the decision is not
+        # ENDORSE. All three fields are inert by default: with no supplied
+        # context, or with the flag off, the generation path is byte-identical
+        # to before this feature. Nothing here is benchmark-specific.
+        self._pending_source_context = None   # (claim: str, ClaimContext) | None
+        self._source_gate_ctx = None          # live CognitiveResponseContext for this turn
+        self._last_source_evaluation = None   # last SourceDecision (audit trail)
+
         self._proper_nouns = set()
         # Concepts bootstrapped with AUTHORED typed relations (the project's own
         # proper nouns: oxiverse / intentforge / ravana). These are the ONLY
@@ -8046,6 +8058,72 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             pass
         return 0.0
 
+    # ── Source-monitoring gate: public API + emission-boundary helper ─────
+    def set_source_context_for_turn(self, claim, context=None):
+        """Stage structured source-evaluation input for the NEXT turn only.
+
+        Called by an importer/harness immediately before ``process_turn``.
+        Accepts either ``set_source_context_for_turn(claim, context)`` or a
+        single ``(claim, context)`` 2-tuple. The value is consumed by exactly
+        one ``process_turn`` and cleared afterwards, so a harness that forgets
+        to re-set it cannot leak a decision into later turns.
+
+        This method never touches the graph, the store, or any emission path:
+        it only stages a value for the gate. With the env flag off the staged
+        value is ignored entirely.
+        """
+        if context is None and isinstance(claim, (tuple, list)) and len(claim) == 2:
+            claim, context = claim
+        self._pending_source_context = (claim, context)
+
+    @staticmethod
+    def _source_monitor_decision(ctx):
+        """Pure gate core: return a SourceDecision, or ``None`` if inert.
+
+        ``None`` means the gate did not fire (flag off, no supplied context, or
+        a malformed context) and the emitted response must be left untouched.
+        Kept static and dependency-light so unit tests can exercise it with a
+        fake ctx and no engine boot. No WFA wording lives here.
+        """
+        if os.environ.get("RAVANA_SOURCE_EVAL", "0") != "1":
+            return None
+        sc = getattr(ctx, "source_context", None) if ctx is not None else None
+        if sc is None:
+            return None
+        try:
+            claim, context = sc
+        except (TypeError, ValueError):
+            return None
+        from .source_evaluation import evaluate_source
+        return evaluate_source(claim, context)
+
+    def _apply_source_monitoring_gate(self, response, ctx):
+        """Emission-boundary source monitor.
+
+        Invoked from ``process_turn`` on the FINAL response (after all
+        post-generation gates), so a non-ENDORSE decision token cannot be
+        rewritten by a downstream salad/uncertainty/correction guard. When the
+        decision is not ENDORSE the emitted text becomes the single decision
+        token (Y/N/W/?); on ENDORSE the generated claim is emitted unchanged.
+        The full decision and its audit reason are exposed on ``ctx`` and on
+        ``self._last_source_evaluation``. Fail-open: any problem here returns
+        the original response byte-for-byte.
+        """
+        decision = self._source_monitor_decision(ctx)
+        if decision is None:
+            return response
+        if ctx is not None:
+            try:
+                ctx.source_evaluation_decision = decision
+                ctx.source_evaluation_reason = decision.reason
+            except Exception:
+                pass
+        self._last_source_evaluation = decision
+        from .source_evaluation import Decision
+        if decision.decision != Decision.ENDORSE:
+            return decision.token
+        return response
+
     def process_turn(self, user_input: str) -> str:
         """Process input and generate a response, auto-learning when needed.
 
@@ -8094,7 +8172,23 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._last_reply_turn = int(getattr(self, "turn_count", 0) or 0) + 1
         except Exception:
             pass
-        response = self._process_turn_impl(user_input)
+        # Source-monitoring gate: start this turn with no live ctx reference.
+        # _process_turn_impl publishes its ctx on self for the emission gate;
+        # resetting here prevents a stale ctx from a prior turn being reused.
+        self._source_gate_ctx = None
+        try:
+            response = self._process_turn_impl(user_input)
+            # Emission-boundary source monitor (opt-in via RAVANA_SOURCE_EVAL=1).
+            # Runs on the FINAL response so no downstream salad / uncertainty /
+            # correction guard can rewrite the decision token. Inert and
+            # byte-identical when the flag is off or no context was supplied.
+            response = self._apply_source_monitoring_gate(
+                response, self._source_gate_ctx)
+        finally:
+            # Consume the staged context for exactly ONE turn: no cross-turn
+            # leakage even if generation raised.
+            self._pending_source_context = None
+            self._source_gate_ctx = None
         try:
             self._record_dialogue_turn(
                 user_input, response,
@@ -11689,7 +11783,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             situation_narrative=self.situation_model.get_narrative_suggestions() if hasattr(self, "situation_model") else {},
             decomposition=decomp_ctx,
             sub_questions=[sq.to_dict() for sq in (decomp_ctx.sub_questions if decomp_ctx else [])],
+            source_context=getattr(self, "_pending_source_context", None),
         )
+        # Publish this turn's ctx for the emission-boundary source monitor in
+        # process_turn. The reference is reset at the start of every turn and
+        # cleared in process_turn's finally, so it cannot leak across turns.
+        self._source_gate_ctx = ctx
 
         # Behavior 2 (turn-end predictor analog): if the user's turn is a
         # preamble/fragment rather than a complete, answerable unit, hold with a
