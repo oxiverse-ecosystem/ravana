@@ -274,20 +274,35 @@ def test_real_present_grades_engine_not_demo_triples(items):
     it = items[0]
     q = it["near"]
     cand = q["candidates"][0]
-    b = _live(["relation=%s target=%s verdict=match" % (it["relation"], cand)])
+    # First emission is the reaction to the demo, second is the QUERY answer.
+    b = _live(["unrelated demo reaction",
+               "relation=%s target=%s verdict=match" % (it["relation"], cand)])
     demos = [("a", "causes", "b")]
 
     emitted = b.present(demos, it, 1, "near")
     assert isinstance(emitted, list) and all(isinstance(x, str) for x in emitted)
-    assert emitted[0].startswith("relation=")         # engine emission, not demos
-    assert b.api_calls["process_turn"] == 1
+    assert emitted[0] == "unrelated demo reaction"
+    assert b.api_calls["process_turn"] == 2          # demos + query turn
     assert b.engine_response_unparsed == 0
-
+    assert b.last_engine_answer["target"] == cand
     ans = b.last_engine_answer
     assert ans["relation"] == it["relation"]
     assert ans["target"] == cand and ans["verdict"] == "match"
     # The fake backend still returns the demo triples (oracle path intact).
     assert rsi.FakeBackend().present(demos, it, 1, "near") == demos
+
+
+def test_query_turn_answer_not_demo_reaction(items):
+    """Construct validity: demo reactions must never supply the graded answer."""
+    it = items[0]
+    cand = it["near"]["candidates"][0]
+    # A perfect demo echo followed by a hedged query answer must NOT score.
+    b = _live(["relation=%s target=%s verdict=match" % (it["relation"], cand),
+               "i am not sure about that"])
+    b.present([("a", "causes", "b")], it, 1, "near")
+    assert b.api_calls["process_turn"] == 2
+    assert b.last_engine_answer["verdict"] in ("no_answer", "reject")
+    assert b.last_engine_answer["target"] is None
     assert rsi.FakeBackend().engine_graded is False
 
 
