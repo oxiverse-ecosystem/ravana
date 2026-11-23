@@ -16,12 +16,20 @@ an OPTION token became the subject and the taught edge was never consulted.
 
 This module supplies pure, fake-testable helpers for the retrieval/articulation
 hook. It does NOT import an engine, does NOT boot anything, changes NO gate or
-threshold, and is inert unless ``RAVANA_RSI_DECLARATION_STORAGE=1`` is set.
+threshold, and is inert unless explicitly enabled by a flag.
+
+Wiring (RSI_SCHEMA_WIRING.md): the answer path converts already-trusted
+demonstration edges into ``TrustedTrace`` records, induces *unassertable*
+``SchemaHypothesis`` objects, and — only when NO directly taught edge decides —
+ranks forced-choice candidates for an unseen subject. Schemas propose; observed
+sources admit. The ranking path is default-OFF behind ``RAVANA_SCHEMA=1``; the
+earlier query-time helpers keep their own flag ``RAVANA_RSI_DECLARATION_STORAGE``.
 
 Brain basis: Tse et al. 2007, McClelland et al. 1995, Yassa & Stark 2011,
 Gentner 1983, Roediger & Karpicke 2006, Webb/Turney/Dennis 2016. Full citations
 and the support-vs-extrapolation ledger are in
-``docs/investigations/RSI_DECLARATION_STORAGE.md``.
+``docs/investigations/RSI_DECLARATION_STORAGE.md``; the wiring ledger is in
+``docs/investigations/RSI_SCHEMA_WIRING.md``.
 """
 from __future__ import annotations
 
@@ -32,9 +40,11 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 __all__ = [
     "ENV_FLAG",
+    "SCHEMA_ENV_FLAG",
     "TRUSTED_EDGE_KINDS",
     "TRUSTED_SOURCE",
     "enabled",
+    "schema_enabled",
     "mask_options",
     "EdgeView",
     "trusted_incident_edges",
@@ -45,9 +55,15 @@ __all__ = [
     "parse_declaration",
     "induce_schema_hypotheses",
     "admit_for_query",
+    "traces_from_edges",
+    "rank_candidates_for_unseen_subject",
 ]
 
 ENV_FLAG = "RAVANA_RSI_DECLARATION_STORAGE"
+# Default-OFF flag for the schema-hypothesis candidate-ranking path. Distinct
+# from ENV_FLAG so enabling the earlier query-time helpers never turns this on
+# by accident. Byte-identical when unset.
+SCHEMA_ENV_FLAG = "RAVANA_SCHEMA"
 
 # Mirrors learn.explanation._hop_provenance + provenance_trusted. These are
 # the ALREADY-TRUSTED kinds; nothing here widens them.
@@ -62,6 +78,32 @@ def enabled() -> bool:
         return os.environ.get(ENV_FLAG, "") == "1"
     except Exception:
         return False
+
+
+def schema_enabled() -> bool:
+    """Default-OFF opt-in for hypothesis-based candidate ranking.
+
+    Unset (or any value other than ``1``) means the new answer path is inert:
+    the hook returns ``None`` before touching the graph, so existing behaviour
+    is byte-identical. The earlier query-time helpers keep ``ENV_FLAG``.
+    """
+    try:
+        return os.environ.get(SCHEMA_ENV_FLAG, "0") == "1"
+    except Exception:
+        return False
+
+
+def _is_trusted_edge(edge) -> bool:
+    """Shared trust predicate (provenance, never a score threshold).
+
+    Reused by both ``trusted_incident_edges`` and ``traces_from_edges`` so the
+    two paths cannot drift. Nothing here widens the already-trusted kinds.
+    """
+    if edge is None:
+        return False
+    kind = str(getattr(edge, "edge_kind", "") or "").strip().lower()
+    src = str(getattr(edge, "edge_source", "") or "").strip().lower()
+    return kind in TRUSTED_EDGE_KINDS or src == TRUSTED_SOURCE
 
 
 # ── Hook 1: keep option tokens out of subject resolution ────────────────────
@@ -122,9 +164,7 @@ def trusted_incident_edges(subject: str, edges: Iterable[EdgeView]) -> List[Edge
             continue
         if e.source.strip().lower() != s and e.target.strip().lower() != s:
             continue
-        kind = (e.edge_kind or "").strip().lower()
-        src = (e.edge_source or "").strip().lower()
-        if kind in TRUSTED_EDGE_KINDS or src == TRUSTED_SOURCE:
+        if _is_trusted_edge(e):
             out.append(e)
     return out
 
@@ -260,3 +300,115 @@ def admit_for_query(
     return any(tr is not None and tr.declaration is not None
                and tr.declaration.relation == hypothesis.relation
                for tr in (observed_traces or ()))
+
+
+# ── Wiring helpers: trusted demonstrations -> hypotheses -> candidate ranking ─
+
+def traces_from_edges(
+    edges: Iterable[EdgeView],
+    relation_map: Optional[Mapping[str, str]] = None,
+) -> List[TrustedTrace]:
+    """Turn already-trusted graph edges into declaration traces for induction.
+
+    Pure and stateless. Reuses ``_is_trusted_edge`` (the same provenance rule as
+    ``trusted_incident_edges``), so an untrusted edge cannot seed a hypothesis.
+    One distinct (subject, relation, object) triple is one demonstration: a
+    repeated identical edge does NOT inflate support. ``relation_map`` lets the
+    caller normalise the graph's edge vocabulary (e.g. ``causal -> CAUSE``)
+    without this module importing the harness or any engine type.
+    """
+    out: List[TrustedTrace] = []
+    seen: set = set()
+    for e in (edges or ()):
+        if not _is_trusted_edge(e):
+            continue
+        s = str(getattr(e, "source", "") or "").strip().lower()
+        rel = str(getattr(e, "relation_type", "") or "").strip().lower()
+        o = str(getattr(e, "target", "") or "").strip().lower()
+        if not s or not rel or not o or s == o:
+            continue
+        if relation_map:
+            rel = str(relation_map.get(rel, rel)).strip().lower()
+        dec = Declaration(s, rel, o)
+        if dec.key in seen:
+            continue
+        seen.add(dec.key)
+        out.append(TrustedTrace(
+            dec,
+            {"edge_kind": str(getattr(e, "edge_kind", "") or "").lower(),
+             "source": str(getattr(e, "edge_source", "") or "").lower()},
+            "%s:%s->%s" % (rel, s, o),
+        ))
+    return out
+
+
+def rank_candidates_for_unseen_subject(
+    subject: str,
+    candidates: Sequence[str],
+    hypotheses: Sequence[SchemaHypothesis],
+    observed_traces: Sequence[TrustedTrace],
+    candidate_scores: Mapping[str, float],
+    instance_scores: Optional[Mapping[Tuple[str, str], float]] = None,
+    min_margin: float = 0.0,
+) -> Optional[str]:
+    """Rank a forced-choice candidate for a subject with NO taught edge.
+
+    Gate-preserving and fail-closed. A candidate is returned only when:
+
+      * at least one *unassertable* hypothesis has >=2 distinct trusted traces
+        and is admitted by a real observed trace of that relation
+        (``admit_for_query`` — schemas propose, sources admit);
+      * its caller-supplied association score clears the congruence floor set
+        by the demonstrated instances (a candidate must be at least as strongly
+        associated with the subject as the weakest demonstrated pair); and
+      * it is a STRICT winner over the runner-up (no tie, no ambiguous foil).
+
+    No threshold is lowered and no edge/label is written or upgraded: the
+    returned string is a *proposal for ranking*, never an asserted fact. Scores
+    are supplied by the caller (graph cosine) so this stays pure and fakeable.
+    Returns ``None`` on every uncertain path; the caller's hedge/reject path is
+    unchanged. No state is kept between calls.
+    """
+    if not subject or not candidates:
+        return None
+    admitted = [
+        h for h in (hypotheses or ())
+        if h is not None and not h.assertable and int(h.support) >= 2
+        and admit_for_query(h, observed_traces)
+    ]
+    if not admitted:
+        return None
+
+    floor: Optional[float] = None
+    if instance_scores:
+        vals = [float(v) for v in instance_scores.values() if v is not None]
+        if vals:
+            floor = min(vals)
+
+    canon: Dict[str, str] = {}
+    for c in candidates:
+        key = str(c).strip().lower()
+        if key:
+            canon.setdefault(key, str(c).strip())
+
+    scored: List[Tuple[float, str, str]] = []
+    scores = candidate_scores or {}
+    for key, original in canon.items():
+        raw = scores.get(key, scores.get(original, 0.0))
+        try:
+            s = float(raw or 0.0)
+        except (TypeError, ValueError):
+            s = 0.0
+        if s <= 0.0:
+            continue
+        if floor is not None and s < floor:
+            continue
+        scored.append((s, key, original))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    if len(scored) == 1:
+        return scored[0][2]
+    if scored[0][0] - scored[1][0] <= float(min_margin):
+        return None
+    return scored[0][2]
