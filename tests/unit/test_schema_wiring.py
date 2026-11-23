@@ -19,7 +19,7 @@ for _p in (os.path.join(PROJ, "ravana", "src"), PROJ):
         sys.path.insert(0, _p)
 
 from ravana.chat import response_gen as rg  # noqa: E402
-import schema_induction as si  # noqa: E402  (flat: pure module, no chat __init__)
+from ravana.chat import schema_induction as si  # noqa: E402
 
 
 QUERY = ("Considering the examples above, what is true of thaw? "
