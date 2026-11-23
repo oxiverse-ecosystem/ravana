@@ -24,6 +24,11 @@ for _p in (PROJ, SCRIPTS, os.path.join(PROJ, "ravana", "src")):
         sys.path.insert(0, _p)
 
 import measure_learn5_wfa as wfa  # noqa: E402
+from ravana.chat.engine import CognitiveChatEngine  # noqa: E402
+from ravana.chat.source_evaluation import (  # noqa: E402
+    Decision,
+    evaluate_source,
+)
 
 
 @pytest.fixture(scope="module")
@@ -683,3 +688,244 @@ def test_missing_forced_choice_arm_hard_fails():
     s["arms"]["forced_choice"] = False
     rules, passed = wfa.decide(s, True)
     assert not passed and not rules["arm_present_forced_choice"]
+
+
+# ── INTERNAL-SOURCE ARM: graph-provenance-derived context (FAKES, no boot) ──
+# These tests exercise the SHIPPED gate methods as unbound functions on fakes,
+# exactly as test_source_evaluation_wiring.py does. No CognitiveChatEngine is
+# constructed, no process is spawned, no pytest fixture touches a real store.
+IS_CLAIM = "A compass points north because the Earth behaves like a loadstone."
+IS_ORIGIN = "wfa-internal://credible/abc123def456"
+
+
+class _ISNode:
+    def __init__(self, label):
+        self.label = label
+
+
+class _ISEdge:
+    def __init__(self, sm, confidence=0.9):
+        self.source_metadata = sm
+        self.confidence = confidence
+        self.relation_type = "semantic"
+        self.timestamp = 1.0
+        self.source, self.target = 1, 2
+
+
+class _ISGraph:
+    """Tiny ConceptGraph-shaped fake: .nodes, .edges, .get_node."""
+
+    def __init__(self, sm=None):
+        self.nodes = {1: _ISNode("compass"), 2: _ISNode("loadstone")}
+        self.edges = {}
+        if sm is not None:
+            self.edges[(1, 2)] = _ISEdge(sm)
+
+    def get_node(self, nid):
+        return self.nodes.get(nid)
+
+
+class _ISEngine:
+    """Fake engine exposing only the surface the arm/gate touch."""
+
+    def __init__(self, sm=None):
+        self.graph = _ISGraph(sm)
+        self._pending_source_context = None
+        self._source_gate_ctx = None
+        self._last_source_evaluation = None
+        self.resets = 0
+        self.prompts = []
+        self.set_source_context_for_turn = (
+            lambda *a, **k: CognitiveChatEngine.set_source_context_for_turn(self, *a, **k))
+        self._apply_source_monitoring_gate = (
+            lambda r, c: CognitiveChatEngine._apply_source_monitoring_gate(self, r, c))
+        self._source_monitor_decision = CognitiveChatEngine._source_monitor_decision
+
+    def reset_episodic_state(self):
+        self.resets += 1
+
+    def process_turn(self, prompt):
+        self.prompts.append(prompt)
+        self._source_gate_ctx = type(
+            "Ctx", (), {"source_context": self._pending_source_context})()
+        return self._apply_source_monitoring_gate(
+            "the generated answer text", self._source_gate_ctx)
+
+
+def _is_teach(engine, claim, source_id):
+    engine.graph.edges[(1, 2)] = _ISEdge(
+        {"source": source_id, "edge_kind": "web_fact", "source_type": "seed"})
+    return 1
+
+
+def _is_invalidate(engine, source_id):
+    engine.graph.edges[(1, 2)].source_metadata["source_status"] = "discredited"
+    return 1
+
+
+@pytest.fixture(autouse=True)
+def _is_flag(monkeypatch):
+    """The opt-in flag is ON for this section only; monkeypatch restores it."""
+    monkeypatch.setenv(wfa.IS_FLAG, "1")
+    yield
+    monkeypatch.delenv(wfa.IS_FLAG, raising=False)
+
+
+def test_source_question_is_condition_independent_and_label_free():
+    prompts = [wfa.source_question_prompt(IS_CLAIM)
+               for _ in wfa.IS_CONDITIONS]
+    assert prompts[0] == prompts[1] == prompts[2]
+    assert wfa.prompt_is_label_free(prompts[0], IS_ORIGIN) is True
+    assert IS_ORIGIN not in prompts[0]
+    # The question asks ABOUT credibility but never states the answer.
+    assert "from a credible source" in prompts[0].lower()
+    # A provenance-bearing prompt from the old tautological arm is rejected.
+    leaked = prompts[0] + "\nProvenance: credible (source id: %s)" % IS_ORIGIN
+    assert wfa.prompt_is_label_free(leaked, IS_ORIGIN) is False
+
+
+def test_context_from_graph_provenance_reads_only_stored_metadata():
+    credible = _ISGraph({"source": IS_ORIGIN, "edge_kind": "web_fact"})
+    ctx, audit = wfa.context_from_graph_provenance(credible, IS_CLAIM, IS_ORIGIN)
+    assert audit["context_source"] == "engine_graph_provenance"
+    assert audit["trust_class"] == "credible"
+    assert audit["credibility_token"] == "credible"
+    assert ctx.source.origin_id == IS_ORIGIN
+    assert evaluate_source(IS_CLAIM, ctx).rule == "R_EXPLICIT_CREDIBLE_SOURCE"
+
+    # Same claim, but only an unprovenanced/auto-expand edge stored -> UNKNOWN.
+    unknown = _ISGraph({"source": IS_ORIGIN, "edge_kind": "auto_expand"})
+    ctx2, audit2 = wfa.context_from_graph_provenance(unknown, IS_CLAIM, IS_ORIGIN)
+    assert audit2["trust_class"] == "unknown"
+    assert ctx2.source.credibility_token is None
+    assert evaluate_source(IS_CLAIM, ctx2).rule == "R_UNKNOWN_PROVENANCE"
+
+    # No stored edge at all -> unknown provenance (source amnesia).
+    ctx3, audit3 = wfa.context_from_graph_provenance(
+        _ISGraph(), IS_CLAIM, IS_ORIGIN)
+    assert audit3["n_matching_edges"] == 0
+    assert evaluate_source(IS_CLAIM, ctx3).rule == "R_UNKNOWN_PROVENANCE"
+
+
+def test_item_metadata_mutation_cannot_change_staged_decision():
+    """ANTI-TAUTOLOGY: the item's expected answer/status/id are invisible."""
+    graph = _ISGraph({"source": IS_ORIGIN, "edge_kind": "web_fact"})
+    item_a = {"claim": IS_CLAIM, "source_status": "credible",
+              "expected_answer": "Y", "source_id": IS_ORIGIN, "reliability": 0.9}
+    item_b = dict(item_a, source_status="discredited", expected_answer="W",
+                  source_id="other://origin", reliability=1.0)
+    ctx_a, audit_a = wfa.stage_context_for_item(graph, item_a, IS_ORIGIN)
+    ctx_b, audit_b = wfa.stage_context_for_item(graph, item_b, IS_ORIGIN)
+    assert ctx_a == ctx_b
+    assert audit_a["fingerprint"] == audit_b["fingerprint"]
+    d_a = evaluate_source(IS_CLAIM, ctx_a)
+    d_b = evaluate_source(IS_CLAIM, ctx_b)
+    assert d_a.decision is Decision.ENDORSE
+    assert d_b.decision is d_a.decision
+    assert d_a.rule == d_b.rule == "R_EXPLICIT_CREDIBLE_SOURCE"
+
+
+def test_provenance_mutation_control_moves_decision():
+    """Changing ONLY stored provenance must move ENDORSE -> WITHDRAW."""
+    graph = _ISGraph({"source": IS_ORIGIN, "edge_kind": "web_fact"})
+    result = wfa.internal_source_provenance_mutation_control(
+        IS_CLAIM, IS_ORIGIN, graph, Decision.ENDORSE)
+    assert result == {"before": "ENDORSE", "after": "WITHDRAW", "moved": True}
+
+
+def test_internal_source_scoring_branches_with_fake_engine():
+    seen = {}
+    for cond, expected_token, expected_decision in (
+            ("credible", "Y", Decision.ENDORSE),
+            ("discredited", "W", Decision.WITHDRAW),
+            ("unknown", "N", Decision.ABSTAIN)):
+        eng = _ISEngine()
+        obs = wfa.run_internal_source_condition(
+            eng, IS_CLAIM, cond, wfa.is_source_id(IS_CLAIM, cond),
+            teach_fn=_is_teach, invalidate_fn=_is_invalidate)
+        grade = wfa.grade_internal_source_condition(obs, cond)
+        seen[cond] = grade
+        assert grade["token"] == expected_token, (cond, grade)
+        assert obs["decision"] == expected_decision.value
+        assert grade["correct"] is True and grade["decision_expected"] is True
+        assert grade["gate_ok"] is True and grade["prompt_label_free"] is True
+        assert grade["context_from_graph"] is True
+        assert eng.resets == 1                       # one isolation per condition
+        # ENDORSE emits generated text; the other two emit the exact token.
+        if expected_decision is Decision.ENDORSE:
+            assert obs["text"] == "the generated answer text"
+        else:
+            assert obs["text"] == expected_token
+    assert seen["discredited"]["rule"] == "R_SOURCE_INVALIDATED"
+    assert seen["unknown"]["rule"] == "R_UNKNOWN_PROVENANCE"
+    assert seen["credible"]["rule"] == "R_EXPLICIT_CREDIBLE_SOURCE"
+
+
+def test_discredited_arm_prior_decision_comes_from_engine_audit():
+    eng = _ISEngine()
+    obs = wfa.run_internal_source_condition(
+        eng, IS_CLAIM, "discredited", IS_ORIGIN,
+        teach_fn=_is_teach, invalidate_fn=_is_invalidate)
+    assert obs["prior_decision"] == "ENDORSE"   # read from _last_source_evaluation
+    assert obs["invalidated"] == 1
+    assert len(eng.prompts) == 2                # commit turn + source question
+    assert eng.prompts[0] == eng.prompts[1]      # identical, label-free prompts
+
+
+def test_missing_engine_is_reported_not_faked():
+    obs = wfa.run_internal_source_condition(None, IS_CLAIM, "credible", IS_ORIGIN)
+    grade = wfa.grade_internal_source_condition(obs, "credible")
+    assert grade["missing"] is True and grade["correct"] is False
+    assert grade["token"] is None
+
+
+def test_internal_source_summary_and_additive_rules():
+    records = []
+    items = []
+    for pool in ("primary", "sealed"):
+        for n in range(20):          # pre-registered n>=20 per pool
+            claim = "%s variant %d" % (IS_CLAIM, n)
+            sid = "item-%s-%d" % (pool, n)
+            items.append({"id": sid, "kind": "gap", "pool": pool, "claim": claim})
+            records.append({"id": sid, "kind": "gap", "pool": pool})
+
+    def fake_arm(cond):
+        def run(it, _c):
+            return wfa.run_internal_source_condition(
+                _ISEngine(), it["claim"], cond,
+                wfa.is_source_id(it["claim"], cond),
+                teach_fn=_is_teach, invalidate_fn=_is_invalidate)
+        return run
+
+    wfa.run_internal_source_arms(
+        items, records, wfa.InternalSourceArms(
+            credible=fake_arm("credible"), discredited=fake_arm("discredited"),
+            unknown=fake_arm("unknown")))
+    summary = wfa.internal_source_summary(records)
+    for pool in ("primary", "sealed"):
+        pp = summary["pools"][pool]
+        assert pp["n"] == 20
+        assert pp["anti_tautology_ok"] is True
+        for cond in wfa.IS_CONDITIONS:
+            cc = pp["conditions"][cond]
+            assert cc["correct"] == 1.0 and cc["gate_ok"] == 1.0
+            assert cc["prompt_label_free"] == 1.0
+            assert cc["context_from_graph"] == 1.0
+    rules, passed = wfa.internal_source_decide(dict(summary, flag_enabled=True))
+    assert passed, [k for k, v in rules.items() if not v]
+    # Additive: the NEW rules live in their own subtree and do not change the
+    # main verdict on the unchanged base summary.
+    assert wfa.decide(_base_summary(), True)[1] is True
+
+
+def test_thresholds_are_additive_existing_values_unchanged():
+    assert wfa.TH["wfa_valid_min"] == 0.70
+    assert wfa.TH["abstain_min"] == 0.90
+    assert wfa.TH["delta_min"] == 0.20
+    assert wfa.TH["decoy_rej_min"] == 0.85
+    assert wfa.TH["internal_no_tag_min"] == 0.90
+    assert wfa.TH["sealed_drop_max"] == 0.10
+    assert wfa.TH["unparseable_rate_max"] == 0.50
+    for key in ("IS_correct_min", "IS_gate_invariant_min",
+                "IS_prompt_label_free_min"):
+        assert key in wfa.TH
