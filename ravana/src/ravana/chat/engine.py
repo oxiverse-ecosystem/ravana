@@ -8231,13 +8231,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # H3 answer-construction hook (opt-in via RAVANA_EDGE_CHOICE=1).
             # Runs on the FINAL response so no downstream gate can rewrite the
             # selected candidate; inert and byte-identical when flag is off.
-            response = self._apply_trusted_edge_choice(response, user_input)
+            # Fake engines in older unit tests duck-type process_turn without
+            # this newer hook; skip it rather than breaking their contract.
+            _edge_choice = getattr(self, "_apply_trusted_edge_choice", None)
+            if _edge_choice is not None:
+                response = _edge_choice(response, user_input)
             # Emission-boundary source monitor (opt-in via RAVANA_SOURCE_EVAL=1).
             # Runs on the FINAL response so no downstream salad / uncertainty /
             # correction guard can rewrite the decision token. Inert and
             # byte-identical when the flag is off or no context was supplied.
-            response = self._apply_source_monitoring_gate(
-                response, self._source_gate_ctx)
+            _src_gate = getattr(self, "_apply_source_monitoring_gate", None)
+            if _src_gate is not None:
+                response = _src_gate(response, getattr(self, "_source_gate_ctx", None))
         finally:
             # Consume the staged context for exactly ONE turn: no cross-turn
             # leakage even if generation raised.
