@@ -2050,7 +2050,12 @@ def grade_internal_source_condition(obs, condition):
         "decision": dec,
         "token": tok,
         "expected_token": expected,
-        "correct": tok == expected,
+        # ENDORSE is deliberately SILENT at the emission boundary: the gate
+        # leaves the claim text unchanged and records the decision on the
+        # engine. Requiring a literal "Y" token contradicts that contract and
+        # scored correct endorsements as failures.
+        "correct": (dec == IS_EXPECTED_DECISION[condition] and
+                    (condition == "credible" or tok == expected)),
         "decision_expected": dec == IS_EXPECTED_DECISION[condition],
         "gate_ok": bool(obs.get("gate_ok")),
         "prompt_label_free": bool(obs.get("prompt_label_free")),
