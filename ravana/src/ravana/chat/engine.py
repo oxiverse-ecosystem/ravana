@@ -8232,10 +8232,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             self._last_reply_turn = int(getattr(self, "turn_count", 0) or 0) + 1
         except Exception:
             pass
-        # Source-monitoring gate: start this turn with no live ctx reference.
-        # _process_turn_impl publishes its ctx on self for the emission gate;
-        # resetting here prevents a stale ctx from a prior turn being reused.
+        # Source-monitoring gate: start this turn with the STAGED context, not
+        # None. _process_turn_impl publishes its full ctx later, but several
+        # early-return paths (chatter/definitional prompts) never reach that
+        # line, which previously made the emission gate see no context at all.
+        # Staging here makes the gate fire on EVERY process_turn path while
+        # still consuming the context for exactly one turn.
         self._source_gate_ctx = None
+        _staged_source_context = getattr(self, "_pending_source_context", None)
+        if _staged_source_context is not None:
+            from types import SimpleNamespace
+            self._source_gate_ctx = SimpleNamespace(
+                source_context=_staged_source_context)
         try:
             response = self._process_turn_impl(user_input)
             # H3 answer-construction hook (opt-in via RAVANA_EDGE_CHOICE=1).
