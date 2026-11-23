@@ -43,3 +43,26 @@ the demonstrations it is shown.
   boots one engine and grades its emissions.
 - No thresholds, gates or item banks were changed. The full sweep remains
   impractically slow and was intentionally replaced by this focused probe.
+
+## Re-run after the query-turn fix (2026-11-23, PR #478)
+
+`scratch/rsi_focus_queryturn.log`, `scratch/rsi_focus_live_result.json`:
+1,824 `process_turn` calls (demos **plus the query**, up from 1,440), 1 engine
+boot, no API error. Fake oracle unchanged at 1.00 everywhere.
+
+| pool | k=1 near/far/foil/negative | k=8 near/far/foil/negative | mono drop | growth |
+|---|---|---|---|---|
+| primary | 0.0/0.0/0.5/1.0 | 0.0/0.0/0.0/1.0 | **1.0** | 0.0 |
+| sealed | 0.0/0.0/0.0/0.5 | 0.0/0.0/1.0/0.0 | 0.5 | 0.0 |
+
+`engine_response_unparsed` rose to 177/1,824 (9.7%) because the new query
+turn contributes its own hedged emissions.
+
+**Conclusion unchanged and strengthened:** the zero near/far transfer was not
+an artifact of grading demo reactions. With a real question asked, the engine
+still never applies the demonstrated relation to the query candidate. Foil and
+negative-rule rejection became noisy rather than clean, which is what an
+engine without a stored schema hypothesis looks like when actually tested.
+Per `RSI_LIVE_RULE_INDUCTION.md`, the remaining fix is engine-side: write
+declarative demonstrations as trusted provenance-stamped edges and aggregate
+them into an unassertable schema hypothesis before answer generation.
