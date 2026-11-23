@@ -288,12 +288,33 @@ class _Graph:
         self.nodes = {}
         self.edges = {}
         self._current_context = set()
+        self._next_id = 1
+
+    def add_node(self, vector=None, label=""):
+        nid = self._next_id
+        self._next_id += 1
+        n = _Node(nid, label)
+        self.nodes[nid] = n
+        return n
 
     def get_node(self, nid):
         return self.nodes.get(nid)
 
+    def add_edge(self, source, target, weight=0.5,
+                 relation_type="semantic", confidence=0.5):
+        e = _Edge(source, target, {}, relation_type=relation_type,
+                  weight=weight, confidence=confidence)
+        self.edges[(source, target)] = e
+        return e
+
+    def get_edge(self, s, t):
+        return self.edges.get((s, t))
+
     def get_outgoing(self, nid):
         return [(t, e) for (s, t), e in self.edges.items() if s == nid]
+
+    def get_incoming(self, nid):
+        return [(s, e) for (s, t), e in self.edges.items() if t == nid]
 
 
 class _StoreEngine:
@@ -467,3 +488,220 @@ def test_summarize_carries_additive_provenance(summary):
     assert summary["engine_observation_missing"] == 0
     assert summary["engine_response_unparsed"] == 0
     assert summary["backend"] == "fake"
+
+
+# ── FACT MATERIALIZATION (fake store + fake intake, NO engine boot) ────────
+# These exercise the REAL ``RealBackend._real_write`` / ``activate_sleeper`` /
+# ``_census`` code with an injected fake graph and a duck-typed intake. The
+# real Provenance/Fact dataclasses are imported (lightweight), never the engine.
+class _FakeVerdict:
+    def __init__(self, fact, provenance, route, retention_prior=0.7):
+        self.fact = fact
+        self.provenance = provenance
+        self.route = route
+        self.retention_prior = retention_prior
+
+
+class _RecordingIntake:
+    """Duck-typed KnowledgeIntake that records write-time object-node state.
+
+    On ``fast_merge`` it writes a graph edge with the intake-derived default
+    edge_kind (exactly as the real ``_write_edge`` does); on
+    ``episodic_buffer`` it writes nothing to the graph, exactly as the real
+    hippocampal-buffer route does. No engine process is ever started.
+    """
+
+    def __init__(self, eng, route="fast_merge"):
+        self.eng = eng
+        self.ge = eng
+        self.route = route
+        self.intake_calls = []
+        self.stats = {"fast_merge": 0, "episodic_buffer": 0}
+
+    def _ids(self, label):
+        kw = getattr(self.eng, "_concept_keywords", {}) or {}
+        return list(kw.get(_norm(label), []) or [])
+
+    def intake(self, fact, provenance=None, salience=1.0):
+        obj_ids = self._ids(fact.obj)
+        subj_ids = self._ids(fact.subject)
+        self.intake_calls.append({
+            "obj": fact.obj,
+            "obj_present": bool(obj_ids),
+            "subj_present": bool(subj_ids),
+            "provenance": provenance,
+        })
+        if self.route == "fast_merge":
+            self._write_edge_from(fact, provenance, 0.7)
+            self.stats["fast_merge"] += 1
+        else:
+            self.stats["episodic_buffer"] += 1
+        return _FakeVerdict(fact, provenance, self.route)
+
+    def _write_edge(self, v, confidence):
+        return self._write_edge_from(v.fact, v.provenance, confidence)
+
+    def _write_edge_from(self, fact, prov, confidence):
+        subj_ids = self._ids(fact.subject)
+        obj_ids = self._ids(fact.obj)
+        if not subj_ids or not obj_ids:
+            return False
+        edge = self.eng.graph.get_edge(subj_ids[0], obj_ids[0])
+        if edge is None:
+            edge = self.eng.graph.add_edge(
+                subj_ids[0], obj_ids[0], relation_type="definition",
+                confidence=confidence)
+        if prov is not None:
+            edge.source_metadata.update(prov.as_metadata())
+            edge.source_metadata["edge_kind"] = {
+                "seed": "curated", "web": "web_fact",
+            }.get(prov.source_type, "learned")
+        return True
+
+
+def _materializing_backend(item, p, route="fast_merge", store=None):
+    store = store if store is not None else _StoreEngine()
+    b = pdr.RealBackend()              # no data_dir, no _boot
+    b._engine = store
+    b._intake = _RecordingIntake(store, route=route)
+    b._active_p = p
+    return b
+
+
+def _sleeper(item, p):
+    return [s for s in item["poison"][p] if s["kind"] == "sleeper"][0]
+
+
+def test_real_write_mints_and_indexes_object_node_before_intake(items):
+    it = items[0]
+    b = _materializing_backend(it, pdr.P_FOCUS)
+    b._real_write(it["subject"], "definition", it["claim"],
+                  "seed", "curated", it["url"], True)
+    call = b._intake.intake_calls[-1]
+    assert call["obj_present"] is True        # object existed AT intake time
+    assert call["subj_present"] is True
+    nids = b._engine._concept_keywords.get(_norm(it["claim"]), [])
+    assert nids and all(b._engine.graph.get_node(n) is not None for n in nids)
+
+
+def test_real_write_stamps_graded_provenance_on_engine_edge(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    sn = _sleeper(it, p)
+    b = _materializing_backend(it, p)
+    b._real_write(it["subject"], "definition", it["claim"],
+                  "seed", "curated", it["url"], True)
+    b._real_write(it["subject"], "definition", sn["detail"],
+                  "web", "definition", sn["source_url"], False)
+    orig = b._find_engine_edge(b._engine, it["subject"], it["claim"])
+    sleep = b._find_engine_edge(b._engine, it["subject"], sn["detail"])
+    assert orig is not None and sleep is not None
+    om, sm = orig.source_metadata, sleep.source_metadata
+    assert om["edge_kind"] == "curated"
+    assert om["source_url"] == it["url"] and om["source_type"] == "seed"
+    assert om["active"] is True
+    assert sm["edge_kind"] == "definition"      # not the intake's web default
+    assert sm["source_url"] == sn["source_url"] and sm["source_type"] == "web"
+    assert sm["active"] is False
+    assert om["url"] == it["url"] and sm["url"] == sn["source_url"]
+
+
+def test_buffered_verdict_materializes_from_real_provenance(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    sn = _sleeper(it, p)
+    b = _materializing_backend(it, p, route="episodic_buffer")
+    b._real_write(it["subject"], "definition", sn["detail"],
+                  "web", "definition", sn["source_url"], False)
+    assert b._intake.stats["episodic_buffer"] == 1
+    edge = b._find_engine_edge(b._engine, it["subject"], sn["detail"])
+    assert edge is not None               # graded edge materialized from verdict
+    meta = edge.source_metadata
+    assert meta["edge_kind"] == "definition"
+    assert meta["source_url"] == sn["source_url"]
+    assert meta["source_type"] == "web"
+    assert meta["active"] is False
+    passed = b._intake.intake_calls[-1]["provenance"]
+    assert meta["url"] == passed.url and meta["source"] == passed.source
+
+
+def test_sleeper_flips_active_after_cue_on_real_edge(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    sn = _sleeper(it, p)
+    b = _materializing_backend(it, p)
+    b._real_write(it["subject"], "definition", sn["detail"],
+                  "web", "definition", sn["source_url"], False)
+    edge = b._find_engine_edge(b._engine, it["subject"], sn["detail"])
+    assert edge.source_metadata["active"] is False
+    b.activate_sleeper(it)
+    assert edge.source_metadata["active"] is True
+    assert b.api_calls["process_turn"] == 1
+
+
+def test_materialized_edges_are_returned_by_census(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    b = _materializing_backend(it, p)
+    b.teach_original(it)
+    b.inject_poison(it, p)
+    obs = b.query(it, "cued")
+    assert obs["engine_observation_missing"] == 0
+    assert len(obs["facts"]) == 1 + len(it["poison"][p])
+    origins = {f["origin"] for f in obs["facts"]}
+    assert it["id"] + "|orig" in origins
+    for sn in it["poison"][p]:
+        assert "%s|%d|%s" % (it["id"], sn["slot"], sn["kind"]) in origins
+    orig = next(f for f in obs["facts"] if f["origin"].endswith("|orig"))
+    assert orig["kind"] == "curated" and orig["trusted"] is True
+    assert orig["source_url"] == it["url"] and orig["active"] is True
+    sleeper = next(f for f in obs["facts"] if f["origin"].endswith("|sleeper"))
+    assert sleeper["kind"] == "definition" and sleeper["active"] is False
+    assert sleeper["trusted"] is False
+    assert all(f["engine_censused"] for f in obs["facts"])
+
+
+def test_mutation_of_engine_provenance_moves_graded_observation(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    grader = pdr.PDRGrader()
+
+    # A: change the original's real provenance to web_fact -> not trusted.
+    b = _materializing_backend(it, p)
+    b.teach_original(it)
+    b.inject_poison(it, p)
+    assert grader.answer_original(it, p, b.query(it, "cued"))["retained"]
+    oe = b._find_engine_edge(b._engine, it["subject"], it["claim"])
+    oe.source_metadata["source_type"] = "web"
+    oe.source_metadata["edge_kind"] = "web_fact"
+    assert not grader.answer_original(it, p, b.query(it, "cued"))["retained"]
+
+    # B: plant one poison edge as a trusted curated fact -> intrusion moves.
+    b2 = _materializing_backend(it, p)
+    b2.teach_original(it)
+    b2.inject_poison(it, p)
+    assert not grader.answer_original(it, p, b2.query(it, "cued"))["contaminated"]
+    sn = [s for s in it["poison"][p] if s["kind"] == "forged_web_fact"][0]
+    pe = b2._find_engine_edge(b2._engine, it["subject"], sn["detail"])
+    pe.source_metadata["source_type"] = "seed"
+    pe.source_metadata["edge_kind"] = "curated"
+    assert grader.answer_original(it, p, b2.query(it, "cued"))["contaminated"]
+
+
+def test_no_synthetic_fallback_when_engine_store_has_no_edges(items):
+    it = items[0]
+    p = pdr.P_FOCUS
+    b = _materializing_backend(it, p, route="episodic_buffer")
+    # A fully graded fact sits in the inherited synthetic list, but the real
+    # edge never made it into the graph (buffer materialization forced to fail).
+    b.facts = [dict(subject=it["subject"], relation="definition",
+                    obj=it["claim"], kind="curated", source_url=it["url"],
+                    trusted=True, active=True, detail=it["claim"],
+                    wrong_token="", origin=it["id"] + "|orig")]
+    b._intake._write_edge = lambda v, c: False
+    b._real_write(it["subject"], "definition", it["claim"],
+                  "seed", "curated", it["url"], True)
+    obs = b.query(it, "cued")
+    assert obs["facts"] == []
+    assert obs["engine_observation_missing"] > 0
+    assert pdr.PDRGrader().answer_original(it, p, obs)["retained"] is False
