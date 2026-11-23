@@ -525,6 +525,7 @@ class RealBackend(FakeBackend):
 
     def present(self, demo_triples, item, k, condition):
         eng = self._boot()
+        q = item[condition]
         responses = []
         for triple in demo_triples:
             s = "%s %s %s" % triple
@@ -534,8 +535,24 @@ class RealBackend(FakeBackend):
             except Exception as exc:  # surface, never swallow (skill 6)
                 self.api_error = "process_turn: %r" % (exc,)
                 responses.append("")
-        q = item[condition]
-        answer = _parse_engine_answer(responses, item, condition,
+        # Construct validity: the demos teach, the QUERY is the test. Without
+        # a query turn the engine only ever reacts to teaching assertions and
+        # the graded observation is not an answer to the question at all
+        # (measured: 0/1440 query turns, byte-identical near/far at fixed k).
+        # Keep the query prompt free of the parser's key tokens so an echoed
+        # instruction cannot manufacture a relation/target/verdict.
+        question = ("Considering the examples above, what is true of %s? "
+                    "Options: %s. Answer briefly.") % (
+                        q["subject"], ", ".join(q["candidates"]))
+        try:
+            query_answer = eng.process_turn(question)
+            self.api_calls["process_turn"] += 1
+        except Exception as exc:  # surface, never swallow (skill 6)
+            self.api_error = "process_turn(query): %r" % (exc,)
+            query_answer = ""
+        # Grade ONLY the query response. Demo reactions remain in the raw
+        # observation list for audit but must not supply the answer tokens.
+        answer = _parse_engine_answer([query_answer], item, condition,
                                       q["subject"], q["candidates"])
         unparsed = answer is None
         if unparsed:
