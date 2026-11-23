@@ -456,6 +456,16 @@ def _parse_engine_answer(responses, item, condition, subject, candidates):
             return None                           # nothing structured
     if verdict == "match" and not (rel and target):
         verdict = "no_answer"
+
+    # A bare option token is an unambiguous forced-choice answer: the
+    # trusted-edge hook emits exactly that (no relation phrase needed).
+    # Require the WHOLE emission to be the option, so echoed question text
+    # with the option list can never be mistaken for a decision.
+    _bare = low.strip(" .!?\"'")
+    if (target is not None and verdict in (None, "no_answer")
+            and _bare in cand_lower):
+        target = cand_lower[_bare]
+        verdict = "match"
     return {"subject": subject, "relation": rel,
             "target": target, "verdict": verdict}
 
