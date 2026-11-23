@@ -66,3 +66,32 @@ engine without a stored schema hypothesis looks like when actually tested.
 Per `RSI_LIVE_RULE_INDUCTION.md`, the remaining fix is engine-side: write
 declarative demonstrations as trusted provenance-stamped edges and aggregate
 them into an unassertable schema hypothesis before answer generation.
+
+## Final focused run with the trusted-edge hook (2026-11-23)
+
+`RAVANA_EDGE_CHOICE=1`, 1,824 `process_turn` calls: **near/far still 0.00** on
+both pools; foil ~0.5, negative 0–0.5, 180/1,824 unparsed. Fake oracle
+unchanged. The direct `rsi_hook_probe` (which taught `mist→thaw` itself) did
+emit `mist`, but that probe was **not representative**: it taught the answer
+edge, which the real instrument never does.
+
+Inspection of `scratch/rsi_focus_live_rows.json` shows the actual structural
+demonstrations for `rsi_000` are `gale→rainbow`, `shower→climate`,
+`overcast→storm`, `dew→tempest` — none involves the query subject `thaw` or the
+gold target `mist`. RSI therefore requires **inducing a relation from several
+exemplars and applying it to a new subject**, not retrieving a taught edge.
+The trusted-edge hook can only answer when a demonstrated edge already lands
+on the subject; it correctly fails closed otherwise.
+
+**Final root cause:** RAVANA stores each demonstration as a separate trusted
+episode (proven) but does not abstract a schema hypothesis that licenses
+applying the demonstrated relation to an unseen subject. Brain grounding:
+schema assimilation requires an existing schema (Tse 2007), and pattern
+separation keeps episodes distinct until a slow regularity is extracted
+(McClelland et al. 1995). The unassertable `schema_induction.py` helpers added
+earlier are the right primitive but are not wired into the answer path.
+
+No threshold was changed. The remaining fix is a genuine mechanism: converge
+k demonstrated instances of the same relation into an unassertable schema
+hypothesis, then use it to rank candidates for a new subject while keeping
+foil/negative rejection. This is engine-side work; do not tune the benchmark.
