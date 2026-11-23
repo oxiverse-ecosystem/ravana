@@ -441,3 +441,16 @@ def test_hedge_strip_is_verdict_neutral_and_fake_path_unchanged(items):
     assert all("engine_answer" not in r and "engine_graded" not in r
                for r in frows)
     assert rsi.summarize(items[:4], frows)["primary"]["near"] == 1.0
+
+
+def test_bare_candidate_token_is_a_forced_choice_answer(items):
+    """The trusted-edge hook emits a bare option; that IS an answer."""
+    it = items[0]
+    ans = rsi._parse_engine_answer(["mist"], it, "near",
+                                   it["near"]["subject"], it["near"]["candidates"])
+    assert ans["target"] == "mist" and ans["verdict"] == "match"
+    # Echoing the whole question with the option list is NOT an answer.
+    echoed = rsi._parse_engine_answer(
+        ["what is true of thaw? Options: sunset, typhoon, mist, hail"],
+        it, "near", it["near"]["subject"], it["near"]["candidates"])
+    assert echoed["verdict"] == "no_answer"
