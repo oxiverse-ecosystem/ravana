@@ -384,10 +384,30 @@ def _parse_engine_answer(responses, item, condition, subject, candidates):
     records ``engine_response_unparsed`` and scores NO ANSWER. The input demo
     triples are never used as a substitute.
     """
-    text = " ".join(str(r) for r in (responses or []) if r is not None)
+    raw = [str(r) for r in (responses or []) if r is not None]
+    text = " ".join(raw)
     low = " ".join(text.lower().split())
     if not low:
         return None
+
+    # Strip epistemic hedges and bare acknowledgments from the EVIDENCE text.
+    # When the engine declines a demonstration it names the relation word and
+    # often an entity inside the decline itself ("i'm not totally sure about
+    # resembles yet", "honestly, resembles is a bit outside what i know").
+    # Those are echoes of the presented vocabulary, not an induced rule: a
+    # parser that reads a relation/target out of them manufactures a positive
+    # from an absence of evidence. Keep them in ``low`` for negation/verdict
+    # detection (a decline must stay a decline) but never let them supply a
+    # relation or a target. This changes no gate and no threshold; explicit
+    # key=value emissions and genuine assertions parse exactly as before.
+    def _is_hedge(s):
+        l = " ".join(s.lower().split())
+        return ("not totally sure" in l or "not sure about" in l
+                or "solid grasp on" in l or "outside what i know" in l
+                or l.startswith(("right.", "yeah.", "got it.", "ok, noted.")))
+
+    ev_low = " ".join(" ".join(s.lower().split()) for s in raw
+                      if not _is_hedge(s))
 
     rel = None
     target = None
@@ -409,15 +429,16 @@ def _parse_engine_answer(responses, item, condition, subject, candidates):
     #    candidate actually mentioned in the emission.
     if rel is None:
         for phrase, (r, _pol) in PHRASE_TO_REL.items():
-            if phrase in low:
+            if phrase in ev_low:
                 neg_phrase = "not " + phrase
-                if neg_phrase in low and low.count(phrase) == low.count(neg_phrase):
+                if (neg_phrase in ev_low
+                        and ev_low.count(phrase) == ev_low.count(neg_phrase)):
                     continue                      # only ever negated
                 rel = r
                 break
     if target is None:
         for c in candidates:
-            if re.search(r"\b" + re.escape(c.lower()) + r"\b", low):
+            if re.search(r"\b" + re.escape(c.lower()) + r"\b", ev_low):
                 target = c
                 break
 
