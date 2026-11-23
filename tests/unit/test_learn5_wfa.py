@@ -929,3 +929,22 @@ def test_thresholds_are_additive_existing_values_unchanged():
     for key in ("IS_correct_min", "IS_gate_invariant_min",
                 "IS_prompt_label_free_min"):
         assert key in wfa.TH
+
+
+def test_endorse_is_silent_and_graded_by_decision():
+    """ENDORSE leaves the claim emitted; it never emits a literal Y token."""
+    good = wfa.grade_internal_source_condition(
+        {"decision": "ENDORSE", "token": None, "gate_ok": True,
+         "staged_context_source": "engine_graph_provenance"},
+        "credible")
+    assert good["correct"] and good["decision_expected"]
+    bad = wfa.grade_internal_source_condition(
+        {"decision": "ABSTAIN", "token": "N", "gate_ok": True,
+         "staged_context_source": "engine_graph_provenance"},
+        "credible")
+    assert not bad["correct"] and not bad["decision_expected"]
+    withdrawal = wfa.grade_internal_source_condition(
+        {"decision": "WITHDRAW", "token": "W", "gate_ok": True,
+         "staged_context_source": "engine_graph_provenance"},
+        "discredited")
+    assert withdrawal["correct"]
