@@ -422,8 +422,10 @@ def test_hedge_strip_keeps_explicit_answer_and_genuine_assertion(items):
     b2 = _live([
         "hmm, i'm not totally sure about resembles yet, and that's okay.",
         "yes, gale causes rainbow.",
+        "gale causes rainbow.",          # the QUERY turn is graded
     ])
     b2.present([("a", "causes", "b"), ("c", "causes", "d")], it, 2, "near")
+    assert b2.api_calls["process_turn"] == 3
     assert b2.last_engine_answer["relation"] == "CAUSE"
 
 
