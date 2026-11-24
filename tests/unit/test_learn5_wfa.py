@@ -998,3 +998,28 @@ def test_explicit_assertion_fallback_writes_discoverable_provenance():
     rows = wfa.graph_provenance_for_claim(eng, claim, source_id="credible-web-1")
     assert rows and rows[0]["edge_kind"] == "curated"
     assert rows[0]["source"] == "credible-web-1"
+
+
+def test_provenance_found_by_claim_token_without_word_overlap():
+    """Explicit assertions are discoverable even with no shared words."""
+    class Node:
+        def __init__(self, nid, label):
+            self.id, self.label = nid, label
+
+    class Edge:
+        source_metadata = {"source": "credible-web-1", "edge_kind": "curated",
+                           "url": "credible-web-1"}
+        confidence, timestamp, relation_type = 0.9, 1, "semantic"
+
+    class Graph:
+        def __init__(self):
+            token = wfa.wfa_claim_token("Q")
+            self.nodes = {1: Node(1, token), 2: Node(2, token + "|target")}
+            self.edges = {(1, 2): Edge()}
+
+        def get_node(self, nid):
+            return self.nodes.get(nid)
+
+    claim = "Q"
+    rows = wfa.graph_provenance_for_claim(Graph(), claim, source_id="credible-web-1")
+    assert rows and rows[0]["claim_token_match"] and rows[0]["edge_kind"] == "curated"

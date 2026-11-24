@@ -1792,6 +1792,12 @@ def _graph_node_label(g, nid):
     return str(getattr(node, "label", "") or "")
 
 
+def wfa_claim_token(claim):
+    """Short deterministic id for an explicitly asserted claim node."""
+    import hashlib
+    return "wfa_" + hashlib.sha1((claim or "").encode("utf-8")).hexdigest()[:12]
+
+
 def graph_provenance_for_claim(engine_or_graph, claim, source_id=None):
     """Read EVERY stored edge whose endpoint labels cover the claim tokens.
 
@@ -1802,6 +1808,10 @@ def graph_provenance_for_claim(engine_or_graph, claim, source_id=None):
     """
     g = getattr(engine_or_graph, "graph", engine_or_graph)
     toks = _words(claim)
+    # Explicitly asserted claims carry a short deterministic claim-id node,
+    # which survives the cold-boot sanitizer and makes their stored provenance
+    # discoverable without depending on word overlap or label length.
+    claim_token = wfa_claim_token(claim)
     out = []
     for (src_id, tgt_id), edge in _iter_graph_edges(g):
         sm = getattr(edge, "source_metadata", None)
@@ -1813,11 +1823,12 @@ def graph_provenance_for_claim(engine_or_graph, claim, source_id=None):
         labels = (_graph_node_label(g, src_id) + " " +
                   _graph_node_label(g, tgt_id))
         overlap = toks & _words(labels)
-        if not overlap:
+        if not overlap and claim_token not in labels:
             continue
         status = str(sm.get("source_status") or sm.get("trust_class")
                      or "").strip().lower()
         out.append({
+            "claim_token_match": claim_token in labels,
             "source": origin,
             "url": str(sm.get("url") or ""),
             "edge_kind": str(sm.get("edge_kind") or ""),
@@ -1953,9 +1964,8 @@ def teach_claim_into_graph(engine, claim, source_id, source_type="seed"):
     words = sorted(_words(claim))
     if not words:
         return 0
-    import hashlib
-    src_label = words[0]
-    tgt_label = "wfa_" + hashlib.sha1((claim or "").encode("utf-8")).hexdigest()[:12]
+    src_label = wfa_claim_token(claim)
+    tgt_label = wfa_claim_token(claim + "|target")
     try:
         src = g.add_node(label=src_label)
         tgt = g.add_node(label=tgt_label)
