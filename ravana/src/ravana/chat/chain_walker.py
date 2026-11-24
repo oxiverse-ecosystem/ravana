@@ -929,6 +929,210 @@ class ChainWalkerMixin:
             return written
         return written
 
+    # ── ALL RSI relation families: declarative assertions -> provenanced edges ──
+    # EVIDENCE: the turn pipeline calls ONLY `_consolidate_asserted_causal_facts`
+    # (engine.py:10850-10858), whose extractor `_ASSERTED_CAUSAL_RE`
+    # (chain_walker.py:790-794) recognises causal verbs only. PART_OF /
+    # PRECEDES / RESEMBLES demos therefore never reach `intake.intake` and are
+    # stored (if at all) by the unprovenanced associative route
+    # (`_extract_and_store_causal_relations`, engine.py:10859-10862, and
+    # `_create_causal_edge`, which never stamps a source record). The schema
+    # hook reads `source_metadata` (schema_induction.py:96-115, 316-351), so it
+    # cannot form a hypothesis for those families. FIX THE WRITE, not the gate.
+    # Surface phrases mirror the four families of measure_learn5_rsi.RELATIONS
+    # (PART_OF / PRECEDES / RESEMBLES, plus inverse forms). A +1 phrase is
+    # S R O; -1 is O R^-1 S and the roles are swapped on canonicalisation.
+    # SUPPORTS / OPPOSITE are deliberately absent: this fix is narrow.
+    _ASSERTED_RELATION_PHRASES: Dict[str, Tuple[Tuple[str, int], ...]] = {
+        "PART_OF": (("is part of", 1), ("belongs to", 1),
+                    ("is a component of", 1), ("contains", -1),
+                    ("includes", -1), ("is composed of", -1)),
+        "PRECEDES": (("comes before", 1), ("precedes", 1),
+                     ("happens before", 1), ("comes after", -1),
+                     ("follows", -1), ("happens after", -1)),
+        "RESEMBLES": (("resembles", 1), ("is similar to", 1),
+                      ("is akin to", 1)),
+    }
+    # A hedged or negated utterance is an uncertain attribution, not a source
+    # for a trusted edge (Johnson, Hashtroudi & Lindsay 1993, Psychol Bull
+    # 114(1):3-28). Counterexample demos ("s not R o") must induce nothing.
+    _ASSERTION_HEDGE_RE = re.compile(
+        r"\b(might|may|maybe|perhaps|possibly|probably|arguably|allegedly|"
+        r"seems?|appears?|could|i think|i guess|not sure|unclear)\b", re.I)
+    _ASSERTION_NEGATION_RE = re.compile(
+        r"\b(not|never|no)\b|[a-z]n['\u2019]?t\b", re.I)
+    _ASSERTION_QUESTION_RE = re.compile(
+        r"^(what|who|where|why|how|which|whose|whom|when|do(es|id)?|is|are|"
+        r"was|were|can|could|will|would|shall|should)\b", re.I)
+    _ASSERTION_PHRASE_RE = re.compile(
+        r"\b(" + "|".join(re.escape(p) for _fam, _phs in
+                          _ASSERTED_RELATION_PHRASES.items()
+                          for p, _pol in sorted(
+                              _phs, key=lambda x: -len(x[0]))) +
+        r")\b", re.I)
+    # Fact.relation values fed to the SAME gate. Intake's canonical relation
+    # map (intake.py:262-288, web_to_graph.py:52-67) maps part_of -> part_of,
+    # but has no entry for precedes/resembles (both fall back to semantic).
+    _ASSERTION_FACT_RELATION = {
+        "PART_OF": "part_of", "PRECEDES": "precedes",
+        "RESEMBLES": "resembles",
+    }
+    # After the gate writes the provenanced edge, give each family a distinct
+    # relation_type so schema induction groups demonstrations by relation
+    # instead of collapsing three families into "semantic". These are existing
+    # ConceptEdge relation types (temporal, analogical); trust is unchanged.
+    _ASSERTION_EDGE_TYPE = {
+        "PART_OF": "part_of", "PRECEDES": "temporal",
+        "RESEMBLES": "analogical",
+    }
+
+    def _asserted_relation_propositions(self, text: str) -> List[Tuple[str, str, str]]:
+        """Canonical (FAMILY, subject, object) triples stated declaratively.
+
+        Only the three non-causal RSI families are handled here; the CAUSE
+        path above is deliberately left byte-identical. Questions, hedges,
+        negation, unknown phrases and multiword/garbage arguments admit no
+        trusted write.
+        """
+        out: List[Tuple[str, str, str]] = []
+        seen = set()
+        phrase_to_family = {p.lower(): (fam, pol)
+                            for fam, phs in self._ASSERTED_RELATION_PHRASES.items()
+                            for p, pol in phs}
+        for clause in re.split(r"[.;,\n]|\s+and\s+", (text or "").lower()):
+            clause = clause.strip(" \t;,-\n")
+            if not clause or clause.endswith("?") \
+                    or self._ASSERTION_QUESTION_RE.match(clause):
+                continue
+            if self._ASSERTION_HEDGE_RE.search(clause) \
+                    or self._ASSERTION_NEGATION_RE.search(clause):
+                continue
+            for m in self._ASSERTION_PHRASE_RE.finditer(clause):
+                fam, polarity = phrase_to_family[m.group(1).lower()]
+                left = self._extract_content_words(clause[:m.start()])
+                right = self._extract_content_words(clause[m.end():])
+                if not left or not right:
+                    continue
+                subject, obj = left[-1], right[0]
+                if (subject == obj or len(subject) < 3 or len(obj) < 3
+                        or subject in STOP_WORDS or obj in STOP_WORDS
+                        or subject in WEB_GARBAGE or obj in WEB_GARBAGE
+                        or subject in INAPPROPRIATE_WORDS
+                        or obj in INAPPROPRIATE_WORDS):
+                    continue
+                if polarity == -1:
+                    subject, obj = obj, subject
+                key = (fam, subject, obj)
+                if key not in seen:
+                    seen.add(key)
+                    out.append(key)
+        return out
+
+    def _declarative_assertion_text(self, text: str) -> str:
+        """Keep only declarative clauses for the legacy CAUSE extractor.
+
+        The CAUSE extractor is left byte-identical, but a hedged clause such
+        as "gale probably causes rainbow" otherwise yields the junk fact
+        "probably causes rainbow". Filter at the call site; a clean CAUSE
+        sentence is passed through unchanged (clauses are re-joined with the
+        same separators the extractor itself splits on).
+        """
+        out: List[str] = []
+        for raw in re.split(r"[.;,\n]|\s+and\s+", (text or "").lower()):
+            clause = raw.strip(" \t;,-\n")
+            if not clause or clause.endswith("?") \
+                    or self._ASSERTION_QUESTION_RE.match(clause):
+                continue
+            if self._ASSERTION_HEDGE_RE.search(clause) \
+                    or self._ASSERTION_NEGATION_RE.search(clause):
+                continue
+            out.append(clause)
+        return (". ".join(out) + ".") if out else ""
+
+    def _consolidate_asserted_relations(self, text: str) -> int:
+        """Consolidate EVERY declarative RSI assertion through the write gate.
+
+        CAUSE keeps its proven, unchanged extractor + write path; the other
+        families use the same intake + Provenance(source='conversation',
+        source_type='user') path. No confidence/trust threshold is touched,
+        no item metadata or gold answer enters this path, and a turn with no
+        assertion writes nothing (default behaviour byte-identical).
+        """
+        written = 0
+        try:
+            written += int(self._consolidate_asserted_causal_facts(
+                self._declarative_assertion_text(text)) or 0)
+        except Exception:
+            if getattr(self, "_trace_enabled", False):
+                import traceback
+                traceback.print_exc()
+        written += self._consolidate_asserted_non_causal_relations(text)
+        return written
+
+    def _consolidate_asserted_non_causal_relations(self, text: str) -> int:
+        """Write PART_OF / PRECEDES / RESEMBLES assertions as trusted edges."""
+        if not text or text.strip().endswith("?"):
+            return 0
+        propositions = self._asserted_relation_propositions(text)
+        if not propositions:
+            return 0
+        getter = getattr(self, "_get_knowledge_intake", None)
+        if not callable(getter):
+            return 0
+        try:
+            intake = getter()
+        except Exception:
+            return 0
+        if intake is None:
+            return 0
+        written = 0
+        try:
+            from ravana.learn.intake import Fact, Provenance
+            for family, subject, obj in propositions:
+                try:
+                    sid = self._ensure_assertion_node(subject)
+                    oid = self._ensure_assertion_node(obj)
+                    if sid is None or oid is None or sid == oid:
+                        continue
+                    fact = Fact(subject=subject,
+                                relation=self._ASSERTION_FACT_RELATION[family],
+                                obj=obj, confidence=0.9, source_sentence=text)
+                    prov = Provenance(
+                        source="conversation", source_type="user", url="",
+                        extractor="conversational-assertion",
+                        operations=("taught-in-conversation",
+                                    "asserted-relation:" + family))
+                    verdict = intake.intake(fact, prov, salience=1.0)
+                    edge = self.graph.get_edge(sid, oid) if self.graph else None
+                    meta = getattr(edge, "source_metadata", None)
+                    if not isinstance(meta, dict) and edge is not None \
+                            and hasattr(edge, "_ensure_source_metadata"):
+                        meta = edge._ensure_source_metadata()
+                    if edge is None or not isinstance(meta, dict):
+                        continue
+                    # Defensive: intake.py:79-85 maps source_type 'user' to
+                    # 'curated'; restore it if an unpickled edge skipped the
+                    # stamp. This never broadens the trust set.
+                    if not meta.get("edge_kind"):
+                        meta["edge_kind"] = "curated"
+                    prev = meta.get("asserted_relation")
+                    if prev in (None, family):
+                        meta["asserted_relation"] = family
+                        edge.relation_type = self._ASSERTION_EDGE_TYPE[family]
+                    written += 1
+                    if getattr(self, "_trace_enabled", False):
+                        print("  [consolidate] %s %s %s -> %s (%s)" % (
+                            subject, family, obj, verdict.route, verdict.reason),
+                            flush=True)
+                except Exception:
+                    if getattr(self, "_trace_enabled", False):
+                        import traceback
+                        traceback.print_exc()
+                    continue
+        except Exception:
+            return written
+        return written
+
     def _extract_and_store_causal_relations(self, text: str,
                                             weak_associations: bool = False) -> int:
         """Extract causal relations from user input using GloVe vector semantics.
