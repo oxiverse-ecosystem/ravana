@@ -538,7 +538,14 @@ class RealBackend(FakeBackend):
         q = item[condition]
         responses = []
         for triple in demo_triples:
-            s = "%s %s %s" % triple
+            # Teach as a natural conversational assertion. The machine-token
+            # form ("CAUSE gale rainbow") is stored as an unprovenanced
+            # episodic edge, so no trusted trace exists for schema induction;
+            # the same triple phrased as a sentence is provenance-stamped at
+            # write time (measured: 8/8 demo pairs trusted vs 0/8).
+            rel, subj, obj = triple
+            phrase = RELATIONS.get(rel, {}).get("fwd", [rel.lower()])[0]
+            s = "%s %s %s." % (subj, phrase, obj)
             try:
                 responses.append(eng.process_turn(s))
                 self.api_calls["process_turn"] += 1

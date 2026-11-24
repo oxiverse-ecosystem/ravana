@@ -101,8 +101,17 @@ def _is_trusted_edge(edge) -> bool:
     """
     if edge is None:
         return False
-    kind = str(getattr(edge, "edge_kind", "") or "").strip().lower()
-    src = str(getattr(edge, "edge_source", "") or "").strip().lower()
+    # Real ConceptEdge stores provenance INSIDE source_metadata, not as
+    # instance attributes; attribute-only reads are always empty on the live
+    # graph and make the predicate permanently False. Keep the attribute
+    # fallback for duck-typed fakes and persisted mirrors.
+    meta = getattr(edge, "source_metadata", None)
+    if not isinstance(meta, dict):
+        meta = {}
+    kind = (str(getattr(edge, "edge_kind", "") or "").strip().lower()
+            or str(meta.get("edge_kind") or "").strip().lower())
+    src = (str(getattr(edge, "edge_source", "") or "").strip().lower()
+           or str(meta.get("source") or meta.get("edge_source") or "").strip().lower())
     return kind in TRUSTED_EDGE_KINDS or src == TRUSTED_SOURCE
 
 
