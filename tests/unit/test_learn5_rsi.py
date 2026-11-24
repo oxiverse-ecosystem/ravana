@@ -454,3 +454,10 @@ def test_bare_candidate_token_is_a_forced_choice_answer(items):
         ["what is true of thaw? Options: sunset, typhoon, mist, hail"],
         it, "near", it["near"]["subject"], it["near"]["candidates"])
     assert echoed["verdict"] == "no_answer"
+
+
+def test_live_backend_teaches_demos_as_natural_assertions():
+    """The same triple must be phrased so the engine stamps provenance."""
+    import inspect
+    src = inspect.getsource(rsi.RealBackend.present)
+    assert 'RELATIONS.get(rel' in src and '%s %s %s.' in src

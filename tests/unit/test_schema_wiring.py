@@ -256,3 +256,13 @@ def test_non_forced_choice_query_never_diverted():
     # No Options: frame -> CAR chain articulation / free text is untouched.
     assert rg.ResponseGenMixin._schema_candidate(
         fake, "why does thaw happen", "thaw") is None
+
+
+def test_trust_predicate_reads_real_edge_metadata():
+    """Real ConceptEdge stores edge_kind/source inside source_metadata."""
+    from ravana_ml.graph import ConceptEdge
+    edge = ConceptEdge(source=0, target=1, weight=0.5, relation_type="causal")
+    edge.source_metadata.update({"edge_kind": "curated", "source": "conversation"})
+    assert si._is_trusted_edge(edge)
+    edge.source_metadata.update({"edge_kind": "unknown", "source": None})
+    assert not si._is_trusted_edge(edge)
