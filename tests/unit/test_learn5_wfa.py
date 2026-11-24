@@ -948,3 +948,53 @@ def test_endorse_is_silent_and_graded_by_decision():
          "staged_context_source": "engine_graph_provenance"},
         "discredited")
     assert withdrawal["correct"]
+
+
+def test_explicit_assertion_fallback_writes_discoverable_provenance():
+    """When the extractor writes nothing, the claim is still taught via the
+    real graph API with provenance — never from item metadata."""
+    class Node:
+        def __init__(self, nid, label):
+            self.id, self.label = nid, label
+
+    class Edge:
+        source_metadata = None
+        confidence = 0.9
+        timestamp = 1
+        relation_type = "semantic"
+
+    class Graph:
+        def __init__(self):
+            self.nodes, self.edges, self.n = {}, {}, 0
+
+        def add_node(self, label=""):
+            self.n += 1
+            node = Node(self.n, label)
+            self.nodes[self.n] = node
+            return node
+
+        def add_edge(self, source, target, **kwargs):
+            edge = Edge()
+            self.edges[(source, target)] = edge
+            return edge
+
+        def get_node(self, nid):
+            return self.nodes.get(nid)
+
+    class W2G:
+        def learn_text(self, *args, **kwargs):
+            return 0
+
+    class Engine:
+        def __init__(self):
+            self.graph = Graph()
+
+        def _get_web_to_graph(self):
+            return W2G()
+
+    eng = Engine()
+    claim = "Frost creates in much the same manner as dew creates."
+    assert wfa.teach_claim_into_graph(eng, claim, "credible-web-1") == 1
+    rows = wfa.graph_provenance_for_claim(eng, claim, source_id="credible-web-1")
+    assert rows and rows[0]["edge_kind"] == "curated"
+    assert rows[0]["source"] == "credible-web-1"
