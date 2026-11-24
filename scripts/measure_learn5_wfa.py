@@ -2474,8 +2474,22 @@ def main(argv=None):
         def _is_fn(cond):
             # The staged origin comes from is_source_id(claim, cond), NEVER
             # from it['source_id'] / it['source_status'] / expected answer.
-            return lambda it, c: run_internal_source_condition(
-                is_engine, it["claim"], c, is_source_id(it["claim"], c))
+            # Optional per-condition engine isolation: one long-lived graph
+            # across all 120 teaching/invalidation conditions can evict edges
+            # or leave stale decisions. A fresh engine per condition makes the
+            # observation a pure function of that condition's teaching event.
+            fresh = os.environ.get("WFA_IS_FRESH_ENGINE") == "1"
+            if fresh:
+                from ravana.chat.engine import CognitiveChatEngine
+
+            def _run(it, c):
+                engine = (CognitiveChatEngine(
+                    data_dir=os.path.join(PROJ, "weights"), user_suffix="")
+                    if fresh else is_engine)
+                return run_internal_source_condition(
+                    engine, it["claim"], c, is_source_id(it["claim"], c))
+
+            return _run
 
         is_arms = InternalSourceArms(credible=_is_fn("credible"),
                                      discredited=_is_fn("discredited"),
