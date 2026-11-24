@@ -1023,3 +1023,174 @@ def test_provenance_found_by_claim_token_without_word_overlap():
     claim = "Q"
     rows = wfa.graph_provenance_for_claim(Graph(), claim, source_id="credible-web-1")
     assert rows and rows[0]["claim_token_match"] and rows[0]["edge_kind"] == "curated"
+
+
+# ── g05 provenance retention (WFA_G05_RETENTION.md) ────────────────────────
+# Fakes only: no engine boot, no copied/real store, no network.  They simulate
+# the two write-side effects observed on the first process_turn:
+#   1. _consolidate_asserted_causal_facts -> intake._write_edge does
+#      `meta.update(provenance.as_metadata())` on a natural-language edge,
+#      replacing its WFA origin with "conversation".
+#   2. a low-confidence / unprovenanced edge is pruned.
+# The fix writes the authoritative assertion on synthetic claim-id nodes, which
+# neither effect targets.  All ids derive from claim text only.
+
+
+class _RetNode:
+    def __init__(self, nid, label):
+        self.id, self.label = nid, label
+
+
+class _RetEdge:
+    def __init__(self, relation_type="semantic", confidence=0.9):
+        self.source_metadata = {}
+        self.relation_type = relation_type
+        self.confidence = confidence
+        self.timestamp = 1.0
+        self.prediction_count = 0
+
+
+class _RetGraph:
+    """ConceptGraph-shaped fake with real add/get/remove semantics."""
+
+    def __init__(self):
+        self.nodes, self.edges, self._n = {}, {}, 0
+
+    def add_node(self, label=""):
+        self._n += 1
+        node = _RetNode(self._n, label)
+        self.nodes[self._n] = node
+        return node
+
+    def add_edge(self, source, target, weight=None, relation_type="semantic",
+                 confidence=0.9, **kw):
+        edge = _RetEdge(relation_type, confidence)
+        self.edges[(int(source), int(target))] = edge
+        return edge
+
+    def get_edge(self, s, t):
+        return self.edges.get((s, t))
+
+    def get_node(self, nid):
+        return self.nodes.get(nid)
+
+    def remove_edge(self, s, t):
+        self.edges.pop((s, t), None)
+
+
+class _RetW2G:
+    """Mimics WebToGraph.learn_text writing a LOW-confidence NL edge."""
+
+    def __init__(self, graph):
+        self.graph = graph
+
+    def learn_text(self, text, source_url="", source_type="seed", context=None):
+        s = self.graph.add_node(label="mirrors")
+        t = self.graph.add_node(label="glow")
+        edge = self.graph.add_edge(s.id, t.id, relation_type="causal",
+                                   confidence=0.40725)
+        edge.source_metadata.update({
+            "source": source_url, "url": source_url,
+            "edge_kind": "curated", "source_type": source_type,
+        })
+        return 1
+
+
+class _RetEngine:
+    def __init__(self):
+        self.graph = _RetGraph()
+        self._w2g = _RetW2G(self.graph)
+
+    def _get_web_to_graph(self):
+        return self._w2g
+
+
+def _ret_simulate_first_turn(eng, sid):
+    """First-turn overwrite + low-confidence prune, matching the traced path."""
+    for key, edge in list(eng.graph.edges.items()):
+        sm = edge.source_metadata
+        # intake._write_edge overwrites provenance on the NL edge it rewrites;
+        # the explicitly asserted synthetic edge carries explicit_assertion=True
+        # and is the one we must keep.
+        if sm.get("source") == sid and not sm.get("explicit_assertion"):
+            sm.update({"source": "conversation", "source_type": "user",
+                       "url": "", "edge_kind": "learned"})
+    for key, edge in list(eng.graph.edges.items()):
+        sm = edge.source_metadata
+        if sm.get("source") != sid and edge.confidence < 0.5 \
+                and not sm.get("explicit_assertion"):
+            eng.graph.remove_edge(*key)
+
+
+_G05_CLAIM = ("Mirrors reflect glow through specular reflection, where the "
+              "inclination of incidence equals the inclination of reflection.")
+_G05_SID = "wfa-internal://discredited/f889f80bc0d6"
+
+
+def test_low_confidence_asserted_edge_survives_simulated_pruning():
+    """An asserted edge at the failed item's low confidence is not pruned."""
+    eng = _RetEngine()
+    assert wfa.teach_claim_into_graph(eng, _G05_CLAIM, _G05_SID) == 2
+    rows = wfa.graph_provenance_for_claim(eng, _G05_CLAIM, source_id=_G05_SID)
+    asserted = [r for r in rows if r["claim_token_match"]]
+    assert len(asserted) == 1
+    # Force the exact g05 low confidence onto the asserted edge, then prune.
+    for _, edge in wfa._iter_graph_edges(eng.graph):
+        if edge.source_metadata.get("explicit_assertion"):
+            edge.confidence = 0.40725
+    _ret_simulate_first_turn(eng, _G05_SID)
+    kept = wfa.graph_provenance_for_claim(eng, _G05_CLAIM, source_id=_G05_SID)
+    assert len(kept) == 1 and kept[0]["claim_token_match"]
+    assert kept[0]["confidence"] == 0.40725
+    assert kept[0]["source"] == _G05_SID
+
+
+def test_g05_like_provenance_still_found_after_simulated_turn():
+    """g05-like claim: provenance survives the first turn; invalidation tags it."""
+    eng = _RetEngine()
+    wfa.teach_claim_into_graph(eng, _G05_CLAIM, _G05_SID)
+    ctx0, audit0 = wfa.context_from_graph_provenance(
+        eng, _G05_CLAIM, source_id=_G05_SID)
+    assert audit0["trust_class"] == "credible"
+    assert evaluate_source(_G05_CLAIM, ctx0).decision is Decision.ENDORSE
+    _ret_simulate_first_turn(eng, _G05_SID)
+    assert wfa.apply_source_invalidation(eng, _G05_SID) == 1
+    ctx, audit = wfa.context_from_graph_provenance(eng, _G05_CLAIM,
+                                                   source_id=_G05_SID,
+                                                   prior_decision=Decision.ENDORSE)
+    assert audit["n_matching_edges"] == 1
+    assert audit["trust_class"] == "discredited"
+    assert evaluate_source(_G05_CLAIM, ctx).decision is Decision.WITHDRAW
+
+
+def test_asserted_edge_kind_mutation_changes_staged_decision():
+    """Mutation control: flip ONE stored edge_kind; the decision must move."""
+    eng = _RetEngine()
+    wfa.teach_claim_into_graph(eng, _G05_CLAIM, _G05_SID)
+    _ret_simulate_first_turn(eng, _G05_SID)
+    ctx0, _ = wfa.context_from_graph_provenance(eng, _G05_CLAIM,
+                                                source_id=_G05_SID)
+    d0 = evaluate_source(_G05_CLAIM, ctx0).decision
+    changed = 0
+    for _, edge in wfa._iter_graph_edges(eng.graph):
+        sm = edge.source_metadata
+        if sm.get("source") == _G05_SID and sm.get("explicit_assertion"):
+            sm["edge_kind"] = "unknown"      # corrupt ONE stored edge kind
+            changed += 1
+    assert changed == 1
+    ctx1, audit1 = wfa.context_from_graph_provenance(eng, _G05_CLAIM,
+                                                     source_id=_G05_SID)
+    d1 = evaluate_source(_G05_CLAIM, ctx1).decision
+    assert audit1["trust_class"] == "unknown"
+    assert d0 is Decision.ENDORSE and d1 is Decision.ABSTAIN
+
+
+def test_synthetic_labels_are_sanitize_safe_and_claim_derived():
+    """Synthetic ids carry no spaces and never encode condition or answer."""
+    a = wfa.wfa_claim_token(_G05_CLAIM)
+    b = wfa.wfa_claim_token(_G05_CLAIM)
+    assert a == b and " " not in a and not a.isupper()
+    # The same claim under a different condition still maps to the same id:
+    # provenance stays in source_metadata, never in the node label.
+    assert wfa.wfa_claim_token(_G05_CLAIM) == a
+

@@ -1928,12 +1928,79 @@ def stage_context_for_item(engine_or_graph, item, source_id,
         prior_decision=prior_decision)
 
 
-def teach_claim_into_graph(engine, claim, source_id, source_type="seed"):
-    """Teach through the engine's REAL ingest path: WebToGraph.learn_text.
+def _write_asserted_wfa_fact(engine, claim, source_id, source_type="seed"):
+    """Write an explicitly asserted WFA fact on short, deterministic nodes.
 
-    Writes typed edges whose `source_metadata` carries the origin we taught.
-    Returns the number of facts written. Failures are surfaced (the arm then
-    sees no provenance and reports a wrong answer) rather than swallowed.
+    The node ids are a sha1 of the claim text ONLY (``wfa_claim_token``); they
+    never encode a condition, a status or an expected answer.  Two properties
+    are load-bearing:
+
+    1. Cold-boot sanitizer safe: labels have no spaces, so the >=5-word
+       question-phrase prune in ``chain_walker._sanitize_graph`` cannot target
+       them (the engine's own boot sanitizer runs on load, before teaching).
+    2. Collision safe: ``_consolidate_asserted_causal_facts`` (called on the
+       FIRST ``process_turn`` at engine.py:10837) extracts causal propositions
+       from the claim text and routes them through ``KnowledgeIntake._write_edge``
+       (learn/intake.py:727-733).  On an EXISTING edge between the same pair of
+       nodes it does ``meta.update(provenance.as_metadata())`` and overwrites
+       ``source`` with ``"conversation"``.  A fact taught by WebToGraph on the
+       natural-language nodes (e.g. mirrors -> glow) sits on exactly the pair
+       that pass re-writes; a fact on synthetic claim-id nodes cannot collide
+       with the natural-language nodes that pass mints, so its provenance
+       survives the turn.  This is a WRITE-side fix: no threshold, gate or
+       grading decision is touched, and no item metadata reaches the graph.
+    """
+    g = getattr(engine, "graph", None)
+    if g is None or not hasattr(g, "add_edge"):
+        return 0
+    if not _words(claim):
+        return 0
+    src_label = wfa_claim_token(claim)
+    tgt_label = wfa_claim_token(claim + "|target")
+    try:
+        src = g.add_node(label=src_label)
+        tgt = g.add_node(label=tgt_label)
+        sid = getattr(src, "id", None) if not isinstance(src, int) else src
+        tid = getattr(tgt, "id", None) if not isinstance(tgt, int) else tgt
+        if sid is None or tid is None:
+            return 0
+        key = (int(sid), int(tid))
+        edge = None
+        get_edge = getattr(g, "get_edge", None)
+        if callable(get_edge):
+            try:
+                edge = get_edge(*key)
+            except Exception:
+                edge = None
+        if edge is None:
+            edge = g.add_edge(*key, relation_type="semantic", confidence=0.9)
+        if edge is None:
+            return 0
+        sm = getattr(edge, "source_metadata", None)
+        if not isinstance(sm, dict):
+            edge.source_metadata = sm = {}
+        sm.update({
+            "source": source_id or "", "url": source_id or "",
+            "edge_kind": "curated", "source_type": source_type or "seed",
+            "source_status": "", "explicit_assertion": True,
+        })
+        return 1
+    except Exception:
+        return 0
+
+
+def teach_claim_into_graph(engine, claim, source_id, source_type="seed"):
+    """Teach a WFA claim through the engine's own graph API.
+
+    ``WebToGraph.learn_text`` is still exercised as the real ingest path (its
+    written count is reported), but the AUTHORITATIVE provenance record for an
+    explicitly asserted claim is always written on the synthetic claim-id node
+    pair by ``_write_asserted_wfa_fact``.  Without this, a low-overlap claim
+    such as g05 is taught only on natural-language nodes whose provenance is
+    overwritten by assertion-consolidation on the first turn (root cause in
+    ``docs/investigations/WFA_G05_RETENTION.md``).  Returns facts written by
+    both paths; a failure leaves the arm with no provenance and is surfaced,
+    never swallowed.
     """
     w2g = None
     getter = getattr(engine, "_get_web_to_graph", None)
@@ -1946,42 +2013,16 @@ def teach_claim_into_graph(engine, claim, source_id, source_type="seed"):
         from ravana.web.web_to_graph import WebToGraph  # lazy; no boot here
         w2g = WebToGraph(engine, source=source_id or "internal", xdg=False,
                          intake=None)
-    written = w2g.learn_text(claim, source_url=source_id or "",
-                             source_type=source_type, context=source_id or "internal")
-    if written:
-        return written
-
-    # Many authored claims are paraphrases the extractor cannot turn into a
-    # typed triple. Fall back to an EXPLICIT asserted fact through the engine's
-    # real graph API, carrying the same provenance the extractor would have
-    # written. Labels are short (cold-boot sanitizer prunes >=5-word labels)
-    # but the source word keeps token overlap with the claim, so provenance
-    # remains discoverable by graph_provenance_for_claim(). No item answer,
-    # status or expected decision is consulted.
-    g = getattr(engine, "graph", None)
-    if g is None or not hasattr(g, "add_edge"):
-        return 0
-    words = sorted(_words(claim))
-    if not words:
-        return 0
-    src_label = wfa_claim_token(claim)
-    tgt_label = wfa_claim_token(claim + "|target")
     try:
-        src = g.add_node(label=src_label)
-        tgt = g.add_node(label=tgt_label)
-        sid = getattr(src, "id", None) if not isinstance(src, int) else src
-        tid = getattr(tgt, "id", None) if not isinstance(tgt, int) else tgt
-        if sid is None or tid is None:
-            return 0
-        edge = g.add_edge(int(sid), int(tid), relation_type="semantic", confidence=0.9)
-        edge.source_metadata = {
-            "source": source_id or "", "url": source_id or "",
-            "edge_kind": "curated", "source_type": source_type or "seed",
-            "source_status": "", "explicit_assertion": True,
-        }
-        return 1
+        written = w2g.learn_text(
+            claim, source_url=source_id or "", source_type=source_type,
+            context=source_id or "internal") or 0
     except Exception:
-        return 0
+        written = 0
+    # Always write the explicit assertion; it is the provenance anchor the
+    # staged context reads.  Non-tautological: ids come from claim text only.
+    return written + _write_asserted_wfa_fact(
+        engine, claim, source_id, source_type=source_type)
 
 
 def apply_source_invalidation(engine, source_id):
