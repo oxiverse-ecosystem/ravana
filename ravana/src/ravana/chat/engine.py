@@ -8254,6 +8254,25 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _edge_choice = getattr(self, "_apply_trusted_edge_choice", None)
             if _edge_choice is not None:
                 response = _edge_choice(response, user_input)
+            # H4 schema hypothesis (opt-in via RAVANA_SCHEMA=1). The induction
+            # hook normally lives in _human_like_uncertainty, which chatter /
+            # forced-choice turn paths can bypass entirely. Give it a second,
+            # boundary-level call here so a converged hypothesis can decide the
+            # answer on EVERY path; the hook itself fails closed and defers to
+            # directly taught edges. Defensive getattr keeps older fakes inert.
+            _schema_hook = getattr(self, "_schema_candidate", None)
+            if callable(_schema_hook):
+                try:
+                    from .schema_induction import schema_enabled
+                    if schema_enabled():
+                        _subj = (getattr(getattr(self, "_source_gate_ctx", None),
+                                         "subject", None) or
+                                 getattr(self, "_last_subject", None))
+                        _pick = _schema_hook(user_input, _subj)
+                        if _pick is not None:
+                            response = _pick
+                except Exception:
+                    pass
             # Emission-boundary source monitor (opt-in via RAVANA_SOURCE_EVAL=1).
             # Runs on the FINAL response so no downstream salad / uncertainty /
             # correction guard can rewrite the decision token. Inert and
