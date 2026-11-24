@@ -10847,13 +10847,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if new_concepts > 0:
             activated = self._activate_from_input(user_input)
 
-        # Phase 1.6a: consolidate ASSERTED causal propositions through the
+        # Phase 1.6a: consolidate ASSERTED relations through the SAME
         # schema-consistency gate with a user-source record. This is the
         # episodic->semantic step: only a declarative teaching turn writes
-        # provenance-trusted edges; a question never does.
+        # provenance-trusted edges; a question never does. The generalized
+        # helper keeps the proven CAUSE path byte-identical and adds
+        # PART_OF / PRECEDES / RESEMBLES. Duck-typed engines that only define
+        # the old hook keep their old behaviour via the fallback below.
         consolidated = 0
         try:
-            consolidated = self._consolidate_asserted_causal_facts(user_input)
+            _relation_consolidator = getattr(
+                self, "_consolidate_asserted_relations", None)
+            if not callable(_relation_consolidator):
+                _relation_consolidator = getattr(
+                    self, "_consolidate_asserted_causal_facts", None)
+            if callable(_relation_consolidator):
+                consolidated = _relation_consolidator(user_input)
         except Exception:
             pass  # consolidation is best-effort; never break the turn
         # Phase 1.6b: associative causal extraction (untrusted by design).
