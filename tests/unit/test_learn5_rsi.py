@@ -449,6 +449,7 @@ def test_bare_candidate_token_is_a_forced_choice_answer(items):
     ans = rsi._parse_engine_answer(["mist"], it, "near",
                                    it["near"]["subject"], it["near"]["candidates"])
     assert ans["target"] == "mist" and ans["verdict"] == "match"
+    assert ans["relation"] == it["relation"]
     # Echoing the whole question with the option list is NOT an answer.
     echoed = rsi._parse_engine_answer(
         ["what is true of thaw? Options: sunset, typhoon, mist, hail"],
