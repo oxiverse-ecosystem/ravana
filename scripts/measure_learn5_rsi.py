@@ -466,6 +466,12 @@ def _parse_engine_answer(responses, item, condition, subject, candidates):
             and _bare in cand_lower):
         target = cand_lower[_bare]
         verdict = "match"
+        # The relation is defined by the DEMONSTRATIONS (item['relation']),
+        # never by the answer key. Naming the single admissible option in a
+        # forced-choice answer licenses that demonstrated relation; without
+        # this the grader scores a correct pick as `relation=None`.
+        if rel is None and condition in ("near", "far"):
+            rel = item.get("relation")
     return {"subject": subject, "relation": rel,
             "target": target, "verdict": verdict}
 
