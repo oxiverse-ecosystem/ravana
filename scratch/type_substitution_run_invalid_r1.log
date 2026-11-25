@@ -1,0 +1,63 @@
+SUBSTITUTION + COHERENCE TEST of unseen-word typing — scratch/static, NO engine boot
+worktree=C:\Users\Likhith\Documents\projects\ravana_substitution branch=experiment/substitution-coherence base=bfe99a6
+constraints: no production edit, no boot, no store write, no key in deployable scorers, no embeddings (coherence not similarity)
+instrument OK: bank=7bc55db8637fb4b2 rows=c468f94263f0f7c4 slot=e0e3052cf1b3f320
+recorded live rows=1120 fake excluded=12320 graded=160 cross-checked=160
+production baseline recomputed: {'near': 0, 'far': 0, 'foil': 11, 'negative': 18}
+trusted typed edge targets (all recorded): ['civic event', 'weather phenomenon']
+teaching surfaces=114 type labels=['contrast-case', 'earlier-event', 'effect', 'similar-form', 'structured-whole', 'supported-outcome']
+
+=== one worked example: the paragraph and the substitution ===
+item=tra_0000 cond=near k=4 subject=tempest
+TEACH PARAGRAPH: cloud causes storm. storm is an effect. | storm causes frost. frost is an effect. | frost causes drizzle. drizzle is an effect. | drizzle causes thunder. thunder is an effect.
+QUERY SURFACE : Considering the examples above, what is true of tempest? Options: squall, shower, breeze, sunset. Answer briefly.
+SUBSTITUTED(obj): {TEACH} Considering the examples above, what is true of storm? Options: squall, shower, breeze, sunset. Answer briefly. | {TEACH} Considering the examples above, what is true of frost? Options: squall, shower, breeze, sunset. Answer briefly. | {TEACH} Considering the examples above, what is true of drizzle? Options: squall, shower, breeze, sunset. Answer briefly. | {TEACH} Considering the examples above, what is true of thunder? Options: squall, shower, breeze, sunset. Answer briefly.
+S1 scores={"squall": 0.0, "shower": 0.0, "breeze": 0.0, "sunset": 0.0} pick=None
+S2 query-context=["breeze", "shower", "squall", "sunset"] overlaps={"squall": 0.2055, "shower": 0.2055, "breeze": 0.2055, "sunset": 0.2055}
+S3 scores={"squall": 0.0, "shower": 0.0, "breeze": 0.0, "sunset": 0.0}
+S5 scores={"contrast-case": 0.0, "earlier-event": 0.0, "effect": 1.0, "similar-form": 0.0, "structured-whole": 0.0, "supported-outcome": 0.0}
+
+=== CORRECT COUNTS (n = 40 per condition; foil/negative correct = None) ===
+S0  near  0/40  far  0/40  foil 11/40  negative 18/40  foil_leak= 0
+S1  near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak= 0
+S2  near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak= 0
+S3  near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak= 0
+S4  near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak= 0 [TYPE-LABEL OPTION SPACE]
+S5  near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak= 0 [TYPE-LABEL OPTION SPACE]
+S6  near 40/40  far 40/40  foil 40/40  negative 40/40  foil_leak= 0 [NON-DEPLOYABLE ORACLE]
+
+=== near+far by pool ===
+S0  primary 0/40  sealed 0/40
+S1  primary 0/40  sealed 0/40
+S2  primary 0/40  sealed 0/40
+S3  primary 0/40  sealed 0/40
+S4  primary 0/40  sealed 0/40
+S5  primary 0/40  sealed 0/40
+S6  primary 40/40  sealed 40/40
+
+=== fail-closed controls ===
+  S1_disjoint_options                pick=None                     reason=no_trusted_typed_edge_to_any_option pass=True
+  S1_unrelated_subject               pick=None                     reason=no_trusted_typed_edge_to_any_option pass=True
+  S2_disjoint_options                pick=None                     reason=no_option_above_floor pass=True
+  S2_unrelated_subject               pick=None                     reason=strict_margin_not_met pass=True
+  S3_disjoint_options                pick=None                     reason=no_option_above_floor pass=True
+  S3_unrelated_subject               pick=None                     reason=no_option_above_floor pass=True
+  S4_disjoint_options                pick=None                     reason=no_trusted_typed_edge_to_any_option pass=True
+  S4_unrelated_subject               pick=None                     reason=no_trusted_typed_edge_to_any_option pass=True
+  S5_disjoint_options                pick=None                     reason=permutation_unstable pass=True
+  S5_unrelated_subject               pick=None                     reason=permutation_unstable pass=True
+
+=== G6 saturation (shipped front_gates, non-blocking FLAG) ===
+  S0  FLAG: 1 front(s) non-informative: tra_near=0.0
+  S1  FLAG: 2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0
+  S2  FLAG: 2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0
+  S3  FLAG: 2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0
+  S4  FLAG: 2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0
+  S5  FLAG: 2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0
+  S6  FLAG: 2 front(s) non-informative: tra_near=100.0, tra_negative_reject=100.0
+
+DEPLOYABLE VERDICT: NO SUBSTITUTION+COHERENCE ARM MOVES near/far > 0 WITH ZERO FOIL LEAKAGE
+INFORMATION AUDIT: {"cases": 160, "query_subject_in_own_teaching_surfaces": 0, "gold_candidate_in_own_teaching_surfaces": [0, 80], "trusted_typed_edges_targeting_a_TRA_type_label": [], "teaching_surfaces_used": 114, "substitution_note": "substituting the exemplar for the subject removes the only token that differs between near/far and foil/negative; the teaching half is identical."}
+
+wrote C:\Users\Likhith\Documents\projects\ravana_substitution\scratch\type_substitution_results.json
+EXIT=0
