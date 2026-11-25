@@ -1,0 +1,219 @@
+STORE_COPY {'ravana_weights.pkl': (True, True), 'ravana_weights.db': (True, True), 'junk_classifier.json': (True, True), 'junk_labels.jsonl': (True, True)}
+MODULE engine C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\chat\engine.py
+MODULE schema_induction C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\chat\schema_induction.py
+MODULE chain_walker C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\chat\chain_walker.py
+MODULE response_gen C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\chat\response_gen.py
+WRITE_SURFACE {"consolidator_called_by_process_turn": "engine.py:10858-10865 _consolidate_asserted_relations", "relation_phrases": {"PART_OF": ["is part of", "belongs to", "is a component of", "contains", "includes", "is composed of"], "PRECEDES": ["comes before", "precedes", "happens before", "comes after", "follows", "happens after"], "RESEMBLES": ["resembles", "is similar to", "is akin to"]}, "is_a_phrase_present": false, "phrases_with_is_a_substring": ["is a component of", "is akin to"], "note": "chain_walker.py:946-955 phrase map has PART_OF/PRECEDES/RESEMBLES and engine.py:10850-10865 wires only this consolidator; no standalone is_a type-assertion phrase is present."}
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 2167 words from before!
+BOOT1 2.3s save_path=C:/Users/Likhith/AppData/Local/hermes/cache/scratch/tra_write_read_data\ravana_weights.pkl
+BASELINE edges=18984 trusted=170 type_rel=238 hist={'semantic': 14760, 'temporal': 1190, 'causal': 1028, 'contrastive': 638, 'analogical': 569, 'inferred': 375, 'episodic': 184, 'is_a': 169, 'located_in': 47, 'has_property': 12, 'property': 5, 'part_of': 5, 'contextual': 2}
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+TEACH mist is a weather phenomenon.          -> hmm, i'm not totally sure about phenomenon yet, and that's okay wanna figure it out together.
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+TEACH election is a civic event.             -> hmm, i'm not totally sure about election yet, and that's okay where did you hear about that.
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+TEACH a wheel is part of a vehicle.          -> honestly, vehicle is a bit outside what i know right now what made you think about it.
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+TEACH a petal is part of a flower.           -> honestly, flower is a bit outside what i know right now what do you make of it.
+  [ground_query] input='drizzle causes mist.'
+  [ground_query] pfc qtype='general' groups=['drizzle causes mist']
+  [ground_query] query_phrase='drizzle causes mist' words=['drizzle', 'causes', 'mist']
+  [ground_query] input='drizzle causes mist.'
+  [ground_query] pfc qtype='general' groups=['drizzle causes mist']
+  [ground_query] query_phrase='drizzle causes mist' words=['drizzle', 'causes', 'mist']
+  [ground_query] input='drizzle causes mist.'
+  [ground_query] pfc qtype='general' groups=['drizzle causes mist']
+  [ground_query] query_phrase='drizzle causes mist' words=['drizzle', 'causes', 'mist']
+TEACH drizzle causes mist.                   -> i don't really have a solid grasp on that so far wanna figure it out together.
+  [ground_query] input='storm causes a blizzard.'
+  [ground_query] pfc qtype='hypothetical' groups=['storm causes a blizzard']
+  [ground_query] query_phrase='storm causes a blizzard' words=['storm', 'causes', 'blizzard']
+  [ground_query] input='storm causes a blizzard.'
+  [ground_query] pfc qtype='hypothetical' groups=['storm causes a blizzard']
+  [ground_query] query_phrase='storm causes a blizzard' words=['storm', 'causes', 'blizzard']
+  [ground_query] input='storm causes a blizzard.'
+  [ground_query] pfc qtype='hypothetical' groups=['storm causes a blizzard']
+  [ground_query] query_phrase='storm causes a blizzard' words=['storm', 'causes', 'blizzard']
+TEACH storm causes a blizzard.               -> hmm, i'm not totally sure about that yet, and that's okay what's your take on it.
+  [ground_query] input='dawn precedes sunrise.'
+  [ground_query] pfc qtype='general' groups=['dawn precedes sunrise']
+  [ground_query] query_phrase='dawn precedes sunrise' words=['dawn', 'precedes', 'sunrise']
+  [ground_query] input='dawn precedes sunrise.'
+  [ground_query] pfc qtype='general' groups=['dawn precedes sunrise']
+  [ground_query] query_phrase='dawn precedes sunrise' words=['dawn', 'precedes', 'sunrise']
+  [ground_query] input='dawn precedes sunrise.'
+  [ground_query] pfc qtype='general' groups=['dawn precedes sunrise']
+  [ground_query] query_phrase='dawn precedes sunrise' words=['dawn', 'precedes', 'sunrise']
+TEACH dawn precedes sunrise.                 -> hmm, i'm not totally sure about precedes yet, and that's okay what made you think about it.
+  [ground_query] input='winter comes before spring.'
+  [ground_query] pfc qtype='hypothetical' groups=['winter comes before spring']
+  [ground_query] query_phrase='winter comes before spring' words=['winter', 'comes', 'spring']
+  [ground_query] input='winter comes before spring.'
+  [ground_query] pfc qtype='hypothetical' groups=['winter comes before spring']
+  [ground_query] query_phrase='winter comes before spring' words=['winter', 'comes', 'spring']
+  [ground_query] input='winter comes before spring.'
+  [ground_query] pfc qtype='hypothetical' groups=['winter comes before spring']
+  [ground_query] query_phrase='winter comes before spring' words=['winter', 'comes', 'spring']
+TEACH winter comes before spring.            -> hmm, i'm not totally sure about winter yet, and that's okay where did you hear about that.
+  [ground_query] input='mist resembles fog.'
+  [ground_query] pfc qtype='general' groups=['mist resembles fog']
+  [ground_query] query_phrase='mist resembles fog' words=['mist', 'resembles', 'fog']
+  [ground_query] input='mist resembles fog.'
+  [ground_query] pfc qtype='general' groups=['mist resembles fog']
+  [ground_query] query_phrase='mist resembles fog' words=['mist', 'resembles', 'fog']
+  [ground_query] input='mist resembles fog.'
+  [ground_query] pfc qtype='general' groups=['mist resembles fog']
+  [ground_query] query_phrase='mist resembles fog' words=['mist', 'resembles', 'fog']
+TEACH mist resembles fog.                    -> honestly, resembles is a bit outside what i know right now wanna figure it out together.
+  [ground_query] input='a wheel is similar to a gear.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is similar to a gear']
+  [ground_query] query_phrase='a wheel is similar to a gear' words=['wheel', 'similar', 'gear']
+  [ground_query] input='a wheel is similar to a gear.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is similar to a gear']
+  [ground_query] query_phrase='a wheel is similar to a gear' words=['wheel', 'similar', 'gear']
+  [ground_query] input='a wheel is similar to a gear.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is similar to a gear']
+  [ground_query] query_phrase='a wheel is similar to a gear' words=['wheel', 'similar', 'gear']
+TEACH a wheel is similar to a gear.          -> honestly, similar is a bit outside what i know right now what's your take on it.
+POST_TEACH edges=19000 trusted=178 type_rel=240
+NEW_TRUSTED_AFTER_TEACH 8 [('dawn', 'temporal', 'sunrise'), ('drizzle', 'causal', 'mist'), ('mist', 'analogical', 'fog'), ('petal', 'part_of', 'flower'), ('storm', 'causal', 'blizzard'), ('wheel', 'analogical', 'gear'), ('wheel', 'part_of', 'vehicle'), ('winter', 'temporal', 'spring')]
+SAVED saved 95397KB to ravana_weights.pkl
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 1318 words from before!
+BOOT2 2.7s save_path=C:/Users/Likhith/AppData/Local/hermes/cache/scratch/tra_write_read_data\ravana_weights.pkl
+COLD edges=19000 trusted=178 type_rel=240
+SURVIVORS 8/8
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: effect, whole, later, similar. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'effect', 'whole', 'later', 'similar', 'answer', 'briefly']
+  [ground_query] input='what is true of thaw? '
+  [ground_query] pfc qtype='what_is' groups=['true of thaw']
+  [ground_query] query_phrase='true of thaw' words=['true', 'thaw']
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: effect, whole, later, similar. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'effect', 'whole', 'later', 'similar', 'answer', 'briefly']
+QUERY typed_slot_default parseable=False picked=None raw="true thaw — that's a fun image! Are you imagining a scenario involving true thaw, or is this a playful thought experiment?"
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: mist, vehicle, spring, fog. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: mist, vehicle, spring, fog. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: mist, vehicle, spring, fog. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'mist', 'vehicle', 'spring', 'fog', 'answer', 'briefly']
+  [ground_query] input='what is true of thaw? '
+  [ground_query] pfc qtype='what_is' groups=['true of thaw']
+  [ground_query] query_phrase='true of thaw' words=['true', 'thaw']
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: mist, vehicle, spring, fog. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: mist, vehicle, spring, fog. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: mist, vehicle, spring, fog. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'mist', 'vehicle', 'spring', 'fog', 'answer', 'briefly']
+QUERY object_candidates_default parseable=False picked=None raw="true thaw — that's a fun image! Are you imagining a scenario involving true thaw, or is this a playful thought experiment?"
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: effect, whole, later, similar. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'effect', 'whole', 'later', 'similar', 'answer', 'briefly']
+  [ground_query] input='what is true of thaw? '
+  [ground_query] pfc qtype='what_is' groups=['true of thaw']
+  [ground_query] query_phrase='true of thaw' words=['true', 'thaw']
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: effect, whole, later, similar. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: effect, whole, later, similar. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'effect', 'whole', 'later', 'similar', 'answer', 'briefly']
+QUERY typed_slot_schema_flag_on parseable=True picked=effect raw='effect'
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: similar, later, whole, effect. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: similar, later, whole, effect. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: similar, later, whole, effect. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'similar', 'later', 'whole', 'effect', 'answer', 'briefly']
+  [ground_query] input='what is true of thaw? '
+  [ground_query] pfc qtype='what_is' groups=['true of thaw']
+  [ground_query] query_phrase='true of thaw' words=['true', 'thaw']
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: similar, later, whole, effect. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: similar, later, whole, effect. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: similar, later, whole, effect. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'similar', 'later', 'whole', 'effect', 'answer', 'briefly']
+QUERY typed_slot_flag_on_permuted_A parseable=True picked=effect raw='effect'
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: later, effect, similar, whole. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: later, effect, similar, whole. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: later, effect, similar, whole. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'later', 'effect', 'similar', 'whole', 'answer', 'briefly']
+  [ground_query] input='what is true of thaw? '
+  [ground_query] pfc qtype='what_is' groups=['true of thaw']
+  [ground_query] query_phrase='true of thaw' words=['true', 'thaw']
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: later, effect, similar, whole. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: later, effect, similar, whole. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: later, effect, similar, whole. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'later', 'effect', 'similar', 'whole', 'answer', 'briefly']
+QUERY typed_slot_flag_on_permuted_B parseable=True picked=effect raw='effect'
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: fog, spring, vehicle, mist. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: fog, spring, vehicle, mist. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: fog, spring, vehicle, mist. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'fog', 'spring', 'vehicle', 'mist', 'answer', 'briefly']
+  [ground_query] input='what is true of thaw? '
+  [ground_query] pfc qtype='what_is' groups=['true of thaw']
+  [ground_query] query_phrase='true of thaw' words=['true', 'thaw']
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: fog, spring, vehicle, mist. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: fog, spring, vehicle, mist. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: fog, spring, vehicle, mist. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'fog', 'spring', 'vehicle', 'mist', 'answer', 'briefly']
+QUERY object_flag_on_permuted parseable=True picked=spring raw='spring'
+  [ground_query] input='Considering the examples above, what is true of zeppelin? Options: effect, whole, later, similar. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of zeppelin? options: effect, whole, later, similar. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of zeppelin? options: effect, whole, later, similar. answer briefly' words=['considering', 'examples', 'above', 'true', 'zeppelin', 'options:', 'effect', 'whole', 'later', 'similar', 'answer', 'briefly']
+  [ground_query] input='what is true of zeppelin? '
+  [ground_query] pfc qtype='what_is' groups=['true of zeppelin']
+  [ground_query] query_phrase='true of zeppelin' words=['true', 'zeppelin']
+  [ground_query] input='Considering the examples above, what is true of zeppelin? Options: effect, whole, later, similar. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of zeppelin? options: effect, whole, later, similar. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of zeppelin? options: effect, whole, later, similar. answer briefly' words=['considering', 'examples', 'above', 'true', 'zeppelin', 'options:', 'effect', 'whole', 'later', 'similar', 'answer', 'briefly']
+QUERY typed_slot_flag_on_unrelated_subject parseable=True picked=later raw='later'
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: apple, banana, chair, table. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: apple, banana, chair, table. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: apple, banana, chair, table. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'apple', 'banana', 'chair', 'table', 'answer', 'briefly']
+  [ground_query] input='what is true of thaw? '
+  [ground_query] pfc qtype='what_is' groups=['true of thaw']
+  [ground_query] query_phrase='true of thaw' words=['true', 'thaw']
+  [ground_query] input='Considering the examples above, what is true of thaw? Options: apple, banana, chair, table. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of thaw? options: apple, banana, chair, table. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of thaw? options: apple, banana, chair, table. answer briefly' words=['considering', 'examples', 'above', 'true', 'thaw', 'options:', 'apple', 'banana', 'chair', 'table', 'answer', 'briefly']
+QUERY typed_slot_flag_on_disjoint_options parseable=True picked=banana raw='banana'
+PERMUTATION_CONTROL {"picks": {"typed_slot_flag_on_permuted_A": "effect", "typed_slot_flag_on_permuted_B": "effect"}, "first_options": {"typed_slot_flag_on_permuted_A": "similar", "typed_slot_flag_on_permuted_B": "later"}, "n_parseable": 2, "picks_follow_first_option": false, "picks_position_invariant": true, "verdict": "STABLE_ACROSS_PERMUTATIONS"}
+TYPE_CONTRAST_CONTROL {"unrelated_subject_pick": "later", "disjoint_options_pick": "banana", "verdict": "TYPE CONTRAST OBSERVED \u2014 unrelated subject did not pick 'effect'"}
+SCRATCH_PROBE traces=60 hyps=3 keys=['cause', 'is_a', 'property'] pick=spring
+SUMMARY {
+  "taught_turns": 10,
+  "type_edges_before_teach": 238,
+  "type_edges_after_teach_in_process": 240,
+  "type_edges_after_cold_reload": 240,
+  "trusted_edges_before_teach": 170,
+  "trusted_edges_after_teach_in_process": 178,
+  "trusted_edges_after_cold_reload": 178,
+  "new_trusted_edges_after_teach": 8,
+  "cold_reload_survivors": 8,
+  "typed_slot_query_parseable_default_path": false,
+  "typed_slot_query_parseable_flag_on": true,
+  "permutation_control_verdict": "STABLE_ACROSS_PERMUTATIONS",
+  "type_contrast_control_verdict": "TYPE CONTRAST OBSERVED \u2014 unrelated subject did not pick 'effect'",
+  "scratch_probe_hypotheses": 3
+}
+WROTE C:/Users/Likhith/Documents/projects/ravana_tra_exp\scratch\tra_write_read_results.json
+EXIT=0
