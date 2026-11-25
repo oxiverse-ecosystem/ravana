@@ -1,0 +1,23 @@
+TRA CATEGORY-CENTRE EXPERIMENT — scratch, static, no engine boot
+worktree=C:\Users\Likhith\Documents\projects\ravana_tracentre  branch=experiment/tra-category-centre
+constraints: no production edit, no boot, no store write; teaching material only
+instrument OK: loader=C:\Users\Likhith\Documents\projects\ravana\ravana\src\ravana\ontology\attribute_encoder.py
+loader_sha256=295610726018e5f8 bank_sha256=7bc55db8637fb4b2
+recorded live rows=1120 fake rows excluded=12320 items cross-checked=1120 dim=64 lut=400001
+slot centre sizes (taught r2 contributions): {'contrast-case': 10, 'earlier-event': 23, 'effect': 22, 'similar-form': 21, 'structured-whole': 24, 'supported-outcome': 14}
+label vector coverage: {'contrast-case': False, 'earlier-event': False, 'effect': True, 'similar-form': False, 'structured-whole': False, 'supported-outcome': False}
+recorded-confidence exemplar coverage on TRA slots: 10 (Recorded typed edges are for 'weather phenomenon'/'civic event' (6 words), NOT for any TRA type label; coverage on TRA slots is reported, not assumed.)
+ERROR: TypeError('only 0-dimensional arrays can be converted to Python scalars')
+Traceback (most recent call last):
+  File "C:\Users\Likhith\Documents\projects\ravana_tracentre\scratch\tra_category_centre_experiment.py", line 470, in main
+    rows = run(inst, cen)
+  File "C:\Users\Likhith\Documents\projects\ravana_tracentre\scratch\tra_category_centre_experiment.py", line 356, in run
+    confo = choose(sv, labels, cen["conf_only"], 11)
+  File "C:\Users\Likhith\Documents\projects\ravana_tracentre\scratch\tra_category_centre_experiment.py", line 252, in choose
+    scores = {o: cosine(subject_vec, centres[o]) for o in eligible}
+                 ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Likhith\Documents\projects\ravana_tracentre\scratch\tra_category_centre_experiment.py", line 81, in cosine
+    return float(np.dot(unit(a), unit(b)))
+TypeError: only 0-dimensional arrays can be converted to Python scalars
+
+EXIT=2
