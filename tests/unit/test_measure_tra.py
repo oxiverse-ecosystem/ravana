@@ -568,3 +568,15 @@ def test_th_is_byte_identical_to_preregistered_snapshot():
     frozen = json.dumps(TH_SNAPSHOT, sort_keys=True, separators=(",", ":"))
     actual = json.dumps(mt.TH, sort_keys=True, separators=(",", ":"))
     assert actual.encode("utf-8") == frozen.encode("utf-8")
+
+
+def test_teaching_surfaces_are_single_type_assertions(items):
+    """The production is_a writer parses a single whole assertion only."""
+    from ravana.chat.chain_walker import ChainWalkerMixin
+    it = next(x for x in items if x["role"] != "CAUSE")
+    surfaces = mt.teaching_surfaces(it, 4, "near", "structural", False)
+    assert len(surfaces) == 4
+    parser = ChainWalkerMixin()
+    assert all(parser._typed_slot_assertions(s) for s in surfaces)
+    # The query subject's type is never taught.
+    assert all(mt.query_for(it, "near")["subject"] not in s for s in surfaces)
