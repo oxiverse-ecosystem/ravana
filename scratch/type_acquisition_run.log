@@ -1,0 +1,46 @@
+TYPE-ACQUISITION SIGNAL SEARCH — scratch, static, NO engine boot
+worktree=C:\Users\Likhith\Documents\projects\ravana_typelearn_exp  branch=experiment/type-acquisition-signal  base=bfe99a6
+constraints: no production edit, no boot, no store write, no answer key in deployable scorers
+instrument OK: loader=C:\Users\Likhith\Documents\projects\ravana\ravana\src\ravana\ontology\attribute_encoder.py
+loader_sha=295610726018e5f8 bank_sha=7bc55db8637fb4b2 glove_sha=92b3c65ddb779ac9
+recorded live rows=1120 fake excluded=12320 graded rows=160 cross-checked=160 dim=64 lut=400001
+recorded production baseline (flags.correct): {'near': [0, 40], 'far': [0, 40], 'foil': [11, 40], 'negative': [18, 40]}
+teaching surfaces built=114 pooled vocab=29 words with ctx=29
+controls: {"A1_disjoint_options": {"pick": null, "pass_fail_closed": true}, "A1_unrelated_subject": {"pick": null, "pass_fail_closed": true}, "A2_disjoint_options": {"pick": null, "pass_fail_closed": true}, "A2_unrelated_subject": {"pick": null, "pass_fail_closed": true}, "A3_disjoint_options": {"pick": null, "pass_fail_closed": true}, "A3_unrelated_subject": {"pick": null, "pass_fail_closed": true}}
+coverage: {"cases": 160, "subject_in_pooled_teaching_corpus": 46, "any_candidate_in_pooled_teaching_corpus": 119, "k0_items_no_own_teaching": ["tra_0007", "tra_0010", "tra_0011", "tra_0013", "tra_0021", "tra_0039"], "pooled_vocab_words": 29, "pooled_words_with_context": 29, "teaching_surfaces_used": 114}
+
+=== CORRECT COUNTS (n = 40 items x 4 conditions per arm) ===
+A0                   near  0/40  far  0/40  foil 11/40  negative 18/40  foil_leak=0
+A1                   near  4/40  far  4/40  foil 13/40  negative 32/40  foil_leak=27
+A2                   near  1/40  far  0/40  foil 31/40  negative 30/40  foil_leak=9
+A3                   near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak=0
+A4                   near 40/40  far 40/40  foil 40/40  negative 40/40  foil_leak=0 [NON-DEPLOYABLE ORACLE]
+A2_local             near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak=0
+A3_no_subject_gate   near  0/40  far  0/40  foil 25/40  negative 40/40  foil_leak=15
+A3_subject_to_option near  0/40  far  0/40  foil 40/40  negative 40/40  foil_leak=0
+
+=== near+far by pool ===
+A0                   primary 0/40  sealed 0/40
+A1                   primary 2/40  sealed 6/40
+A2                   primary 0/40  sealed 1/40
+A3                   primary 0/40  sealed 0/40
+A4                   primary 40/40  sealed 40/40
+
+=== G6 saturation (shipped front_gates, non-blocking FLAG) ===
+  A0                   FLAG: 1 front(s) non-informative: tra_near=0.0
+  A1                   PASS: no front in the saturated band
+  A2                   FLAG: 1 front(s) non-informative: tra_near=2.5
+  A3                   FLAG: 2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0
+  A4                   FLAG: 2 front(s) non-informative: tra_near=100.0, tra_negative_reject=100.0
+near/far hit audit (k=0 or repeated-token hits are not within-item transfer):
+  A0                   hits=0 k0_hits=0 picks={}
+  A1                   hits=8 k0_hits=0 picks={'drizzle': 1, 'signal': 1, 'ritual': 1, 'election': 1, 'cartilage': 3, 'radius': 1}
+  A2                   hits=1 k0_hits=1 picks={'frost': 1}
+  A3                   hits=0 k0_hits=0 picks={}
+  A4                   hits=80 k0_hits=12 picks={'sunset': 1, 'council': 3, 'drizzle': 2, 'guild': 1, 'sleet': 2, 'custom': 1, 'squall': 5, 'treaty': 1, 'glow': 1, 'market': 1, 'thunder': 1, 'ritual': 4, 'climate': 2, 'signal': 3, 'tempest': 3, 'election': 2, 'breeze': 2, 'tradition': 2, 'society': 1, 'thaw': 1, 'charter': 2, 'typhoon': 1, 'contract': 1, 'chill': 1, 'shower': 1, 'role': 1, 'frost': 1, 'leader': 1, 'artery': 2, 'slope': 1, 'cartilage': 4, 'line': 1, 'tendon': 1, 'sphere': 1, 'ligament': 1, 'radius': 1, 'vein': 2, 'curve': 1, 'joint': 1, 'ellipse': 2, 'square': 1, 'point': 1, 'plasma': 1, 'quadrant': 1, 'palm': 1, 'arc': 2, 'plane': 1, 'marrow': 1, 'polygon': 2, 'esophagus': 1, 'gland': 1, 'vertex': 1}
+
+DEPLOYABLE VERDICT: NO DEPLOYABLE TEACHING-SIDE SIGNAL MOVES near/far ABOVE 0 WITHOUT FOIL LEAKAGE
+
+wrote C:\Users\Likhith\Documents\projects\ravana_typelearn_exp\scratch\type_acquisition_results.json
+EXIT=0
+SHELL_EXIT=0
