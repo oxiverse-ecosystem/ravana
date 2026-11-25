@@ -342,6 +342,67 @@ def _fake_correct(arm, condition, k, permuted=False):
     return False
 
 
+# ── provenance seam: scope a REAL census to this item's taught demo edges ───
+# These helpers only build a FILTER. They never emit an observation: with no
+# taught surface or an empty real census the result is empty, so C12 fails
+# closed instead of reading a synthetic/boot-seeded view.
+_TAUGHT_SLOT_RE = re.compile(
+    r"\b([a-z][a-z\-]*)\s+is\s+(?:a|an)\s+([a-z][a-z\-]+)\b", re.I)
+
+
+def taught_slot_pairs(surfaces, type_label):
+    """(source, target) pairs the teaching surfaces ask to store.
+
+    Derived strictly from the surfaces actually taught into the engine, never
+    from ``world_model``/``type_sets``/the query subject's type.
+    """
+    label = str(type_label or "").strip().lower()
+    pairs = set()
+    for surface in surfaces or ():
+        for clause in str(surface).split("."):
+            m = _TAUGHT_SLOT_RE.search(clause)
+            if not m:
+                continue
+            src = m.group(1).strip().lower()
+            tgt = m.group(2).strip().lower()
+            if label and tgt == label:
+                pairs.add((src, tgt))
+    return pairs
+
+
+def scope_taught_views(census, taught_pairs):
+    """Filter a real typed-slot census to conversation-taught demo edges.
+
+    ``census`` is the adapter's output over the live graph (including boot
+    seeds); ``taught_pairs`` is accumulated from this item's teaching turns.
+    Both must be real: an empty census yields an empty list -- no fabrication.
+    """
+    allowed = set(taught_pairs or ())
+    if not allowed:
+        return []
+    out = []
+    for v in census or ():
+        src = str(getattr(v, "source", "") or "").strip().lower()
+        tgt = str(getattr(v, "target", "") or "").strip().lower()
+        if (src, tgt) not in allowed:
+            continue
+        kind = str(getattr(v, "edge_kind", "") or "").strip().lower()
+        source = str(getattr(v, "edge_source", "") or "").strip().lower()
+        stype = str(getattr(v, "source_type", "") or "").strip().lower()
+        if kind not in TRUSTED_KINDS or source != "conversation" or stype != "user":
+            continue
+        out.append({
+            "subject": src, "target": tgt,
+            "relation_type": str(getattr(v, "relation_type", "") or ""),
+            "type_label": str(getattr(v, "type_label", "") or "").strip(),
+            "edge_kind": kind, "source_type": stype, "edge_source": source,
+            "url": str(getattr(v, "url", "") or ""),
+            "fabricated_span": bool(getattr(v, "fabricated_span", False)),
+            "confidence": float(getattr(v, "confidence", 0.0) or 0.0),
+        })
+    return out
+
+
 class RealBackend(FakeBackend):
     """Live engine. Lazy import; isolated per-item scratch ``data_dir``.
 
@@ -359,12 +420,15 @@ class RealBackend(FakeBackend):
         self.base_dir = data_dir or os.path.join(SCRATCH, "live_data")
         self.data_dir = self.base_dir
         self.current_item_id = None
+        self._taught_slot_pairs = set()
 
     def reset_for_item(self, item):
         self._engine = None
         self.current_item_id = item["item_id"]
         self.data_dir = os.path.join(self.base_dir, item["item_id"])
         self.last_engine_answer = None
+        self._taught_slot_pairs = set()
+        self.provenance_views_cache = []
 
     def _boot(self):
         if self._engine is not None:
@@ -375,6 +439,24 @@ class RealBackend(FakeBackend):
         self.engines_booted += 1
         self.api_calls["boot"] += 1
         return self._engine
+
+    def _refresh_provenance_views(self):
+        """Census the REAL graph at the observation point, scoped to this item.
+
+        The inherited synthetic roster is never a fallback. If the graph, the
+        adapter, or a matching taught edge is absent, the cache is empty and
+        C12 fails closed.
+        """
+        census = []
+        if self._engine is not None and self._taught_slot_pairs:
+            try:
+                from ravana.chat.schema_induction import typed_slot_views_from_graph
+                census = typed_slot_views_from_graph(self._engine.graph)
+            except Exception as exc:            # surface, never swallow
+                self.api_error = self.api_error or "provenance: %r" % (exc,)
+                census = []
+        self.provenance_views_cache = scope_taught_views(
+            census, self._taught_slot_pairs)
 
     def teach(self, item, k, condition, arm, surfaces, permuted=False):
         eng = self._boot()
@@ -390,6 +472,9 @@ class RealBackend(FakeBackend):
             except Exception as exc:            # surface, never swallow
                 self.api_error = self.api_error or "teach: %r" % (exc,)
                 out.append("")
+        self._taught_slot_pairs.update(
+            taught_slot_pairs(surfaces, item["type_label"]))
+        self._refresh_provenance_views()
         return out
 
     def query(self, item, condition, k, phase="query", permuted=False):
@@ -413,6 +498,7 @@ class RealBackend(FakeBackend):
                       "target": None, "verdict": "no_answer"}
         self.last_engine_answer = answer
         self.last_unparsed = unparsed
+        self._refresh_provenance_views()
         return [response]
 
     def save_reload(self, item):
@@ -430,14 +516,10 @@ class RealBackend(FakeBackend):
         try:
             fresh = self._boot()
             self.api_calls["cold_reload"] += 1
-            from ravana.chat.schema_induction import typed_slot_views_from_graph
-            self.provenance_views_cache = [
-                {"edge_kind": v.edge_kind, "source_type": v.source_type,
-                 "edge_source": v.edge_source, "relation_type": v.relation_type,
-                 "type_label": v.type_label, "url": "", "fabricated_span": False,
-                 "confidence": v.confidence}
-                for v in typed_slot_views_from_graph(fresh.graph)
-            ]
+            # Same scoped seam as teach/query: census the fresh engine, keep
+            # only this item's conversation-taught demo edges, never the
+            # whole boot-seeded store and never the fake roster.
+            self._refresh_provenance_views()
         except Exception as exc:
             self.api_error = self.api_error or "cold_reload: %r" % (exc,)
 
@@ -963,6 +1045,7 @@ def main(argv=None):
     commit = os.popen('git -C "%s" rev-parse --short HEAD' % PROJ).read().strip()
 
     items = tra_items.build_items()
+    all_items = list(items)          # full frozen bank, used for fake certification
     errors = tra_items.validate_items(items)
     manifests = tra_items.manifest_hashes(items)
     bank_hash = tra_items.item_manifest_hash(items)
@@ -1032,8 +1115,27 @@ def main(argv=None):
         summary["engine_response_unparsed"] = backend.engine_response_unparsed
         stats = statistics(items, rows, summary)
         backend_error = backend.api_error
-        checks = instrument_controls(items, rows, summary, backend, live,
-                                     backend_error)
+        if live:
+            # Instrument certification belongs to the full oracle-shaped arm
+            # (spec :300), never to live capability endpoints. A low near/far
+            # on the live arm is a scored FAIL, not an INVALID instrument.
+            cert_backend = FakeBackend()
+            cert_rows = run_sweep(all_items, backend=cert_backend)
+            cert_summary = summarize(all_items, cert_rows)
+            cert_checks = instrument_controls(all_items, cert_rows,
+                                              cert_summary, cert_backend,
+                                              False, None)
+            live_checks = instrument_controls(items, rows, summary, backend,
+                                              live, backend_error)
+            # C11 is the live anti-fake gate. C12 is the only check of the
+            # live observation seam, so it stays live too; everything else is
+            # certified on the fake/oracle arm. No threshold or criterion is
+            # changed -- only the arm supplying each check's inputs.
+            checks = ([c for c in cert_checks if c["id"] not in ("C11", "C12")]
+                      + [c for c in live_checks if c["id"] in ("C11", "C12")])
+        else:
+            checks = instrument_controls(items, rows, summary, backend, live,
+                                         backend_error)
         # C11 is a CAPABILITY gate, not an instrument gate: the fake arm must
         # fail it. C1-C10, C12, C13 are instrument gates (exit 2 on failure).
         invalid = [c for c in checks if c["id"] != "C11" and not c["ok"]]
