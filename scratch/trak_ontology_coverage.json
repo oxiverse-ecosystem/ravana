@@ -1,0 +1,1866 @@
+{
+  "audit": "TRAK_ONTOLOGY_AUDIT - static/data only; no engine boot, no gold as input",
+  "coverage": {
+    "mapping_examples": {
+      "contrast-case": [
+        {
+          "label_targets": [
+            "antithesis",
+            "contrast",
+            "counterpart",
+            "difference",
+            "opposite"
+          ],
+          "matched": [],
+          "subject": "shower",
+          "wordnet_top_hypernyms": [
+            "artefact",
+            "artifact",
+            "entity",
+            "fixture",
+            "object",
+            "physical entity",
+            "physical object",
+            "plumbing fixture"
+          ]
+        },
+        {
+          "label_targets": [
+            "antithesis",
+            "contrast",
+            "counterpart",
+            "difference",
+            "opposite"
+          ],
+          "matched": [],
+          "subject": "storm",
+          "wordnet_top_hypernyms": [
+            "atmospheric phenomenon",
+            "entity",
+            "natural phenomenon",
+            "phenomenon",
+            "physical entity",
+            "physical phenomenon",
+            "physical process",
+            "process"
+          ]
+        }
+      ],
+      "earlier-event": [
+        {
+          "label_targets": [
+            "antecedent",
+            "forerunner",
+            "herald",
+            "precursor",
+            "predecessor"
+          ],
+          "matched": [],
+          "subject": "drizzle",
+          "wordnet_top_hypernyms": [
+            "atmospheric condition",
+            "atmospheric phenomenon",
+            "conditions",
+            "downfall",
+            "entity",
+            "natural phenomenon",
+            "phenomenon",
+            "physical entity"
+          ]
+        },
+        {
+          "label_targets": [
+            "antecedent",
+            "forerunner",
+            "herald",
+            "precursor",
+            "predecessor"
+          ],
+          "matched": [],
+          "subject": "chill",
+          "wordnet_top_hypernyms": [
+            "abstract entity",
+            "abstraction",
+            "agent",
+            "amount",
+            "attribute",
+            "causal agency",
+            "causal agent",
+            "cause"
+          ]
+        }
+      ],
+      "effect": [
+        {
+          "label_targets": [
+            "by-product",
+            "byproduct",
+            "consequence",
+            "effect",
+            "outcome",
+            "result",
+            "side effect"
+          ],
+          "matched": [],
+          "subject": "tempest",
+          "wordnet_top_hypernyms": [
+            "abstract entity",
+            "abstraction",
+            "attribute",
+            "commotion",
+            "disorder",
+            "disruption",
+            "disturbance",
+            "entity"
+          ]
+        },
+        {
+          "label_targets": [
+            "by-product",
+            "byproduct",
+            "consequence",
+            "effect",
+            "outcome",
+            "result",
+            "side effect"
+          ],
+          "matched": [],
+          "subject": "chill",
+          "wordnet_top_hypernyms": [
+            "abstract entity",
+            "abstraction",
+            "agent",
+            "amount",
+            "attribute",
+            "causal agency",
+            "causal agent",
+            "cause"
+          ]
+        }
+      ],
+      "similar-form": [
+        {
+          "label_targets": [
+            "analogue",
+            "analogy",
+            "likeness",
+            "resemblance",
+            "similarity"
+          ],
+          "matched": [],
+          "subject": "dew",
+          "wordnet_top_hypernyms": [
+            "atmospheric phenomenon",
+            "condensate",
+            "condensation",
+            "entity",
+            "natural phenomenon",
+            "phenomenon",
+            "physical entity",
+            "physical phenomenon"
+          ]
+        },
+        {
+          "label_targets": [
+            "analogue",
+            "analogy",
+            "likeness",
+            "resemblance",
+            "similarity"
+          ],
+          "matched": [],
+          "subject": "dew",
+          "wordnet_top_hypernyms": [
+            "atmospheric phenomenon",
+            "condensate",
+            "condensation",
+            "entity",
+            "natural phenomenon",
+            "phenomenon",
+            "physical entity",
+            "physical phenomenon"
+          ]
+        }
+      ],
+      "structured-whole": [
+        {
+          "label_targets": [
+            "assembly",
+            "organization",
+            "structure",
+            "totality",
+            "whole"
+          ],
+          "matched": [],
+          "subject": "shower",
+          "wordnet_top_hypernyms": [
+            "artefact",
+            "artifact",
+            "entity",
+            "fixture",
+            "object",
+            "physical entity",
+            "physical object",
+            "plumbing fixture"
+          ]
+        },
+        {
+          "label_targets": [
+            "assembly",
+            "organization",
+            "structure",
+            "totality",
+            "whole"
+          ],
+          "matched": [],
+          "subject": "squall",
+          "wordnet_top_hypernyms": [
+            "air current",
+            "atmospheric condition",
+            "atmospheric phenomenon",
+            "conditions",
+            "current of air",
+            "entity",
+            "natural phenomenon",
+            "phenomenon"
+          ]
+        }
+      ],
+      "supported-outcome": [
+        {
+          "label_targets": [
+            "basis",
+            "consequence",
+            "foundation",
+            "outcome",
+            "result",
+            "support"
+          ],
+          "matched": [],
+          "subject": "climate",
+          "wordnet_top_hypernyms": [
+            "abstract entity",
+            "abstraction",
+            "attribute",
+            "condition",
+            "entity",
+            "environmental condition",
+            "state",
+            "status"
+          ]
+        },
+        {
+          "label_targets": [
+            "basis",
+            "consequence",
+            "foundation",
+            "outcome",
+            "result",
+            "support"
+          ],
+          "matched": [],
+          "subject": "monsoon",
+          "wordnet_top_hypernyms": [
+            "air current",
+            "atmospheric condition",
+            "atmospheric phenomenon",
+            "conditions",
+            "current of air",
+            "entity",
+            "natural phenomenon",
+            "phenomenon"
+          ]
+        }
+      ]
+    },
+    "per_domain": {
+      "body": {
+        "n_subjects": 16,
+        "n_with_domain_hypernym": 13
+      },
+      "geometry": {
+        "n_subjects": 0,
+        "n_with_domain_hypernym": 0
+      },
+      "machine": {
+        "n_subjects": 0,
+        "n_with_domain_hypernym": 0
+      },
+      "plant": {
+        "n_subjects": 0,
+        "n_with_domain_hypernym": 0
+      },
+      "social": {
+        "n_subjects": 0,
+        "n_with_domain_hypernym": 0
+      },
+      "weather": {
+        "n_subjects": 24,
+        "n_with_domain_hypernym": 19
+      }
+    },
+    "per_label": {
+      "contrast-case": {
+        "n_subjects_with_any_matching_hypernym": 0,
+        "n_total": 40
+      },
+      "earlier-event": {
+        "n_subjects_with_any_matching_hypernym": 0,
+        "n_total": 40
+      },
+      "effect": {
+        "n_subjects_with_any_matching_hypernym": 0,
+        "n_total": 40
+      },
+      "similar-form": {
+        "n_subjects_with_any_matching_hypernym": 0,
+        "n_total": 40
+      },
+      "structured-whole": {
+        "n_subjects_with_any_matching_hypernym": 6,
+        "n_total": 40
+      },
+      "supported-outcome": {
+        "n_subjects_with_any_matching_hypernym": 0,
+        "n_total": 40
+      }
+    },
+    "per_subject": [
+      {
+        "domain": "weather",
+        "item_id": "tra_0000",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 26,
+        "n_noun_senses": 2,
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "tempest",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0001",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 93,
+        "n_noun_senses": 6,
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "shower",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0002",
+        "matched_domain_targets": [
+          "atmospheric phenomenon",
+          "precipitation",
+          "weather"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 18,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "drizzle",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0003",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 11,
+        "n_noun_senses": 1,
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "dew",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0004",
+        "matched_domain_targets": [
+          "climate"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 11,
+        "n_noun_senses": 2,
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "climate",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0005",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 93,
+        "n_noun_senses": 6,
+        "pool": "sealed",
+        "role": "CONTRAST",
+        "subject": "shower",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0006",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 53,
+        "n_noun_senses": 4,
+        "pool": "primary",
+        "role": "EFFECT",
+        "subject": "chill",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0007",
+        "matched_domain_targets": [
+          "atmospheric phenomenon",
+          "weather"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 16,
+        "n_noun_senses": 1,
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "squall",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0008",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 53,
+        "n_noun_senses": 4,
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "chill",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0009",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 11,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "SIMILAR",
+        "subject": "dew",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0010",
+        "matched_domain_targets": [
+          "atmospheric phenomenon",
+          "precipitation",
+          "weather"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 33,
+        "n_noun_senses": 3,
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "monsoon",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0011",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 39,
+        "n_noun_senses": 3,
+        "pool": "sealed",
+        "role": "CONTRAST",
+        "subject": "storm",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0012",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 53,
+        "n_noun_senses": 4,
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "chill",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0013",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 13,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "WHOLE",
+        "subject": "typhoon",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0014",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 22,
+        "n_noun_senses": 2,
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "blizzard",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0015",
+        "matched_domain_targets": [
+          "climate"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 11,
+        "n_noun_senses": 2,
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "climate",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0016",
+        "matched_domain_targets": [
+          "atmospheric phenomenon",
+          "weather"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 16,
+        "n_noun_senses": 1,
+        "pool": "sealed",
+        "role": "SUPPORTS",
+        "subject": "gale",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0017",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 93,
+        "n_noun_senses": 6,
+        "pool": "sealed",
+        "role": "CONTRAST",
+        "subject": "shower",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0018",
+        "matched_domain_targets": [
+          "atmospheric phenomenon",
+          "weather"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 16,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "EFFECT",
+        "subject": "gale",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0019",
+        "matched_domain_targets": [
+          "atmospheric phenomenon",
+          "weather"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 45,
+        "n_noun_senses": 3,
+        "pool": "primary",
+        "role": "WHOLE",
+        "subject": "thaw",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0020",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 33,
+        "n_noun_senses": 6,
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "cloud",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0021",
+        "matched_domain_targets": [
+          "atmospheric phenomenon"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 33,
+        "n_noun_senses": 6,
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "cloud",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0022",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 53,
+        "n_noun_senses": 4,
+        "pool": "sealed",
+        "role": "SUPPORTS",
+        "subject": "chill",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0023",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 11,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "CONTRAST",
+        "subject": "mist",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0024",
+        "matched_domain_targets": [
+          "body part",
+          "tissue"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 11,
+        "n_noun_senses": 1,
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "tendon",
+        "type_label": "effect"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0025",
+        "matched_domain_targets": [
+          "anatomical structure",
+          "body part"
+        ],
+        "matched_label_targets": {
+          "structured-whole": [
+            "structure",
+            "whole"
+          ]
+        },
+        "n_hypernym_lemmas": 29,
+        "n_noun_senses": 2,
+        "pool": "primary",
+        "role": "WHOLE",
+        "subject": "artery",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0026",
+        "matched_domain_targets": [
+          "body part"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 77,
+        "n_noun_senses": 6,
+        "pool": "sealed",
+        "role": "PRECEDES",
+        "subject": "joint",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0027",
+        "matched_domain_targets": [
+          "body part"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 80,
+        "n_noun_senses": 5,
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "marrow",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0028",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 20,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "reflex",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0029",
+        "matched_domain_targets": [
+          "anatomical structure",
+          "body part"
+        ],
+        "matched_label_targets": {
+          "structured-whole": [
+            "structure",
+            "whole"
+          ]
+        },
+        "n_hypernym_lemmas": 29,
+        "n_noun_senses": 2,
+        "pool": "primary",
+        "role": "CONTRAST",
+        "subject": "artery",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0030",
+        "matched_domain_targets": [
+          "body part"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 100,
+        "n_noun_senses": 10,
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "heart",
+        "type_label": "effect"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0031",
+        "matched_domain_targets": [
+          "body part",
+          "tissue"
+        ],
+        "matched_label_targets": {
+          "structured-whole": [
+            "whole"
+          ]
+        },
+        "n_hypernym_lemmas": 44,
+        "n_noun_senses": 4,
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "diaphragm",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0032",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 20,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "reflex",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0033",
+        "matched_domain_targets": [
+          "body part",
+          "tissue"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 11,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "SIMILAR",
+        "subject": "tendon",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0034",
+        "matched_domain_targets": [
+          "body part",
+          "tissue"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 10,
+        "n_noun_senses": 1,
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "cartilage",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0035",
+        "matched_domain_targets": [
+          "body part",
+          "organ"
+        ],
+        "matched_label_targets": {
+          "structured-whole": [
+            "whole"
+          ]
+        },
+        "n_hypernym_lemmas": 39,
+        "n_noun_senses": 4,
+        "pool": "primary",
+        "role": "CONTRAST",
+        "subject": "liver",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0036",
+        "matched_domain_targets": [
+          "body part",
+          "tissue"
+        ],
+        "matched_label_targets": {
+          "structured-whole": [
+            "whole"
+          ]
+        },
+        "n_hypernym_lemmas": 44,
+        "n_noun_senses": 4,
+        "pool": "primary",
+        "role": "EFFECT",
+        "subject": "diaphragm",
+        "type_label": "effect"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0037",
+        "matched_domain_targets": [
+          "body part",
+          "tissue"
+        ],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 10,
+        "n_noun_senses": 1,
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "cartilage",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0038",
+        "matched_domain_targets": [],
+        "matched_label_targets": {},
+        "n_hypernym_lemmas": 20,
+        "n_noun_senses": 1,
+        "pool": "sealed",
+        "role": "PRECEDES",
+        "subject": "reflex",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0039",
+        "matched_domain_targets": [
+          "body part",
+          "tissue"
+        ],
+        "matched_label_targets": {
+          "structured-whole": [
+            "whole"
+          ]
+        },
+        "n_hypernym_lemmas": 25,
+        "n_noun_senses": 2,
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "ligament",
+        "type_label": "similar-form"
+      }
+    ]
+  },
+  "gold_free_assertion": {
+    "examples": [
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0000",
+        "n_distinct_sense_types": 2,
+        "required_label": "effect",
+        "subject": "tempest",
+        "wordnet_assertion": "tempest is_a abstract entity",
+        "wordnet_nearest_hypernym_top_sense": "abstract entity"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0001",
+        "n_distinct_sense_types": 4,
+        "required_label": "structured-whole",
+        "subject": "shower",
+        "wordnet_assertion": "shower is_a artefact",
+        "wordnet_nearest_hypernym_top_sense": "artefact"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0002",
+        "n_distinct_sense_types": 1,
+        "required_label": "earlier-event",
+        "subject": "drizzle",
+        "wordnet_assertion": "drizzle is_a atmospheric condition",
+        "wordnet_nearest_hypernym_top_sense": "atmospheric condition"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0003",
+        "n_distinct_sense_types": 1,
+        "required_label": "similar-form",
+        "subject": "dew",
+        "wordnet_assertion": "dew is_a atmospheric phenomenon",
+        "wordnet_nearest_hypernym_top_sense": "atmospheric phenomenon"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0004",
+        "n_distinct_sense_types": 1,
+        "required_label": "supported-outcome",
+        "subject": "climate",
+        "wordnet_assertion": "climate is_a abstract entity",
+        "wordnet_nearest_hypernym_top_sense": "abstract entity"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0005",
+        "n_distinct_sense_types": 4,
+        "required_label": "contrast-case",
+        "subject": "shower",
+        "wordnet_assertion": "shower is_a artefact",
+        "wordnet_nearest_hypernym_top_sense": "artefact"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0006",
+        "n_distinct_sense_types": 1,
+        "required_label": "effect",
+        "subject": "chill",
+        "wordnet_assertion": "chill is_a abstract entity",
+        "wordnet_nearest_hypernym_top_sense": "abstract entity"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0007",
+        "n_distinct_sense_types": 1,
+        "required_label": "structured-whole",
+        "subject": "squall",
+        "wordnet_assertion": "squall is_a air current",
+        "wordnet_nearest_hypernym_top_sense": "air current"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0008",
+        "n_distinct_sense_types": 1,
+        "required_label": "earlier-event",
+        "subject": "chill",
+        "wordnet_assertion": "chill is_a abstract entity",
+        "wordnet_nearest_hypernym_top_sense": "abstract entity"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0009",
+        "n_distinct_sense_types": 1,
+        "required_label": "similar-form",
+        "subject": "dew",
+        "wordnet_assertion": "dew is_a atmospheric phenomenon",
+        "wordnet_nearest_hypernym_top_sense": "atmospheric phenomenon"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0010",
+        "n_distinct_sense_types": 2,
+        "required_label": "supported-outcome",
+        "subject": "monsoon",
+        "wordnet_assertion": "monsoon is_a air current",
+        "wordnet_nearest_hypernym_top_sense": "air current"
+      },
+      {
+        "assertion_equals_a_TRA_K_label": false,
+        "item_id": "tra_0011",
+        "n_distinct_sense_types": 2,
+        "required_label": "contrast-case",
+        "subject": "storm",
+        "wordnet_assertion": "storm is_a atmospheric phenomenon",
+        "wordnet_nearest_hypernym_top_sense": "atmospheric phenomenon"
+      }
+    ],
+    "n": 40,
+    "n_assertion_equals_required_TRA_K_label": 0,
+    "n_subjects_with_ambiguous_wordnet_type": 19,
+    "verdict": "NO - WordNet returns domain-level hypernyms, never the role-derived TRA-K labels; the required label is item-relative, so no gold-free per-subject map exists"
+  },
+  "label_vocabulary_in_wordnet": {
+    "contrast-case": {
+      "n_wordnet_noun_synsets": 0,
+      "synsets": []
+    },
+    "earlier-event": {
+      "n_wordnet_noun_synsets": 0,
+      "synsets": []
+    },
+    "effect": {
+      "n_wordnet_noun_synsets": 6,
+      "synsets": [
+        {
+          "gloss": "a phenomenon that follows and is caused by some previous phenomenon",
+          "name": "consequence.n.01"
+        },
+        {
+          "gloss": "an outward appearance",
+          "name": "impression.n.02"
+        },
+        {
+          "gloss": "an impression (especially one that is artificial or contrived)",
+          "name": "effect.n.03"
+        },
+        {
+          "gloss": "the central meaning or theme of a speech or literary work",
+          "name": "effect.n.04"
+        }
+      ]
+    },
+    "similar-form": {
+      "n_wordnet_noun_synsets": 0,
+      "synsets": []
+    },
+    "structured-whole": {
+      "n_wordnet_noun_synsets": 0,
+      "synsets": []
+    },
+    "supported-outcome": {
+      "n_wordnet_noun_synsets": 0,
+      "synsets": []
+    }
+  },
+  "overlap_with_answer_key": {
+    "conflict_examples": {
+      "angle": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "arc": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "artery": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "axis": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "axle": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "bark": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "bearing": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "belt": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "blizzard": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "blossom": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "bone": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ],
+      "brain": [
+        "contrast-case",
+        "earlier-event",
+        "effect",
+        "similar-form",
+        "structured-whole",
+        "supported-outcome"
+      ]
+    },
+    "domain_overlap_examples": [
+      {
+        "authored_type_sets_for_subject": [
+          "weather-event"
+        ],
+        "item_id": "tra_0000",
+        "overlap": true,
+        "subject": "tempest",
+        "wordnet_domain_match": [
+          "atmospheric phenomenon"
+        ]
+      },
+      {
+        "authored_type_sets_for_subject": [
+          "weather-event"
+        ],
+        "item_id": "tra_0001",
+        "overlap": true,
+        "subject": "shower",
+        "wordnet_domain_match": [
+          "atmospheric phenomenon"
+        ]
+      },
+      {
+        "authored_type_sets_for_subject": [
+          "weather-event"
+        ],
+        "item_id": "tra_0002",
+        "overlap": true,
+        "subject": "drizzle",
+        "wordnet_domain_match": [
+          "atmospheric phenomenon",
+          "precipitation",
+          "weather"
+        ]
+      },
+      {
+        "authored_type_sets_for_subject": [
+          "weather-event"
+        ],
+        "item_id": "tra_0003",
+        "overlap": true,
+        "subject": "dew",
+        "wordnet_domain_match": [
+          "atmospheric phenomenon"
+        ]
+      },
+      {
+        "authored_type_sets_for_subject": [
+          "weather-event"
+        ],
+        "item_id": "tra_0004",
+        "overlap": true,
+        "subject": "climate",
+        "wordnet_domain_match": [
+          "climate"
+        ]
+      },
+      {
+        "authored_type_sets_for_subject": [
+          "weather-event"
+        ],
+        "item_id": "tra_0005",
+        "overlap": true,
+        "subject": "shower",
+        "wordnet_domain_match": [
+          "atmospheric phenomenon"
+        ]
+      }
+    ],
+    "domain_overlap_n": 32,
+    "domain_overlap_total": 40,
+    "n_queried_unique_subjects": 25,
+    "n_words_with_conflicting_role_labels_in_key": 144,
+    "n_words_with_role_label_in_key": 144,
+    "oracle_only_gold_examples": [
+      {
+        "gold_word": "sunset",
+        "item_id": "tra_0000",
+        "overlap": false,
+        "role": "EFFECT",
+        "type_label": "effect",
+        "wordnet_label_match": []
+      },
+      {
+        "gold_word": "drizzle",
+        "item_id": "tra_0001",
+        "overlap": false,
+        "role": "WHOLE",
+        "type_label": "structured-whole",
+        "wordnet_label_match": []
+      },
+      {
+        "gold_word": "sleet",
+        "item_id": "tra_0002",
+        "overlap": false,
+        "role": "PRECEDES",
+        "type_label": "earlier-event",
+        "wordnet_label_match": []
+      },
+      {
+        "gold_word": "squall",
+        "item_id": "tra_0003",
+        "overlap": false,
+        "role": "SIMILAR",
+        "type_label": "similar-form",
+        "wordnet_label_match": []
+      },
+      {
+        "gold_word": "glow",
+        "item_id": "tra_0004",
+        "overlap": false,
+        "role": "SUPPORTS",
+        "type_label": "supported-outcome",
+        "wordnet_label_match": []
+      },
+      {
+        "gold_word": "thunder",
+        "item_id": "tra_0005",
+        "overlap": false,
+        "role": "CONTRAST",
+        "type_label": "contrast-case",
+        "wordnet_label_match": []
+      },
+      {
+        "gold_word": "squall",
+        "item_id": "tra_0006",
+        "overlap": false,
+        "role": "EFFECT",
+        "type_label": "effect",
+        "wordnet_label_match": []
+      },
+      {
+        "gold_word": "climate",
+        "item_id": "tra_0007",
+        "overlap": false,
+        "role": "WHOLE",
+        "type_label": "structured-whole",
+        "wordnet_label_match": []
+      }
+    ],
+    "oracle_only_gold_label_by_wordnet_n": 1,
+    "oracle_only_gold_label_by_wordnet_total": 40,
+    "pct_words_with_conflicting_role_labels": 100.0,
+    "queried_subjects_with_multiple_roles": 25,
+    "subject_role_multiplicity_examples": {
+      "artery": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "blizzard": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "WHOLE"
+      ],
+      "cartilage": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "chill": [
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "climate": [
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "cloud": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "WHOLE"
+      ],
+      "dew": [
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "diaphragm": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "drizzle": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SUPPORTS"
+      ],
+      "gale": [
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS"
+      ],
+      "heart": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS"
+      ],
+      "joint": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "ligament": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "liver": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS"
+      ],
+      "marrow": [
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS"
+      ],
+      "mist": [
+        "CONTRAST",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "monsoon": [
+        "CONTRAST",
+        "EFFECT",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "reflex": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "shower": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "squall": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "storm": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS"
+      ],
+      "tempest": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS"
+      ],
+      "tendon": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "thaw": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SIMILAR",
+        "SUPPORTS",
+        "WHOLE"
+      ],
+      "typhoon": [
+        "CONTRAST",
+        "EFFECT",
+        "PRECEDES",
+        "SUPPORTS",
+        "WHOLE"
+      ]
+    },
+    "world_model_reason": "world_model maps (role,subject)->arbitrary domain word chosen by sha256 hash; not a lexical relation and has no standalone ontology entry",
+    "world_model_reproducible_from_lexicon": false
+  },
+  "source_availability": {
+    "bundled_ontology_data_files": [],
+    "conceptnet_license": "CC BY-SA 4.0 (attribution + share-alike; no added restrictions)",
+    "conceptnet_license_source": "https://conceptnet.io/ ; https://zenodo.org/records/3739540",
+    "conceptnet_loader_present": "ravana/src/ravana/ontology/conceptnet.py (code only; no data file)",
+    "conceptnet_ont_pkl_path": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_ontology\\data\\conceptnet\\ont.pkl",
+    "conceptnet_ont_pkl_present": false,
+    "nltk_version": "3.10.0",
+    "omw_1_4_present": true,
+    "wordnet_citation": "Miller, G. A. (1995). WordNet: a lexical database for English. CACM 38(11):39-41. Fellbaum, C. (ed.) (1998). WordNet: An Electronic Lexical Database. MIT Press.",
+    "wordnet_corpus_path": "C:\\Users\\Likhith\\AppData\\Roaming\\nltk_data\\corpora\\wordnet.zip",
+    "wordnet_license_source": "Princeton University, WordNet 3.0 LICENSE (in local wordnet.zip); https://wordnet.princeton.edu/license-and-commercial-use",
+    "wordnet_license_terms": "Use/copy/modify/distribute free; NOTICE (copyright+disclaimer) must appear on ALL copies; no Princeton advertising use; citation required",
+    "wordnet_release_from_local_LICENSE": "WordNet Release 3.0"
+  },
+  "subject_definition": {
+    "n": 40,
+    "primary": 20,
+    "provenance": "near-condition query subjects of scratch/type_acquisition_results.json (recorded TRA mechanism replay)",
+    "sealed": 20,
+    "subjects": [
+      {
+        "domain": "weather",
+        "item_id": "tra_0000",
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "tempest",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0001",
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "shower",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0002",
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "drizzle",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0003",
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "dew",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0004",
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "climate",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0005",
+        "pool": "sealed",
+        "role": "CONTRAST",
+        "subject": "shower",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0006",
+        "pool": "primary",
+        "role": "EFFECT",
+        "subject": "chill",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0007",
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "squall",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0008",
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "chill",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0009",
+        "pool": "primary",
+        "role": "SIMILAR",
+        "subject": "dew",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0010",
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "monsoon",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0011",
+        "pool": "sealed",
+        "role": "CONTRAST",
+        "subject": "storm",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0012",
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "chill",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0013",
+        "pool": "primary",
+        "role": "WHOLE",
+        "subject": "typhoon",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0014",
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "blizzard",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0015",
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "climate",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0016",
+        "pool": "sealed",
+        "role": "SUPPORTS",
+        "subject": "gale",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0017",
+        "pool": "sealed",
+        "role": "CONTRAST",
+        "subject": "shower",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0018",
+        "pool": "primary",
+        "role": "EFFECT",
+        "subject": "gale",
+        "type_label": "effect"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0019",
+        "pool": "primary",
+        "role": "WHOLE",
+        "subject": "thaw",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0020",
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "cloud",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0021",
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "cloud",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0022",
+        "pool": "sealed",
+        "role": "SUPPORTS",
+        "subject": "chill",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "weather",
+        "item_id": "tra_0023",
+        "pool": "primary",
+        "role": "CONTRAST",
+        "subject": "mist",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0024",
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "tendon",
+        "type_label": "effect"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0025",
+        "pool": "primary",
+        "role": "WHOLE",
+        "subject": "artery",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0026",
+        "pool": "sealed",
+        "role": "PRECEDES",
+        "subject": "joint",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0027",
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "marrow",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0028",
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "reflex",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0029",
+        "pool": "primary",
+        "role": "CONTRAST",
+        "subject": "artery",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0030",
+        "pool": "sealed",
+        "role": "EFFECT",
+        "subject": "heart",
+        "type_label": "effect"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0031",
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "diaphragm",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0032",
+        "pool": "primary",
+        "role": "PRECEDES",
+        "subject": "reflex",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0033",
+        "pool": "primary",
+        "role": "SIMILAR",
+        "subject": "tendon",
+        "type_label": "similar-form"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0034",
+        "pool": "primary",
+        "role": "SUPPORTS",
+        "subject": "cartilage",
+        "type_label": "supported-outcome"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0035",
+        "pool": "primary",
+        "role": "CONTRAST",
+        "subject": "liver",
+        "type_label": "contrast-case"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0036",
+        "pool": "primary",
+        "role": "EFFECT",
+        "subject": "diaphragm",
+        "type_label": "effect"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0037",
+        "pool": "sealed",
+        "role": "WHOLE",
+        "subject": "cartilage",
+        "type_label": "structured-whole"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0038",
+        "pool": "sealed",
+        "role": "PRECEDES",
+        "subject": "reflex",
+        "type_label": "earlier-event"
+      },
+      {
+        "domain": "body",
+        "item_id": "tra_0039",
+        "pool": "sealed",
+        "role": "SIMILAR",
+        "subject": "ligament",
+        "type_label": "similar-form"
+      }
+    ],
+    "unique_words": 25
+  },
+  "verdict": {
+    "decision": "NO-GO",
+    "key_numbers": {
+      "domain_coverage_of_40": 32,
+      "gold_free_label_assertions": 0,
+      "label_vocabulary_present_of_6": 1,
+      "max_label_coverage_of_40": 6,
+      "queried_subjects_with_multiple_roles": 25,
+      "subjects_total_unique": 25,
+      "subjects_with_any_wordnet_noun_sense": 25,
+      "word_label_conflicts_in_key": 144
+    },
+    "reason": "Only WordNet 3.0 is offline-available; it covers the subject words lexically but cannot supply any of the 6 role-derived TRA-K type labels, and the answer key's type assignment is item-relative (word->label conflicts) so no independent source can reproduce it without the gold."
+  }
+}
