@@ -1,0 +1,3970 @@
+{
+  "metadata": {
+    "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_symbolic",
+    "main_repo": "C:\\Users\\Likhith\\Documents\\projects\\ravana",
+    "base_commit": "ca26488",
+    "production_files_edited": [],
+    "code_loaded_from": [
+      "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_symbolic\\ravana\\src\\ravana\\chat\\schema_induction.py",
+      "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_symbolic\\ravana\\src\\ravana\\chat\\response_gen.py"
+    ],
+    "rows_source": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\rsi_focus_live_rows.json",
+    "rows_total": 384,
+    "rows_selected": 16,
+    "census_source": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\rsi_teach_form_probe2.log",
+    "glove_cache": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\data\\ravana_glove_cache.npz",
+    "glove_dim": 64,
+    "exp1_comparator": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\role_binding_results.json",
+    "congruence_floor": "production floor preserved in *_prodfloor arms; rescaled within-role lower bound in *_symfloor arms",
+    "strict_margin": "unmodified production ranker (min_margin=0)",
+    "gold_use": "evaluation only, never passed to trace/scorer/ranker"
+  },
+  "instrument_validation": {
+    "sanity_control": {
+      "overlap_scores": {
+        "car": 1.0,
+        "petal": 0.0
+      },
+      "overlap_pick": "car",
+      "disjoint_pick": null,
+      "passes": true
+    },
+    "prod_baseline_reproduced_of_16": 16,
+    "prod_baseline_matches_exp1_all": true
+  },
+  "arm_names": [
+    "prod_baseline",
+    "exp1_vector_role",
+    "V1_prodfloor",
+    "V2_prodfloor",
+    "V3_prodfloor",
+    "V4_prodfloor",
+    "V1_symfloor",
+    "V2_symfloor",
+    "V3_symfloor",
+    "V4_symfloor"
+  ],
+  "totals": {
+    "prod_baseline": {
+      "near": {
+        "n": 4,
+        "correct": 2
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 0
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "exp1_vector_role": {
+      "near": {
+        "n": 4,
+        "correct": 1
+      },
+      "far": {
+        "n": 4,
+        "correct": 1
+      },
+      "foil": {
+        "n": 4,
+        "correct": 0
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V1_prodfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V2_prodfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V3_prodfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 3
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V4_prodfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 3
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V1_symfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V2_symfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V3_symfloor": {
+      "near": {
+        "n": 4,
+        "correct": 2
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 1
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "V4_symfloor": {
+      "near": {
+        "n": 4,
+        "correct": 2
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 0
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    }
+  },
+  "key_near_far_partof_precedes": {
+    "prod_baseline": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "exp1_vector_role": {
+      "near_far_off_zero": 1,
+      "near_far_n": 4
+    },
+    "V1_prodfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "V2_prodfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "V3_prodfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "V4_prodfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "V1_symfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "V2_symfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "V3_symfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    },
+    "V4_symfloor": {
+      "near_far_off_zero": 0,
+      "near_far_n": 4
+    }
+  },
+  "summary": {
+    "CAUSE": {
+      "near": {
+        "n": 1,
+        "gold": "mist",
+        "arms": {
+          "prod_baseline": {
+            "correct": 1,
+            "picks": [
+              "mist"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 1,
+            "picks": [
+              "mist"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 1,
+            "picks": [
+              "mist"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 1,
+            "picks": [
+              "mist"
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "ceremony",
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "election"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              "team"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "team"
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "thunder"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "mist"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              "mist"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "mist"
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    },
+    "PART_OF": {
+      "near": {
+        "n": 1,
+        "gold": "tempest",
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "chill"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "chill"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "chill"
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "contract",
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "ceremony"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "habit"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "ceremony"
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "shower"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "frost"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              "frost"
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              "frost"
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              "frost"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "frost"
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    },
+    "PRECEDES": {
+      "near": {
+        "n": 1,
+        "gold": "typhoon",
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "glow"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "glow"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              "glow"
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              "glow"
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              "glow"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "glow"
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "ceremony",
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "law"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 1,
+            "picks": [
+              "ceremony"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              "role"
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              "role"
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              "role"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "role"
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "breeze"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "storm"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "breeze"
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    },
+    "RESEMBLES": {
+      "near": {
+        "n": 1,
+        "gold": "chill",
+        "arms": {
+          "prod_baseline": {
+            "correct": 1,
+            "picks": [
+              "chill"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "blizzard"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 1,
+            "picks": [
+              "chill"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 1,
+            "picks": [
+              "chill"
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "guild",
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "election"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "election"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "election"
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 0,
+            "picks": [
+              "blizzard"
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 0,
+            "picks": [
+              "blizzard"
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 0,
+            "picks": [
+              "frost"
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 0,
+            "picks": [
+              "frost"
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "prod_baseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "exp1_vector_role": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V1_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V2_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V3_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "V4_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    }
+  },
+  "rows": [
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "far",
+      "subject": "role",
+      "candidates": [
+        "council",
+        "ceremony",
+        "team",
+        "election"
+      ],
+      "gold_target": "ceremony",
+      "demonstrations": [
+        [
+          "gale",
+          "causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "leads to",
+          "climate"
+        ],
+        [
+          "overcast",
+          "produces",
+          "storm"
+        ],
+        [
+          "dew",
+          "brings about",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "gives rise to",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "leads to",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "produces",
+          "frost"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1387,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "election",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.392027,
+            "council": 0.551408,
+            "election": 0.588429,
+            "team": 0.48053
+          },
+          "floor": 0.1387
+        },
+        "exp1_vector_role": {
+          "pick": null,
+          "correct": false,
+          "recorded": true,
+          "scores": {},
+          "floor": 0.1387
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "council": 1.0,
+            "election": 1.0,
+            "team": 1.0
+          },
+          "floor": 0.1387
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "council": 1.0,
+            "election": 1.0,
+            "team": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.0
+          },
+          "floor": 0.1387
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.1
+          },
+          "floor": 0.1387
+        },
+        "V3_symfloor": {
+          "pick": "team",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.1
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.1
+          },
+          "floor": 0.1387
+        },
+        "V4_symfloor": {
+          "pick": "team",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.1
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "foil",
+      "subject": "hail",
+      "candidates": [
+        "gale",
+        "mist",
+        "thunder",
+        "squall"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "gale",
+          "causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "leads to",
+          "climate"
+        ],
+        [
+          "overcast",
+          "produces",
+          "storm"
+        ],
+        [
+          "dew",
+          "brings about",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "gives rise to",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "leads to",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "produces",
+          "frost"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1387,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "thunder",
+          "correct": false,
+          "scores": {
+            "gale": 0.158199,
+            "mist": 0.306886,
+            "squall": 0.276765,
+            "thunder": 0.489389
+          },
+          "floor": 0.1387
+        },
+        "exp1_vector_role": {
+          "pick": "mist",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "gale": 0.6013,
+            "mist": 0.6501,
+            "squall": 0.5219,
+            "thunder": 0.4545
+          },
+          "floor": 0.1387
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 1.0,
+            "mist": 1.0,
+            "squall": 1.0,
+            "thunder": 1.0
+          },
+          "floor": 0.1387
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 1.0,
+            "mist": 1.0,
+            "squall": 1.0,
+            "thunder": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.0,
+            "squall": 0.0,
+            "thunder": 0.0
+          },
+          "floor": 0.1387
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.0,
+            "squall": 0.0,
+            "thunder": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.125,
+            "squall": 0.1,
+            "thunder": 0.0
+          },
+          "floor": 0.1387
+        },
+        "V3_symfloor": {
+          "pick": "mist",
+          "correct": false,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.125,
+            "squall": 0.1,
+            "thunder": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.125,
+            "squall": 0.1,
+            "thunder": 0.0
+          },
+          "floor": 0.1387
+        },
+        "V4_symfloor": {
+          "pick": "mist",
+          "correct": false,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.125,
+            "squall": 0.1,
+            "thunder": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "near",
+      "subject": "thaw",
+      "candidates": [
+        "sunset",
+        "typhoon",
+        "mist",
+        "hail"
+      ],
+      "gold_target": "mist",
+      "demonstrations": [
+        [
+          "gale",
+          "causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "leads to",
+          "climate"
+        ],
+        [
+          "overcast",
+          "produces",
+          "storm"
+        ],
+        [
+          "dew",
+          "brings about",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "gives rise to",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "leads to",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "produces",
+          "frost"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1387,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "mist",
+          "correct": true,
+          "scores": {
+            "hail": 0.169469,
+            "mist": 0.224871,
+            "sunset": 0.021692,
+            "typhoon": 0.16164
+          },
+          "floor": 0.1387
+        },
+        "exp1_vector_role": {
+          "pick": "mist",
+          "correct": true,
+          "recorded": true,
+          "scores": {
+            "hail": 0.4472,
+            "mist": 0.6501,
+            "sunset": 0.4285,
+            "typhoon": 0.4652
+          },
+          "floor": 0.1387
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 1.0,
+            "mist": 1.0,
+            "sunset": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.1387
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 1.0,
+            "mist": 1.0,
+            "sunset": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.0,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.1387
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.0,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.125,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.1387
+        },
+        "V3_symfloor": {
+          "pick": "mist",
+          "correct": true,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.125,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.125,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.1387
+        },
+        "V4_symfloor": {
+          "pick": "mist",
+          "correct": true,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.125,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "negative",
+      "subject": "squall",
+      "candidates": [
+        "thunder",
+        "sunset",
+        "typhoon",
+        "thaw"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "gale",
+          "not causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "not causes",
+          "climate"
+        ],
+        [
+          "overcast",
+          "not causes",
+          "storm"
+        ],
+        [
+          "dew",
+          "not causes",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "not causes",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "not causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "not causes",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "not causes",
+          "frost"
+        ]
+      ],
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 0.398292,
+            "thaw": 0.222241,
+            "thunder": 0.38778,
+            "typhoon": 0.332799
+          },
+          "floor": null
+        },
+        "exp1_vector_role": {
+          "pick": null,
+          "correct": true,
+          "recorded": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V4_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "far",
+      "subject": "custom",
+      "candidates": [
+        "contract",
+        "law",
+        "habit",
+        "ceremony"
+      ],
+      "gold_target": "contract",
+      "demonstrations": [
+        [
+          "shower",
+          "is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "belongs to",
+          "storm"
+        ],
+        [
+          "thaw",
+          "is a component of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "belongs to",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "is a component of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "belongs to",
+          "cloud"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1004,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "ceremony",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.327011,
+            "contract": 0.15672,
+            "habit": 0.285528,
+            "law": 0.189205
+          },
+          "floor": 0.1004
+        },
+        "exp1_vector_role": {
+          "pick": "habit",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "ceremony": 0.2497,
+            "contract": 0.1857,
+            "habit": 0.3165,
+            "law": 0.2863
+          },
+          "floor": 0.1004
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "contract": 1.0,
+            "habit": 1.0,
+            "law": 1.0
+          },
+          "floor": 0.1004
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "contract": 1.0,
+            "habit": 1.0,
+            "law": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.1004
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.1004
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1e-06,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.1004
+        },
+        "V4_symfloor": {
+          "pick": "ceremony",
+          "correct": false,
+          "scores": {
+            "ceremony": 1e-06,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "foil",
+      "subject": "rainbow",
+      "candidates": [
+        "shower",
+        "gale",
+        "frost",
+        "tempest"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "shower",
+          "is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "belongs to",
+          "storm"
+        ],
+        [
+          "thaw",
+          "is a component of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "belongs to",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "is a component of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "belongs to",
+          "cloud"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1004,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "shower",
+          "correct": false,
+          "scores": {
+            "frost": 0.152189,
+            "gale": 0.148104,
+            "shower": 0.302168,
+            "tempest": 0.149532
+          },
+          "floor": 0.1004
+        },
+        "exp1_vector_role": {
+          "pick": "frost",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "frost": 0.5503,
+            "gale": 0.5265,
+            "shower": 0.5243,
+            "tempest": 0.3925
+          },
+          "floor": 0.1004
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 1.0,
+            "gale": 1.0,
+            "shower": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 0.1004
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 1.0,
+            "gale": 1.0,
+            "shower": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 0.0,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.1004
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 0.0,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": "frost",
+          "correct": false,
+          "scores": {
+            "frost": 0.125,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.1004
+        },
+        "V3_symfloor": {
+          "pick": "frost",
+          "correct": false,
+          "scores": {
+            "frost": 0.125,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": "frost",
+          "correct": false,
+          "scores": {
+            "frost": 0.125,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.1004
+        },
+        "V4_symfloor": {
+          "pick": "frost",
+          "correct": false,
+          "scores": {
+            "frost": 0.125,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "near",
+      "subject": "thunder",
+      "candidates": [
+        "chill",
+        "gale",
+        "tempest",
+        "dew"
+      ],
+      "gold_target": "tempest",
+      "demonstrations": [
+        [
+          "shower",
+          "is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "belongs to",
+          "storm"
+        ],
+        [
+          "thaw",
+          "is a component of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "belongs to",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "is a component of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "belongs to",
+          "cloud"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1004,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "chill",
+          "correct": false,
+          "scores": {
+            "chill": 0.276256,
+            "dew": 0.275866,
+            "gale": 0.197814,
+            "tempest": 0.252629
+          },
+          "floor": 0.1004
+        },
+        "exp1_vector_role": {
+          "pick": "chill",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "chill": 0.7065,
+            "dew": 0.4539,
+            "gale": 0.5265,
+            "tempest": 0.3925
+          },
+          "floor": 0.1004
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 1.0,
+            "dew": 1.0,
+            "gale": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 0.1004
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 1.0,
+            "dew": 1.0,
+            "gale": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.1004
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 0.1,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.1004
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 0.1,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 0.100001,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.1004
+        },
+        "V4_symfloor": {
+          "pick": "chill",
+          "correct": false,
+          "scores": {
+            "chill": 0.100001,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.1
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "negative",
+      "subject": "gale",
+      "candidates": [
+        "hail",
+        "chill",
+        "dew",
+        "frost"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "shower",
+          "not is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "not is part of",
+          "storm"
+        ],
+        [
+          "thaw",
+          "not is part of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "not is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "not is part of",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "not is part of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "not is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "not is part of",
+          "cloud"
+        ]
+      ],
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 0.376915,
+            "dew": 0.18296,
+            "frost": 0.517005,
+            "hail": 0.158199
+          },
+          "floor": null
+        },
+        "exp1_vector_role": {
+          "pick": null,
+          "correct": true,
+          "recorded": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V4_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "far",
+      "subject": "election",
+      "candidates": [
+        "ceremony",
+        "law",
+        "rank",
+        "role"
+      ],
+      "gold_target": "ceremony",
+      "demonstrations": [
+        [
+          "breeze",
+          "comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "precedes",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "happens before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "precedes",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "happens before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "precedes",
+          "shower"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.0217,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "law",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.430777,
+            "law": 0.627081,
+            "rank": 0.279911,
+            "role": 0.588429
+          },
+          "floor": 0.0217
+        },
+        "exp1_vector_role": {
+          "pick": "ceremony",
+          "correct": true,
+          "recorded": true,
+          "scores": {
+            "ceremony": 0.3331,
+            "law": 0.2576,
+            "rank": 0.0848,
+            "role": 0.149
+          },
+          "floor": 0.0217
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "law": 1.0,
+            "rank": 1.0,
+            "role": 1.0
+          },
+          "floor": 0.0217
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "law": 1.0,
+            "rank": 1.0,
+            "role": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.0,
+            "role": 0.0
+          },
+          "floor": 0.0217
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.0,
+            "role": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": "role",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.1,
+            "role": 0.142857
+          },
+          "floor": 0.0217
+        },
+        "V3_symfloor": {
+          "pick": "role",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.1,
+            "role": 0.142857
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": "role",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.1,
+            "role": 0.142857
+          },
+          "floor": 0.0217
+        },
+        "V4_symfloor": {
+          "pick": "role",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.1,
+            "role": 0.142857
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "foil",
+      "subject": "glow",
+      "candidates": [
+        "breeze",
+        "climate",
+        "storm",
+        "frost"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "breeze",
+          "comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "precedes",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "happens before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "precedes",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "happens before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "precedes",
+          "shower"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.0217,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "breeze",
+          "correct": false,
+          "scores": {
+            "breeze": 0.487953,
+            "climate": 0.246613,
+            "frost": 0.276706,
+            "storm": 0.20419
+          },
+          "floor": 0.0217
+        },
+        "exp1_vector_role": {
+          "pick": "storm",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "breeze": 0.6585,
+            "climate": 0.3484,
+            "frost": 0.5298,
+            "storm": 0.696
+          },
+          "floor": 0.0217
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 1.0,
+            "climate": 1.0,
+            "frost": 1.0,
+            "storm": 1.0
+          },
+          "floor": 0.0217
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 1.0,
+            "climate": 1.0,
+            "frost": 1.0,
+            "storm": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0217
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0217
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 1e-06,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0217
+        },
+        "V4_symfloor": {
+          "pick": "breeze",
+          "correct": false,
+          "scores": {
+            "breeze": 1e-06,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "near",
+      "subject": "cloud",
+      "candidates": [
+        "climate",
+        "glow",
+        "typhoon",
+        "frost"
+      ],
+      "gold_target": "typhoon",
+      "demonstrations": [
+        [
+          "breeze",
+          "comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "precedes",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "happens before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "precedes",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "happens before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "precedes",
+          "shower"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.0217,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "glow",
+          "correct": false,
+          "scores": {
+            "climate": 0.455063,
+            "frost": 0.416324,
+            "glow": 0.518907,
+            "typhoon": 0.359542
+          },
+          "floor": 0.0217
+        },
+        "exp1_vector_role": {
+          "pick": "glow",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "climate": 0.3484,
+            "frost": 0.5298,
+            "glow": 0.5778,
+            "typhoon": 0.4495
+          },
+          "floor": 0.0217
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 1.0,
+            "frost": 1.0,
+            "glow": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.0217
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 1.0,
+            "frost": 1.0,
+            "glow": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0217
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": "glow",
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.1,
+            "typhoon": 0.0
+          },
+          "floor": 0.0217
+        },
+        "V3_symfloor": {
+          "pick": "glow",
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.1,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": "glow",
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.1,
+            "typhoon": 0.0
+          },
+          "floor": 0.0217
+        },
+        "V4_symfloor": {
+          "pick": "glow",
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.1,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "negative",
+      "subject": "storm",
+      "candidates": [
+        "climate",
+        "tempest",
+        "glow",
+        "frost"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "breeze",
+          "not comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "not comes before",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "not comes before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "not comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "not comes before",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "not comes before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "not comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "not comes before",
+          "shower"
+        ]
+      ],
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 0.467976,
+            "frost": 0.493469,
+            "glow": 0.20419,
+            "tempest": 0.440034
+          },
+          "floor": null
+        },
+        "exp1_vector_role": {
+          "pick": null,
+          "correct": true,
+          "recorded": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V4_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "far",
+      "subject": "market",
+      "candidates": [
+        "vote",
+        "council",
+        "election",
+        "guild"
+      ],
+      "gold_target": "guild",
+      "demonstrations": [
+        [
+          "frost",
+          "resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "is similar to",
+          "gale"
+        ],
+        [
+          "sunset",
+          "is akin to",
+          "glow"
+        ],
+        [
+          "climate",
+          "resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "is similar to",
+          "storm"
+        ],
+        [
+          "mist",
+          "is akin to",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "is similar to",
+          "squall"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.2343,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "election",
+          "correct": false,
+          "scores": {
+            "council": 0.289737,
+            "election": 0.354899,
+            "guild": 0.002806,
+            "vote": 0.324915
+          },
+          "floor": 0.2343
+        },
+        "exp1_vector_role": {
+          "pick": "election",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "council": 0.0949,
+            "election": 0.2553,
+            "guild": 0.0981,
+            "vote": 0.1548
+          },
+          "floor": 0.2343
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 1.0,
+            "election": 1.0,
+            "guild": 1.0,
+            "vote": 1.0
+          },
+          "floor": 0.2343
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 1.0,
+            "election": 1.0,
+            "guild": 1.0,
+            "vote": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 1e-06,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V4_symfloor": {
+          "pick": "election",
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 1e-06,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "foil",
+      "subject": "typhoon",
+      "candidates": [
+        "frost",
+        "dew",
+        "blizzard",
+        "hail"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "frost",
+          "resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "is similar to",
+          "gale"
+        ],
+        [
+          "sunset",
+          "is akin to",
+          "glow"
+        ],
+        [
+          "climate",
+          "resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "is similar to",
+          "storm"
+        ],
+        [
+          "mist",
+          "is akin to",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "is similar to",
+          "squall"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.2343,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "blizzard",
+          "correct": false,
+          "scores": {
+            "blizzard": 0.540622,
+            "dew": 0.153282,
+            "frost": 0.266721,
+            "hail": 0.336463
+          },
+          "floor": 0.2343
+        },
+        "exp1_vector_role": {
+          "pick": "blizzard",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "blizzard": 0.6586,
+            "dew": 0.4398,
+            "frost": 0.5336,
+            "hail": 0.4948
+          },
+          "floor": 0.2343
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 1.0,
+            "dew": 1.0,
+            "frost": 1.0,
+            "hail": 1.0
+          },
+          "floor": 0.2343
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 1.0,
+            "dew": 1.0,
+            "frost": 1.0,
+            "hail": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.090909,
+            "hail": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V3_symfloor": {
+          "pick": "frost",
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.090909,
+            "hail": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.090909,
+            "hail": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V4_symfloor": {
+          "pick": "frost",
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.090909,
+            "hail": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "near",
+      "subject": "drizzle",
+      "candidates": [
+        "chill",
+        "typhoon",
+        "blizzard",
+        "cloud"
+      ],
+      "gold_target": "chill",
+      "demonstrations": [
+        [
+          "frost",
+          "resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "is similar to",
+          "gale"
+        ],
+        [
+          "sunset",
+          "is akin to",
+          "glow"
+        ],
+        [
+          "climate",
+          "resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "is similar to",
+          "storm"
+        ],
+        [
+          "mist",
+          "is akin to",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "is similar to",
+          "squall"
+        ]
+      ],
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.2343,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": "chill",
+          "correct": true,
+          "scores": {
+            "blizzard": 0.376332,
+            "chill": 0.621356,
+            "cloud": 0.469985,
+            "typhoon": 0.19603
+          },
+          "floor": 0.2343
+        },
+        "exp1_vector_role": {
+          "pick": "blizzard",
+          "correct": false,
+          "recorded": true,
+          "scores": {
+            "blizzard": 0.6586,
+            "chill": 0.6052,
+            "cloud": 0.5523,
+            "typhoon": 0.4782
+          },
+          "floor": 0.2343
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 1.0,
+            "chill": 1.0,
+            "cloud": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.2343
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 1.0,
+            "chill": 1.0,
+            "cloud": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 1.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.0,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.0,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.1,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V3_symfloor": {
+          "pick": "chill",
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.1,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.1,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.2343
+        },
+        "V4_symfloor": {
+          "pick": "chill",
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.1,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "negative",
+      "subject": "breeze",
+      "candidates": [
+        "blizzard",
+        "cloud",
+        "dew",
+        "typhoon"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "frost",
+          "not resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "not resembles",
+          "gale"
+        ],
+        [
+          "sunset",
+          "not resembles",
+          "glow"
+        ],
+        [
+          "climate",
+          "not resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "not resembles",
+          "storm"
+        ],
+        [
+          "mist",
+          "not resembles",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "not resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "not resembles",
+          "squall"
+        ]
+      ],
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp1": true,
+      "arms": {
+        "prod_baseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.390703,
+            "cloud": 0.327761,
+            "dew": 0.426543,
+            "typhoon": 0.19773
+          },
+          "floor": null
+        },
+        "exp1_vector_role": {
+          "pick": null,
+          "correct": true,
+          "recorded": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V1_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V2_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V2_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V3_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V3_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        },
+        "V4_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": null
+        },
+        "V4_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {},
+          "floor": 0.0
+        }
+      },
+      "missing_glove_labels": []
+    }
+  ]
+}

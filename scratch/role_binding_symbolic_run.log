@@ -1,0 +1,17 @@
+[symbolic] schema_induction from C:\Users\Likhith\Documents\projects\ravana_rsi_symbolic\ravana\src\ravana\chat\schema_induction.py
+[symbolic] response_gen  from C:\Users\Likhith\Documents\projects\ravana_rsi_symbolic\ravana\src\ravana\chat\response_gen.py
+[symbolic] sanity: {"overlap_scores": {"car": 1.0, "petal": 0.0}, "overlap_pick": "car", "disjoint_pick": null, "passes": true}
+[symbolic] baseline reproduced of 16: 16
+[symbolic] per-condition totals (correct/n):
+  prod_baseline      near 2/4 far 0/4 foil 0/4 neg 4/4
+  exp1_vector_role   near 1/4 far 1/4 foil 0/4 neg 4/4
+  V1_prodfloor       near 0/4 far 0/4 foil 4/4 neg 4/4
+  V2_prodfloor       near 0/4 far 0/4 foil 4/4 neg 4/4
+  V3_prodfloor       near 0/4 far 0/4 foil 3/4 neg 4/4
+  V4_prodfloor       near 0/4 far 0/4 foil 3/4 neg 4/4
+  V1_symfloor        near 0/4 far 0/4 foil 4/4 neg 4/4
+  V2_symfloor        near 0/4 far 0/4 foil 4/4 neg 4/4
+  V3_symfloor        near 2/4 far 0/4 foil 1/4 neg 4/4
+  V4_symfloor        near 2/4 far 0/4 foil 0/4 neg 4/4
+[symbolic] PART_OF/PRECEDES near+far off zero: {"prod_baseline": {"near_far_off_zero": 0, "near_far_n": 4}, "exp1_vector_role": {"near_far_off_zero": 1, "near_far_n": 4}, "V1_prodfloor": {"near_far_off_zero": 0, "near_far_n": 4}, "V2_prodfloor": {"near_far_off_zero": 0, "near_far_n": 4}, "V3_prodfloor": {"near_far_off_zero": 0, "near_far_n": 4}, "V4_prodfloor": {"near_far_off_zero": 0, "near_far_n": 4}, "V1_symfloor": {"near_far_off_zero": 0, "near_far_n": 4}, "V2_symfloor": {"near_far_off_zero": 0, "near_far_n": 4}, "V3_symfloor": {"near_far_off_zero": 0, "near_far_n": 4}, "V4_symfloor": {"near_far_off_zero": 0, "near_far_n": 4}}
+[symbolic] wrote C:\Users\Likhith\Documents\projects\ravana_rsi_symbolic\scratch\role_binding_symbolic_results.json
