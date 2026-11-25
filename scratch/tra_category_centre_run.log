@@ -1,0 +1,51 @@
+TRA CATEGORY-CENTRE EXPERIMENT — scratch, static, no engine boot
+worktree=C:\Users\Likhith\Documents\projects\ravana_tracentre  branch=experiment/tra-category-centre
+constraints: no production edit, no boot, no store write; teaching material only
+instrument OK: loader=C:\Users\Likhith\Documents\projects\ravana\ravana\src\ravana\ontology\attribute_encoder.py
+loader_sha256=295610726018e5f8 bank_sha256=7bc55db8637fb4b2
+recorded live rows=1120 fake rows excluded=12320 items cross-checked=1120 dim=64 lut=400001
+slot centre sizes (taught r2 contributions): {'contrast-case': 10, 'earlier-event': 23, 'effect': 22, 'similar-form': 21, 'structured-whole': 24, 'supported-outcome': 14}
+label vector coverage: {'contrast-case': False, 'earlier-event': False, 'effect': True, 'similar-form': False, 'structured-whole': False, 'supported-outcome': False}
+recorded-confidence exemplar coverage on TRA slots: 10 (Recorded typed edges are for 'weather phenomenon'/'civic event' (6 words), NOT for any TRA type label; coverage on TRA slots is reported, not assumed.)
+controls: {"C10_disjoint_options": {"pick": null, "reason": "disjoint_or_unknown_option_set", "pass": true}, "unrelated_subject": {"pick": null, "reason": "strict_margin_not_met", "pass": true}, "instrument_sanity_centre_as_subject": {"pick": null, "reason": "strict_margin_not_met", "pass": false}, "wiring_sanity_centre_as_subject_no_margin": {"n_correct": 6, "n": 6, "pass": true}, "centre_separation": {}, "k0_items": {"n": 6}}
+centre separation (top1 always the exact label at 1.0; margins 0.020-0.087 < 0.10):
+  contrast-case        top1=contrast-case        (1.0000)  top2=similar-form         (0.9127)  margin=0.0873 margin_pass=False
+  earlier-event        top1=earlier-event        (1.0000)  top2=supported-outcome    (0.9802)  margin=0.0198 margin_pass=False
+  effect               top1=effect               (1.0000)  top2=supported-outcome    (0.9629)  margin=0.0371 margin_pass=False
+  similar-form         top1=similar-form         (1.0000)  top2=effect               (0.9505)  margin=0.0495 margin_pass=False
+  structured-whole     top1=structured-whole     (1.0000)  top2=supported-outcome    (0.9569)  margin=0.0431 margin_pass=False
+  supported-outcome    top1=supported-outcome    (1.0000)  top2=earlier-event        (0.9802)  margin=0.0198 margin_pass=False
+wiring sanity (margin=0, instrument-only): 6/6 correct
+
+=== PER-ARM CORRECT COUNTS (n=40 items x 4 conditions) ===
+C_pooled_cos           near 1/40  far 1/40  foil 36/40  negative 32/40
+C_local_cos            near 0/40  far 0/40  foil 38/40  negative 33/40
+C_label_tiebreak       near 1/40  far 1/40  foil 36/40  negative 32/40
+C_conf_weighted        near 1/40  far 0/40  foil 30/40  negative 31/40
+C_conf_only            near 0/40  far 0/40  foil 40/40  negative 40/40
+C_domain_membership    near 4/40  far 2/40  foil 25/40  negative 31/40
+
+=== near+far by pool ===
+C_pooled_cos           primary 0/40  sealed 2/40
+C_local_cos            primary 0/40  sealed 0/40
+C_label_tiebreak       primary 0/40  sealed 2/40
+C_conf_weighted        primary 0/40  sealed 1/40
+C_conf_only            primary 0/40  sealed 0/40
+C_domain_membership    primary 3/40  sealed 3/40
+G6 saturation (shipped gate, non-blocking FLAG):
+  C_pooled_cos           FLAG: 1 front(s) non-informative: tra_near=2.5
+  C_local_cos            FLAG: 1 front(s) non-informative: tra_near=0.0
+  C_label_tiebreak       FLAG: 1 front(s) non-informative: tra_near=2.5
+  C_conf_weighted        FLAG: 1 front(s) non-informative: tra_near=2.5
+  C_conf_only            FLAG: 2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0
+  C_domain_membership    PASS: no front in the saturated band
+near/far hit audit (k=0 hits are cross-item artefacts, not this item's teaching):
+  C_pooled_cos           hits=2 k0_hits=2
+  C_local_cos            hits=0 k0_hits=0
+  C_label_tiebreak       hits=2 k0_hits=2
+  C_conf_weighted        hits=1 k0_hits=1
+  C_conf_only            hits=0 k0_hits=0
+  C_domain_membership    hits=6 k0_hits=0
+
+wrote C:\Users\Likhith\Documents\projects\ravana_tracentre\scratch\tra_category_centre_results.json
+EXIT=0
