@@ -22,6 +22,7 @@ from ravana.language.surface_realizer import DiscourseState
 from .schema_induction import (
     SCHEMA_ENV_FLAG, schema_enabled, EdgeView,
     traces_from_edges, induce_schema_hypotheses, rank_candidates_for_unseen_subject,
+    slots_enabled, typed_slot_views_from_graph, slot_keyed_forced_choice,
 )
 
 # Self-referential / meta tokens that should not be treated as ordinary
@@ -7675,6 +7676,36 @@ class ResponseGenMixin(ChainWalkerMixin):
         except Exception:
             return None
 
+    # ── TRA typed role-slot read hook (default OFF, RAVANA_TRA_SLOTS=1) ──
+    # Ported from the POSITIVE scratch experiment. Reads ONLY provenance-stored
+    # typed slot edges and the forced-choice option list; no GloVe, item gold,
+    # world_model or cross-turn state. Fail-closed on every uncertain path.
+    def _typed_slot_candidate(self, raw_input: str,
+                              subject: Optional[str] = None) -> Optional[str]:
+        """Fail-closed typed-slot pick for a forced-choice prompt, else None."""
+        if not slots_enabled():
+            return None
+        try:
+            _q, _opts = parse_forced_choice(raw_input)
+            if len(_opts) < 2 or not _q:
+                return None
+            _subj = subject if (subject and
+                                str(subject).strip().lower() in _q.lower()) else _q
+            if _subj == _q and subject:
+                _head = str(subject).strip().lower().split()[-1:]
+                if _head and _head[0] in _q.lower():
+                    _subj = _head[0]
+            if _subj == _q:
+                _words = [w for w in re.findall(r"[a-z][a-z\-]+", _q.lower())
+                          if len(w) >= 3 and w not in STOP_WORDS
+                          and w not in {"what", "which", "who", "true", "about"}]
+                if _words:
+                    _subj = _words[-1]
+            _views = typed_slot_views_from_graph(getattr(self, "graph", None))
+            return slot_keyed_forced_choice(_views, _subj, _opts).get("pick")
+        except Exception:
+            return None
+
     # ── H4: schema-hypothesis candidate ranking (default OFF, RAVANA_SCHEMA=1) ──
     # A converged set of >=2 trusted demonstrations of the SAME relation forms
     # an UNassertable hypothesis. For an unseen subject with NO directly taught
@@ -7694,6 +7725,18 @@ class ResponseGenMixin(ChainWalkerMixin):
         this hook defers (returns None) and never overrides it. Requires the
         explicit RAVANA_SCHEMA=1 opt-in; otherwise returns None before any work.
         """
+        # TRA typed role-slot primitive (default-OFF, RAVANA_TRA_SLOTS=1).
+        # Checked BEFORE the RAVANA_SCHEMA guard so the two flags are independent.
+        # Defensive getattr keeps duck-typed engines/fakes without the hook inert.
+        if slots_enabled():
+            try:
+                _slot_hook = getattr(self, "_typed_slot_candidate", None)
+                if callable(_slot_hook):
+                    _slot_pick = _slot_hook(raw_input, subject)
+                    if _slot_pick is not None:
+                        return str(_slot_pick)
+            except Exception:
+                pass
         if not schema_enabled():
             return None
         try:
