@@ -580,3 +580,13 @@ def test_teaching_surfaces_are_single_type_assertions(items):
     assert all(parser._typed_slot_assertions(s) for s in surfaces)
     # The query subject's type is never taught.
     assert all(mt.query_for(it, "near")["subject"] not in s for s in surfaces)
+
+
+def test_provenance_views_accumulate_across_items_without_boot():
+    """C12 reads a run-level union; reset_for_item must not erase real views."""
+    b = mt.RealBackend(data_dir=os.path.join(mt.SCRATCH, "acc_test"))
+    b.reset_for_item({"item_id": "a"})
+    b.provenance_views_cache = [{"subject": "s1", "target": "effect"}]
+    b._all_provenance_views.extend(b.provenance_views_cache)
+    b.reset_for_item({"item_id": "b"})
+    assert [v["subject"] for v in b.provenance_views()] == ["s1"]
