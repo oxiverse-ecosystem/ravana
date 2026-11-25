@@ -1,0 +1,200 @@
+[experiment] ravana.chat.schema_induction from C:\Users\Likhith\Documents\projects\ravana_rsi_rolebind\ravana\src\ravana\chat\schema_induction.py
+[experiment] ravana.chat.response_gen  from C:\Users\Likhith\Documents\projects\ravana_rsi_rolebind\ravana\src\ravana\chat\response_gen.py
+{
+  "sanity": {
+    "baseline_pick": "warmth",
+    "role_pick": "engine",
+    "passes": true,
+    "role_scores": {
+      "warmth": 0.101,
+      "engine": 0.7071
+    }
+  },
+  "summary": {
+    "CAUSE": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          "mist"
+        ],
+        "role_picks": [
+          "mist"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "election"
+        ],
+        "role_picks": [
+          null
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "thunder"
+        ],
+        "role_picks": [
+          "mist"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    },
+    "PART_OF": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "chill"
+        ],
+        "role_picks": [
+          "chill"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "ceremony"
+        ],
+        "role_picks": [
+          "habit"
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "shower"
+        ],
+        "role_picks": [
+          "frost"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    },
+    "PRECEDES": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "glow"
+        ],
+        "role_picks": [
+          "glow"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 1,
+        "baseline_picks": [
+          "law"
+        ],
+        "role_picks": [
+          "ceremony"
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "breeze"
+        ],
+        "role_picks": [
+          "storm"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    },
+    "RESEMBLES": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 0,
+        "baseline_picks": [
+          "chill"
+        ],
+        "role_picks": [
+          "blizzard"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "election"
+        ],
+        "role_picks": [
+          "election"
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "blizzard"
+        ],
+        "role_picks": [
+          "blizzard"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    }
+  }
+}
+[experiment] wrote C:\Users\Likhith\Documents\projects\ravana_rsi_rolebind\scratch\role_binding_results.json
