@@ -1,0 +1,1282 @@
+{
+  "experiment": "TRA experiment 2 -- scratch is_a write and fail-closed slot read",
+  "project_tree": "C:/Users/Likhith/Documents/projects/ravana",
+  "worktree": "C:/Users/Likhith/Documents/projects/ravana_slot_exp",
+  "scratch_root": "C:/Users/Likhith/AppData/Local/hermes/cache/scratch/tra_slot_data",
+  "production_code_modified": false,
+  "arms": {
+    "type_arm": {
+      "data_dir": "C:/Users/Likhith/AppData/Local/hermes/cache/scratch/tra_slot_data\\type_arm",
+      "store_copy": {
+        "ravana_weights.pkl": {
+          "src_sha256": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+          "dst_sha256": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f"
+        },
+        "ravana_weights.db": {
+          "src_sha256": "2ff105143c3ae3c19711ec4df01f9c8d0cc72b6331c373ba5e255efb07b379f8",
+          "dst_sha256": "2ff105143c3ae3c19711ec4df01f9c8d0cc72b6331c373ba5e255efb07b379f8"
+        },
+        "junk_classifier.json": {
+          "src_sha256": "57a70d69588fd4e61c55807ec2c7074a689537f9fb212801a47271f48cff4037",
+          "dst_sha256": "57a70d69588fd4e61c55807ec2c7074a689537f9fb212801a47271f48cff4037"
+        },
+        "junk_labels.jsonl": {
+          "src_sha256": "fc5543939919655add0ad50a50ef54d310392376cbd1e4a158cb537576631345",
+          "dst_sha256": "fc5543939919655add0ad50a50ef54d310392376cbd1e4a158cb537576631345"
+        }
+      },
+      "teaching_assertions": [
+        "mist is a weather phenomenon.",
+        "hail is a weather phenomenon.",
+        "drizzle is a weather phenomenon.",
+        "election is a civic event.",
+        "ceremony is a civic event.",
+        "contract is a civic event.",
+        "a wheel is part of a vehicle.",
+        "a petal is part of a flower.",
+        "a page is part of a book.",
+        "a chord is part of a guitar."
+      ],
+      "boot1_s": 2.21,
+      "baseline": {
+        "n_edges": 18984,
+        "n_nodes": 2167,
+        "relation_histogram": {
+          "semantic": 14760,
+          "temporal": 1190,
+          "causal": 1028,
+          "contrastive": 638,
+          "analogical": 569,
+          "inferred": 375,
+          "episodic": 184,
+          "is_a": 169,
+          "located_in": 47,
+          "has_property": 12,
+          "property": 5,
+          "part_of": 5,
+          "contextual": 2
+        },
+        "trusted_count": 170,
+        "trusted_relation_histogram": {
+          "causal": 96,
+          "is_a": 54,
+          "located_in": 10,
+          "property": 5,
+          "has_property": 2,
+          "episodic": 1,
+          "part_of": 1,
+          "inferred": 1
+        },
+        "is_a_edge_count": 169,
+        "typed_slot_edge_count": 0,
+        "typed_slot_edges": [],
+        "conversation_incident_edges": []
+      },
+      "teaching": [
+        {
+          "assertion": "mist is a weather phenomenon.",
+          "production_process_turn_response": "hmm, i'm not totally sure about phenomenon yet, and that's okay wanna figure it out together.",
+          "scratch_write": [
+            {
+              "family": "IS_A",
+              "subject": "mist",
+              "object": "weather phenomenon",
+              "type_label": "weather phenomenon",
+              "slot_label": "type",
+              "assertion": "mist is a weather phenomenon.",
+              "route": "novel_write",
+              "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+              "outcome": "written",
+              "edge": {
+                "source": "mist",
+                "target": "weather phenomenon",
+                "relation_type": "is_a",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.3206
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "hail is a weather phenomenon.",
+          "production_process_turn_response": "i don't really have a solid grasp on phenomenon so far where did you hear about that.",
+          "scratch_write": [
+            {
+              "family": "IS_A",
+              "subject": "hail",
+              "object": "weather phenomenon",
+              "type_label": "weather phenomenon",
+              "slot_label": "type",
+              "assertion": "hail is a weather phenomenon.",
+              "route": "novel_write",
+              "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+              "outcome": "written",
+              "edge": {
+                "source": "hail",
+                "target": "weather phenomenon",
+                "relation_type": "is_a",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.3315
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "drizzle is a weather phenomenon.",
+          "production_process_turn_response": "honestly, phenomenon is a bit outside what i know right now what made you think about it.",
+          "scratch_write": [
+            {
+              "family": "IS_A",
+              "subject": "drizzle",
+              "object": "weather phenomenon",
+              "type_label": "weather phenomenon",
+              "slot_label": "type",
+              "assertion": "drizzle is a weather phenomenon.",
+              "route": "novel_write",
+              "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+              "outcome": "written",
+              "edge": {
+                "source": "drizzle",
+                "target": "weather phenomenon",
+                "relation_type": "is_a",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.3423
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "election is a civic event.",
+          "production_process_turn_response": "i don't really have a solid grasp on election so far what do you make of it.",
+          "scratch_write": [
+            {
+              "family": "IS_A",
+              "subject": "election",
+              "object": "civic event",
+              "type_label": "civic event",
+              "slot_label": "type",
+              "assertion": "election is a civic event.",
+              "route": "novel_write",
+              "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+              "outcome": "written",
+              "edge": {
+                "source": "election",
+                "target": "civic event",
+                "relation_type": "is_a",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.3206
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "ceremony is a civic event.",
+          "production_process_turn_response": "honestly, ceremony is a bit outside what i know right now wanna figure it out together.",
+          "scratch_write": [
+            {
+              "family": "IS_A",
+              "subject": "ceremony",
+              "object": "civic event",
+              "type_label": "civic event",
+              "slot_label": "type",
+              "assertion": "ceremony is a civic event.",
+              "route": "novel_write",
+              "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+              "outcome": "written",
+              "edge": {
+                "source": "ceremony",
+                "target": "civic event",
+                "relation_type": "is_a",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.3315
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "contract is a civic event.",
+          "production_process_turn_response": "hmm, i'm not totally sure about contract yet, and that's okay what's your take on it.",
+          "scratch_write": [
+            {
+              "family": "IS_A",
+              "subject": "contract",
+              "object": "civic event",
+              "type_label": "civic event",
+              "slot_label": "type",
+              "assertion": "contract is a civic event.",
+              "route": "novel_write",
+              "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+              "outcome": "written",
+              "edge": {
+                "source": "contract",
+                "target": "civic event",
+                "relation_type": "is_a",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.3423
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "a wheel is part of a vehicle.",
+          "production_process_turn_response": "hmm, i'm not totally sure about vehicle yet, and that's okay where did you hear about that.",
+          "scratch_write": [
+            {
+              "family": "PART_OF",
+              "subject": "wheel",
+              "object": "vehicle",
+              "type_label": "structured whole",
+              "slot_label": "whole",
+              "assertion": "a wheel is part of a vehicle.",
+              "route": "fast_merge",
+              "reason": "schema-consistent (0.90 >= 0.55); one-trial merge",
+              "outcome": "written",
+              "edge": {
+                "source": "wheel",
+                "target": "vehicle",
+                "relation_type": "part_of",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "PART_OF",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.4806
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "a petal is part of a flower.",
+          "production_process_turn_response": "honestly, flower is a bit outside what i know right now what do you make of it.",
+          "scratch_write": [
+            {
+              "family": "PART_OF",
+              "subject": "petal",
+              "object": "flower",
+              "type_label": "structured whole",
+              "slot_label": "whole",
+              "assertion": "a petal is part of a flower.",
+              "route": "fast_merge",
+              "reason": "schema-consistent (0.90 >= 0.55); one-trial merge",
+              "outcome": "written",
+              "edge": {
+                "source": "petal",
+                "target": "flower",
+                "relation_type": "part_of",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "PART_OF",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.5708
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "a page is part of a book.",
+          "production_process_turn_response": "i don't really have a solid grasp on page so far wanna figure it out together.",
+          "scratch_write": [
+            {
+              "family": "PART_OF",
+              "subject": "page",
+              "object": "book",
+              "type_label": "structured whole",
+              "slot_label": "whole",
+              "assertion": "a page is part of a book.",
+              "route": "fast_merge",
+              "reason": "schema-consistent (0.90 >= 0.55); one-trial merge",
+              "outcome": "written",
+              "edge": {
+                "source": "page",
+                "target": "book",
+                "relation_type": "part_of",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "PART_OF",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.4611
+              }
+            }
+          ]
+        },
+        {
+          "assertion": "a chord is part of a guitar.",
+          "production_process_turn_response": "hmm, i'm not totally sure about guitar yet, and that's okay what made you think about it.",
+          "scratch_write": [
+            {
+              "family": "PART_OF",
+              "subject": "chord",
+              "object": "guitar",
+              "type_label": "structured whole",
+              "slot_label": "whole",
+              "assertion": "a chord is part of a guitar.",
+              "route": "fast_merge",
+              "reason": "schema-consistent (0.90 >= 0.55); one-trial merge",
+              "outcome": "written",
+              "edge": {
+                "source": "chord",
+                "target": "guitar",
+                "relation_type": "part_of",
+                "edge_kind": "curated",
+                "edge_source": "conversation",
+                "source_type": "user",
+                "extractor": "scratch-tra-typed-assertion",
+                "asserted_relation": "PART_OF",
+                "type_label": "",
+                "slot_label": "",
+                "scratch_writer": "",
+                "url": "",
+                "trusted": true,
+                "confidence": 0.4616
+              }
+            }
+          ]
+        }
+      ],
+      "post_teach_in_process": {
+        "n_edges": 18952,
+        "n_nodes": 1310,
+        "relation_histogram": {
+          "semantic": 14698,
+          "temporal": 1190,
+          "causal": 1028,
+          "contrastive": 638,
+          "analogical": 569,
+          "inferred": 382,
+          "episodic": 197,
+          "is_a": 175,
+          "located_in": 47,
+          "has_property": 12,
+          "part_of": 9,
+          "property": 5,
+          "contextual": 2
+        },
+        "trusted_count": 180,
+        "trusted_relation_histogram": {
+          "causal": 96,
+          "is_a": 60,
+          "located_in": 10,
+          "property": 5,
+          "part_of": 5,
+          "has_property": 2,
+          "episodic": 1,
+          "inferred": 1
+        },
+        "is_a_edge_count": 175,
+        "typed_slot_edge_count": 0,
+        "typed_slot_edges": [],
+        "conversation_incident_edges": [
+          {
+            "source": "mist",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3889
+          },
+          {
+            "source": "hail",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.4097
+          },
+          {
+            "source": "drizzle",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.4298
+          },
+          {
+            "source": "election",
+            "target": "civic event",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3889
+          },
+          {
+            "source": "ceremony",
+            "target": "civic event",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3638
+          },
+          {
+            "source": "contract",
+            "target": "civic event",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3769
+          }
+        ]
+      },
+      "new_trusted_triples": [
+        {
+          "source": "ceremony",
+          "relation_type": "is_a",
+          "target": "civic event"
+        },
+        {
+          "source": "chord",
+          "relation_type": "part_of",
+          "target": "guitar"
+        },
+        {
+          "source": "contract",
+          "relation_type": "is_a",
+          "target": "civic event"
+        },
+        {
+          "source": "drizzle",
+          "relation_type": "is_a",
+          "target": "weather phenomenon"
+        },
+        {
+          "source": "election",
+          "relation_type": "is_a",
+          "target": "civic event"
+        },
+        {
+          "source": "hail",
+          "relation_type": "is_a",
+          "target": "weather phenomenon"
+        },
+        {
+          "source": "mist",
+          "relation_type": "is_a",
+          "target": "weather phenomenon"
+        },
+        {
+          "source": "page",
+          "relation_type": "part_of",
+          "target": "book"
+        },
+        {
+          "source": "petal",
+          "relation_type": "part_of",
+          "target": "flower"
+        },
+        {
+          "source": "wheel",
+          "relation_type": "part_of",
+          "target": "vehicle"
+        }
+      ],
+      "new_typed_slot_triples": [],
+      "save": {
+        "ok": true,
+        "returned": "saved 94949KB to ravana_weights.pkl"
+      },
+      "boot2_s": 3.6,
+      "post_cold_reload": {
+        "n_edges": 18952,
+        "n_nodes": 1310,
+        "relation_histogram": {
+          "semantic": 14698,
+          "temporal": 1190,
+          "causal": 1028,
+          "contrastive": 638,
+          "analogical": 569,
+          "inferred": 382,
+          "episodic": 197,
+          "is_a": 175,
+          "located_in": 47,
+          "has_property": 12,
+          "part_of": 9,
+          "property": 5,
+          "contextual": 2
+        },
+        "trusted_count": 180,
+        "trusted_relation_histogram": {
+          "causal": 96,
+          "is_a": 60,
+          "located_in": 10,
+          "property": 5,
+          "part_of": 5,
+          "has_property": 2,
+          "episodic": 1,
+          "inferred": 1
+        },
+        "is_a_edge_count": 175,
+        "typed_slot_edge_count": 0,
+        "typed_slot_edges": [],
+        "conversation_incident_edges": [
+          {
+            "source": "mist",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3889
+          },
+          {
+            "source": "hail",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.4097
+          },
+          {
+            "source": "drizzle",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.4298
+          },
+          {
+            "source": "election",
+            "target": "civic event",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3889
+          },
+          {
+            "source": "ceremony",
+            "target": "civic event",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3638
+          },
+          {
+            "source": "contract",
+            "target": "civic event",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3769
+          }
+        ]
+      },
+      "cold_reload": {
+        "n_new_typed": 0,
+        "n_survivors": 0,
+        "retention": null,
+        "survivors": [],
+        "lost": []
+      },
+      "read_probes": [
+        {
+          "id": "positive_mist",
+          "subject": "mist",
+          "options": [
+            "weather phenomenon",
+            "civic event",
+            "structured whole",
+            "similar form"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        },
+        {
+          "id": "positive_election",
+          "subject": "election",
+          "options": [
+            "weather phenomenon",
+            "civic event",
+            "structured whole",
+            "similar form"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        },
+        {
+          "id": "permutation_A",
+          "subject": "mist",
+          "options": [
+            "similar form",
+            "structured whole",
+            "civic event",
+            "weather phenomenon"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        },
+        {
+          "id": "permutation_B",
+          "subject": "mist",
+          "options": [
+            "civic event",
+            "weather phenomenon",
+            "similar form",
+            "structured whole"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        },
+        {
+          "id": "part_of_subject_no_typed_slot",
+          "subject": "wheel",
+          "options": [
+            "weather phenomenon",
+            "civic event",
+            "structured whole",
+            "similar form"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        },
+        {
+          "id": "disjoint_options_C10",
+          "subject": "mist",
+          "options": [
+            "apple",
+            "banana",
+            "chair",
+            "table"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        },
+        {
+          "id": "unrelated_subject",
+          "subject": "zeppelin",
+          "options": [
+            "weather phenomenon",
+            "civic event",
+            "structured whole",
+            "similar form"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        },
+        {
+          "id": "no_cross_turn_state_repeat",
+          "subject": "mist",
+          "options": [
+            "weather phenomenon",
+            "civic event",
+            "structured whole",
+            "similar form"
+          ],
+          "all_slot_scores": {},
+          "eligible": [],
+          "congruence_floor": 0.2,
+          "strict_margin": 0.1,
+          "pick": null,
+          "margin": null,
+          "reason": "no_trusted_typed_slot_above_floor"
+        }
+      ],
+      "read_controls": {
+        "permutation_stable": true,
+        "picks": {
+          "positive_mist": null,
+          "permutation_A": null,
+          "permutation_B": null,
+          "no_cross_turn_state_repeat": null
+        },
+        "disjoint_pick_C10": null,
+        "disjoint_fail_closed": true,
+        "unrelated_subject_pick": null,
+        "unrelated_fail_closed": true,
+        "part_of_subject_pick": null,
+        "no_cross_turn_state": true
+      },
+      "production_flag_on_disjoint_comparison": {
+        "schema_flag": "1",
+        "response": "banana",
+        "graded_pick": "banana",
+        "C10_fail_closed": false
+      }
+    },
+    "relation_arm": {
+      "data_dir": "C:/Users/Likhith/AppData/Local/hermes/cache/scratch/tra_slot_data\\relation_arm",
+      "store_copy": {
+        "ravana_weights.pkl": {
+          "src_sha256": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+          "dst_sha256": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f"
+        },
+        "ravana_weights.db": {
+          "src_sha256": "2ff105143c3ae3c19711ec4df01f9c8d0cc72b6331c373ba5e255efb07b379f8",
+          "dst_sha256": "2ff105143c3ae3c19711ec4df01f9c8d0cc72b6331c373ba5e255efb07b379f8"
+        },
+        "junk_classifier.json": {
+          "src_sha256": "57a70d69588fd4e61c55807ec2c7074a689537f9fb212801a47271f48cff4037",
+          "dst_sha256": "57a70d69588fd4e61c55807ec2c7074a689537f9fb212801a47271f48cff4037"
+        },
+        "junk_labels.jsonl": {
+          "src_sha256": "fc5543939919655add0ad50a50ef54d310392376cbd1e4a158cb537576631345",
+          "dst_sha256": "fc5543939919655add0ad50a50ef54d310392376cbd1e4a158cb537576631345"
+        }
+      },
+      "teaching_assertions": [
+        "drizzle causes mist.",
+        "storm causes a blizzard.",
+        "a wheel is part of a vehicle.",
+        "a petal is part of a flower.",
+        "dawn precedes sunrise.",
+        "winter comes before spring.",
+        "mist resembles fog.",
+        "a wheel is similar to a gear.",
+        "hail causes rain.",
+        "a page is part of a book."
+      ],
+      "boot_s": 2.7,
+      "baseline": {
+        "n_edges": 18984,
+        "n_nodes": 2167,
+        "relation_histogram": {
+          "semantic": 14760,
+          "temporal": 1190,
+          "causal": 1028,
+          "contrastive": 638,
+          "analogical": 569,
+          "inferred": 375,
+          "episodic": 184,
+          "is_a": 169,
+          "located_in": 47,
+          "has_property": 12,
+          "property": 5,
+          "part_of": 5,
+          "contextual": 2
+        },
+        "trusted_count": 170,
+        "trusted_relation_histogram": {
+          "causal": 96,
+          "is_a": 54,
+          "located_in": 10,
+          "property": 5,
+          "has_property": 2,
+          "episodic": 1,
+          "part_of": 1,
+          "inferred": 1
+        },
+        "is_a_edge_count": 169,
+        "typed_slot_edge_count": 0,
+        "typed_slot_edges": [],
+        "conversation_incident_edges": []
+      },
+      "post_teach": {
+        "n_edges": 19006,
+        "n_nodes": 1319,
+        "relation_histogram": {
+          "semantic": 14719,
+          "temporal": 1192,
+          "causal": 1031,
+          "contrastive": 638,
+          "analogical": 571,
+          "inferred": 410,
+          "episodic": 202,
+          "is_a": 169,
+          "located_in": 47,
+          "has_property": 12,
+          "part_of": 8,
+          "property": 5,
+          "contextual": 2
+        },
+        "trusted_count": 180,
+        "trusted_relation_histogram": {
+          "causal": 99,
+          "is_a": 54,
+          "located_in": 10,
+          "property": 5,
+          "part_of": 4,
+          "has_property": 2,
+          "analogical": 2,
+          "temporal": 2,
+          "episodic": 1,
+          "inferred": 1
+        },
+        "is_a_edge_count": 169,
+        "typed_slot_edge_count": 0,
+        "typed_slot_edges": [],
+        "conversation_incident_edges": [
+          {
+            "source": "mist",
+            "target": "fog",
+            "relation_type": "analogical",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "conversational-assertion",
+            "asserted_relation": "RESEMBLES",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.7942
+          },
+          {
+            "source": "drizzle",
+            "target": "mist",
+            "relation_type": "causal",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "conversational-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.5708
+          },
+          {
+            "source": "hail",
+            "target": "rain",
+            "relation_type": "causal",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "conversational-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.438
+          }
+        ]
+      },
+      "new_trusted_triple_count": 10,
+      "new_typed_slot_triples": [],
+      "new_typed_slot_count": 0
+    },
+    "untrusted_arm": {
+      "data_dir": "C:/Users/Likhith/AppData/Local/hermes/cache/scratch/tra_slot_data\\untrusted_arm",
+      "store_copy": {
+        "ravana_weights.pkl": {
+          "src_sha256": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+          "dst_sha256": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f"
+        },
+        "ravana_weights.db": {
+          "src_sha256": "2ff105143c3ae3c19711ec4df01f9c8d0cc72b6331c373ba5e255efb07b379f8",
+          "dst_sha256": "2ff105143c3ae3c19711ec4df01f9c8d0cc72b6331c373ba5e255efb07b379f8"
+        },
+        "junk_classifier.json": {
+          "src_sha256": "57a70d69588fd4e61c55807ec2c7074a689537f9fb212801a47271f48cff4037",
+          "dst_sha256": "57a70d69588fd4e61c55807ec2c7074a689537f9fb212801a47271f48cff4037"
+        },
+        "junk_labels.jsonl": {
+          "src_sha256": "fc5543939919655add0ad50a50ef54d310392376cbd1e4a158cb537576631345",
+          "dst_sha256": "fc5543939919655add0ad50a50ef54d310392376cbd1e4a158cb537576631345"
+        }
+      },
+      "boot_s": 3.04,
+      "trusted_control_write": [
+        {
+          "family": "IS_A",
+          "subject": "hail",
+          "object": "weather phenomenon",
+          "type_label": "weather phenomenon",
+          "slot_label": "type",
+          "assertion": "hail is a weather phenomenon.",
+          "route": "novel_write",
+          "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+          "outcome": "written",
+          "edge": {
+            "source": "hail",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3206
+          }
+        }
+      ],
+      "forged_untrusted_edge": {
+        "outcome": "written",
+        "route": "novel_write",
+        "edge": {
+          "source": "zeppelin",
+          "target": "weather phenomenon",
+          "relation_type": "is_a",
+          "edge_kind": "inferred",
+          "edge_source": "inference",
+          "source_type": "inference",
+          "extractor": "scratch-forged-untrusted",
+          "asserted_relation": "",
+          "type_label": "",
+          "slot_label": "",
+          "scratch_writer": "",
+          "url": "",
+          "trusted": false,
+          "confidence": 0.3315
+        },
+        "trusted_by_production_predicate": false
+      },
+      "census": {
+        "n_edges": 18986,
+        "n_nodes": 2170,
+        "relation_histogram": {
+          "semantic": 14760,
+          "temporal": 1190,
+          "causal": 1028,
+          "contrastive": 638,
+          "analogical": 569,
+          "inferred": 375,
+          "episodic": 184,
+          "is_a": 171,
+          "located_in": 47,
+          "has_property": 12,
+          "property": 5,
+          "part_of": 5,
+          "contextual": 2
+        },
+        "trusted_count": 171,
+        "trusted_relation_histogram": {
+          "causal": 96,
+          "is_a": 55,
+          "located_in": 10,
+          "property": 5,
+          "has_property": 2,
+          "episodic": 1,
+          "part_of": 1,
+          "inferred": 1
+        },
+        "is_a_edge_count": 171,
+        "typed_slot_edge_count": 0,
+        "typed_slot_edges": [],
+        "conversation_incident_edges": [
+          {
+            "source": "hail",
+            "target": "weather phenomenon",
+            "relation_type": "is_a",
+            "edge_kind": "curated",
+            "edge_source": "conversation",
+            "source_type": "user",
+            "extractor": "scratch-tra-typed-assertion",
+            "asserted_relation": "",
+            "type_label": "",
+            "slot_label": "",
+            "scratch_writer": "",
+            "url": "",
+            "trusted": true,
+            "confidence": 0.3206
+          }
+        ]
+      },
+      "scorer_trusted_subject": {
+        "subject": "hail",
+        "options": [
+          "weather phenomenon",
+          "civic event",
+          "structured whole",
+          "similar form"
+        ],
+        "all_slot_scores": {},
+        "eligible": [],
+        "congruence_floor": 0.2,
+        "strict_margin": 0.1,
+        "pick": null,
+        "margin": null,
+        "reason": "no_trusted_typed_slot_above_floor"
+      },
+      "scorer_untrusted_subject": {
+        "subject": "zeppelin",
+        "options": [
+          "weather phenomenon",
+          "civic event",
+          "structured whole",
+          "similar form"
+        ],
+        "all_slot_scores": {},
+        "eligible": [],
+        "congruence_floor": 0.2,
+        "strict_margin": 0.1,
+        "pick": null,
+        "margin": null,
+        "reason": "no_trusted_typed_slot_above_floor"
+      }
+    }
+  },
+  "gates": {
+    "C9_cold_reload_retention_ge_0.80": {
+      "value": null,
+      "pass": false
+    },
+    "C10_disjoint_control_returns_None": {
+      "scratch_pick": null,
+      "pass": true,
+      "production_flag_on_pick": "banana"
+    },
+    "C12_provenance_integrity": {
+      "new_typed_edges": [],
+      "pass": true
+    },
+    "control_a_relation_only_no_typed_slots": {
+      "new_trusted_relation_edges": 10,
+      "new_typed_slots": 0,
+      "pass": true
+    },
+    "control_b_type_assertions_make_typed_slots": {
+      "new_typed_slots": 0,
+      "pass": false
+    },
+    "control_d_untrusted_typed_edge_cannot_seed": {
+      "forged_trusted": false,
+      "untrusted_pick": null,
+      "trusted_control_pick": null,
+      "pass": false
+    },
+    "control_e_cold_reload": {
+      "before": 0,
+      "after": 0,
+      "pass": false
+    },
+    "control_f_no_cross_turn_state": {
+      "identical": true,
+      "pass": true
+    },
+    "permutation_stability": {
+      "picks": {
+        "positive_mist": null,
+        "permutation_A": null,
+        "permutation_B": null,
+        "no_cross_turn_state_repeat": null
+      },
+      "pass": true
+    }
+  },
+  "errors": [],
+  "module_resolution": {
+    "engine": "C:\\Users/Likhith/Documents/projects/ravana\\ravana\\src\\ravana\\chat\\engine.py",
+    "schema_induction": "C:\\Users/Likhith/Documents/projects/ravana\\ravana\\src\\ravana\\chat\\schema_induction.py",
+    "chain_walker": "C:\\Users/Likhith/Documents/projects/ravana\\ravana\\src\\ravana\\chat\\chain_walker.py",
+    "intake": "C:\\Users/Likhith/Documents/projects/ravana\\ravana\\src\\ravana\\web\\openie.py"
+  },
+  "trusted_edge_kinds": [
+    "curated",
+    "curriculum",
+    "definition",
+    "web_fact"
+  ],
+  "summary": {
+    "teaching_turns_type_arm": 10,
+    "teaching_turns_relation_arm": 10,
+    "engine_boots": 5,
+    "type_arm_new_typed_slots": 0,
+    "type_arm_cold_survivors": 0,
+    "relation_arm_new_typed_slots": 0,
+    "relation_arm_new_trusted_edges": 10,
+    "scratch_disjoint_pick_C10": null,
+    "production_flag_on_disjoint_pick": "banana",
+    "positive_pick": null,
+    "unrelated_pick": null,
+    "all_gates_pass": false,
+    "errors_count": 0
+  }
+}
