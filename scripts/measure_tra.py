@@ -432,6 +432,10 @@ class RealBackend(FakeBackend):
         self.data_dir = self.base_dir
         self.current_item_id = None
         self._taught_slot_pairs = set()
+        # Run-level union of REAL scoped observations. C12 reads this after
+        # the sweep; a per-item cache cleared by reset_for_item only exposed
+        # the last (often untaught) phase and falsely reported 0.
+        self._all_provenance_views = []
 
     def reset_for_item(self, item):
         self._engine = None
@@ -468,6 +472,13 @@ class RealBackend(FakeBackend):
                 census = []
         self.provenance_views_cache = scope_taught_views(
             census, self._taught_slot_pairs)
+        seen = {(v.get("subject"), v.get("target"))
+                for v in self._all_provenance_views}
+        for v in self.provenance_views_cache:
+            key = (v.get("subject"), v.get("target"))
+            if key not in seen:
+                self._all_provenance_views.append(v)
+                seen.add(key)
 
     def teach(self, item, k, condition, arm, surfaces, permuted=False):
         eng = self._boot()
@@ -535,7 +546,8 @@ class RealBackend(FakeBackend):
             self.api_error = self.api_error or "cold_reload: %r" % (exc,)
 
     def provenance_views(self):
-        return list(self.provenance_views_cache)
+        return list(getattr(self, "_all_provenance_views",
+                            self.provenance_views_cache))
 
 
 # ── row construction / grading ──────────────────────────────────────────────
