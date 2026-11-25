@@ -1,0 +1,4250 @@
+{
+  "metadata": {
+    "experiment": "typed role slots on 16 recorded focused-live RSI cases",
+    "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_types_exp",
+    "main_repo": "C:\\Users\\Likhith\\Documents\\projects\\ravana",
+    "base_commit": "3028b4e",
+    "production_files_edited": [],
+    "engine_booted": false,
+    "process_turn_calls": 0,
+    "store_writes": 0,
+    "network": false,
+    "code_loaded_from": [
+      "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_types_exp\\ravana\\src\\ravana\\chat\\schema_induction.py",
+      "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_types_exp\\ravana\\src\\ravana\\chat\\response_gen.py"
+    ],
+    "rows_source": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\rsi_focus_live_rows.json",
+    "rows_total": 384,
+    "rows_selected": 16,
+    "item_bank": "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_types_exp\\scripts\\measure_learn5_rsi.py",
+    "sym_comparator": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\role_binding_symbolic_results.json",
+    "census_source": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\rsi_teach_form_probe2.log",
+    "glove_cache": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\data\\ravana_glove_cache.npz",
+    "glove_dim": 64,
+    "store_source": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\weights\\ravana_weights.db",
+    "strict_margin": "unmodified production ranker (min_margin=0)",
+    "gold_use": "evaluation only, never passed to any scorer or ranker",
+    "f7_note": "instrument validated before scoring"
+  },
+  "arm_status": {
+    "A0_prodbaseline": "CONTROL — recomputed unmodified production vector baseline",
+    "A1_oracle_domain_prodfloor": "ORACLE / NOT DEPLOYABLE — item-bank domain tag",
+    "A1_oracle_domain_symfloor": "ORACLE / NOT DEPLOYABLE — item-bank domain tag",
+    "A2_oracle_answerkey_prodfloor": "CONTAMINATION / CEILING ONLY — world_model answer key",
+    "A2_oracle_answerkey_symfloor": "CONTAMINATION / CEILING ONLY — world_model answer key",
+    "A3_graph_type_prodfloor": "DEPLOYABLE CANDIDATE — graph-derived types only",
+    "A3_graph_type_symfloor": "DEPLOYABLE CANDIDATE — graph-derived types only"
+  },
+  "instrument_validation": {
+    "sanity_control": {
+      "overlap_scores": {
+        "car": 1.0,
+        "petal": 0.0
+      },
+      "overlap_pick": "car",
+      "disjoint_scores": {
+        "petal": 0.0
+      },
+      "disjoint_pick": null,
+      "passes": true
+    },
+    "prod_baseline_reproduced_of_16": 16,
+    "join_failures": [],
+    "F7_OK": true
+  },
+  "a3_store_census": {
+    "nodes_total": 2167,
+    "node_types": {
+      "concrete": 2167
+    },
+    "relation_types": {
+      "analogical": 569,
+      "causal": 1028,
+      "contextual": 2,
+      "contrastive": 638,
+      "episodic": 184,
+      "has_property": 12,
+      "inferred": 375,
+      "is_a": 169,
+      "located_in": 47,
+      "part_of": 5,
+      "property": 5,
+      "semantic": 14760,
+      "temporal": 1190
+    },
+    "is_a_edges_total": 169,
+    "is_a_edges_used": 20,
+    "is_a_rejected_multiword": 138,
+    "is_a_rejected_dangling": 11,
+    "definitions_total": 588,
+    "definitions_recovered_is_a": 405,
+    "rsi_vocab_size": 144,
+    "rsi_words_in_store_nodes": [
+      "angle",
+      "brain",
+      "circuit",
+      "climate",
+      "cloud",
+      "custom",
+      "dew",
+      "esophagus",
+      "frost",
+      "game",
+      "glow",
+      "heart",
+      "kidney",
+      "law",
+      "line",
+      "liver",
+      "lung",
+      "nerve",
+      "plasma",
+      "point",
+      "prism",
+      "radius",
+      "rainbow",
+      "role",
+      "root",
+      "seed",
+      "society",
+      "storm",
+      "switch",
+      "team",
+      "thunder",
+      "tree"
+    ],
+    "rsi_words_with_type_all_vocab": [
+      "brain",
+      "climate",
+      "cloud",
+      "frost",
+      "heart",
+      "prism",
+      "rainbow",
+      "role",
+      "society",
+      "square",
+      "team",
+      "thunder",
+      "tradition",
+      "tree"
+    ],
+    "all_recovered_type_labels": [
+      "ability",
+      "absence",
+      "abstract",
+      "account",
+      "act",
+      "activities",
+      "activity",
+      "administration",
+      "adobe",
+      "affects",
+      "aired",
+      "alcoholic",
+      "american",
+      "animal",
+      "application",
+      "aquatic",
+      "area",
+      "arid",
+      "art",
+      "aspect",
+      "assumption",
+      "authority",
+      "basic",
+      "beginning",
+      "behavior",
+      "behavioral",
+      "behaviors",
+      "bettor",
+      "body",
+      "bottom",
+      "c",
+      "capacities",
+      "capacity",
+      "carnivore",
+      "carries",
+      "case",
+      "cell",
+      "center",
+      "centered",
+      "centre",
+      "change",
+      "chemical",
+      "city",
+      "class",
+      "cognitive",
+      "collection",
+      "colour",
+      "commitment",
+      "common",
+      "complex",
+      "compression",
+      "concentration",
+      "concept",
+      "condition",
+      "consequence",
+      "continent",
+      "conveyed",
+      "count",
+      "country",
+      "course",
+      "created",
+      "creator",
+      "cycle",
+      "deliberate",
+      "desktop",
+      "device",
+      "different",
+      "difficulty",
+      "dipped",
+      "directions",
+      "discipline",
+      "district",
+      "diverse",
+      "early",
+      "economic",
+      "ecosystem",
+      "educational",
+      "electronic",
+      "elevated",
+      "emerged",
+      "enhanced",
+      "entities",
+      "evolution",
+      "excellence",
+      "expertise",
+      "extended",
+      "extraction",
+      "facet",
+      "fact",
+      "facts",
+      "fibers",
+      "fluid",
+      "following",
+      "force",
+      "former",
+      "fossil",
+      "fourth",
+      "free",
+      "fun",
+      "fundamental",
+      "fungus",
+      "game",
+      "general",
+      "generic",
+      "geographic",
+      "geologists",
+      "good",
+      "gradual",
+      "graphical",
+      "group",
+      "growth",
+      "high",
+      "how",
+      "human",
+      "humans",
+      "idea",
+      "identification",
+      "immaterial",
+      "implemented",
+      "importance",
+      "important",
+      "inaccurate",
+      "individual",
+      "information",
+      "informative",
+      "inorganic",
+      "intense",
+      "interaction",
+      "into",
+      "introduction",
+      "ironic",
+      "is",
+      "its",
+      "journal",
+      "kind",
+      "knowing",
+      "language",
+      "large",
+      "law",
+      "layer",
+      "learning",
+      "lightest",
+      "liquid",
+      "looking",
+      "machine",
+      "macroscopic",
+      "magnitude",
+      "mammal",
+      "managed",
+      "marque",
+      "material",
+      "materials",
+      "mathematical",
+      "matter",
+      "means",
+      "measure",
+      "member",
+      "members",
+      "method",
+      "microscopic",
+      "mind",
+      "mixture",
+      "molecule",
+      "more",
+      "most",
+      "moves",
+      "multicolored",
+      "multiplicative",
+      "musical",
+      "natural",
+      "normal",
+      "number",
+      "object",
+      "officer",
+      "only",
+      "opposite",
+      "optimistic",
+      "organism",
+      "organisms",
+      "outcome",
+      "part",
+      "passed",
+      "pattern",
+      "pb",
+      "period",
+      "person",
+      "pet",
+      "phenomenon",
+      "physical",
+      "planet",
+      "plant",
+      "plasma",
+      "political",
+      "polymath",
+      "portion",
+      "possibility",
+      "practice",
+      "presenting",
+      "preservation",
+      "principle",
+      "process",
+      "progression",
+      "property",
+      "proposed",
+      "public",
+      "publication",
+      "quality",
+      "quantity",
+      "quantum",
+      "question",
+      "range",
+      "rapid",
+      "rational",
+      "reckoned",
+      "recreation",
+      "redirection",
+      "reduction",
+      "reference",
+      "regular",
+      "regularity",
+      "relationship",
+      "representation",
+      "request",
+      "research",
+      "resistance",
+      "result",
+      "roof",
+      "route",
+      "routine",
+      "royal",
+      "run",
+      "s",
+      "same",
+      "school",
+      "scientific",
+      "sculptor",
+      "sense",
+      "separation",
+      "sequence",
+      "set",
+      "shape",
+      "shoemakers",
+      "singer-songwriter",
+      "sky",
+      "social",
+      "solid",
+      "something",
+      "sound",
+      "source",
+      "space",
+      "species",
+      "specific",
+      "stages",
+      "staging",
+      "star",
+      "state",
+      "statement",
+      "stem",
+      "step",
+      "steps",
+      "structural",
+      "studies",
+      "study",
+      "sub-section",
+      "subatomic",
+      "subjects",
+      "substance",
+      "sun",
+      "surface",
+      "system",
+      "systematic",
+      "technology",
+      "term",
+      "termination",
+      "theory",
+      "there",
+      "theropods",
+      "thin",
+      "things",
+      "thoroughfare",
+      "time",
+      "together",
+      "totality",
+      "transmission",
+      "transparent",
+      "true",
+      "trunk",
+      "type",
+      "underlying",
+      "understanding",
+      "unique",
+      "unit",
+      "universe",
+      "use",
+      "utterance",
+      "value",
+      "values",
+      "verbs",
+      "vertical",
+      "very",
+      "water",
+      "wide",
+      "widely",
+      "wolf",
+      "woman",
+      "words",
+      "world",
+      "yellow"
+    ],
+    "rsi_typed_edges_touching_vocab": [
+      [
+        "brain",
+        [
+          "center"
+        ]
+      ],
+      [
+        "climate",
+        [
+          "pattern"
+        ]
+      ],
+      [
+        "cloud",
+        [
+          "managed"
+        ]
+      ],
+      [
+        "frost",
+        [
+          "layer"
+        ]
+      ],
+      [
+        "heart",
+        [
+          "humans"
+        ]
+      ],
+      [
+        "prism",
+        [
+          "transparent"
+        ]
+      ],
+      [
+        "rainbow",
+        [
+          "multicolored"
+        ]
+      ],
+      [
+        "role",
+        [
+          "behaviors"
+        ]
+      ],
+      [
+        "society",
+        [
+          "same"
+        ]
+      ],
+      [
+        "square",
+        [
+          "regular"
+        ]
+      ],
+      [
+        "team",
+        [
+          "group"
+        ]
+      ],
+      [
+        "thunder",
+        [
+          "sound"
+        ]
+      ],
+      [
+        "tradition",
+        [
+          "system"
+        ]
+      ],
+      [
+        "tree",
+        [
+          "plant",
+          "trunk"
+        ]
+      ]
+    ]
+  },
+  "a3_coverage_gate": {
+    "case_vocab_size": 37,
+    "case_words_with_usable_type": [
+      "climate",
+      "cloud",
+      "frost",
+      "rainbow",
+      "role",
+      "team",
+      "thunder"
+    ],
+    "case_usable_count": 7,
+    "threshold": 5,
+    "numeric_threshold_passed": true,
+    "gold_candidates": [
+      "ceremony",
+      "chill",
+      "contract",
+      "guild",
+      "mist",
+      "tempest",
+      "typhoon"
+    ],
+    "gold_candidates_with_usable_type": [],
+    "status": "COVERAGE PRESENT",
+    "interpretation": "coverage count alone does not supply role slots: check whether gold candidates carry a type and whether A3 separates gold from foils"
+  },
+  "arm_names": [
+    "A0_prodbaseline",
+    "A1_oracle_domain_prodfloor",
+    "A1_oracle_domain_symfloor",
+    "A2_oracle_answerkey_prodfloor",
+    "A2_oracle_answerkey_symfloor",
+    "A3_graph_type_prodfloor",
+    "A3_graph_type_symfloor"
+  ],
+  "totals": {
+    "A0_prodbaseline": {
+      "near": {
+        "n": 4,
+        "correct": 2
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 0
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "A1_oracle_domain_prodfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "A1_oracle_domain_symfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "A2_oracle_answerkey_prodfloor": {
+      "near": {
+        "n": 4,
+        "correct": 4
+      },
+      "far": {
+        "n": 4,
+        "correct": 4
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "A2_oracle_answerkey_symfloor": {
+      "near": {
+        "n": 4,
+        "correct": 4
+      },
+      "far": {
+        "n": 4,
+        "correct": 4
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "A3_graph_type_prodfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    },
+    "A3_graph_type_symfloor": {
+      "near": {
+        "n": 4,
+        "correct": 0
+      },
+      "far": {
+        "n": 4,
+        "correct": 0
+      },
+      "foil": {
+        "n": 4,
+        "correct": 4
+      },
+      "negative": {
+        "n": 4,
+        "correct": 4
+      }
+    }
+  },
+  "key_counts": {
+    "PART_OF_PRECEDES_near_far": {
+      "A0_prodbaseline": {
+        "correct": 0,
+        "n": 4
+      },
+      "A1_oracle_domain_prodfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A1_oracle_domain_symfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A2_oracle_answerkey_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A2_oracle_answerkey_symfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A3_graph_type_prodfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A3_graph_type_symfloor": {
+        "correct": 0,
+        "n": 4
+      }
+    },
+    "far_all_families": {
+      "A0_prodbaseline": {
+        "correct": 0,
+        "n": 4
+      },
+      "A1_oracle_domain_prodfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A1_oracle_domain_symfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A2_oracle_answerkey_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A2_oracle_answerkey_symfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A3_graph_type_prodfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A3_graph_type_symfloor": {
+        "correct": 0,
+        "n": 4
+      }
+    },
+    "near_all_families": {
+      "A0_prodbaseline": {
+        "correct": 2,
+        "n": 4
+      },
+      "A1_oracle_domain_prodfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A1_oracle_domain_symfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A2_oracle_answerkey_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A2_oracle_answerkey_symfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A3_graph_type_prodfloor": {
+        "correct": 0,
+        "n": 4
+      },
+      "A3_graph_type_symfloor": {
+        "correct": 0,
+        "n": 4
+      }
+    },
+    "foil_reject": {
+      "A0_prodbaseline": {
+        "correct": 0,
+        "n": 4
+      },
+      "A1_oracle_domain_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A1_oracle_domain_symfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A2_oracle_answerkey_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A2_oracle_answerkey_symfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A3_graph_type_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A3_graph_type_symfloor": {
+        "correct": 4,
+        "n": 4
+      }
+    },
+    "negative_reject": {
+      "A0_prodbaseline": {
+        "correct": 4,
+        "n": 4
+      },
+      "A1_oracle_domain_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A1_oracle_domain_symfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A2_oracle_answerkey_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A2_oracle_answerkey_symfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A3_graph_type_prodfloor": {
+        "correct": 4,
+        "n": 4
+      },
+      "A3_graph_type_symfloor": {
+        "correct": 4,
+        "n": 4
+      }
+    }
+  },
+  "summary": {
+    "CAUSE": {
+      "near": {
+        "n": 1,
+        "gold": "mist",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 1,
+            "picks": [
+              "mist"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "mist"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "mist"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "ceremony",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "election"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "ceremony"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "ceremony"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "thunder"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    },
+    "PART_OF": {
+      "near": {
+        "n": 1,
+        "gold": "tempest",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "chill"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "tempest"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "tempest"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "contract",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "ceremony"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "contract"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "contract"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "shower"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    },
+    "PRECEDES": {
+      "near": {
+        "n": 1,
+        "gold": "typhoon",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "glow"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "typhoon"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "typhoon"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "ceremony",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "law"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "ceremony"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "ceremony"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "breeze"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    },
+    "RESEMBLES": {
+      "near": {
+        "n": 1,
+        "gold": "chill",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 1,
+            "picks": [
+              "chill"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "chill"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "chill"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "far": {
+        "n": 1,
+        "gold": "guild",
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "election"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              "guild"
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              "guild"
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 0,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "foil": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 0,
+            "picks": [
+              "blizzard"
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      },
+      "negative": {
+        "n": 1,
+        "gold": null,
+        "arms": {
+          "A0_prodbaseline": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A1_oracle_domain_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A2_oracle_answerkey_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_prodfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          },
+          "A3_graph_type_symfloor": {
+            "correct": 1,
+            "picks": [
+              null
+            ]
+          }
+        }
+      }
+    }
+  },
+  "rows": [
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "far",
+      "subject": "role",
+      "candidates": [
+        "council",
+        "ceremony",
+        "team",
+        "election"
+      ],
+      "gold_target": "ceremony",
+      "demonstrations": [
+        [
+          "gale",
+          "causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "leads to",
+          "climate"
+        ],
+        [
+          "overcast",
+          "produces",
+          "storm"
+        ],
+        [
+          "dew",
+          "brings about",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "gives rise to",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "leads to",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "produces",
+          "frost"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "breeze",
+        "tempest",
+        "glow",
+        "rainbow",
+        "frost",
+        "storm",
+        "climate",
+        "chill"
+      ],
+      "demo_type_union": [
+        "layer",
+        "multicolored",
+        "pattern"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1387,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "election",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.392027,
+            "council": 0.551408,
+            "election": 0.588429,
+            "team": 0.48053
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "council": 1.0,
+            "election": 1.0,
+            "team": 1.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "council": 1.0,
+            "election": 1.0,
+            "team": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "ceremony",
+          "correct": true,
+          "scores": {
+            "ceremony": 1.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "ceremony",
+          "correct": true,
+          "scores": {
+            "ceremony": 1.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "council": 0.0,
+            "election": 0.0,
+            "team": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "foil",
+      "subject": "hail",
+      "candidates": [
+        "gale",
+        "mist",
+        "thunder",
+        "squall"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "gale",
+          "causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "leads to",
+          "climate"
+        ],
+        [
+          "overcast",
+          "produces",
+          "storm"
+        ],
+        [
+          "dew",
+          "brings about",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "gives rise to",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "leads to",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "produces",
+          "frost"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "breeze",
+        "tempest",
+        "glow",
+        "rainbow",
+        "frost",
+        "storm",
+        "climate",
+        "chill"
+      ],
+      "demo_type_union": [
+        "layer",
+        "multicolored",
+        "pattern"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1387,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "thunder",
+          "correct": false,
+          "scores": {
+            "gale": 0.158199,
+            "mist": 0.306886,
+            "squall": 0.276765,
+            "thunder": 0.489389
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 1.0,
+            "mist": 1.0,
+            "squall": 1.0,
+            "thunder": 1.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 1.0,
+            "mist": 1.0,
+            "squall": 1.0,
+            "thunder": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.0,
+            "squall": 0.0,
+            "thunder": 0.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.0,
+            "squall": 0.0,
+            "thunder": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.0,
+            "squall": 0.0,
+            "thunder": 0.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "gale": 0.0,
+            "mist": 0.0,
+            "squall": 0.0,
+            "thunder": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "near",
+      "subject": "thaw",
+      "candidates": [
+        "sunset",
+        "typhoon",
+        "mist",
+        "hail"
+      ],
+      "gold_target": "mist",
+      "demonstrations": [
+        [
+          "gale",
+          "causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "leads to",
+          "climate"
+        ],
+        [
+          "overcast",
+          "produces",
+          "storm"
+        ],
+        [
+          "dew",
+          "brings about",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "gives rise to",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "leads to",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "produces",
+          "frost"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "breeze",
+        "tempest",
+        "glow",
+        "rainbow",
+        "frost",
+        "storm",
+        "climate",
+        "chill"
+      ],
+      "demo_type_union": [
+        "layer",
+        "multicolored",
+        "pattern"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1387,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "mist",
+          "correct": true,
+          "scores": {
+            "hail": 0.169469,
+            "mist": 0.224871,
+            "sunset": 0.021692,
+            "typhoon": 0.16164
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 1.0,
+            "mist": 1.0,
+            "sunset": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 1.0,
+            "mist": 1.0,
+            "sunset": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "mist",
+          "correct": true,
+          "scores": {
+            "hail": 0.0,
+            "mist": 1.0,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "mist",
+          "correct": true,
+          "scores": {
+            "hail": 0.0,
+            "mist": 1.0,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.0,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.1387,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "hail": 0.0,
+            "mist": 0.0,
+            "sunset": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "negative",
+      "subject": "squall",
+      "candidates": [
+        "thunder",
+        "sunset",
+        "typhoon",
+        "thaw"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "gale",
+          "not causes",
+          "rainbow"
+        ],
+        [
+          "shower",
+          "not causes",
+          "climate"
+        ],
+        [
+          "overcast",
+          "not causes",
+          "storm"
+        ],
+        [
+          "dew",
+          "not causes",
+          "tempest"
+        ],
+        [
+          "sleet",
+          "not causes",
+          "chill"
+        ],
+        [
+          "blizzard",
+          "not causes",
+          "breeze"
+        ],
+        [
+          "drizzle",
+          "not causes",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "not causes",
+          "frost"
+        ]
+      ],
+      "demo_count": 0,
+      "demo_r2_tokens": [],
+      "demo_type_union": [],
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 0.398292,
+            "thaw": 0.222241,
+            "thunder": 0.38778,
+            "typhoon": 0.332799
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 1.0,
+            "thaw": 1.0,
+            "thunder": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 1.0,
+            "thaw": 1.0,
+            "thunder": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 0.0,
+            "thaw": 0.0,
+            "thunder": 1.0,
+            "typhoon": 0.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 0.0,
+            "thaw": 0.0,
+            "thunder": 1.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 0.0,
+            "thaw": 0.0,
+            "thunder": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "sunset": 0.0,
+            "thaw": 0.0,
+            "thunder": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "far",
+      "subject": "custom",
+      "candidates": [
+        "contract",
+        "law",
+        "habit",
+        "ceremony"
+      ],
+      "gold_target": "contract",
+      "demonstrations": [
+        [
+          "shower",
+          "is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "belongs to",
+          "storm"
+        ],
+        [
+          "thaw",
+          "is a component of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "belongs to",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "is a component of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "belongs to",
+          "cloud"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "glow",
+        "storm",
+        "climate",
+        "typhoon",
+        "sleet",
+        "mist",
+        "cloud",
+        "squall"
+      ],
+      "demo_type_union": [
+        "managed",
+        "pattern"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1004,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "ceremony",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.327011,
+            "contract": 0.15672,
+            "habit": 0.285528,
+            "law": 0.189205
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "contract": 1.0,
+            "habit": 1.0,
+            "law": 1.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "contract": 1.0,
+            "habit": 1.0,
+            "law": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "contract",
+          "correct": true,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 1.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "contract",
+          "correct": true,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 1.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "contract": 0.0,
+            "habit": 0.0,
+            "law": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "foil",
+      "subject": "rainbow",
+      "candidates": [
+        "shower",
+        "gale",
+        "frost",
+        "tempest"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "shower",
+          "is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "belongs to",
+          "storm"
+        ],
+        [
+          "thaw",
+          "is a component of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "belongs to",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "is a component of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "belongs to",
+          "cloud"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "glow",
+        "storm",
+        "climate",
+        "typhoon",
+        "sleet",
+        "mist",
+        "cloud",
+        "squall"
+      ],
+      "demo_type_union": [
+        "managed",
+        "pattern"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1004,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "shower",
+          "correct": false,
+          "scores": {
+            "frost": 0.152189,
+            "gale": 0.148104,
+            "shower": 0.302168,
+            "tempest": 0.149532
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 1.0,
+            "gale": 1.0,
+            "shower": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 1.0,
+            "gale": 1.0,
+            "shower": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 0.0,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 0.0,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 0.0,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "frost": 0.0,
+            "gale": 0.0,
+            "shower": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "near",
+      "subject": "thunder",
+      "candidates": [
+        "chill",
+        "gale",
+        "tempest",
+        "dew"
+      ],
+      "gold_target": "tempest",
+      "demonstrations": [
+        [
+          "shower",
+          "is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "belongs to",
+          "storm"
+        ],
+        [
+          "thaw",
+          "is a component of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "belongs to",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "is a component of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "belongs to",
+          "cloud"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "glow",
+        "storm",
+        "climate",
+        "typhoon",
+        "sleet",
+        "mist",
+        "cloud",
+        "squall"
+      ],
+      "demo_type_union": [
+        "managed",
+        "pattern"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.1004,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "chill",
+          "correct": false,
+          "scores": {
+            "chill": 0.276256,
+            "dew": 0.275866,
+            "gale": 0.197814,
+            "tempest": 0.252629
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 1.0,
+            "dew": 1.0,
+            "gale": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 1.0,
+            "dew": 1.0,
+            "gale": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "tempest",
+          "correct": true,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 1.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "tempest",
+          "correct": true,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.1004,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "gale": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "negative",
+      "subject": "gale",
+      "candidates": [
+        "hail",
+        "chill",
+        "dew",
+        "frost"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "shower",
+          "not is part of",
+          "mist"
+        ],
+        [
+          "breeze",
+          "not is part of",
+          "storm"
+        ],
+        [
+          "thaw",
+          "not is part of",
+          "squall"
+        ],
+        [
+          "drizzle",
+          "not is part of",
+          "climate"
+        ],
+        [
+          "overcast",
+          "not is part of",
+          "sleet"
+        ],
+        [
+          "blizzard",
+          "not is part of",
+          "glow"
+        ],
+        [
+          "monsoon",
+          "not is part of",
+          "typhoon"
+        ],
+        [
+          "sunset",
+          "not is part of",
+          "cloud"
+        ]
+      ],
+      "demo_count": 0,
+      "demo_r2_tokens": [],
+      "demo_type_union": [],
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 0.376915,
+            "dew": 0.18296,
+            "frost": 0.517005,
+            "hail": 0.158199
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 1.0,
+            "dew": 1.0,
+            "frost": 1.0,
+            "hail": 1.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 1.0,
+            "dew": 1.0,
+            "frost": 1.0,
+            "hail": 1.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 1.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 1.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "chill": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "far",
+      "subject": "election",
+      "candidates": [
+        "ceremony",
+        "law",
+        "rank",
+        "role"
+      ],
+      "gold_target": "ceremony",
+      "demonstrations": [
+        [
+          "breeze",
+          "comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "precedes",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "happens before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "precedes",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "happens before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "precedes",
+          "shower"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "hail",
+        "shower",
+        "gale",
+        "blizzard",
+        "chill",
+        "drizzle",
+        "sunset",
+        "rainbow"
+      ],
+      "demo_type_union": [
+        "multicolored"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.0217,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "law",
+          "correct": false,
+          "scores": {
+            "ceremony": 0.430777,
+            "law": 0.627081,
+            "rank": 0.279911,
+            "role": 0.588429
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "law": 1.0,
+            "rank": 1.0,
+            "role": 1.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 1.0,
+            "law": 1.0,
+            "rank": 1.0,
+            "role": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "ceremony",
+          "correct": true,
+          "scores": {
+            "ceremony": 1.0,
+            "law": 0.0,
+            "rank": 0.0,
+            "role": 0.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "ceremony",
+          "correct": true,
+          "scores": {
+            "ceremony": 1.0,
+            "law": 0.0,
+            "rank": 0.0,
+            "role": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.0,
+            "role": 0.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "ceremony": 0.0,
+            "law": 0.0,
+            "rank": 0.0,
+            "role": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "foil",
+      "subject": "glow",
+      "candidates": [
+        "breeze",
+        "climate",
+        "storm",
+        "frost"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "breeze",
+          "comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "precedes",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "happens before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "precedes",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "happens before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "precedes",
+          "shower"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "hail",
+        "shower",
+        "gale",
+        "blizzard",
+        "chill",
+        "drizzle",
+        "sunset",
+        "rainbow"
+      ],
+      "demo_type_union": [
+        "multicolored"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.0217,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "breeze",
+          "correct": false,
+          "scores": {
+            "breeze": 0.487953,
+            "climate": 0.246613,
+            "frost": 0.276706,
+            "storm": 0.20419
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 1.0,
+            "climate": 1.0,
+            "frost": 1.0,
+            "storm": 1.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 1.0,
+            "climate": 1.0,
+            "frost": 1.0,
+            "storm": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "breeze": 0.0,
+            "climate": 0.0,
+            "frost": 0.0,
+            "storm": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "near",
+      "subject": "cloud",
+      "candidates": [
+        "climate",
+        "glow",
+        "typhoon",
+        "frost"
+      ],
+      "gold_target": "typhoon",
+      "demonstrations": [
+        [
+          "breeze",
+          "comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "precedes",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "happens before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "precedes",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "happens before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "precedes",
+          "shower"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "hail",
+        "shower",
+        "gale",
+        "blizzard",
+        "chill",
+        "drizzle",
+        "sunset",
+        "rainbow"
+      ],
+      "demo_type_union": [
+        "multicolored"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.0217,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "glow",
+          "correct": false,
+          "scores": {
+            "climate": 0.455063,
+            "frost": 0.416324,
+            "glow": 0.518907,
+            "typhoon": 0.359542
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 1.0,
+            "frost": 1.0,
+            "glow": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 1.0,
+            "frost": 1.0,
+            "glow": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "typhoon",
+          "correct": true,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "typhoon",
+          "correct": true,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "typhoon": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0217,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "negative",
+      "subject": "storm",
+      "candidates": [
+        "climate",
+        "tempest",
+        "glow",
+        "frost"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "breeze",
+          "not comes before",
+          "hail"
+        ],
+        [
+          "thaw",
+          "not comes before",
+          "sunset"
+        ],
+        [
+          "overcast",
+          "not comes before",
+          "blizzard"
+        ],
+        [
+          "squall",
+          "not comes before",
+          "drizzle"
+        ],
+        [
+          "thunder",
+          "not comes before",
+          "rainbow"
+        ],
+        [
+          "monsoon",
+          "not comes before",
+          "gale"
+        ],
+        [
+          "sleet",
+          "not comes before",
+          "chill"
+        ],
+        [
+          "dew",
+          "not comes before",
+          "shower"
+        ]
+      ],
+      "demo_count": 0,
+      "demo_r2_tokens": [],
+      "demo_type_union": [],
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 0.467976,
+            "frost": 0.493469,
+            "glow": 0.20419,
+            "tempest": 0.440034
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 1.0,
+            "frost": 1.0,
+            "glow": 1.0,
+            "tempest": 1.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 1.0,
+            "frost": 1.0,
+            "glow": 1.0,
+            "tempest": 1.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 1.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "tempest": 0.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 1.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "tempest": 0.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "climate": 0.0,
+            "frost": 0.0,
+            "glow": 0.0,
+            "tempest": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "far",
+      "subject": "market",
+      "candidates": [
+        "vote",
+        "council",
+        "election",
+        "guild"
+      ],
+      "gold_target": "guild",
+      "demonstrations": [
+        [
+          "frost",
+          "resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "is similar to",
+          "gale"
+        ],
+        [
+          "sunset",
+          "is akin to",
+          "glow"
+        ],
+        [
+          "climate",
+          "resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "is similar to",
+          "storm"
+        ],
+        [
+          "mist",
+          "is akin to",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "is similar to",
+          "squall"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "rainbow",
+        "tempest",
+        "thunder",
+        "overcast",
+        "gale",
+        "squall",
+        "glow",
+        "storm"
+      ],
+      "demo_type_union": [
+        "multicolored",
+        "sound"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.2343,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "election",
+          "correct": false,
+          "scores": {
+            "council": 0.289737,
+            "election": 0.354899,
+            "guild": 0.002806,
+            "vote": 0.324915
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 1.0,
+            "election": 1.0,
+            "guild": 1.0,
+            "vote": 1.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 1.0,
+            "election": 1.0,
+            "guild": 1.0,
+            "vote": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "guild",
+          "correct": true,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 1.0,
+            "vote": 0.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "guild",
+          "correct": true,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 1.0,
+            "vote": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "council": 0.0,
+            "election": 0.0,
+            "guild": 0.0,
+            "vote": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "foil",
+      "subject": "typhoon",
+      "candidates": [
+        "frost",
+        "dew",
+        "blizzard",
+        "hail"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "frost",
+          "resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "is similar to",
+          "gale"
+        ],
+        [
+          "sunset",
+          "is akin to",
+          "glow"
+        ],
+        [
+          "climate",
+          "resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "is similar to",
+          "storm"
+        ],
+        [
+          "mist",
+          "is akin to",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "is similar to",
+          "squall"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "rainbow",
+        "tempest",
+        "thunder",
+        "overcast",
+        "gale",
+        "squall",
+        "glow",
+        "storm"
+      ],
+      "demo_type_union": [
+        "multicolored",
+        "sound"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.2343,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "blizzard",
+          "correct": false,
+          "scores": {
+            "blizzard": 0.540622,
+            "dew": 0.153282,
+            "frost": 0.266721,
+            "hail": 0.336463
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 1.0,
+            "dew": 1.0,
+            "frost": 1.0,
+            "hail": 1.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 1.0,
+            "dew": 1.0,
+            "frost": 1.0,
+            "hail": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "dew": 0.0,
+            "frost": 0.0,
+            "hail": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "near",
+      "subject": "drizzle",
+      "candidates": [
+        "chill",
+        "typhoon",
+        "blizzard",
+        "cloud"
+      ],
+      "gold_target": "chill",
+      "demonstrations": [
+        [
+          "frost",
+          "resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "is similar to",
+          "gale"
+        ],
+        [
+          "sunset",
+          "is akin to",
+          "glow"
+        ],
+        [
+          "climate",
+          "resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "is similar to",
+          "storm"
+        ],
+        [
+          "mist",
+          "is akin to",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "is similar to",
+          "squall"
+        ]
+      ],
+      "demo_count": 8,
+      "demo_r2_tokens": [
+        "rainbow",
+        "tempest",
+        "thunder",
+        "overcast",
+        "gale",
+        "squall",
+        "glow",
+        "storm"
+      ],
+      "demo_type_union": [
+        "multicolored",
+        "sound"
+      ],
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "traces": 8,
+      "hypotheses": 1,
+      "prod_congruence_floor": 0.2343,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": "chill",
+          "correct": true,
+          "scores": {
+            "blizzard": 0.376332,
+            "chill": 0.621356,
+            "cloud": 0.469985,
+            "typhoon": 0.19603
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 1.0,
+            "chill": 1.0,
+            "cloud": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 1.0,
+            "chill": 1.0,
+            "cloud": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": "chill",
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 1.0,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": "chill",
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 1.0,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 1.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.0,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.2343,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": false,
+          "scores": {
+            "blizzard": 0.0,
+            "chill": 0.0,
+            "cloud": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "negative",
+      "subject": "breeze",
+      "candidates": [
+        "blizzard",
+        "cloud",
+        "dew",
+        "typhoon"
+      ],
+      "gold_target": null,
+      "demonstrations": [
+        [
+          "frost",
+          "not resembles",
+          "tempest"
+        ],
+        [
+          "shower",
+          "not resembles",
+          "gale"
+        ],
+        [
+          "sunset",
+          "not resembles",
+          "glow"
+        ],
+        [
+          "climate",
+          "not resembles",
+          "rainbow"
+        ],
+        [
+          "thaw",
+          "not resembles",
+          "storm"
+        ],
+        [
+          "mist",
+          "not resembles",
+          "thunder"
+        ],
+        [
+          "monsoon",
+          "not resembles",
+          "overcast"
+        ],
+        [
+          "sleet",
+          "not resembles",
+          "squall"
+        ]
+      ],
+      "demo_count": 0,
+      "demo_r2_tokens": [],
+      "demo_type_union": [],
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "traces": 0,
+      "hypotheses": 0,
+      "prod_congruence_floor": null,
+      "prod_baseline_matches_exp2": true,
+      "join_ok": true,
+      "join_problems": [],
+      "item_domain": "weather",
+      "item_far_domain": "social",
+      "arms": {
+        "A0_prodbaseline": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.390703,
+            "cloud": 0.327761,
+            "dew": 0.426543,
+            "typhoon": 0.19773
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 1.0,
+            "cloud": 1.0,
+            "dew": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A1_oracle_domain_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 1.0,
+            "cloud": 1.0,
+            "dew": 1.0,
+            "typhoon": 1.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A2_oracle_answerkey_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "cloud": 1.0,
+            "dew": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A2_oracle_answerkey_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "cloud": 1.0,
+            "dew": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        },
+        "A3_graph_type_prodfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "cloud": 0.0,
+            "dew": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": null,
+          "valid": true
+        },
+        "A3_graph_type_symfloor": {
+          "pick": null,
+          "correct": true,
+          "scores": {
+            "blizzard": 0.0,
+            "cloud": 0.0,
+            "dew": 0.0,
+            "typhoon": 0.0
+          },
+          "floor": 0.0,
+          "valid": true
+        }
+      },
+      "missing_glove_labels": []
+    }
+  ]
+}
