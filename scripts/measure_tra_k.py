@@ -25,8 +25,11 @@ PHASES (spec):
 The graded path never reads ``world_model``, ``type_sets``, ``domain`` or
 ``far_domain``. ``channel_evidence`` is the ONLY new input: a provenance-
 stamped fact list loaded from ``TRAK_CHANNEL_JSON`` (or a deterministic
-channel-agnostic fallback). Overlap with the oracle fields is REPORTED and any
-deployable path that uses them is a HARD FAIL (control C15).
+channel-agnostic fallback). The forced-choice options come from
+``typed_queries``: four SOURCE-NATIVE TYPE LABELS per probe, one correct label
+present in this item's own channel facts and three deterministic foils from
+other channel facts (same domain first). Overlap with the oracle fields is
+REPORTED and any deployable path that uses them is a HARD FAIL (control C15).
 
 Controls C1-C13 are copied unchanged from TRA (thresholds frozen). C14
 (subject independence) and C15 (channel independence) are the two new gates.
@@ -116,8 +119,8 @@ TRAK_ENV_FLAG = "RAVANA_TRA_K_SLOTS"      # harness marker, also default-OFF
 ORACLE_ONLY_FIELDS = ("type_sets", "world_model")
 DEPLOYABLE_INPUT_FIELDS = (
     "item_id", "role", "type_label", "difficulty", "domain", "far_domain",
-    "subject", "taught_exemplars", "unseen_test_words", "foil", "negative",
-    "channel_evidence", "k", "pool",
+    "subject", "taught_exemplars", "unseen_test_words", "typed_queries",
+    "foil", "negative", "channel_evidence", "k", "pool",
 )
 
 
@@ -145,6 +148,16 @@ def trak_slots_flag():
 
 # ── phase surfaces (provenance-safe; NEVER gold/oracle metadata) ────────────
 def query_for(item, condition):
+    """The graded forced-choice probe: options are channel TYPE LABELS.
+
+    ``unseen_test_words`` remains the oracle-side domain-word record; the
+    deployable path reads only ``typed_queries`` (derived from channel facts).
+    A minimal hand-built item without that field falls back to the legacy
+    shape so pure unit probes stay usable.
+    """
+    tq = item.get("typed_queries")
+    if isinstance(tq, dict) and condition in tq:
+        return dict(tq[condition])
     if condition == "unrelated":
         q = item["unseen_test_words"]["near"]
         return {"subject": UNRELATED_SUBJECT, "candidates": list(q["candidates"]),
@@ -183,6 +196,22 @@ def channel_teaching_surfaces(item):
     return out
 
 
+def channel_negation_surfaces(item):
+    """P2c negative control: channel facts rendered with explicit negation.
+
+    Still sourced ONLY from provenance-stamped channel facts and their
+    source-native type labels; no oracle field contributes a token.
+    """
+    out = []
+    for fact in item.get("channel_evidence", []):
+        surface = tra_k_items.channel_negation_assertion(fact)
+        if surface and surface not in out:
+            out.append(surface)
+        if len(out) >= max(K_LEVELS):
+            break
+    return out
+
+
 def teaching_surfaces(item, k, condition, arm, permuted=False):
     """P2 (+ P2c for the channel arm). k=0 -> 8 matched neutral turns.
 
@@ -209,6 +238,10 @@ def teaching_surfaces(item, k, condition, arm, permuted=False):
             p2 = ["%s is %s %s." % (ex["r2"], article, label)
                   for ex in exemplars]
     if arm == CHANNEL_ARM:
+        # Negative control: the channel's own type labels are taught WITH
+        # negation, matching the reject-only foil/negative option space.
+        if condition == "negative":
+            return p2 + channel_negation_surfaces(item)
         return p2 + channel_teaching_surfaces(item)
     return p2
 

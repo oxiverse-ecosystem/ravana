@@ -43,6 +43,16 @@ DETERMINISTIC fallback is constructed from that item's taught exemplar objects
 and its domain-general ``type_label`` only, stamped
 ``source="TRA-K-fallback-deterministic"``. The harness reports the external /
 fallback split and hard-fails if oracle fields contaminate the channel.
+
+TYPED ANSWER OPTIONS
+--------------------
+Each item also carries ``typed_queries``: five forced-choice probes whose four
+options are SOURCE-NATIVE TYPE LABELS from the channel (one correct label in
+that item's own facts, three deterministic foils from other channel facts,
+same domain first). The original ``unseen_test_words`` domain-word candidates
+are retained only as the oracle-side record; the graded query path reads
+``typed_queries``. No option or gold label is drawn from ``type_sets``,
+``world_model`` or any domain-word gold target.
 """
 from __future__ import annotations
 
@@ -329,6 +339,162 @@ def channel_assertion(fact):
     return "%s is %s %s." % (subj, article, obj)
 
 
+# ── typed answer options: SOURCE-NATIVE type labels from the channel ────────
+# The forced-choice options are type labels taken from `channel_evidence`, never
+# TRA domain words and never the oracle fields. The correct label is the
+# highest-support is_a object in THIS item's own channel facts; foils are
+# deterministic draws from other items' channel facts (same domain first).
+N_TYPED_OPTIONS = 4
+TYPED_CONDITIONS = ("near", "far", "foil", "negative", "unrelated")
+
+
+def channel_demo_objects(item):
+    """Ordered unique taught demo words (public field only, no oracle read)."""
+    out, seen = [], set()
+    for ex in item["taught_exemplars"]:
+        for word in (ex["r1"], ex["r2"]):
+            if word not in seen:
+                seen.add(word)
+                out.append(word)
+    return out
+
+
+def channel_demo_facts(evidence, demo_objects):
+    """Provenance-stamped is_a facts on taught demo objects, channel only."""
+    demos = {str(w).strip().lower() for w in demo_objects}
+    return [f for f in (evidence or [])
+            if isinstance(f, dict)
+            and str(f.get("predicate", "")).lower() in ISA_PREDICATES
+            and str(f.get("subject", "")).strip().lower() in demos
+            and all(k in f and f.get(k) not in (None, "")
+                    for k in REQUIRED_FACT_KEYS)]
+
+
+def _rank_channel_labels(evidence, demo_objects, seed):
+    """Labels by descending channel support, deterministic tie-break by sha256."""
+    counts = collections.Counter(
+        str(f.get("object", "")).strip()
+        for f in channel_demo_facts(evidence, demo_objects))
+    counts.pop("", None)
+    return sorted(counts, key=lambda lab: (-counts[lab], _digest(seed, lab)))
+
+
+def channel_answer_label(evidence, demo_objects, seed, rank=0, forbidden=()):
+    """Pick a channel label by support only; never reads an oracle field."""
+    banned = {str(x).strip().lower() for x in forbidden}
+    ranked = [lab for lab in _rank_channel_labels(evidence, demo_objects, seed)
+              if lab.strip().lower() not in banned]
+    return ranked[min(rank, len(ranked) - 1)] if ranked else None
+
+
+def collect_channel_label_pools(items):
+    """{domain: labels} and global labels, both from channel facts only."""
+    by_domain, glob = collections.defaultdict(set), set()
+    for it in items:
+        labels = {str(f.get("object", "")).strip()
+                  for f in channel_demo_facts(it.get("channel_evidence", []),
+                                               channel_demo_objects(it))}
+        by_domain[it["domain"]].update(labels)
+        glob.update(labels)
+    return dict(by_domain), glob
+
+
+def _clean_foils(correct, foils, banned):
+    """Drop foils that overlap the correct label or a query-subject string."""
+    correct = correct.lower()
+    out = []
+    for label in foils:
+        low = label.lower()
+        if low == correct or low in banned or correct in low or low in correct:
+            continue
+        if any(low in kept.lower() or kept.lower() in low for kept in out):
+            continue
+        if label not in out:
+            out.append(label)
+    return out
+
+
+def _foil_labels(correct, domain_labels, global_labels, seed, condition, banned):
+    """Deterministic foils from other channel facts, same domain first."""
+    forbidden = {correct.lower()} | set(banned)
+    local = sorted((l for l in domain_labels if l.lower() not in forbidden),
+                   key=lambda l: _digest(seed, condition, "D", l))
+    remote = sorted((l for l in global_labels
+                     if l.lower() not in forbidden and l not in local),
+                    key=lambda l: _digest(seed, condition, "G", l))
+    return _clean_foils(correct, local + remote, banned)
+
+
+def typed_option_space(item, domain_labels, global_labels, seed=None):
+    """Five forced-choice queries whose options are channel type labels.
+
+    The correct near/far label comes from the support ranking of THIS item's
+    channel evidence. Oracle fields (``type_sets``, ``world_model``, every gold
+    target) are never read. Query subjects are used only to keep the rendered
+    option strings unambiguous; they never select the correct option.
+    """
+    seed = seed or _digest(item["item_id"], "typed-options")
+    evidence = item.get("channel_evidence", [])
+    demos = channel_demo_objects(item)
+    subjects = {item["unseen_test_words"][c]["subject"] for c in ("near", "far")}
+    subjects.add(item["negative"]["subject"])
+    banned = {s.strip().lower() for s in subjects}
+    ranked = _rank_channel_labels(evidence, demos, seed)
+    if not ranked:
+        raise ValueError("%s: no channel is_a label for typed options"
+                         % item["item_id"])
+    near_label = next((l for l in ranked if l.lower() not in banned), ranked[0])
+    far_label = next((l for l in ranked
+                      if l.lower() not in banned and l != near_label), near_label)
+    neg_label = next((l for l in ranked if l.lower() not in banned
+                      and l not in (near_label, far_label)),
+                     far_label if far_label != near_label else near_label)
+
+    def _opts(label, condition):
+        foils = _foil_labels(label, domain_labels, global_labels, seed,
+                             condition, banned)[:N_TYPED_OPTIONS - 1]
+        return sorted([label] + foils,
+                      key=lambda l: _digest(seed, condition, "OPT", l))
+
+    foil_opts = _clean_foils(
+        near_label,
+        _foil_labels(near_label, domain_labels, global_labels, seed,
+                     "foil", banned), banned)[:N_TYPED_OPTIONS]
+    foil_opts = sorted(foil_opts, key=lambda l: _digest(seed, "foil", "OPT", l))
+    return {
+        "near": {"subject": item["unseen_test_words"]["near"]["subject"],
+                 "candidates": _opts(near_label, "near"), "gold": near_label,
+                 "domain": item["domain"]},
+        "far": {"subject": item["unseen_test_words"]["far"]["subject"],
+                "candidates": _opts(far_label, "far"), "gold": far_label,
+                "domain": item["far_domain"]},
+        # No gold: the foil/negative/unrelated conditions are rejection probes.
+        "foil": {"subject": item["unseen_test_words"]["near"]["subject"],
+                 "candidates": foil_opts, "gold": None,
+                 "counterexample_target": foil_opts[0] if foil_opts else None,
+                 "domain": item["domain"]},
+        "negative": {"subject": item["negative"]["subject"],
+                     "candidates": _opts(neg_label, "negative"), "gold": None,
+                     "counterexample_target": neg_label,
+                     "domain": item["domain"]},
+        "unrelated": {"subject": UNRELATED_SUBJECT,
+                      "candidates": _opts(near_label, "unrelated"), "gold": None,
+                      "domain": item["domain"]},
+    }
+
+
+def channel_negation_assertion(fact):
+    """Negated P2c surface for a channel fact (negative control, labels only)."""
+    if not isinstance(fact, dict) or str(fact.get("predicate", "")).lower() not in ISA_PREDICATES:
+        return None
+    subj = str(fact.get("subject", "")).strip()
+    obj = str(fact.get("object", "")).strip()
+    if not subj or not obj:
+        return None
+    article = "an" if obj[:1].lower() in "aeiou" else "a"
+    return "%s is not %s %s." % (subj, article, obj)
+
+
 def answer_key_tokens(item):
     """Tokens that channel evidence must NEVER name (oracle answer key)."""
     out = {item["subject"]}
@@ -492,9 +658,18 @@ def build_items(n=N_FAMILIES, channel_override=None):
             "type_sets": type_sets,
             "world_model": world_model,
             "channel_evidence": evidence,
+            "typed_queries": None,       # filled below from channel evidence only
             "k": None,
             "pool": None,
         })
+
+    # Derive the typed answer options AFTER every item's channel evidence is
+    # fixed: correct labels come from each item's own facts, foils from the
+    # domain/global pools of OTHER channel facts. No oracle field is read.
+    domain_labels, global_labels = collect_channel_label_pools(items)
+    for it in items:
+        it["typed_queries"] = typed_option_space(
+            it, domain_labels.get(it["domain"], set()), global_labels)
 
     groups = collections.defaultdict(list)
     for it in items:
@@ -596,6 +771,25 @@ def validate_items(items):
                 break
         if set(answer_key_tokens(it)) & {str(f.get("subject", "")) for f in ev}:
             errors.append("%s channel evidence names answer key" % iid)
+        # --- typed option space (channel labels, never TRA domain words) ---
+        tq = it.get("typed_queries")
+        if not isinstance(tq, dict) or set(tq) != set(TYPED_CONDITIONS):
+            errors.append("%s bad typed_queries" % iid)
+            continue
+        ev_labels = {str(f.get("object", "")).strip() for f in ev
+                     if str(f.get("predicate", "")).lower() in ISA_PREDICATES}
+        for cond, q in tq.items():
+            cands = q.get("candidates", [])
+            if (len(cands) != N_TYPED_OPTIONS
+                    or len(set(cands)) != len(cands)
+                    or any(not isinstance(c, str) or not c.strip() for c in cands)):
+                errors.append("%s %s typed options not 4 distinct labels"
+                              % (iid, cond))
+            if cond in ("near", "far") and q.get("gold") not in ev_labels:
+                errors.append("%s %s typed gold not in channel facts"
+                              % (iid, cond))
+            if cond in ("foil", "negative", "unrelated") and q.get("gold") is not None:
+                errors.append("%s %s reject probe has a typed gold" % (iid, cond))
     for a, da in enumerate(DOMAINS):
         for db in DOMAINS[a + 1:]:
             if set(OBJECTS[da]) & set(OBJECTS[db]):

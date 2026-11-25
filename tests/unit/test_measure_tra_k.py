@@ -31,8 +31,11 @@ import trak_channel_from_substrate as adapter   # noqa: E402
 
 # Frozen pre-registration snapshots (spec / TH in the harness).
 MANIFEST = {
-    "primary": "b3545ec4fd1553421b78a925d56d891bf70c1f275f4cb74b61dc138109b88e60",
-    "sealed": "e2b586eeaab8b65a4e6a23f2c512ce8161430737c165401b010c7f66132c887b",
+    # Fallback-channel bank. The option-space fields are part of the canonical
+    # sealed records; the pre-registered BANK_SHA (item_id/difficulty/pool/role/
+    # k/hash) is deliberately UNCHANGED by the option-space fix.
+    "primary": "e021cd3b64b0041999b19bfab227a54a7357f33af6241afa3a17c4c21ee57fa3",
+    "sealed": "a6ec2f859e67fd5245d9a15d4f80f755be5bb3191128326a727758823124e6e2",
 }
 BANK_SHA = "0ed8bdc2ee1dd555adc4595868bce6794a14085c0d02761b8a957fc152e147cd"
 TH_SNAPSHOT = {
@@ -420,8 +423,8 @@ def test_rows_never_carry_oracle_fields_into_engine_input(items, rows):
         assert rec["trust_gate_disabled"] is False
     for it in items[::37]:
         surface = mt.query_surface(it, "near")
-        gold = it["unseen_test_words"]["near"]["gold"]
-        assert surface.count(gold) == 1
+        gold = mt.query_for(it, "near")["gold"]   # typed channel label
+        assert surface.count(gold) >= 1
         assert "gold" not in surface.lower()
 
 
@@ -858,3 +861,126 @@ def test_substrate_channel_fake_main_restores_flags(tmp_path, monkeypatch):
     assert summary["saturation_gate"]["status"] == "FLAG"
     assert summary["mutation_control"]["moved"] is True
     assert summary["rules"]["backend_live"] is False
+    # The graded rows themselves carry source-native type labels as options.
+    dom, glob = tki.collect_channel_label_pools(
+        tki.build_items(channel_override=projection))
+    all_labels = set().union(*dom.values()) | glob
+    rows_on_disk = [json.loads(line) for line in
+                    (tmp_path / "rows.jsonl").read_text(encoding="utf-8").splitlines()]
+    graded = [r for r in rows_on_disk if r["phase"] == "query"
+              and r["arm"] == "channel" and r["condition"] in ("near", "far")]
+    assert graded
+    for rec in graded[::97]:
+        assert len(rec["input"]["candidates"]) == tki.N_TYPED_OPTIONS
+        assert set(rec["input"]["candidates"]) <= all_labels
+        assert rec["gold"]["target"] in all_labels
+        assert rec["gold"]["target"] in rec["input"]["candidates"]
+
+
+# ── typed answer-option space: channel type labels, not TRA domain words ─────
+def test_typed_options_are_four_distinct_channel_labels(items):
+    dom, glob = tki.collect_channel_label_pools(items)
+    for it in items:
+        pool = dom.get(it["domain"], set()) | glob
+        ev_labels = {str(f["object"]).strip() for f in it["channel_evidence"]}
+        domain_words = set(it["unseen_test_words"]["near"]["candidates"])
+        for cond in tki.TYPED_CONDITIONS:
+            q = it["typed_queries"][cond]
+            cands = q["candidates"]
+            assert len(cands) == tki.N_TYPED_OPTIONS, (it["item_id"], cond)
+            assert len(set(cands)) == len(cands), (it["item_id"], cond)
+            assert set(cands) <= pool, (it["item_id"], cond)
+            assert not (set(cands) & domain_words), (it["item_id"], cond)
+        assert it["typed_queries"]["near"]["gold"] in ev_labels
+        assert it["typed_queries"]["far"]["gold"] in ev_labels
+        for cond in ("foil", "negative", "unrelated"):
+            assert it["typed_queries"][cond]["gold"] is None
+        assert it["typed_queries"]["negative"]["counterexample_target"] in pool
+
+
+def test_typed_options_with_source_native_channel_are_substrate_labels():
+    sub = _adapter_substrate()
+    projection = adapter.build_projection(sub, tki.build_items())
+    built = tki.build_items(channel_override=projection)
+    assert tki.validate_items(built) == []
+    dom, glob = tki.collect_channel_label_pools(built)
+    role_labels = set(tki.ROLE_TO_TYPE.values())
+    native = 0
+    for it in built:
+        pool = dom.get(it["domain"], set()) | glob
+        ev_labels = {str(f["object"]).strip() for f in it["channel_evidence"]}
+        for cond in tki.TYPED_CONDITIONS:
+            q = it["typed_queries"][cond]
+            assert set(q["candidates"]) <= pool, (it["item_id"], cond)
+            assert len(set(q["candidates"])) == tki.N_TYPED_OPTIONS
+        gold = it["typed_queries"]["near"]["gold"]
+        assert gold in ev_labels
+        assert gold != it["unseen_test_words"]["near"]["gold"]  # no answer-key reuse
+        if gold not in role_labels:
+            native += 1
+    assert native == 400                      # every near gold is source-native
+    it0 = next(x for x in built if x["item_id"] == "tra_k_0000")
+    assert it0["typed_queries"]["near"]["gold"] == "weather"
+    assert "hydrometeor" in glob
+
+
+def test_typed_options_ignore_oracle_fields(items):
+    dom, glob = tki.collect_channel_label_pools(items)
+    it = next(x for x in items if x["pool"] == "primary" and x["k"] == 8)
+    base = tki.typed_option_space(it, dom.get(it["domain"], set()), glob)
+    poisoned = copy.deepcopy(it)
+    poisoned["type_sets"] = {"POISON": ["poison-type"]}
+    poisoned["world_model"] = {"POISON": ["poison-target"]}
+    for cond in ("near", "far"):
+        poisoned["unseen_test_words"][cond]["gold"] = "poison-gold"
+        poisoned["unseen_test_words"][cond]["candidates"] = ["poison"] * 4
+    poisoned["negative"]["counterexample_target"] = "poison-neg"
+    poisoned["gold"] = "poison"
+    got = tki.typed_option_space(poisoned, dom.get(it["domain"], set()), glob)
+    assert got == base
+
+
+def test_channel_swap_changes_typed_answer():
+    sub = _adapter_substrate()
+    projection = adapter.build_projection(sub, tki.build_items())
+    built = tki.build_items(channel_override=projection)
+    dom, glob = tki.collect_channel_label_pools(built)
+    a = next(x for x in built if x["item_id"] == "tra_k_0000")
+    b = next(x for x in built if x["item_id"] == "tra_k_0114")
+    original = a["typed_queries"]["near"]["gold"]
+    transplanted = tki.channel_answer_label(
+        b["channel_evidence"], tki.channel_demo_objects(b),
+        tki._digest(b["item_id"], "typed-options"))
+    swapped = copy.deepcopy(a)
+    # Keep A's deployable demo subjects, transplant B's channel type label.
+    for fact in swapped["channel_evidence"]:
+        fact["object"] = transplanted
+    got = tki.typed_option_space(swapped, dom.get(a["domain"], set()), glob)
+    assert got["near"]["gold"] == transplanted
+    assert got["near"]["gold"] != original
+
+
+def test_negative_channel_surfaces_negate_channel_labels():
+    sub = _adapter_substrate()
+    projection = adapter.build_projection(sub, tki.build_items())
+    built = tki.build_items(channel_override=projection)
+    it = next(x for x in built if x["k"] == 8)
+    surfaces = mt.channel_negation_surfaces(it)
+    assert len(surfaces) == max(mt.K_LEVELS)
+    assert all(" is not " in s for s in surfaces)
+    for fact in it["channel_evidence"][:max(mt.K_LEVELS)]:
+        expected = tki.channel_negation_assertion(fact)
+        if expected:
+            assert expected in surfaces
+    sweep = mt.teaching_surfaces(it, 8, "negative", mt.CHANNEL_ARM)
+    assert sweep[-max(mt.K_LEVELS):] == surfaces
+
+
+def test_external_manifest_hash_stable_and_option_aware():
+    sub = _adapter_substrate()
+    projection = adapter.build_projection(sub, tki.build_items())
+    a = tki.build_items(channel_override=projection)
+    b = tki.build_items(channel_override=projection)
+    assert tki.manifest_hashes(a) == tki.manifest_hashes(b)
+    assert tki.item_manifest_hash(a) == BANK_SHA   # split/identity unchanged
+    assert tki.manifest_hashes(a) != MANIFEST      # option space is hashed
