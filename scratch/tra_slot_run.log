@@ -1,0 +1,260 @@
+MODULE engine C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\chat\engine.py
+MODULE schema_induction C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\chat\schema_induction.py
+MODULE chain_walker C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\chat\chain_walker.py
+MODULE intake C:\Users/Likhith/Documents/projects/ravana\ravana\src\ravana\web\openie.py
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 2167 words from before!
+TYPE_ARM BOOT1 2.24s path=C:/Users/Likhith/AppData/Local/hermes/cache/scratch/tra_slot_data\type_arm\ravana_weights.pkl
+TYPE_ARM BASE edges=18984 trusted=170 is_a=169 typed_slots=0
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+TYPE_ARM TEACH mist is a weather phenomenon.        -> [('IS_A', 'novel_write', 'written')]
+  [ground_query] input='hail is a weather phenomenon.'
+  [ground_query] pfc qtype='hypothetical' groups=['hail is a weather phenomenon']
+  [ground_query] query_phrase='hail is a weather phenomenon' words=['hail', 'weather', 'phenomenon']
+  [ground_query] input='hail is a weather phenomenon.'
+  [ground_query] pfc qtype='hypothetical' groups=['hail is a weather phenomenon']
+  [ground_query] query_phrase='hail is a weather phenomenon' words=['hail', 'weather', 'phenomenon']
+  [ground_query] input='hail is a weather phenomenon.'
+  [ground_query] pfc qtype='hypothetical' groups=['hail is a weather phenomenon']
+  [ground_query] query_phrase='hail is a weather phenomenon' words=['hail', 'weather', 'phenomenon']
+TYPE_ARM TEACH hail is a weather phenomenon.        -> [('IS_A', 'novel_write', 'written')]
+  [ground_query] input='drizzle is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['drizzle is a weather phenomenon']
+  [ground_query] query_phrase='drizzle is a weather phenomenon' words=['drizzle', 'weather', 'phenomenon']
+  [ground_query] input='drizzle is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['drizzle is a weather phenomenon']
+  [ground_query] query_phrase='drizzle is a weather phenomenon' words=['drizzle', 'weather', 'phenomenon']
+  [ground_query] input='drizzle is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['drizzle is a weather phenomenon']
+  [ground_query] query_phrase='drizzle is a weather phenomenon' words=['drizzle', 'weather', 'phenomenon']
+TYPE_ARM TEACH drizzle is a weather phenomenon.     -> [('IS_A', 'novel_write', 'written')]
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+TYPE_ARM TEACH election is a civic event.           -> [('IS_A', 'novel_write', 'written')]
+  [ground_query] input='ceremony is a civic event.'
+  [ground_query] pfc qtype='general' groups=['ceremony is a civic event']
+  [ground_query] query_phrase='ceremony is a civic event' words=['ceremony', 'civic', 'event']
+  [ground_query] input='ceremony is a civic event.'
+  [ground_query] pfc qtype='general' groups=['ceremony is a civic event']
+  [ground_query] query_phrase='ceremony is a civic event' words=['ceremony', 'civic', 'event']
+  [ground_query] input='ceremony is a civic event.'
+  [ground_query] pfc qtype='general' groups=['ceremony is a civic event']
+  [ground_query] query_phrase='ceremony is a civic event' words=['ceremony', 'civic', 'event']
+TYPE_ARM TEACH ceremony is a civic event.           -> [('IS_A', 'novel_write', 'written')]
+  [ground_query] input='contract is a civic event.'
+  [ground_query] pfc qtype='hypothetical' groups=['contract is a civic event']
+  [ground_query] query_phrase='contract is a civic event' words=['contract', 'civic', 'event']
+  [ground_query] input='contract is a civic event.'
+  [ground_query] pfc qtype='hypothetical' groups=['contract is a civic event']
+  [ground_query] query_phrase='contract is a civic event' words=['contract', 'civic', 'event']
+  [ground_query] input='contract is a civic event.'
+  [ground_query] pfc qtype='hypothetical' groups=['contract is a civic event']
+  [ground_query] query_phrase='contract is a civic event' words=['contract', 'civic', 'event']
+TYPE_ARM TEACH contract is a civic event.           -> [('IS_A', 'novel_write', 'written')]
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+TYPE_ARM TEACH a wheel is part of a vehicle.        -> [('PART_OF', 'fast_merge', 'written')]
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+TYPE_ARM TEACH a petal is part of a flower.         -> [('PART_OF', 'fast_merge', 'written')]
+  [ground_query] input='a page is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['a page is part of a book']
+  [ground_query] query_phrase='a page is part of a book' words=['page', 'part', 'book']
+  [ground_query] input='a page is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['a page is part of a book']
+  [ground_query] query_phrase='a page is part of a book' words=['page', 'part', 'book']
+  [ground_query] input='a page is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['a page is part of a book']
+  [ground_query] query_phrase='a page is part of a book' words=['page', 'part', 'book']
+TYPE_ARM TEACH a page is part of a book.            -> [('PART_OF', 'fast_merge', 'written')]
+  [ground_query] input='a chord is part of a guitar.'
+  [ground_query] pfc qtype='what_is' groups=['a chord is part of a guitar']
+  [ground_query] query_phrase='a chord is part of a guitar' words=['chord', 'part', 'guitar']
+  [ground_query] input='a chord is part of a guitar.'
+  [ground_query] pfc qtype='what_is' groups=['a chord is part of a guitar']
+  [ground_query] query_phrase='a chord is part of a guitar' words=['chord', 'part', 'guitar']
+  [ground_query] input='a chord is part of a guitar.'
+  [ground_query] pfc qtype='what_is' groups=['a chord is part of a guitar']
+  [ground_query] query_phrase='a chord is part of a guitar' words=['chord', 'part', 'guitar']
+TYPE_ARM TEACH a chord is part of a guitar.         -> [('PART_OF', 'fast_merge', 'written')]
+TYPE_ARM POST edges=18952 trusted=180 is_a=175 typed_slots=6 new_typed=6
+TYPE_ARM SAVED
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 1310 words from before!
+TYPE_ARM COLD edges=18952 trusted=180 typed_slots=6 survivors=6/6
+READ_PROBE positive_mist                  subject=mist      scores={'weather phenomenon': 0.3889} eligible=['weather phenomenon'] pick='weather phenomenon' margin=0.3889 reason=trusted_typed_slot_strict_winner
+READ_PROBE positive_election              subject=election  scores={'civic event': 0.3889} eligible=['civic event'] pick='civic event' margin=0.3889 reason=trusted_typed_slot_strict_winner
+READ_PROBE permutation_A                  subject=mist      scores={'weather phenomenon': 0.3889} eligible=['weather phenomenon'] pick='weather phenomenon' margin=0.3889 reason=trusted_typed_slot_strict_winner
+READ_PROBE permutation_B                  subject=mist      scores={'weather phenomenon': 0.3889} eligible=['weather phenomenon'] pick='weather phenomenon' margin=0.3889 reason=trusted_typed_slot_strict_winner
+READ_PROBE part_of_subject_no_typed_slot  subject=wheel     scores={} eligible=[] pick=None margin=None reason=no_trusted_typed_slot_above_floor
+READ_PROBE disjoint_options_C10           subject=mist      scores={} eligible=[] pick=None margin=None reason=no_trusted_typed_slot_above_floor
+READ_PROBE unrelated_subject              subject=zeppelin  scores={} eligible=[] pick=None margin=None reason=no_trusted_typed_slot_above_floor
+READ_PROBE no_cross_turn_state_repeat     subject=mist      scores={'weather phenomenon': 0.3889} eligible=['weather phenomenon'] pick='weather phenomenon' margin=0.3889 reason=trusted_typed_slot_strict_winner
+  [ground_query] input='Considering the examples above, what is true of mist? Options: apple, banana, chair, table. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of mist? options: apple, banana, chair, table. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of mist? options: apple, banana, chair, table. answer briefly' words=['considering', 'examples', 'above', 'true', 'mist', 'options:', 'apple', 'banana', 'chair', 'table', 'answer', 'briefly']
+  [ground_query] input='what is true of mist? '
+  [ground_query] pfc qtype='what_is' groups=['true of mist']
+  [ground_query] query_phrase='true of mist' words=['true', 'mist']
+  [ground_query] input='Considering the examples above, what is true of mist? Options: apple, banana, chair, table. Answer briefly.'
+  [ground_query] pfc qtype='hypothetical' groups=['considering the examples above, what is true of mist? options: apple, banana, chair, table. answer briefly']
+  [ground_query] query_phrase='considering the examples above, what is true of mist? options: apple, banana, chair, table. answer briefly' words=['considering', 'examples', 'above', 'true', 'mist', 'options:', 'apple', 'banana', 'chair', 'table', 'answer', 'briefly']
+PRODUCTION_FLAG_ON_DISJOINT {'schema_flag': '1', 'response': 'banana', 'graded_pick': 'banana', 'C10_fail_closed': False}
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 2167 words from before!
+  [ground_query] input='drizzle causes mist.'
+  [ground_query] pfc qtype='general' groups=['drizzle causes mist']
+  [ground_query] query_phrase='drizzle causes mist' words=['drizzle', 'causes', 'mist']
+  [ground_query] input='drizzle causes mist.'
+  [ground_query] pfc qtype='general' groups=['drizzle causes mist']
+  [ground_query] query_phrase='drizzle causes mist' words=['drizzle', 'causes', 'mist']
+  [ground_query] input='drizzle causes mist.'
+  [ground_query] pfc qtype='general' groups=['drizzle causes mist']
+  [ground_query] query_phrase='drizzle causes mist' words=['drizzle', 'causes', 'mist']
+  [ground_query] input='storm causes a blizzard.'
+  [ground_query] pfc qtype='hypothetical' groups=['storm causes a blizzard']
+  [ground_query] query_phrase='storm causes a blizzard' words=['storm', 'causes', 'blizzard']
+  [ground_query] input='storm causes a blizzard.'
+  [ground_query] pfc qtype='hypothetical' groups=['storm causes a blizzard']
+  [ground_query] query_phrase='storm causes a blizzard' words=['storm', 'causes', 'blizzard']
+  [ground_query] input='storm causes a blizzard.'
+  [ground_query] pfc qtype='hypothetical' groups=['storm causes a blizzard']
+  [ground_query] query_phrase='storm causes a blizzard' words=['storm', 'causes', 'blizzard']
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='a wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is part of a vehicle']
+  [ground_query] query_phrase='a wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+  [ground_query] input='a petal is part of a flower.'
+  [ground_query] pfc qtype='hypothetical' groups=['a petal is part of a flower']
+  [ground_query] query_phrase='a petal is part of a flower' words=['petal', 'part', 'flower']
+  [ground_query] input='dawn precedes sunrise.'
+  [ground_query] pfc qtype='general' groups=['dawn precedes sunrise']
+  [ground_query] query_phrase='dawn precedes sunrise' words=['dawn', 'precedes', 'sunrise']
+  [ground_query] input='dawn precedes sunrise.'
+  [ground_query] pfc qtype='general' groups=['dawn precedes sunrise']
+  [ground_query] query_phrase='dawn precedes sunrise' words=['dawn', 'precedes', 'sunrise']
+  [ground_query] input='dawn precedes sunrise.'
+  [ground_query] pfc qtype='general' groups=['dawn precedes sunrise']
+  [ground_query] query_phrase='dawn precedes sunrise' words=['dawn', 'precedes', 'sunrise']
+  [ground_query] input='winter comes before spring.'
+  [ground_query] pfc qtype='hypothetical' groups=['winter comes before spring']
+  [ground_query] query_phrase='winter comes before spring' words=['winter', 'comes', 'spring']
+  [ground_query] input='winter comes before spring.'
+  [ground_query] pfc qtype='hypothetical' groups=['winter comes before spring']
+  [ground_query] query_phrase='winter comes before spring' words=['winter', 'comes', 'spring']
+  [ground_query] input='winter comes before spring.'
+  [ground_query] pfc qtype='hypothetical' groups=['winter comes before spring']
+  [ground_query] query_phrase='winter comes before spring' words=['winter', 'comes', 'spring']
+  [ground_query] input='mist resembles fog.'
+  [ground_query] pfc qtype='general' groups=['mist resembles fog']
+  [ground_query] query_phrase='mist resembles fog' words=['mist', 'resembles', 'fog']
+  [ground_query] input='mist resembles fog.'
+  [ground_query] pfc qtype='general' groups=['mist resembles fog']
+  [ground_query] query_phrase='mist resembles fog' words=['mist', 'resembles', 'fog']
+  [ground_query] input='mist resembles fog.'
+  [ground_query] pfc qtype='general' groups=['mist resembles fog']
+  [ground_query] query_phrase='mist resembles fog' words=['mist', 'resembles', 'fog']
+  [ground_query] input='a wheel is similar to a gear.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is similar to a gear']
+  [ground_query] query_phrase='a wheel is similar to a gear' words=['wheel', 'similar', 'gear']
+  [ground_query] input='a wheel is similar to a gear.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is similar to a gear']
+  [ground_query] query_phrase='a wheel is similar to a gear' words=['wheel', 'similar', 'gear']
+  [ground_query] input='a wheel is similar to a gear.'
+  [ground_query] pfc qtype='hypothetical' groups=['a wheel is similar to a gear']
+  [ground_query] query_phrase='a wheel is similar to a gear' words=['wheel', 'similar', 'gear']
+  [ground_query] input='hail causes rain.'
+  [ground_query] pfc qtype='general' groups=['hail causes rain']
+  [ground_query] query_phrase='hail causes rain' words=['hail', 'causes', 'rain']
+  [ground_query] input='hail causes rain.'
+  [ground_query] pfc qtype='general' groups=['hail causes rain']
+  [ground_query] query_phrase='hail causes rain' words=['hail', 'causes', 'rain']
+  [ground_query] input='hail causes rain.'
+  [ground_query] pfc qtype='general' groups=['hail causes rain']
+  [ground_query] query_phrase='hail causes rain' words=['hail', 'causes', 'rain']
+  [ground_query] input='a page is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['a page is part of a book']
+  [ground_query] query_phrase='a page is part of a book' words=['page', 'part', 'book']
+  [ground_query] input='a page is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['a page is part of a book']
+  [ground_query] query_phrase='a page is part of a book' words=['page', 'part', 'book']
+  [ground_query] input='a page is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['a page is part of a book']
+  [ground_query] query_phrase='a page is part of a book' words=['page', 'part', 'book']
+RELATION_ARM edges=19006 trusted=180 new_trusted=10 new_typed_slots=0
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 2167 words from before!
+UNTRUSTED_ARM forged=written trusted_pick='weather phenomenon' untrusted_pick=None
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 2167 words from before!
+MARGIN_ARM n_edges=2 tie_pick=None tie_reason=strict_margin_not_met below_floor_pick=None below_floor_reason=no_trusted_typed_slot_above_floor
+GATES {
+  "C9_cold_reload_retention_ge_0.80": true,
+  "C10_disjoint_control_returns_None": true,
+  "C12_provenance_integrity": true,
+  "control_a_relation_only_no_typed_slots": true,
+  "control_b_type_assertions_make_typed_slots": true,
+  "control_d_untrusted_typed_edge_cannot_seed": true,
+  "control_e_cold_reload": true,
+  "control_f_no_cross_turn_state": true,
+  "instrument_strict_margin_fires": true,
+  "instrument_congruence_floor_fires": true,
+  "permutation_stability": true
+}
+SUMMARY {
+  "teaching_turns_type_arm": 10,
+  "teaching_turns_relation_arm": 10,
+  "engine_boots": 5,
+  "type_arm_new_typed_slots": 6,
+  "type_arm_cold_survivors": 6,
+  "relation_arm_new_typed_slots": 0,
+  "relation_arm_new_trusted_edges": 10,
+  "scratch_disjoint_pick_C10": null,
+  "production_flag_on_disjoint_pick": "banana",
+  "positive_pick": "weather phenomenon",
+  "unrelated_pick": null,
+  "all_gates_pass": true,
+  "errors_count": 0
+}
+WROTE C:/Users/Likhith/Documents/projects/ravana_slot_exp\scratch\tra_slot_results.json
+EXIT=0
