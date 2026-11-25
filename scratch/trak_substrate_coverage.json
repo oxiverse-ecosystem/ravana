@@ -1,0 +1,169 @@
+{
+ "schema": "trak-substrate-coverage-v1",
+ "source": "Wikidata structured data (P31 instance of / P279 subclass of)",
+ "source_url": "https://www.wikidata.org/",
+ "license": "CC0-1.0",
+ "item_bank_ref": "c962f75:scripts/tra_k_items.py",
+ "raw_snapshot_sha256": "52f74c9d5fa2f3a1d5376cd7ef43508ea98490b2eee248ff5824b6a33eb18812",
+ "substrate_sha256": "f9997f666889f089fa5a12fb5238bd34cce4d5227be5d14d36f6a1cd01aa0ea3",
+ "substrate_canonical_sha256": "ed4759ea57184fd74f2d6d932d12eeecec2e84de6bc075eb3cdc27469c106a90",
+ "vocabulary_words": 144,
+ "facts_total": 980,
+ "facts_primary_sense": 429,
+ "facts_alternate_sense": 551,
+ "words_with_any_fact": 140,
+ "words_with_primary_fact": 139,
+ "words_without_fact": [
+  "chill",
+  "marrow",
+  "sleet",
+  "thorn"
+ ],
+ "unique_type_labels": 638,
+ "top_type_labels": [
+  [
+   "class of anatomical entity",
+   16
+  ],
+  [
+   "particular anatomical entity",
+   13
+  ],
+  [
+   "organ type",
+   9
+  ],
+  [
+   "animal organ",
+   8
+  ],
+  [
+   "anatomical structure class type",
+   7
+  ],
+  [
+   "plant structure",
+   7
+  ],
+  [
+   "wind",
+   5
+  ],
+  [
+   "machine element",
+   4
+  ],
+  [
+   "geometric primitive",
+   4
+  ],
+  [
+   "locus",
+   4
+  ],
+  [
+   "type of meteorological phenomenon",
+   4
+  ],
+  [
+   "plant life-form",
+   4
+  ],
+  [
+   "meteorological phenomenon",
+   3
+  ],
+  [
+   "plant organ",
+   3
+  ],
+  [
+   "type of machine element",
+   3
+  ]
+ ],
+ "by_property": {
+  "P279": 645,
+  "P31": 335
+ },
+ "by_evidence_kind": {
+  "item_description": 954,
+  "type_description": 21,
+  "label_only": 5
+ },
+ "answer_key_vocabulary_tokens": 144,
+ "answer_key_subject_overlap": 140,
+ "answer_key_subject_overlap_primary": 139,
+ "TRA_authored_label_overlap": [],
+ "items": 400,
+ "items_with_deployable_exemplar_fact": 400,
+ "deployable_facts_per_item_min": 40,
+ "deployable_facts_per_item_mean": 112.7275,
+ "deployable_facts_per_item_max": 220,
+ "deployable_facts_total": 45091,
+ "deployable_primary_facts_total": 20410,
+ "items_with_deployable_primary_fact": 400,
+ "sense_selection_rules": {
+  "enwiki_exact": 94,
+  "most_types": 35,
+  "description_contains": 11
+ },
+ "facts_with_label_only_evidence": 5,
+ "words_with_conflicting_types_all_senses": 126,
+ "words_with_conflicting_types_primary_sense": 108,
+ "conflict_examples_primary": {
+  "angle": [
+   "geometric object",
+   "two-dimensional object"
+  ],
+  "arc": [
+   "curve",
+   "subset"
+  ],
+  "artery": [
+   "anatomical structure class type",
+   "class of anatomical entity",
+   "particular anatomical entity",
+   "segment of arterial tree organ"
+  ],
+  "bark": [
+   "material",
+   "plant material",
+   "plant structure"
+  ],
+  "bearing": [
+   "connector",
+   "machine element",
+   "product"
+  ],
+  "blizzard": [
+   "meteorological phenomenon",
+   "snow storm"
+  ],
+  "bone": [
+   "anatomical structure class type",
+   "animal organ",
+   "animal product",
+   "biological composite",
+   "class of anatomical entity",
+   "organ type",
+   "particular anatomical entity"
+  ],
+  "brain": [
+   "animal organ",
+   "class of anatomical entity",
+   "organ type",
+   "particular anatomical entity"
+  ],
+  "branch": [
+   "branch",
+   "plant organ",
+   "plant stem",
+   "plant structure"
+  ],
+  "breeze": [
+   "meteorological phenomenon",
+   "wind"
+  ]
+ }
+}

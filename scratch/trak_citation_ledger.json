@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": 1,
+      "url": "https://www.wikidata.org/wiki/Wikidata:Licensing",
+      "title": "Wikidata:Licensing",
+      "accessed": "2026-11-26",
+      "quotes": [
+        {
+          "text": "All structured data (i.e. the main, Property, Lexeme, and EntitySchema namespaces) is released into the public domain under Creative Commons Zero.",
+          "added": "2026-11-26"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "url": "https://creativecommons.org/publicdomain/zero/1.0",
+      "title": "CC0 1.0 Universal",
+      "accessed": "2026-11-26"
+    },
+    {
+      "id": 3,
+      "url": "https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service",
+      "title": "Wikidata Query Service",
+      "accessed": "2026-11-26"
+    },
+    {
+      "id": 4,
+      "url": "https://query.wikidata.org",
+      "title": "Wikidata Query Service endpoint",
+      "accessed": "2026-11-26"
+    },
+    {
+      "id": 5,
+      "url": "https://www.wikidata.org/wiki/Property:P31",
+      "title": "Wikidata P31 instance of",
+      "accessed": "2026-11-26",
+      "quotes": [
+        {
+          "text": "type to which this subject corresponds/belongs. Different from P279 (subclass of); for example: K2 is an instance of mountain; volcano is a subclass of mountain",
+          "added": "2026-11-26"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "url": "https://www.wikidata.org/wiki/Property:P279",
+      "title": "Wikidata P279 subclass of",
+      "accessed": "2026-11-26",
+      "quotes": [
+        {
+          "text": "this item is a subclass (subset) of that item; ALL instances of this item are instances of that item; different from P31 (instance of)",
+          "added": "2026-11-26"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "url": "https://www.mediawiki.org/wiki/API:Wikidata",
+      "title": "Wikibase API documentation",
+      "accessed": "2026-11-26"
+    },
+    {
+      "id": 8,
+      "url": "https://www.wikidata.org/w/api.php",
+      "title": "Wikidata Action API endpoint",
+      "accessed": "2026-11-26"
+    },
+    {
+      "id": 9,
+      "url": "https://doi.org/10.1145/2629489",
+      "title": "Vrandecic & Krotzsch 2014, Wikidata, CACM 57(10)",
+      "accessed": "2026-11-26"
+    },
+    {
+      "id": 10,
+      "url": "https://github.com/commonsense/conceptnet5/wiki/Copying-and-sharing-ConceptNet",
+      "title": "ConceptNet licence",
+      "accessed": "2026-11-26",
+      "quotes": [
+        {
+          "text": "You may not use ConceptNet without attribution.",
+          "added": "2026-11-26"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "url": "https://www.dbpedia.org/resources/ontology",
+      "title": "DBpedia ontology",
+      "accessed": "2026-11-26"
+    },
+    {
+      "id": 12,
+      "url": "https://wordnet.princeton.edu/license-and-commercial-use",
+      "title": "WordNet licence",
+      "accessed": "2026-11-26"
+    }
+  ]
+}
