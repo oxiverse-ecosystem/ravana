@@ -968,6 +968,21 @@ def main(argv=None):
     bank_hash = tra_items.item_manifest_hash(items)
     pools = collections.Counter(it["pool"] for it in items)
     kc = tra_items.pool_k_counts(items)
+    # Deterministic bounded subset for focused real-engine probes. The FULL
+    # bank is still validated and its manifest hashes are reported above; a
+    # subset result is a mechanism probe, never a full-benchmark verdict.
+    max_per_pool = int(os.environ.get("TRA_MAX_PER_POOL", "0") or 0)
+    if max_per_pool > 0:
+        seen = collections.Counter()
+        keep = []
+        for it in items:
+            if seen[it["pool"]] < max_per_pool:
+                keep.append(it)
+                seen[it["pool"]] += 1
+        items = keep
+        print("  FOCUSED SUBSET max_per_pool=%d selected=%d "
+              "(mechanism probe, NOT a full-benchmark verdict)" %
+              (max_per_pool, len(items)))
 
     print("=" * 78)
     print("TRA benchmark (pre-registered) -- backend=%s" % ("live" if live else "fake"))
@@ -1006,6 +1021,11 @@ def main(argv=None):
         backend = RealBackend() if live else FakeBackend()
         rows = run_sweep(items, backend=backend)
         summary = summarize(items, rows)
+        if max_per_pool > 0:
+            summary["focused_subset"] = {
+                "max_per_pool": max_per_pool, "selected": len(items),
+                "full_bank_verdict": False,
+            }
         summary["save"] = backend.api_calls.get("save", 0)
         summary["cold_reload"] = backend.api_calls.get("cold_reload", 0)
         summary["engine_observation_missing"] = backend.engine_observation_missing
