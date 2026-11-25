@@ -1,0 +1,1318 @@
+{
+  "answer_key_overlap": {
+    "examples": [
+      "artery",
+      "blizzard",
+      "cartilage",
+      "chill",
+      "climate",
+      "cloud",
+      "dew",
+      "diaphragm",
+      "drizzle",
+      "gale"
+    ],
+    "n_gold_words": 142,
+    "n_gold_words_in_corpus": 97,
+    "n_subject_words": 25,
+    "n_subject_words_that_are_answer_key_tokens_elsewhere": 25,
+    "note": "MEASUREMENT ONLY: gold/type_sets/world_model are never fed to any type fact; channel facts naming an answer-key token trip TRA-K control C15 (HARD FAIL)."
+  },
+  "audit": "TRAK_CORPUS_AUDIT - static/data only; no engine boot, no gold as input",
+  "coverage": {
+    "n_unique_with_topic_context": 4,
+    "n_unique_with_word_anywhere": 16,
+    "n_unique_with_zero_mentions": 9,
+    "per_subject": [
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "artery"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "blizzard"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 8,
+        "n_incidental_docs": 8,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "cartilage"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 1,
+        "n_incidental_docs": 1,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "chill"
+      },
+      {
+        "example_contexts": [
+          {
+            "query": "drives climate",
+            "snippet": "What Drives Climate Change? Key Natural and Human Influences • Environmental Studies (EVS) Institute",
+            "title": "What Drives Climate Change? Key Natural and Human Influences • Environmental Studies (EVS) Institute",
+            "url": "https://evs.institute/global-climate-change/climate-change-natural-human-influences/"
+          },
+          {
+            "query": "drives climate",
+            "snippet": "What Drives Climate? — Climate Curious",
+            "title": "What Drives Climate? — Climate Curious",
+            "url": "https://www.climatecurious.com/what-drives-climate/"
+          },
+          {
+            "query": "drives climate",
+            "snippet": "What drives climate? | Nature",
+            "title": "What drives climate? | Nature",
+            "url": "https://www.nature.com/articles/35047188"
+          },
+          {
+            "query": "drives climate",
+            "snippet": "What Drives Climate? - Discover Magazine",
+            "title": "What Drives Climate? - Discover Magazine",
+            "url": "https://www.discovermagazine.com/what-drives-climate-14037"
+          }
+        ],
+        "has_topic_context": true,
+        "n_distinct_topic_urls": 6,
+        "n_docs_with_word_anywhere": 57,
+        "n_incidental_docs": 55,
+        "n_topic_docs": 2,
+        "n_topic_queries": 2,
+        "subject": "climate"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 28,
+        "n_incidental_docs": 28,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "cloud"
+      },
+      {
+        "example_contexts": [
+          {
+            "query": "dew",
+            "snippet": "Dew point - Wikipedia",
+            "title": "Dew point - Wikipedia",
+            "url": "https://en.m.wikipedia.org/wiki/Dew_point"
+          },
+          {
+            "query": "dew",
+            "snippet": "Dew - Met Office",
+            "title": "Dew - Met Office",
+            "url": "https://weather.metoffice.gov.uk/learn-about/weather/types-of-weather/temperature/dew"
+          },
+          {
+            "query": "dew",
+            "snippet": "Dew - Simple English Wikipedia, the free encyclopedia",
+            "title": "Dew - Simple English Wikipedia, the free encyclopedia",
+            "url": "https://simple.m.wikipedia.org/wiki/Dew"
+          },
+          {
+            "query": "dew",
+            "snippet": "Dew - National Geographic Society",
+            "title": "Dew - National Geographic Society",
+            "url": "https://education.nationalgeographic.org/resource/dew/"
+          }
+        ],
+        "has_topic_context": true,
+        "n_distinct_topic_urls": 39,
+        "n_docs_with_word_anywhere": 18,
+        "n_incidental_docs": 10,
+        "n_topic_docs": 8,
+        "n_topic_queries": 8,
+        "subject": "dew"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 4,
+        "n_incidental_docs": 4,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "diaphragm"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 1,
+        "n_incidental_docs": 1,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "drizzle"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "gale"
+      },
+      {
+        "example_contexts": [
+          {
+            "query": "role heart",
+            "snippet": "The heart: Anatomy, how it works, and more - Medical News Today",
+            "title": "The heart: Anatomy, how it works, and more - Medical News Today",
+            "url": "https://www.medicalnewstoday.com/articles/320565"
+          },
+          {
+            "query": "role heart",
+            "snippet": "What is the role of the heart? | Healthy Circulatory System - Sharecare",
+            "title": "What is the role of the heart? | Healthy Circulatory System - Sharecare",
+            "url": "https://www.sharecare.com/health/circulatory-system/what-is-role-of-heart"
+          },
+          {
+            "query": "role heart",
+            "snippet": "Why the Human Heart Matters: Function & Health Role",
+            "title": "Why the Human Heart Matters: Function & Health Role",
+            "url": "https://www.medanta.org/patient-education-blog/understand-how-your-heart-works"
+          },
+          {
+            "query": "role heart",
+            "snippet": "What is the Role of the Heart in the Circulatory System?",
+            "title": "What is the Role of the Heart in the Circulatory System?",
+            "url": "https://www.sciencenewstoday.org/what-is-the-role-of-the-heart-in-the-circulatory-system"
+          }
+        ],
+        "has_topic_context": true,
+        "n_distinct_topic_urls": 7,
+        "n_docs_with_word_anywhere": 33,
+        "n_incidental_docs": 31,
+        "n_topic_docs": 2,
+        "n_topic_queries": 2,
+        "subject": "heart"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 1,
+        "n_incidental_docs": 1,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "joint"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "ligament"
+      },
+      {
+        "example_contexts": [
+          {
+            "query": "how does role of the liver work",
+            "snippet": "Inside the Liver and Its Constant Role in Detoxification, Metabolism ...",
+            "title": "Inside the Liver and Its Constant Role in Detoxification, Metabolism ...",
+            "url": "https://www.medicaldaily.com/inside-liver-its-constant-role-detoxification-metabolism-bile-blood-filtration-475374"
+          },
+          {
+            "query": "role liver",
+            "snippet": "Liver: Where It's Located, Function & Anatomy - Cleveland Clinic",
+            "title": "Liver: Where It's Located, Function & Anatomy - Cleveland Clinic",
+            "url": "https://my.clevelandclinic.org/health/body/21481-liver"
+          },
+          {
+            "query": "role liver",
+            "snippet": "What is the Role of the Liver in Digestion?",
+            "title": "What is the Role of the Liver in Digestion?",
+            "url": "https://www.sciencenewstoday.org/what-is-the-role-of-the-liver-in-digestion"
+          },
+          {
+            "query": "role liver",
+            "snippet": "The liver: Structure, function, and disease",
+            "title": "The liver: Structure, function, and disease",
+            "url": "https://www.medicalnewstoday.com/articles/305075"
+          }
+        ],
+        "has_topic_context": true,
+        "n_distinct_topic_urls": 10,
+        "n_docs_with_word_anywhere": 17,
+        "n_incidental_docs": 8,
+        "n_topic_docs": 9,
+        "n_topic_queries": 9,
+        "subject": "liver"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "marrow"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 6,
+        "n_incidental_docs": 6,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "mist"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "monsoon"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "reflex"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 3,
+        "n_incidental_docs": 3,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "shower"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 1,
+        "n_incidental_docs": 1,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "squall"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 28,
+        "n_incidental_docs": 28,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "storm"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "tempest"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 0,
+        "n_incidental_docs": 0,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "tendon"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 1,
+        "n_incidental_docs": 1,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "thaw"
+      },
+      {
+        "example_contexts": [],
+        "has_topic_context": false,
+        "n_distinct_topic_urls": 0,
+        "n_docs_with_word_anywhere": 10,
+        "n_incidental_docs": 10,
+        "n_topic_docs": 0,
+        "n_topic_queries": 0,
+        "subject": "typhoon"
+      }
+    ]
+  },
+  "label_vocabulary": {
+    "contrast-case": {
+      "n_docs_with_label_string": 0,
+      "n_explicit_is_a_label": 0,
+      "present_as_label_string": false
+    },
+    "earlier-event": {
+      "n_docs_with_label_string": 0,
+      "n_explicit_is_a_label": 0,
+      "present_as_label_string": false
+    },
+    "effect": {
+      "n_docs_with_label_string": 38,
+      "n_explicit_is_a_label": 0,
+      "present_as_label_string": true
+    },
+    "similar-form": {
+      "n_docs_with_label_string": 0,
+      "n_explicit_is_a_label": 0,
+      "present_as_label_string": false
+    },
+    "structured-whole": {
+      "n_docs_with_label_string": 0,
+      "n_explicit_is_a_label": 0,
+      "present_as_label_string": false
+    },
+    "supported-outcome": {
+      "n_docs_with_label_string": 0,
+      "n_explicit_is_a_label": 0,
+      "present_as_label_string": false
+    }
+  },
+  "provenance": {
+    "captured_at": "2026-11-19T18:40:01Z",
+    "captured_by": "scripts/capture_web_fixtures.py",
+    "corpus_bytes": 3075009,
+    "corpus_path": "tests/fixtures/web_snapshots/web_fixtures.json",
+    "corpus_sha256": "328184927d0679f8538374ebc988c80e1c4b466c8e257a0734f72f25d1b4d3bb",
+    "gitignored_scratch": true,
+    "n_kb_describes": 61,
+    "n_queries": 1087,
+    "n_tool_web_search": 207,
+    "per_hit_provenance_fields": [
+      "title",
+      "url",
+      "sources",
+      "authority",
+      "score",
+      "is_local"
+    ],
+    "provider": "intentforge(localhost:4000) -> local_api -> duckduckgo -> oxiverse",
+    "readme_path": "tests/fixtures/web_snapshots/README.md",
+    "readme_sha256": "d91afc61cbebaca13860f411b498286e38ca8e3f2f9be07cd200d31d8ed1c2f4",
+    "repo_license": "Oxiverse Community License (OCL); see LICENSE",
+    "schema": "ravana-web-fixtures-v1",
+    "third_party_page_license": "Not granted by the fixture: snippets from Wikipedia / Met Office / National Geographic etc. carry only their source URL and title; no per-page reuse licence is recorded."
+  },
+  "question": "Can the frozen distributional corpus supply an independent subject-specific type channel for TRA-K?",
+  "strict_label_grounding": {
+    "definition": "subject-topic corpus context co-occurs with a lexical target of the item's required TRA label",
+    "n_items_total": 40,
+    "n_items_with_topic_grounded_required_label": 1,
+    "per_item": [
+      {
+        "item_id": "tra_0000",
+        "label": "effect",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "tempest"
+      },
+      {
+        "item_id": "tra_0001",
+        "label": "structured-whole",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "shower"
+      },
+      {
+        "item_id": "tra_0002",
+        "label": "earlier-event",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "drizzle"
+      },
+      {
+        "item_id": "tra_0003",
+        "label": "similar-form",
+        "n_topic_docs": 8,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "dew"
+      },
+      {
+        "item_id": "tra_0004",
+        "label": "supported-outcome",
+        "n_topic_docs": 2,
+        "n_topic_docs_with_label_target": 2,
+        "subject": "climate"
+      },
+      {
+        "item_id": "tra_0005",
+        "label": "contrast-case",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "shower"
+      },
+      {
+        "item_id": "tra_0006",
+        "label": "effect",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "chill"
+      },
+      {
+        "item_id": "tra_0007",
+        "label": "structured-whole",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "squall"
+      },
+      {
+        "item_id": "tra_0008",
+        "label": "earlier-event",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "chill"
+      },
+      {
+        "item_id": "tra_0009",
+        "label": "similar-form",
+        "n_topic_docs": 8,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "dew"
+      },
+      {
+        "item_id": "tra_0010",
+        "label": "supported-outcome",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "monsoon"
+      },
+      {
+        "item_id": "tra_0011",
+        "label": "contrast-case",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "storm"
+      },
+      {
+        "item_id": "tra_0012",
+        "label": "effect",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "chill"
+      },
+      {
+        "item_id": "tra_0013",
+        "label": "structured-whole",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "typhoon"
+      },
+      {
+        "item_id": "tra_0014",
+        "label": "earlier-event",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "blizzard"
+      },
+      {
+        "item_id": "tra_0015",
+        "label": "similar-form",
+        "n_topic_docs": 2,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "climate"
+      },
+      {
+        "item_id": "tra_0016",
+        "label": "supported-outcome",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "gale"
+      },
+      {
+        "item_id": "tra_0017",
+        "label": "contrast-case",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "shower"
+      },
+      {
+        "item_id": "tra_0018",
+        "label": "effect",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "gale"
+      },
+      {
+        "item_id": "tra_0019",
+        "label": "structured-whole",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "thaw"
+      },
+      {
+        "item_id": "tra_0020",
+        "label": "earlier-event",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "cloud"
+      },
+      {
+        "item_id": "tra_0021",
+        "label": "similar-form",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "cloud"
+      },
+      {
+        "item_id": "tra_0022",
+        "label": "supported-outcome",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "chill"
+      },
+      {
+        "item_id": "tra_0023",
+        "label": "contrast-case",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "mist"
+      },
+      {
+        "item_id": "tra_0024",
+        "label": "effect",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "tendon"
+      },
+      {
+        "item_id": "tra_0025",
+        "label": "structured-whole",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "artery"
+      },
+      {
+        "item_id": "tra_0026",
+        "label": "earlier-event",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "joint"
+      },
+      {
+        "item_id": "tra_0027",
+        "label": "similar-form",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "marrow"
+      },
+      {
+        "item_id": "tra_0028",
+        "label": "supported-outcome",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "reflex"
+      },
+      {
+        "item_id": "tra_0029",
+        "label": "contrast-case",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "artery"
+      },
+      {
+        "item_id": "tra_0030",
+        "label": "effect",
+        "n_topic_docs": 2,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "heart"
+      },
+      {
+        "item_id": "tra_0031",
+        "label": "structured-whole",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "diaphragm"
+      },
+      {
+        "item_id": "tra_0032",
+        "label": "earlier-event",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "reflex"
+      },
+      {
+        "item_id": "tra_0033",
+        "label": "similar-form",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "tendon"
+      },
+      {
+        "item_id": "tra_0034",
+        "label": "supported-outcome",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "cartilage"
+      },
+      {
+        "item_id": "tra_0035",
+        "label": "contrast-case",
+        "n_topic_docs": 9,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "liver"
+      },
+      {
+        "item_id": "tra_0036",
+        "label": "effect",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "diaphragm"
+      },
+      {
+        "item_id": "tra_0037",
+        "label": "structured-whole",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "cartilage"
+      },
+      {
+        "item_id": "tra_0038",
+        "label": "earlier-event",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "reflex"
+      },
+      {
+        "item_id": "tra_0039",
+        "label": "similar-form",
+        "n_topic_docs": 0,
+        "n_topic_docs_with_label_target": 0,
+        "subject": "ligament"
+      }
+    ]
+  },
+  "subject_definition": {
+    "by_domain": {
+      "body": 16,
+      "weather": 24
+    },
+    "by_label": {
+      "contrast-case": 6,
+      "earlier-event": 7,
+      "effect": 7,
+      "similar-form": 7,
+      "structured-whole": 7,
+      "supported-outcome": 6
+    },
+    "labels": [
+      "contrast-case",
+      "earlier-event",
+      "effect",
+      "similar-form",
+      "structured-whole",
+      "supported-outcome"
+    ],
+    "n_instances": 40,
+    "n_unique_words": 25,
+    "oracle_fields_used_as_input": false,
+    "source": "scratch/type_acquisition_results.json:rows[condition=near]",
+    "unique_words": [
+      "artery",
+      "blizzard",
+      "cartilage",
+      "chill",
+      "climate",
+      "cloud",
+      "dew",
+      "diaphragm",
+      "drizzle",
+      "gale",
+      "heart",
+      "joint",
+      "ligament",
+      "liver",
+      "marrow",
+      "mist",
+      "monsoon",
+      "reflex",
+      "shower",
+      "squall",
+      "storm",
+      "tempest",
+      "tendon",
+      "thaw",
+      "typhoon"
+    ]
+  },
+  "subject_specificity": [
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "shower": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0000",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "tempest"
+    },
+    {
+      "candidate_topic_docs": {
+        "climate": 2,
+        "drizzle": 0,
+        "thunder": 14,
+        "typhoon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0001",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "shower"
+    },
+    {
+      "candidate_topic_docs": {
+        "chill": 0,
+        "frost": 4,
+        "sleet": 0,
+        "storm": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0002",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "drizzle"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "shower": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0003",
+      "n_subject_topic_docs": 8,
+      "off_topic_examples": [
+        "https://www.mountaindew.com/",
+        "https://scuihub.dew.sc.gov/CSS/"
+      ],
+      "subject": "dew"
+    },
+    {
+      "candidate_topic_docs": {
+        "gale": 0,
+        "glow": 0,
+        "hail": 0,
+        "thaw": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0004",
+      "n_subject_topic_docs": 2,
+      "off_topic_examples": [],
+      "subject": "climate"
+    },
+    {
+      "candidate_topic_docs": {
+        "climate": 2,
+        "monsoon": 0,
+        "thunder": 14,
+        "typhoon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0005",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "shower"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "shower": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0006",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "chill"
+    },
+    {
+      "candidate_topic_docs": {
+        "climate": 2,
+        "monsoon": 0,
+        "tempest": 0,
+        "thunder": 14
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0007",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "squall"
+    },
+    {
+      "candidate_topic_docs": {
+        "drizzle": 0,
+        "monsoon": 0,
+        "rainbow": 3,
+        "tempest": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0008",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "chill"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "shower": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0009",
+      "n_subject_topic_docs": 8,
+      "off_topic_examples": [
+        "https://www.mountaindew.com/",
+        "https://scuihub.dew.sc.gov/CSS/"
+      ],
+      "subject": "dew"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "shower": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0010",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "monsoon"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "chill": 0,
+        "cloud": 0,
+        "sleet": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0011",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "storm"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "shower": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0012",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "chill"
+    },
+    {
+      "candidate_topic_docs": {
+        "climate": 2,
+        "drizzle": 0,
+        "monsoon": 0,
+        "rainbow": 3
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0013",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "typhoon"
+    },
+    {
+      "candidate_topic_docs": {
+        "gale": 0,
+        "glow": 0,
+        "mist": 0,
+        "thaw": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0014",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "blizzard"
+    },
+    {
+      "candidate_topic_docs": {
+        "rainbow": 3,
+        "tempest": 0,
+        "thunder": 14,
+        "typhoon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0015",
+      "n_subject_topic_docs": 2,
+      "off_topic_examples": [],
+      "subject": "climate"
+    },
+    {
+      "candidate_topic_docs": {
+        "monsoon": 0,
+        "rainbow": 3,
+        "tempest": 0,
+        "typhoon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0016",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "gale"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "hail": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0017",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "shower"
+    },
+    {
+      "candidate_topic_docs": {
+        "chill": 0,
+        "cloud": 0,
+        "frost": 4,
+        "storm": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0018",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "gale"
+    },
+    {
+      "candidate_topic_docs": {
+        "climate": 2,
+        "drizzle": 0,
+        "tempest": 0,
+        "thunder": 14
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0019",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "thaw"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "overcast": 0,
+        "shower": 0,
+        "squall": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0020",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "cloud"
+    },
+    {
+      "candidate_topic_docs": {
+        "chill": 0,
+        "frost": 4,
+        "storm": 0,
+        "typhoon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0021",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "cloud"
+    },
+    {
+      "candidate_topic_docs": {
+        "climate": 2,
+        "drizzle": 0,
+        "monsoon": 0,
+        "rainbow": 3
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0022",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "chill"
+    },
+    {
+      "candidate_topic_docs": {
+        "breeze": 0,
+        "shower": 0,
+        "squall": 0,
+        "sunset": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0023",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "mist"
+    },
+    {
+      "candidate_topic_docs": {
+        "artery": 0,
+        "marrow": 0,
+        "tissue": 0,
+        "vessel": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0024",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "tendon"
+    },
+    {
+      "candidate_topic_docs": {
+        "cartilage": 0,
+        "diaphragm": 0,
+        "esophagus": 0,
+        "joint": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0025",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "artery"
+    },
+    {
+      "candidate_topic_docs": {
+        "artery": 0,
+        "marrow": 0,
+        "muscle": 0,
+        "tendon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0026",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "joint"
+    },
+    {
+      "candidate_topic_docs": {
+        "esophagus": 0,
+        "ligament": 0,
+        "plasma": 0,
+        "tendon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0027",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "marrow"
+    },
+    {
+      "candidate_topic_docs": {
+        "lung": 0,
+        "palm": 0,
+        "skin": 7,
+        "vein": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0028",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "reflex"
+    },
+    {
+      "candidate_topic_docs": {
+        "gland": 0,
+        "heart": 2,
+        "joint": 0,
+        "liver": 9
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0029",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "artery"
+    },
+    {
+      "candidate_topic_docs": {
+        "artery": 0,
+        "plasma": 0,
+        "reflex": 0,
+        "tendon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0030",
+      "n_subject_topic_docs": 2,
+      "off_topic_examples": [],
+      "subject": "heart"
+    },
+    {
+      "candidate_topic_docs": {
+        "cartilage": 0,
+        "esophagus": 0,
+        "palm": 0,
+        "tendon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0031",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "diaphragm"
+    },
+    {
+      "candidate_topic_docs": {
+        "artery": 0,
+        "kidney": 9,
+        "plasma": 0,
+        "tendon": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0032",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "reflex"
+    },
+    {
+      "candidate_topic_docs": {
+        "bone": 0,
+        "palm": 0,
+        "skin": 7,
+        "vein": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0033",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "tendon"
+    },
+    {
+      "candidate_topic_docs": {
+        "bone": 0,
+        "palm": 0,
+        "skin": 7,
+        "vein": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0034",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "cartilage"
+    },
+    {
+      "candidate_topic_docs": {
+        "cartilage": 0,
+        "diaphragm": 0,
+        "esophagus": 0,
+        "gland": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0035",
+      "n_subject_topic_docs": 9,
+      "off_topic_examples": [],
+      "subject": "liver"
+    },
+    {
+      "candidate_topic_docs": {
+        "artery": 0,
+        "kidney": 9,
+        "marrow": 0,
+        "tissue": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0036",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "diaphragm"
+    },
+    {
+      "candidate_topic_docs": {
+        "diaphragm": 0,
+        "esophagus": 0,
+        "kidney": 9,
+        "nerve": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0037",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "cartilage"
+    },
+    {
+      "candidate_topic_docs": {
+        "cartilage": 0,
+        "diaphragm": 0,
+        "esophagus": 0,
+        "vessel": 0
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0038",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "reflex"
+    },
+    {
+      "candidate_topic_docs": {
+        "brain": 0,
+        "gland": 0,
+        "joint": 0,
+        "liver": 9
+      },
+      "candidates_sharing_context": [],
+      "item_id": "tra_0039",
+      "n_subject_topic_docs": 0,
+      "off_topic_examples": [],
+      "subject": "ligament"
+    }
+  ],
+  "verdict": {
+    "decision": "NO-GO",
+    "key_numbers": {
+      "items_total": 40,
+      "items_with_corpus_assertion_for_required_label": 0,
+      "items_with_strict_topic_grounded_label": 1,
+      "labels_present_as_strings": 1,
+      "labels_total": 6,
+      "unique_subjects_total": 25,
+      "unique_subjects_with_any_corpus_mention": 16,
+      "unique_subjects_with_topic_context": 4
+    }
+  }
+}
