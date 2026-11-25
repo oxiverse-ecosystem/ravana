@@ -1,0 +1,3732 @@
+{
+  "experiment": "compositional type/relation phrase parsing (TRA-K phase 3)",
+  "generated_utc": "2026-11-25T20:03:59.384445+00:00",
+  "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_parser",
+  "branch": "goal/type-phrase-parser",
+  "head_before_run": "b75a24ed30bb1d05aa01f8161634a8180e76ca07",
+  "production_module_paths": {
+    "chain_walker": "C:\\Users\\Likhith\\Documents\\projects\\ravana_parser\\ravana\\src\\ravana\\chat\\chain_walker.py",
+    "schema_induction": "C:\\Users\\Likhith\\Documents\\projects\\ravana_parser\\ravana\\src\\ravana\\chat\\schema_induction.py"
+  },
+  "production_file_sha256": {
+    "chain_walker.py": "32763764db0e209c346c1eebb8142bbbd577af8035c38012072932431c26d1ab",
+    "schema_induction.py": "d17cf6461d208e2e6ae9d272dd45459ddd3caf71f9b70bae285e745de9e970a6"
+  },
+  "static_only": true,
+  "engine_boot": false,
+  "engine_process_turn_calls": 0,
+  "production_edits": false,
+  "benchmark_answer_key_used": false,
+  "parser": {
+    "production_typed": "ChainWalkerMixin._typed_slot_assertions",
+    "production_relations": "ChainWalkerMixin._asserted_relation_propositions",
+    "read_adapter": "schema_induction.typed_slot_views_from_graph",
+    "read_scorer": "schema_induction.slot_keyed_forced_choice",
+    "scratch_extended": "parse_compositional (this file, RAVANA_TRA_PHRASE=1)"
+  },
+  "items": [
+    {
+      "id": "S01",
+      "category": "is_a_simple",
+      "text": "lantern is a light source.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "lantern",
+          "light source"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "lantern",
+          "light source",
+          "light source",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "lantern",
+          "light source"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "S02",
+      "category": "is_a_simple",
+      "text": "ember is an iron alloy.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "ember",
+          "iron alloy"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "ember",
+          "iron alloy",
+          "iron alloy",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "ember",
+          "iron alloy"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "ember",
+          "relation": "IS_A",
+          "object": "iron alloy",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "S03",
+      "category": "is_a_simple",
+      "text": "willow is a kind of tree.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "willow",
+          "tree"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "willow",
+          "tree",
+          "tree",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "willow",
+          "tree"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "willow",
+          "relation": "IS_A",
+          "object": "tree",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "S04",
+      "category": "is_a_simple",
+      "text": "glacier is a type of ice mass.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "glacier",
+          "ice mass"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "glacier",
+          "ice mass",
+          "ice mass",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "glacier",
+          "ice mass"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "glacier",
+          "relation": "IS_A",
+          "object": "ice mass",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "S05",
+      "category": "is_a_simple",
+      "text": "event is a structured whole.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "event",
+          "structured whole"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "event",
+          "structured whole",
+          "structured whole",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "event",
+          "structured whole"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "event",
+          "relation": "IS_A",
+          "object": "structured whole",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "S06",
+      "category": "is_a_simple",
+      "text": "mosaic is a stone pattern.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "mosaic",
+          "stone pattern"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "mosaic",
+          "stone pattern",
+          "stone pattern",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "mosaic",
+          "stone pattern"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "mosaic",
+          "relation": "IS_A",
+          "object": "stone pattern",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "S07",
+      "category": "is_a_simple",
+      "text": "harbor is a sheltered bay.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "harbor",
+          "sheltered bay"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "harbor",
+          "sheltered bay",
+          "sheltered bay",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "harbor",
+          "sheltered bay"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "harbor",
+          "relation": "IS_A",
+          "object": "sheltered bay",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "S08",
+      "category": "is_a_simple",
+      "text": "canyon is a deep valley.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "canyon",
+          "deep valley"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "canyon",
+          "deep valley",
+          "deep valley",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "canyon",
+          "deep valley"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "canyon",
+          "relation": "IS_A",
+          "object": "deep valley",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "E01",
+      "category": "is_a_extended",
+      "text": "civic event is a structured whole.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "civic event",
+          "structured whole"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "civic event",
+          "relation": "IS_A",
+          "object": "structured whole",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "E02",
+      "category": "is_a_extended",
+      "text": "old lantern is a bright light source.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "old lantern",
+          "bright light source"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "old lantern",
+          "relation": "IS_A",
+          "object": "bright light source",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "E03",
+      "category": "is_a_extended",
+      "text": "rain shadow is a dry region.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "rain shadow",
+          "dry region"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "rain shadow",
+          "relation": "IS_A",
+          "object": "dry region",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "E04",
+      "category": "is_a_extended",
+      "text": "iron alloy is a metal mixture.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "iron alloy",
+          "metal mixture"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "iron alloy",
+          "relation": "IS_A",
+          "object": "metal mixture",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "E05",
+      "category": "is_a_extended",
+      "text": "tremor is a sudden ground motion.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "tremor",
+          "sudden ground motion"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "tremor",
+          "relation": "IS_A",
+          "object": "sudden ground motion",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "E06",
+      "category": "is_a_extended",
+      "text": "ripple is a small water wave.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "ripple",
+          "small water wave"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "ripple",
+          "relation": "IS_A",
+          "object": "small water wave",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R01",
+      "category": "relation_simple",
+      "text": "petal is part of blossom.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "petal",
+          "relation": "PART_OF",
+          "object": "blossom",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R02",
+      "category": "relation_simple",
+      "text": "blossom contains petal.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "petal",
+          "relation": "PART_OF",
+          "object": "blossom",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R03",
+      "category": "relation_simple",
+      "text": "thunder happens after lightning.",
+      "expected_facts": [
+        [
+          "PRECEDES",
+          "lightning",
+          "thunder"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PRECEDES",
+          "lightning",
+          "thunder"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PRECEDES",
+          "lightning",
+          "thunder"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "lightning",
+          "relation": "PRECEDES",
+          "object": "thunder",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R04",
+      "category": "relation_simple",
+      "text": "night comes before dawn.",
+      "expected_facts": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "night",
+          "relation": "PRECEDES",
+          "object": "dawn",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R05",
+      "category": "relation_simple",
+      "text": "mosaic resembles tapestry.",
+      "expected_facts": [
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ]
+      ],
+      "production_facts": [
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "mosaic",
+          "relation": "RESEMBLES",
+          "object": "tapestry",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R06",
+      "category": "relation_simple",
+      "text": "lantern is similar to beacon.",
+      "expected_facts": [
+        [
+          "RESEMBLES",
+          "lantern",
+          "beacon"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "RESEMBLES",
+          "lantern",
+          "beacon"
+        ]
+      ],
+      "production_facts": [
+        [
+          "RESEMBLES",
+          "lantern",
+          "beacon"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "lantern",
+          "relation": "RESEMBLES",
+          "object": "beacon",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R07",
+      "category": "relation_simple",
+      "text": "event is part of ceremony.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "event",
+          "ceremony"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "hedge_or_overbroad_negation_regex"
+      },
+      "extended_facts": [
+        {
+          "subject": "event",
+          "relation": "PART_OF",
+          "object": "ceremony",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "R08",
+      "category": "relation_simple",
+      "text": "dawn follows night.",
+      "expected_facts": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "night",
+          "relation": "PRECEDES",
+          "object": "dawn",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "M01",
+      "category": "multi_clause",
+      "text": "lantern is a light source. mosaic is a stone pattern.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "lantern",
+          "light source"
+        ],
+        [
+          "IS_A",
+          "mosaic",
+          "stone pattern"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.8
+        },
+        {
+          "subject": "mosaic",
+          "relation": "IS_A",
+          "object": "stone pattern",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "M02",
+      "category": "multi_clause",
+      "text": "civic event is a structured whole; harbor is a sheltered bay.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "civic event",
+          "structured whole"
+        ],
+        [
+          "IS_A",
+          "harbor",
+          "sheltered bay"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "civic event",
+          "relation": "IS_A",
+          "object": "structured whole",
+          "confidence": 0.8
+        },
+        {
+          "subject": "harbor",
+          "relation": "IS_A",
+          "object": "sheltered bay",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "M03",
+      "category": "multi_clause",
+      "text": "petal is part of blossom. mosaic resembles tapestry.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ],
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ],
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ],
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "petal",
+          "relation": "PART_OF",
+          "object": "blossom",
+          "confidence": 0.8
+        },
+        {
+          "subject": "mosaic",
+          "relation": "RESEMBLES",
+          "object": "tapestry",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "M04",
+      "category": "multi_clause",
+      "text": "lantern is a light source and willow is a kind of tree.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "lantern",
+          "light source"
+        ],
+        [
+          "IS_A",
+          "willow",
+          "tree"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.8
+        },
+        {
+          "subject": "willow",
+          "relation": "IS_A",
+          "object": "tree",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "M05",
+      "category": "multi_clause",
+      "text": "thunder happens after lightning. dawn follows night.",
+      "expected_facts": [
+        [
+          "PRECEDES",
+          "lightning",
+          "thunder"
+        ],
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PRECEDES",
+          "lightning",
+          "thunder"
+        ],
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PRECEDES",
+          "lightning",
+          "thunder"
+        ],
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "lightning",
+          "relation": "PRECEDES",
+          "object": "thunder",
+          "confidence": 0.8
+        },
+        {
+          "subject": "night",
+          "relation": "PRECEDES",
+          "object": "dawn",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "M06",
+      "category": "multi_clause",
+      "text": "glacier is a type of ice mass; event is a structured whole.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "glacier",
+          "ice mass"
+        ],
+        [
+          "IS_A",
+          "event",
+          "structured whole"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "glacier",
+          "relation": "IS_A",
+          "object": "ice mass",
+          "confidence": 0.8
+        },
+        {
+          "subject": "event",
+          "relation": "IS_A",
+          "object": "structured whole",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "M07",
+      "category": "multi_clause",
+      "text": "mosaic resembles tapestry; petal is part of blossom.",
+      "expected_facts": [
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ],
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ],
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_facts": [
+        [
+          "RESEMBLES",
+          "mosaic",
+          "tapestry"
+        ],
+        [
+          "PART_OF",
+          "petal",
+          "blossom"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "mosaic",
+          "relation": "RESEMBLES",
+          "object": "tapestry",
+          "confidence": 0.8
+        },
+        {
+          "subject": "petal",
+          "relation": "PART_OF",
+          "object": "blossom",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "P01",
+      "category": "permutation",
+      "text": "light source is a lantern.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "light source",
+          "lantern"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "light source",
+          "relation": "IS_A",
+          "object": "lantern",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "P02",
+      "category": "permutation",
+      "text": "tapestry resembles mosaic.",
+      "expected_facts": [
+        [
+          "RESEMBLES",
+          "tapestry",
+          "mosaic"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "RESEMBLES",
+          "tapestry",
+          "mosaic"
+        ]
+      ],
+      "production_facts": [
+        [
+          "RESEMBLES",
+          "tapestry",
+          "mosaic"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "tapestry",
+          "relation": "RESEMBLES",
+          "object": "mosaic",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "P03",
+      "category": "permutation",
+      "text": "blossom is part of petal.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "blossom",
+          "petal"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PART_OF",
+          "blossom",
+          "petal"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PART_OF",
+          "blossom",
+          "petal"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "blossom",
+          "relation": "PART_OF",
+          "object": "petal",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "P04",
+      "category": "permutation",
+      "text": "dawn happens after night.",
+      "expected_facts": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "night",
+          "relation": "PRECEDES",
+          "object": "dawn",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "C01",
+      "category": "control_negation",
+      "text": "lantern is not a light source.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C02",
+      "category": "control_negation",
+      "text": "lantern is never a light source.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C03",
+      "category": "control_hedge",
+      "text": "lantern might be a light source.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": true,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C04",
+      "category": "control_hedge",
+      "text": "lantern is probably a light source.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": true,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C05",
+      "category": "control_question",
+      "text": "is lantern a light source?",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": true,
+        "question_prefix_regex": true,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "question",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "question"
+    },
+    {
+      "id": "C06",
+      "category": "control_question",
+      "text": "what is a lantern?",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": true,
+        "question_prefix_regex": true,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "question"
+    },
+    {
+      "id": "C07",
+      "category": "control_question",
+      "text": "lantern is a light source?",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": true,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "question"
+    },
+    {
+      "id": "C08",
+      "category": "control_negation",
+      "text": "petal is not part of blossom.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C09",
+      "category": "control_hedge",
+      "text": "petal is probably part of blossom.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": true,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C10",
+      "category": "control_question",
+      "text": "is petal part of blossom?",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": true,
+        "question_prefix_regex": true,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "question",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "question"
+    },
+    {
+      "id": "C11",
+      "category": "control_negation",
+      "text": "mosaic does not resemble tapestry.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C12",
+      "category": "control_hedge",
+      "text": "thunder probably happens after lightning.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": true,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "hedge_or_overbroad_negation_regex"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C13",
+      "category": "control_negation",
+      "text": "civic event is not a structured whole.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C14",
+      "category": "control_hedge",
+      "text": "civic event might be a structured whole.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": true,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "C15",
+      "category": "control_question",
+      "text": "civic event is a structured whole?",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": true,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "question",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "question"
+    },
+    {
+      "id": "C16",
+      "category": "control_malformed",
+      "text": "colorless green ideas sleep furiously.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "no_relation_phrase"
+    },
+    {
+      "id": "C17",
+      "category": "control_malformed",
+      "text": "lantern the of a source is.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "no_relation_phrase"
+    },
+    {
+      "id": "C18",
+      "category": "control_malformed",
+      "text": "a is a.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "missing_argument"
+    },
+    {
+      "id": "C19",
+      "category": "control_malformed",
+      "text": "lantern is a lantern.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "identical_arguments"
+    },
+    {
+      "id": "H01",
+      "category": "sealed_is_a",
+      "text": "beacon is a sort of signal lamp.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "beacon",
+          "signal lamp"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "beacon",
+          "signal lamp",
+          "signal lamp",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "beacon",
+          "signal lamp"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "beacon",
+          "relation": "IS_A",
+          "object": "signal lamp",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H02",
+      "category": "sealed_relation",
+      "text": "marsh is akin to swamp.",
+      "expected_facts": [
+        [
+          "RESEMBLES",
+          "marsh",
+          "swamp"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "RESEMBLES",
+          "marsh",
+          "swamp"
+        ]
+      ],
+      "production_facts": [
+        [
+          "RESEMBLES",
+          "marsh",
+          "swamp"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "marsh",
+          "relation": "RESEMBLES",
+          "object": "swamp",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H03",
+      "category": "sealed_relation",
+      "text": "delta includes channel.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "channel",
+          "relation": "PART_OF",
+          "object": "delta",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H04",
+      "category": "sealed_relation",
+      "text": "engine is a component of turbine.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "engine",
+          "turbine"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "hedge_or_overbroad_negation_regex"
+      },
+      "extended_facts": [
+        {
+          "subject": "engine",
+          "relation": "PART_OF",
+          "object": "turbine",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H05",
+      "category": "sealed_relation",
+      "text": "shadow comes after light.",
+      "expected_facts": [
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "light",
+          "relation": "PRECEDES",
+          "object": "shadow",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H06",
+      "category": "sealed_is_a",
+      "text": "frost is a form of ice deposit.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "frost",
+          "ice deposit"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "frost",
+          "ice deposit",
+          "ice deposit",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "frost",
+          "ice deposit"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "frost",
+          "relation": "IS_A",
+          "object": "ice deposit",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H07",
+      "category": "sealed_is_a",
+      "text": "quartz is a type of mineral grain.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "quartz",
+          "mineral grain"
+        ]
+      ],
+      "production_typed": [
+        [
+          "IS_A",
+          "quartz",
+          "mineral grain",
+          "mineral grain",
+          "type"
+        ]
+      ],
+      "production_relations": [],
+      "production_facts": [
+        [
+          "IS_A",
+          "quartz",
+          "mineral grain"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": true,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "is_a_regex_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "quartz",
+          "relation": "IS_A",
+          "object": "mineral grain",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H08",
+      "category": "sealed_is_a",
+      "text": "old marsh is a salty wetland.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "old marsh",
+          "salty wetland"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [
+        {
+          "subject": "old marsh",
+          "relation": "IS_A",
+          "object": "salty wetland",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H09",
+      "category": "sealed_multi_clause",
+      "text": "beacon is a sort of signal lamp. marsh is akin to swamp.",
+      "expected_facts": [
+        [
+          "IS_A",
+          "beacon",
+          "signal lamp"
+        ],
+        [
+          "RESEMBLES",
+          "marsh",
+          "swamp"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "RESEMBLES",
+          "marsh",
+          "swamp"
+        ]
+      ],
+      "production_facts": [
+        [
+          "RESEMBLES",
+          "marsh",
+          "swamp"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "beacon",
+          "relation": "IS_A",
+          "object": "signal lamp",
+          "confidence": 0.8
+        },
+        {
+          "subject": "marsh",
+          "relation": "RESEMBLES",
+          "object": "swamp",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H10",
+      "category": "sealed_multi_clause",
+      "text": "delta includes channel; shadow comes after light.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ],
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ],
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ],
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 2,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "channel",
+          "relation": "PART_OF",
+          "object": "delta",
+          "confidence": 0.8
+        },
+        {
+          "subject": "light",
+          "relation": "PRECEDES",
+          "object": "shadow",
+          "confidence": 0.8
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H11",
+      "category": "sealed_control",
+      "text": "marsh is not akin to swamp.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": true,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "H12",
+      "category": "sealed_control",
+      "text": "beacon is probably a sort of signal lamp.",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": true,
+        "assertion_hedge_regex": true,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "word_boundary_hedge_or_negation",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "hedge_or_negation"
+    },
+    {
+      "id": "H13",
+      "category": "sealed_control",
+      "text": "is quartz a type of mineral grain?",
+      "expected_facts": [],
+      "production_typed": [],
+      "production_relations": [],
+      "production_facts": [],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": true,
+        "question_prefix_regex": true,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": false,
+        "typed_reason": "question",
+        "relation_reason": "no_asserted_relation_phrase"
+      },
+      "extended_facts": [],
+      "extended_reason": "question"
+    },
+    {
+      "id": "H14",
+      "category": "sealed_relation",
+      "text": "channel is part of delta.",
+      "expected_facts": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PART_OF",
+          "channel",
+          "delta"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "channel",
+          "relation": "PART_OF",
+          "object": "delta",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H15",
+      "category": "sealed_relation",
+      "text": "light happens before shadow.",
+      "expected_facts": [
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_facts": [
+        [
+          "PRECEDES",
+          "light",
+          "shadow"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "light",
+          "relation": "PRECEDES",
+          "object": "shadow",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    },
+    {
+      "id": "H16",
+      "category": "sealed_relation",
+      "text": "frost resembles deposit.",
+      "expected_facts": [
+        [
+          "RESEMBLES",
+          "frost",
+          "deposit"
+        ]
+      ],
+      "production_typed": [],
+      "production_relations": [
+        [
+          "RESEMBLES",
+          "frost",
+          "deposit"
+        ]
+      ],
+      "production_facts": [
+        [
+          "RESEMBLES",
+          "frost",
+          "deposit"
+        ]
+      ],
+      "production_diagnosis": {
+        "clause_count": 1,
+        "ends_with_question_mark": false,
+        "question_prefix_regex": false,
+        "typed_refuse_word_boundary_regex": false,
+        "assertion_hedge_regex": false,
+        "assertion_negation_regex_broad": false,
+        "typed_is_a_regex_match": false,
+        "asserted_phrase_regex_match": true,
+        "typed_reason": "anchored_is_a_regex_no_match",
+        "relation_reason": "accepted"
+      },
+      "extended_facts": [
+        {
+          "subject": "frost",
+          "relation": "RESEMBLES",
+          "object": "deposit",
+          "confidence": 0.9
+        }
+      ],
+      "extended_reason": "accepted"
+    }
+  ],
+  "metrics": {
+    "production_combined": {
+      "tp": 36,
+      "fp": 0,
+      "fn": 19,
+      "precision": 1.0,
+      "recall": 0.6545,
+      "f1": 0.7912,
+      "items_exact": 53,
+      "items_total": 68,
+      "item_exact_rate": 0.7794,
+      "by_category": {
+        "control_hedge": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_malformed": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_negation": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_question": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "is_a_extended": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 6,
+          "n": 6,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "is_a_simple": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "multi_clause": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 8,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 0.4286
+        },
+        "permutation": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 1,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 0.75
+        },
+        "relation_simple": {
+          "tp": 7,
+          "fp": 0,
+          "fn": 1,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 0.875
+        },
+        "sealed_control": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 3,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "sealed_is_a": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 1,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 0.75
+        },
+        "sealed_multi_clause": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 1,
+          "n": 2,
+          "precision": 1.0,
+          "recall": 0.75
+        },
+        "sealed_relation": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 1,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 0.8571
+        }
+      }
+    },
+    "scratch_extended": {
+      "tp": 55,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "items_exact": 68,
+      "items_total": 68,
+      "item_exact_rate": 1.0,
+      "by_category": {
+        "control_hedge": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_malformed": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_negation": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_question": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "is_a_extended": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 0,
+          "n": 6,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "is_a_simple": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "multi_clause": {
+          "tp": 14,
+          "fp": 0,
+          "fn": 0,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "permutation": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "relation_simple": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "sealed_control": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 3,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "sealed_is_a": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "sealed_multi_clause": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "n": 2,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "sealed_relation": {
+          "tp": 7,
+          "fp": 0,
+          "fn": 0,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 1.0
+        }
+      }
+    },
+    "production_primary": {
+      "tp": 24,
+      "fp": 0,
+      "fn": 16,
+      "precision": 1.0,
+      "recall": 0.6,
+      "f1": 0.75,
+      "items_exact": 40,
+      "items_total": 52,
+      "item_exact_rate": 0.7692,
+      "by_category": {
+        "control_hedge": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_malformed": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_negation": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_question": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "is_a_extended": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 6,
+          "n": 6,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "is_a_simple": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "multi_clause": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 8,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 0.4286
+        },
+        "permutation": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 1,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 0.75
+        },
+        "relation_simple": {
+          "tp": 7,
+          "fp": 0,
+          "fn": 1,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 0.875
+        }
+      }
+    },
+    "scratch_extended_primary": {
+      "tp": 40,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "items_exact": 52,
+      "items_total": 52,
+      "item_exact_rate": 1.0,
+      "by_category": {
+        "control_hedge": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_malformed": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_negation": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "control_question": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 5,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "is_a_extended": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 0,
+          "n": 6,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "is_a_simple": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "multi_clause": {
+          "tp": 14,
+          "fp": 0,
+          "fn": 0,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "permutation": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "relation_simple": {
+          "tp": 8,
+          "fp": 0,
+          "fn": 0,
+          "n": 8,
+          "precision": 1.0,
+          "recall": 1.0
+        }
+      }
+    },
+    "production_sealed": {
+      "tp": 12,
+      "fp": 0,
+      "fn": 3,
+      "precision": 1.0,
+      "recall": 0.8,
+      "f1": 0.8889,
+      "items_exact": 13,
+      "items_total": 16,
+      "item_exact_rate": 0.8125,
+      "by_category": {
+        "sealed_control": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 3,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "sealed_is_a": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 1,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 0.75
+        },
+        "sealed_multi_clause": {
+          "tp": 3,
+          "fp": 0,
+          "fn": 1,
+          "n": 2,
+          "precision": 1.0,
+          "recall": 0.75
+        },
+        "sealed_relation": {
+          "tp": 6,
+          "fp": 0,
+          "fn": 1,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 0.8571
+        }
+      }
+    },
+    "scratch_extended_sealed": {
+      "tp": 15,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "items_exact": 16,
+      "items_total": 16,
+      "item_exact_rate": 1.0,
+      "by_category": {
+        "sealed_control": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "n": 3,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "sealed_is_a": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "n": 4,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "sealed_multi_clause": {
+          "tp": 4,
+          "fp": 0,
+          "fn": 0,
+          "n": 2,
+          "precision": 1.0,
+          "recall": 1.0
+        },
+        "sealed_relation": {
+          "tp": 7,
+          "fp": 0,
+          "fn": 0,
+          "n": 7,
+          "precision": 1.0,
+          "recall": 1.0
+        }
+      }
+    },
+    "pool_sizes": {
+      "primary": 52,
+      "sealed": 16
+    },
+    "delta_recall": 0.3455,
+    "delta_precision": 0.0,
+    "controls": {
+      "n_control_items": 22,
+      "production_refusals": 22,
+      "extended_refusals": 22,
+      "production_refusal_rate": 1.0,
+      "extended_refusal_rate": 1.0
+    },
+    "permutation_direction": {
+      "production_pass": false,
+      "extended_pass": true,
+      "items": [
+        "P01",
+        "P02",
+        "P03",
+        "P04"
+      ]
+    },
+    "precedes_canonicalisation": {
+      "production_pass": true,
+      "extended_pass": true,
+      "items": [
+        "R04",
+        "R08",
+        "P04"
+      ],
+      "target": [
+        [
+          "PRECEDES",
+          "night",
+          "dawn"
+        ]
+      ]
+    },
+    "coverage": {
+      "items_both_correct": 53,
+      "items_production_only_correct": 0,
+      "items_extended_only_correct": 15,
+      "extended_only_accepted_ids": [
+        "E01",
+        "E02",
+        "E03",
+        "E04",
+        "E05",
+        "E06",
+        "R07",
+        "M01",
+        "M02",
+        "M04",
+        "M06",
+        "P01",
+        "H04",
+        "H08"
+      ],
+      "production_only_accepted_ids": []
+    }
+  },
+  "read_side": [
+    {
+      "id": "D00",
+      "description": "FACT FROM UNMODIFIED PRODUCTION PARSER: taught unseen subject",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "lantern",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 1,
+      "pick": "light source",
+      "expected_pick": "light source",
+      "reason": "trusted_typed_slot_strict_winner",
+      "eligible": [
+        "light source"
+      ],
+      "all_slot_scores": {
+        "light source": 0.9
+      },
+      "pass": true
+    },
+    {
+      "id": "D01",
+      "description": "taught unseen subject, disjoint typed options",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "lantern",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 1,
+      "pick": "light source",
+      "expected_pick": "light source",
+      "reason": "trusted_typed_slot_strict_winner",
+      "eligible": [
+        "light source"
+      ],
+      "all_slot_scores": {
+        "light source": 0.9
+      },
+      "pass": true
+    },
+    {
+      "id": "D02",
+      "description": "same fact, options order permuted",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "lantern",
+      "options": [
+        "structured whole",
+        "similar form",
+        "stone pattern",
+        "light source"
+      ],
+      "view_count": 1,
+      "pick": "light source",
+      "expected_pick": "light source",
+      "reason": "trusted_typed_slot_strict_winner",
+      "eligible": [
+        "light source"
+      ],
+      "all_slot_scores": {
+        "light source": 0.9
+      },
+      "pass": true
+    },
+    {
+      "id": "D03",
+      "description": "untaught subject",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "zeppelin",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 1,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D04",
+      "description": "disjoint options (taught slot absent)",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "lantern",
+      "options": [
+        "apple",
+        "banana",
+        "chair",
+        "table"
+      ],
+      "view_count": 1,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D05",
+      "description": "unrelated subject present in graph",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "harbor",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 1,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D06",
+      "description": "untrusted typed edge",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "lantern",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 1,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D07",
+      "description": "wrong relation_type",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "lantern",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 1,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D08",
+      "description": "multiword subject taught by extended parser",
+      "facts": [
+        {
+          "subject": "civic event",
+          "relation": "IS_A",
+          "object": "structured whole",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "civic event",
+      "options": [
+        "structured whole",
+        "stone pattern",
+        "similar form"
+      ],
+      "view_count": 1,
+      "pick": "structured whole",
+      "expected_pick": "structured whole",
+      "reason": "trusted_typed_slot_strict_winner",
+      "eligible": [
+        "structured whole"
+      ],
+      "all_slot_scores": {
+        "structured whole": 0.9
+      },
+      "pass": true
+    },
+    {
+      "id": "D09",
+      "description": "multi-clause teaching, first subject",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.8
+        },
+        {
+          "subject": "mosaic",
+          "relation": "IS_A",
+          "object": "stone pattern",
+          "confidence": 0.8
+        }
+      ],
+      "subject": "lantern",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 2,
+      "pick": "light source",
+      "expected_pick": "light source",
+      "reason": "trusted_typed_slot_strict_winner",
+      "eligible": [
+        "light source"
+      ],
+      "all_slot_scores": {
+        "light source": 0.8
+      },
+      "pass": true
+    },
+    {
+      "id": "D10",
+      "description": "multi-clause teaching, second subject",
+      "facts": [
+        {
+          "subject": "lantern",
+          "relation": "IS_A",
+          "object": "light source",
+          "confidence": 0.8
+        },
+        {
+          "subject": "mosaic",
+          "relation": "IS_A",
+          "object": "stone pattern",
+          "confidence": 0.8
+        }
+      ],
+      "subject": "mosaic",
+      "options": [
+        "light source",
+        "stone pattern",
+        "similar form",
+        "structured whole"
+      ],
+      "view_count": 2,
+      "pick": "stone pattern",
+      "expected_pick": "stone pattern",
+      "reason": "trusted_typed_slot_strict_winner",
+      "eligible": [
+        "stone pattern"
+      ],
+      "all_slot_scores": {
+        "stone pattern": 0.8
+      },
+      "pass": true
+    },
+    {
+      "id": "D11",
+      "description": "negated teaching surface yields no edge",
+      "facts": [],
+      "subject": "civic event",
+      "options": [
+        "structured whole",
+        "stone pattern"
+      ],
+      "view_count": 0,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D12",
+      "description": "hedged teaching surface yields no edge",
+      "facts": [],
+      "subject": "civic event",
+      "options": [
+        "structured whole",
+        "stone pattern"
+      ],
+      "view_count": 0,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D13",
+      "description": "relation fact without type_label stamp (production style)",
+      "facts": [
+        {
+          "subject": "petal",
+          "relation": "PART_OF",
+          "object": "blossom",
+          "confidence": 0.9
+        }
+      ],
+      "subject": "petal",
+      "options": [
+        "blossom",
+        "tapestry"
+      ],
+      "view_count": 1,
+      "pick": null,
+      "expected_pick": null,
+      "reason": "no_trusted_typed_slot_above_floor",
+      "eligible": [],
+      "all_slot_scores": {},
+      "pass": true
+    },
+    {
+      "id": "D14",
+      "description": "extended-only fact confidence above reader floor",
+      "facts": [
+        {
+          "subject": "tremor",
+          "relation": "IS_A",
+          "object": "sudden ground motion",
+          "confidence": 0.8
+        }
+      ],
+      "subject": "tremor",
+      "options": [
+        "sudden ground motion",
+        "stone pattern"
+      ],
+      "view_count": 1,
+      "pick": "sudden ground motion",
+      "expected_pick": "sudden ground motion",
+      "reason": "trusted_typed_slot_strict_winner",
+      "eligible": [
+        "sudden ground motion"
+      ],
+      "all_slot_scores": {
+        "sudden ground motion": 0.8
+      },
+      "pass": true
+    }
+  ],
+  "gates": {
+    "flag_off_production_byte_identical": true,
+    "flag_off_extended_inert": true,
+    "no_engine_instance": true,
+    "no_production_file_changed": true,
+    "no_weight_store_write": true,
+    "no_benchmark_answer_key_import": true,
+    "extended_controls_pass": true,
+    "read_side_fail_closed_and_selective": true
+  },
+  "evidence": [
+    "Production _typed_slot_assertions accepts anchored single-token subject / <=2-token object 'is a/an [kind|type of] X' declaratives; it refuses every multi-clause and multiword-NP item in the fixed set.",
+    "Production _asserted_relation_propositions DOES split clauses and accepts is_part_of / precedes / resembles surfaces, but refuses 'event is part of ceremony.' because its negation regex [a-z]n['’]?t matches the 'ent' of 'event'.",
+    "Production parsers never emit IS_A + relation facts from one multi-clause turn: the typed parser is anchored, and the relation parser has no IS_A family.",
+    "The scratch parser reproduced all 68 hand labels with all negation/hedge/question/malformed controls refused, direction preserved under permutation, and PRECEDES canonicalised across comes-before / follows / happens-after surfaces (see metrics). This is SPEC AGREEMENT with the authored grammar, not independent generalisation; the sealed pool (16 items, added after the parser was fixed, with unseen surface forms) is the only generalisation probe and is reported separately.",
+    "The unmodified typed-slot read adapter + fail-closed scorer picked the taught slot for taught subjects (including a multiword subject and a 0.8-confidence multi-clause fact) and returned None for untaught subject, disjoint options, unrelated subject, untrusted edge, wrong relation_type, missing type_label, and negated/hedged teaching surfaces."
+  ],
+  "inference": [
+    "That a deterministic regex grammar implements human-like compositional interpretation is not established by 1.00 spec agreement; the sealed pool only tests surface forms, not spontaneous syntax or genuine semantic understanding.",
+    "That these results would transfer to unseen real-world vocabulary or spontaneous multi-clause prose is NOT measured: the lexicon and surfaces here are authored, deterministic and source-independent.",
+    "That a multi-clause parse written through KnowledgeIntake would preserve provenance on every emitted edge is NOT measured: no engine boot, no intake call and no cold reload were performed.",
+    "That compositional phrase facts improve any downstream TRA answer is NOT measured: no gate, harness or benchmark front was run.",
+    "The brain citation set motivates clause-wise binding and provenance-sensitive slots; it does not by itself validate this specific regex grammar as a neural analogue."
+  ],
+  "recommendation": {
+    "verdict": "DO-NOT-IMPLEMENT in production now",
+    "flag_if_revisited": "RAVANA_TRA_PHRASE",
+    "gate_changes": false,
+    "rationale": "The existing parse path already covers all single-clause declarative surfaces needed by the merged TRA slot write/read path. The measured scratch gain is confined to multi-clause and wider-NP surfaces; the read side already handles those facts once stamped, so the missing piece is a write-side provenance/cold-reload validation, not a new production parser or a widened gate. Any revisit must stay behind RAVANA_TRA_PHRASE=1 (default OFF), call the same intake and Provenance path, and change no trust threshold or C10 gate."
+  }
+}
