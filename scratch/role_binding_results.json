@@ -1,0 +1,1033 @@
+{
+  "metadata": {
+    "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_rolebind",
+    "main_repo": "C:\\Users\\Likhith\\Documents\\projects\\ravana",
+    "commit": "dbb3e78",
+    "production_files_edited": [],
+    "code_loaded_from": [
+      "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_rolebind\\ravana\\src\\ravana\\chat\\schema_induction.py",
+      "C:\\Users\\Likhith\\Documents\\projects\\ravana_rsi_rolebind\\ravana\\src\\ravana\\chat\\response_gen.py"
+    ],
+    "rows_source": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\rsi_focus_live_rows.json",
+    "rows_total": 384,
+    "rows_selected": 16,
+    "census_source": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\scratch\\rsi_teach_form_probe2.log",
+    "recorded_cause_trusted_pairs": [
+      [
+        "gale",
+        "rainbow"
+      ],
+      [
+        "shower",
+        "climate"
+      ],
+      [
+        "overcast",
+        "storm"
+      ],
+      [
+        "dew",
+        "tempest"
+      ],
+      [
+        "sleet",
+        "chill"
+      ],
+      [
+        "blizzard",
+        "breeze"
+      ],
+      [
+        "drizzle",
+        "glow"
+      ],
+      [
+        "monsoon",
+        "frost"
+      ]
+    ],
+    "recorded_cause_edge_count": 127,
+    "glove_cache": "C:\\Users\\Likhith\\Documents\\projects\\ravana\\data\\ravana_glove_cache.npz",
+    "glove_dim": 64,
+    "ranker_patch": "in-process optional role_scores arg only; gates unchanged",
+    "gold_use": "evaluation only, never passed to trace/scorer/ranker"
+  },
+  "sanity_control": {
+    "baseline_pick": "warmth",
+    "role_pick": "engine",
+    "passes": true,
+    "role_scores": {
+      "warmth": 0.101,
+      "engine": 0.7071
+    }
+  },
+  "totals": {
+    "near": {
+      "n": 4,
+      "baseline_correct": 2,
+      "role_correct": 1
+    },
+    "far": {
+      "n": 4,
+      "baseline_correct": 0,
+      "role_correct": 1
+    },
+    "foil": {
+      "n": 4,
+      "baseline_correct": 0,
+      "role_correct": 0
+    },
+    "negative": {
+      "n": 4,
+      "baseline_correct": 4,
+      "role_correct": 4
+    }
+  },
+  "summary": {
+    "CAUSE": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          "mist"
+        ],
+        "role_picks": [
+          "mist"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "election"
+        ],
+        "role_picks": [
+          null
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "thunder"
+        ],
+        "role_picks": [
+          "mist"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    },
+    "PART_OF": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "chill"
+        ],
+        "role_picks": [
+          "chill"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "ceremony"
+        ],
+        "role_picks": [
+          "habit"
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "shower"
+        ],
+        "role_picks": [
+          "frost"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    },
+    "PRECEDES": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "glow"
+        ],
+        "role_picks": [
+          "glow"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 1,
+        "baseline_picks": [
+          "law"
+        ],
+        "role_picks": [
+          "ceremony"
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "breeze"
+        ],
+        "role_picks": [
+          "storm"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    },
+    "RESEMBLES": {
+      "near": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 0,
+        "baseline_picks": [
+          "chill"
+        ],
+        "role_picks": [
+          "blizzard"
+        ]
+      },
+      "far": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "election"
+        ],
+        "role_picks": [
+          "election"
+        ]
+      },
+      "foil": {
+        "n": 1,
+        "baseline_correct": 0,
+        "role_correct": 0,
+        "baseline_picks": [
+          "blizzard"
+        ],
+        "role_picks": [
+          "blizzard"
+        ]
+      },
+      "negative": {
+        "n": 1,
+        "baseline_correct": 1,
+        "role_correct": 1,
+        "baseline_picks": [
+          null
+        ],
+        "role_picks": [
+          null
+        ]
+      }
+    }
+  },
+  "rows": [
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "far",
+      "relation_type": "causal",
+      "subject": "role",
+      "candidates": [
+        "council",
+        "ceremony",
+        "team",
+        "election"
+      ],
+      "gold_target": "ceremony",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "recorded_census_edge_count": 127,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.1387,
+      "role_gate": {
+        "causal": {
+          "subject_fit": 0.0221,
+          "lower_bound": 0.092,
+          "passes": false
+        }
+      },
+      "baseline_pick": "election",
+      "role_pick": null,
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.037,
+      "role_margin": null,
+      "baseline_scores": {
+        "ceremony": 0.392,
+        "council": 0.5514,
+        "election": 0.5884,
+        "team": 0.4805
+      },
+      "role_scores": {},
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "foil",
+      "relation_type": "causal",
+      "subject": "hail",
+      "candidates": [
+        "gale",
+        "mist",
+        "thunder",
+        "squall"
+      ],
+      "gold_target": null,
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "recorded_census_edge_count": 127,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.1387,
+      "role_gate": {
+        "causal": {
+          "subject_fit": 0.4433,
+          "lower_bound": 0.092,
+          "passes": true
+        }
+      },
+      "baseline_pick": "thunder",
+      "role_pick": "mist",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.1825,
+      "role_margin": 0.0489,
+      "baseline_scores": {
+        "gale": 0.1582,
+        "mist": 0.3069,
+        "squall": 0.2768,
+        "thunder": 0.4894
+      },
+      "role_scores": {
+        "gale": 0.6013,
+        "mist": 0.6501,
+        "squall": 0.5219,
+        "thunder": 0.4545
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "near",
+      "relation_type": "causal",
+      "subject": "thaw",
+      "candidates": [
+        "sunset",
+        "typhoon",
+        "mist",
+        "hail"
+      ],
+      "gold_target": "mist",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "recorded-engine-census",
+      "recorded_census_edge_count": 127,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.1387,
+      "role_gate": {
+        "causal": {
+          "subject_fit": 0.3926,
+          "lower_bound": 0.092,
+          "passes": true
+        }
+      },
+      "baseline_pick": "mist",
+      "role_pick": "mist",
+      "baseline_correct": true,
+      "role_correct": true,
+      "baseline_margin": 0.0554,
+      "role_margin": 0.185,
+      "baseline_scores": {
+        "hail": 0.1695,
+        "mist": 0.2249,
+        "sunset": 0.0217,
+        "typhoon": 0.1616
+      },
+      "role_scores": {
+        "hail": 0.4472,
+        "mist": 0.6501,
+        "sunset": 0.4285,
+        "typhoon": 0.4652
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_000",
+      "family": "CAUSE",
+      "condition": "negative",
+      "relation_type": "causal",
+      "subject": "squall",
+      "candidates": [
+        "thunder",
+        "sunset",
+        "typhoon",
+        "thaw"
+      ],
+      "gold_target": null,
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "recorded_census_edge_count": null,
+      "traces": 0,
+      "hypotheses": 0,
+      "support": [],
+      "congruence_floor": null,
+      "role_gate": {},
+      "baseline_pick": null,
+      "role_pick": null,
+      "baseline_correct": true,
+      "role_correct": true,
+      "baseline_margin": 0.0105,
+      "role_margin": null,
+      "baseline_scores": {
+        "sunset": 0.3983,
+        "thaw": 0.2222,
+        "thunder": 0.3878,
+        "typhoon": 0.3328
+      },
+      "role_scores": {},
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "far",
+      "relation_type": "part_of",
+      "subject": "custom",
+      "candidates": [
+        "contract",
+        "law",
+        "habit",
+        "ceremony"
+      ],
+      "gold_target": "contract",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.1004,
+      "role_gate": {
+        "part_of": {
+          "subject_fit": 0.2703,
+          "lower_bound": 0.0217,
+          "passes": true
+        }
+      },
+      "baseline_pick": "ceremony",
+      "role_pick": "habit",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.0415,
+      "role_margin": 0.0301,
+      "baseline_scores": {
+        "ceremony": 0.327,
+        "contract": 0.1567,
+        "habit": 0.2855,
+        "law": 0.1892
+      },
+      "role_scores": {
+        "ceremony": 0.2497,
+        "contract": 0.1857,
+        "habit": 0.3165,
+        "law": 0.2863
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "foil",
+      "relation_type": "part_of",
+      "subject": "rainbow",
+      "candidates": [
+        "shower",
+        "gale",
+        "frost",
+        "tempest"
+      ],
+      "gold_target": null,
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.1004,
+      "role_gate": {
+        "part_of": {
+          "subject_fit": 0.2898,
+          "lower_bound": 0.0217,
+          "passes": true
+        }
+      },
+      "baseline_pick": "shower",
+      "role_pick": "frost",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.15,
+      "role_margin": 0.0238,
+      "baseline_scores": {
+        "frost": 0.1522,
+        "gale": 0.1481,
+        "shower": 0.3022,
+        "tempest": 0.1495
+      },
+      "role_scores": {
+        "frost": 0.5503,
+        "gale": 0.5265,
+        "shower": 0.5243,
+        "tempest": 0.3925
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "near",
+      "relation_type": "part_of",
+      "subject": "thunder",
+      "candidates": [
+        "chill",
+        "gale",
+        "tempest",
+        "dew"
+      ],
+      "gold_target": "tempest",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.1004,
+      "role_gate": {
+        "part_of": {
+          "subject_fit": 0.4055,
+          "lower_bound": 0.0217,
+          "passes": true
+        }
+      },
+      "baseline_pick": "chill",
+      "role_pick": "chill",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.0004,
+      "role_margin": 0.1801,
+      "baseline_scores": {
+        "chill": 0.2763,
+        "dew": 0.2759,
+        "gale": 0.1978,
+        "tempest": 0.2526
+      },
+      "role_scores": {
+        "chill": 0.7065,
+        "dew": 0.4539,
+        "gale": 0.5265,
+        "tempest": 0.3925
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_001",
+      "family": "PART_OF",
+      "condition": "negative",
+      "relation_type": "part_of",
+      "subject": "gale",
+      "candidates": [
+        "hail",
+        "chill",
+        "dew",
+        "frost"
+      ],
+      "gold_target": null,
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "recorded_census_edge_count": null,
+      "traces": 0,
+      "hypotheses": 0,
+      "support": [],
+      "congruence_floor": null,
+      "role_gate": {},
+      "baseline_pick": null,
+      "role_pick": null,
+      "baseline_correct": true,
+      "role_correct": true,
+      "baseline_margin": 0.1401,
+      "role_margin": null,
+      "baseline_scores": {
+        "chill": 0.3769,
+        "dew": 0.183,
+        "frost": 0.517,
+        "hail": 0.1582
+      },
+      "role_scores": {},
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "far",
+      "relation_type": "temporal",
+      "subject": "election",
+      "candidates": [
+        "ceremony",
+        "law",
+        "rank",
+        "role"
+      ],
+      "gold_target": "ceremony",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.0217,
+      "role_gate": {
+        "temporal": {
+          "subject_fit": 0.1507,
+          "lower_bound": 0.0,
+          "passes": true
+        }
+      },
+      "baseline_pick": "law",
+      "role_pick": "ceremony",
+      "baseline_correct": false,
+      "role_correct": true,
+      "baseline_margin": 0.0387,
+      "role_margin": 0.0755,
+      "baseline_scores": {
+        "ceremony": 0.4308,
+        "law": 0.6271,
+        "rank": 0.2799,
+        "role": 0.5884
+      },
+      "role_scores": {
+        "ceremony": 0.3331,
+        "law": 0.2576,
+        "rank": 0.0848,
+        "role": 0.149
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "foil",
+      "relation_type": "temporal",
+      "subject": "glow",
+      "candidates": [
+        "breeze",
+        "climate",
+        "storm",
+        "frost"
+      ],
+      "gold_target": null,
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.0217,
+      "role_gate": {
+        "temporal": {
+          "subject_fit": 0.5143,
+          "lower_bound": 0.0,
+          "passes": true
+        }
+      },
+      "baseline_pick": "breeze",
+      "role_pick": "storm",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.2112,
+      "role_margin": 0.0375,
+      "baseline_scores": {
+        "breeze": 0.488,
+        "climate": 0.2466,
+        "frost": 0.2767,
+        "storm": 0.2042
+      },
+      "role_scores": {
+        "breeze": 0.6585,
+        "climate": 0.3484,
+        "frost": 0.5298,
+        "storm": 0.696
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "near",
+      "relation_type": "temporal",
+      "subject": "cloud",
+      "candidates": [
+        "climate",
+        "glow",
+        "typhoon",
+        "frost"
+      ],
+      "gold_target": "typhoon",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.0217,
+      "role_gate": {
+        "temporal": {
+          "subject_fit": 0.4987,
+          "lower_bound": 0.0,
+          "passes": true
+        }
+      },
+      "baseline_pick": "glow",
+      "role_pick": "glow",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.0638,
+      "role_margin": 0.048,
+      "baseline_scores": {
+        "climate": 0.4551,
+        "frost": 0.4163,
+        "glow": 0.5189,
+        "typhoon": 0.3595
+      },
+      "role_scores": {
+        "climate": 0.3484,
+        "frost": 0.5298,
+        "glow": 0.5778,
+        "typhoon": 0.4495
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_002",
+      "family": "PRECEDES",
+      "condition": "negative",
+      "relation_type": "temporal",
+      "subject": "storm",
+      "candidates": [
+        "climate",
+        "tempest",
+        "glow",
+        "frost"
+      ],
+      "gold_target": null,
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "recorded_census_edge_count": null,
+      "traces": 0,
+      "hypotheses": 0,
+      "support": [],
+      "congruence_floor": null,
+      "role_gate": {},
+      "baseline_pick": null,
+      "role_pick": null,
+      "baseline_correct": true,
+      "role_correct": true,
+      "baseline_margin": 0.0255,
+      "role_margin": null,
+      "baseline_scores": {
+        "climate": 0.468,
+        "frost": 0.4935,
+        "glow": 0.2042,
+        "tempest": 0.44
+      },
+      "role_scores": {},
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "far",
+      "relation_type": "analogical",
+      "subject": "market",
+      "candidates": [
+        "vote",
+        "council",
+        "election",
+        "guild"
+      ],
+      "gold_target": "guild",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.2343,
+      "role_gate": {
+        "analogical": {
+          "subject_fit": 0.3779,
+          "lower_bound": 0.0217,
+          "passes": true
+        }
+      },
+      "baseline_pick": "election",
+      "role_pick": "election",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.03,
+      "role_margin": 0.1005,
+      "baseline_scores": {
+        "council": 0.2897,
+        "election": 0.3549,
+        "guild": 0.0028,
+        "vote": 0.3249
+      },
+      "role_scores": {
+        "council": 0.0949,
+        "election": 0.2553,
+        "guild": 0.0981,
+        "vote": 0.1548
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "foil",
+      "relation_type": "analogical",
+      "subject": "typhoon",
+      "candidates": [
+        "frost",
+        "dew",
+        "blizzard",
+        "hail"
+      ],
+      "gold_target": null,
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.2343,
+      "role_gate": {
+        "analogical": {
+          "subject_fit": 0.4365,
+          "lower_bound": 0.0217,
+          "passes": true
+        }
+      },
+      "baseline_pick": "blizzard",
+      "role_pick": "blizzard",
+      "baseline_correct": false,
+      "role_correct": false,
+      "baseline_margin": 0.2042,
+      "role_margin": 0.1251,
+      "baseline_scores": {
+        "blizzard": 0.5406,
+        "dew": 0.1533,
+        "frost": 0.2667,
+        "hail": 0.3365
+      },
+      "role_scores": {
+        "blizzard": 0.6586,
+        "dew": 0.4398,
+        "frost": 0.5336,
+        "hail": 0.4948
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "near",
+      "relation_type": "analogical",
+      "subject": "drizzle",
+      "candidates": [
+        "chill",
+        "typhoon",
+        "blizzard",
+        "cloud"
+      ],
+      "gold_target": "chill",
+      "demo_count": 8,
+      "trusted_edges_used": 8,
+      "edge_source": "synthetic-trusted-post-write-fix",
+      "recorded_census_edge_count": null,
+      "traces": 8,
+      "hypotheses": 1,
+      "support": [
+        8
+      ],
+      "congruence_floor": 0.2343,
+      "role_gate": {
+        "analogical": {
+          "subject_fit": 0.6179,
+          "lower_bound": 0.0217,
+          "passes": true
+        }
+      },
+      "baseline_pick": "chill",
+      "role_pick": "blizzard",
+      "baseline_correct": true,
+      "role_correct": false,
+      "baseline_margin": 0.1514,
+      "role_margin": 0.0534,
+      "baseline_scores": {
+        "blizzard": 0.3763,
+        "chill": 0.6214,
+        "cloud": 0.47,
+        "typhoon": 0.196
+      },
+      "role_scores": {
+        "blizzard": 0.6586,
+        "chill": 0.6052,
+        "cloud": 0.5523,
+        "typhoon": 0.4782
+      },
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    },
+    {
+      "item_id": "rsi_005",
+      "family": "RESEMBLES",
+      "condition": "negative",
+      "relation_type": "analogical",
+      "subject": "breeze",
+      "candidates": [
+        "blizzard",
+        "cloud",
+        "dew",
+        "typhoon"
+      ],
+      "gold_target": null,
+      "demo_count": 0,
+      "trusted_edges_used": 0,
+      "edge_source": "negated-demos-no-write",
+      "recorded_census_edge_count": null,
+      "traces": 0,
+      "hypotheses": 0,
+      "support": [],
+      "congruence_floor": null,
+      "role_gate": {},
+      "baseline_pick": null,
+      "role_pick": null,
+      "baseline_correct": true,
+      "role_correct": true,
+      "baseline_margin": 0.0358,
+      "role_margin": null,
+      "baseline_scores": {
+        "blizzard": 0.3907,
+        "cloud": 0.3278,
+        "dew": 0.4265,
+        "typhoon": 0.1977
+      },
+      "role_scores": {},
+      "missing_glove_labels": [],
+      "gold_used_for": "evaluation only"
+    }
+  ]
+}
