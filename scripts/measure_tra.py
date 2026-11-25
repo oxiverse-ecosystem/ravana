@@ -163,7 +163,18 @@ def teaching_surfaces(item, k, condition, arm, permuted=False):
             phrase = ROLE_TO_PHRASE[item["role"]]
             out.append("%s does not %s %s." % (ex["r1"], phrase, ex["r2"]))
         return out
-    return [ex["surface"] for ex in exemplars]
+    # One teaching turn per exemplar (k calls, matched compute). The production
+    # is_a writer parses a SINGLE whole assertion; the two-clause authored
+    # surface ("cloud resembles storm. storm is a similar-form.") writes ZERO
+    # typed edges because the anchored regex refuses multi-clause text. Emit
+    # the type assertion alone: the taught exemplar object receives the slot,
+    # the QUERY subject stays unseen (the capability under test), and no gold
+    # answer or query subject type is supplied.
+    type_label = item["type_label"]
+    return ["%s is an %s." % (ex["r2"], type_label)
+            if type_label[:1].lower() in "aeiou"
+            else "%s is a %s." % (ex["r2"], type_label)
+            for ex in exemplars]
 
 
 # ── answer parser (grammar from measure_learn5_rsi.py:378-475) ───────────────
