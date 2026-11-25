@@ -1,0 +1,638 @@
+{
+  "instrument": {
+    "self_test": "PASS",
+    "no_engine_boot": true,
+    "production_files_modified": 0,
+    "gates_or_thresholds_changed": 0,
+    "bank_source": "scripts/measure_learn5_car.py::_CANDIDATES (ast, read-only)",
+    "trace_source": "docs/investigations/CAR_ANSWER_REACH.md section 1 table",
+    "echo_metric_definition": "a in answer.lower() and b in answer.lower() (measure_learn5_car.py:500-501)",
+    "note": "echo channel = identical-surface question; reach channel = held-out paraphrase question. They are distinct.",
+    "recorded_vs_bank_chain_label_drifts": [
+      {
+        "x": "eclipse",
+        "bank_a": "alignment",
+        "bank_b": "shadow",
+        "recorded_chain": "darkness leads to shadow, and shadow leads to eclipse",
+        "naive_chain": "alignment leads to shadow, and shadow leads to eclipse"
+      }
+    ]
+  },
+  "sets": {
+    "primary_k8_documented": {
+      "baseline_identity": {
+        "identical_surface_echo": 0.5,
+        "verbatim_taught_surface_echo": 0.5,
+        "proposition_preserved_in_rewritten_answer": 0.5,
+        "ident_channel_rewrote_n": 0,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 1.0,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": []
+      },
+      "v1_role_template": {
+        "identical_surface_echo": 0.5,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.5,
+        "ident_channel_rewrote_n": 3,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 1.0,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": [
+          {
+            "x": "cough",
+            "a": "tickling",
+            "b": "expulsion",
+            "before": "yes, because tickling causes expulsion, and expulsion causes cough.",
+            "after": "yes, because tickling starts the causal chain, which passes through expulsion and ends in cough.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          },
+          {
+            "x": "ivory",
+            "a": "material",
+            "b": "tusk",
+            "before": "yes, because material causes tusk, and tusk causes ivory.",
+            "after": "yes, because material starts the causal chain, which passes through tusk and ends in ivory.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          },
+          {
+            "x": "coral",
+            "a": "secretion",
+            "b": "reef",
+            "before": "yes, because secretion causes reef, and reef causes coral.",
+            "after": "yes, because secretion starts the causal chain, which passes through reef and ends in coral.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          }
+        ]
+      },
+      "v2_gist_abstraction": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 3,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 1.0,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": [
+          {
+            "x": "cough",
+            "a": "tickling",
+            "b": "expulsion",
+            "before": "yes, because tickling causes expulsion, and expulsion causes cough.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in cough.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "ivory",
+            "a": "material",
+            "b": "tusk",
+            "before": "yes, because material causes tusk, and tusk causes ivory.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in ivory.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "coral",
+            "a": "secretion",
+            "b": "reef",
+            "before": "yes, because secretion causes reef, and reef causes coral.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in coral.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          }
+        ]
+      },
+      "v3_cosmetic_dodge": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 3,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 1.0,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": [
+          {
+            "x": "cough",
+            "a": "tickling",
+            "b": "expulsion",
+            "before": "yes, because tickling causes expulsion, and expulsion causes cough.",
+            "after": "yes, because tickling causes e​x​p​u​l​s​i​o​n, and e​x​p​u​l​s​i​o​n causes cough.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "ivory",
+            "a": "material",
+            "b": "tusk",
+            "before": "yes, because material causes tusk, and tusk causes ivory.",
+            "after": "yes, because material causes t​u​s​k, and t​u​s​k causes ivory.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "coral",
+            "a": "secretion",
+            "b": "reef",
+            "before": "yes, because secretion causes reef, and reef causes coral.",
+            "after": "yes, because secretion causes r​e​e​f, and r​e​e​f causes coral.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          }
+        ]
+      }
+    },
+    "sealed_k8_documented": {
+      "baseline_identity": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 0,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.9,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": []
+      },
+      "v1_role_template": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 0,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.9,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": []
+      },
+      "v2_gist_abstraction": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 0,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.9,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": []
+      },
+      "v3_cosmetic_dodge": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 0,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.9,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": []
+      }
+    },
+    "full_bank_stress": {
+      "baseline_identity": {
+        "identical_surface_echo": 1.0,
+        "verbatim_taught_surface_echo": 1.0,
+        "proposition_preserved_in_rewritten_answer": 1.0,
+        "ident_channel_rewrote_n": 0,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.99,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": []
+      },
+      "v1_role_template": {
+        "identical_surface_echo": 1.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 1.0,
+        "ident_channel_rewrote_n": 104,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.99,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": [
+          {
+            "x": "fog",
+            "a": "chill",
+            "b": "condensation",
+            "before": "yes, because chill causes condensation, and condensation causes fog.",
+            "after": "yes, because chill starts the causal chain, which passes through condensation and ends in fog.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          },
+          {
+            "x": "dew",
+            "a": "cooling",
+            "b": "condensation",
+            "before": "yes, because cooling causes condensation, and condensation causes dew.",
+            "after": "yes, because cooling starts the causal chain, which passes through condensation and ends in dew.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          },
+          {
+            "x": "rust",
+            "a": "moisture",
+            "b": "oxidation",
+            "before": "yes, because moisture causes oxidation, and oxidation causes rust.",
+            "after": "yes, because moisture starts the causal chain, which passes through oxidation and ends in rust.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          },
+          {
+            "x": "echo",
+            "a": "reflection",
+            "b": "repetition",
+            "before": "yes, because reflection causes repetition, and repetition causes echo.",
+            "after": "yes, because reflection starts the causal chain, which passes through repetition and ends in echo.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          },
+          {
+            "x": "rainbow",
+            "a": "refraction",
+            "b": "dispersion",
+            "before": "yes, because refraction causes dispersion, and dispersion causes rainbow.",
+            "after": "yes, because refraction starts the causal chain, which passes through dispersion and ends in rainbow.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          },
+          {
+            "x": "shadow",
+            "a": "blockage",
+            "b": "darkness",
+            "before": "yes, because blockage causes darkness, and darkness causes shadow.",
+            "after": "yes, because blockage starts the causal chain, which passes through darkness and ends in shadow.",
+            "harness_echo": true,
+            "verbatim_echo": false,
+            "proposition_preserved": true
+          }
+        ]
+      },
+      "v2_gist_abstraction": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 104,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.99,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": [
+          {
+            "x": "fog",
+            "a": "chill",
+            "b": "condensation",
+            "before": "yes, because chill causes condensation, and condensation causes fog.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in fog.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "dew",
+            "a": "cooling",
+            "b": "condensation",
+            "before": "yes, because cooling causes condensation, and condensation causes dew.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in dew.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "rust",
+            "a": "moisture",
+            "b": "oxidation",
+            "before": "yes, because moisture causes oxidation, and oxidation causes rust.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in rust.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "echo",
+            "a": "reflection",
+            "b": "repetition",
+            "before": "yes, because reflection causes repetition, and repetition causes echo.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in echo.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "rainbow",
+            "a": "refraction",
+            "b": "dispersion",
+            "before": "yes, because refraction causes dispersion, and dispersion causes rainbow.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in rainbow.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "shadow",
+            "a": "blockage",
+            "b": "darkness",
+            "before": "yes, because blockage causes darkness, and darkness causes shadow.",
+            "after": "yes, because an initial trigger sets off an intermediate process that ends in shadow.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          }
+        ]
+      },
+      "v3_cosmetic_dodge": {
+        "identical_surface_echo": 0.0,
+        "verbatim_taught_surface_echo": 0.0,
+        "proposition_preserved_in_rewritten_answer": 0.0,
+        "ident_channel_rewrote_n": 104,
+        "answer_reach_proxy_byte": 1.0,
+        "answer_reach_proxy_semantic": 0.99,
+        "paraphrase_channel_rewrote_n": 0,
+        "rewrite_audit_examples": [
+          {
+            "x": "fog",
+            "a": "chill",
+            "b": "condensation",
+            "before": "yes, because chill causes condensation, and condensation causes fog.",
+            "after": "yes, because chill causes c​o​n​d​e​n​s​a​t​i​o​n, and c​o​n​d​e​n​s​a​t​i​o​n causes fog.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "dew",
+            "a": "cooling",
+            "b": "condensation",
+            "before": "yes, because cooling causes condensation, and condensation causes dew.",
+            "after": "yes, because cooling causes c​o​n​d​e​n​s​a​t​i​o​n, and c​o​n​d​e​n​s​a​t​i​o​n causes dew.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "rust",
+            "a": "moisture",
+            "b": "oxidation",
+            "before": "yes, because moisture causes oxidation, and oxidation causes rust.",
+            "after": "yes, because moisture causes o​x​i​d​a​t​i​o​n, and o​x​i​d​a​t​i​o​n causes rust.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "echo",
+            "a": "reflection",
+            "b": "repetition",
+            "before": "yes, because reflection causes repetition, and repetition causes echo.",
+            "after": "yes, because reflection causes r​e​p​e​t​i​t​i​o​n, and r​e​p​e​t​i​t​i​o​n causes echo.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "rainbow",
+            "a": "refraction",
+            "b": "dispersion",
+            "before": "yes, because refraction causes dispersion, and dispersion causes rainbow.",
+            "after": "yes, because refraction causes d​i​s​p​e​r​s​i​o​n, and d​i​s​p​e​r​s​i​o​n causes rainbow.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          },
+          {
+            "x": "shadow",
+            "a": "blockage",
+            "b": "darkness",
+            "before": "yes, because blockage causes darkness, and darkness causes shadow.",
+            "after": "yes, because blockage causes d​a​r​k​n​e​s​s, and d​a​r​k​n​e​s​s causes shadow.",
+            "harness_echo": false,
+            "verbatim_echo": false,
+            "proposition_preserved": false
+          }
+        ]
+      }
+    }
+  },
+  "fail_closed": [
+    {
+      "case": "trusted_verified_gated",
+      "eligible": true,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": true,
+        "text_identical": false,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": true,
+        "text_identical": false,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": true,
+        "text_identical": false,
+        "verified_chain_unchanged": true
+      }
+    },
+    {
+      "case": "untrusted_provenance",
+      "eligible": false,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      }
+    },
+    {
+      "case": "wrong_strategy",
+      "eligible": false,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      }
+    },
+    {
+      "case": "unverified_chain",
+      "eligible": false,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      }
+    },
+    {
+      "case": "no_chain",
+      "eligible": false,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      }
+    },
+    {
+      "case": "no_taught_surface_uncertainty",
+      "eligible": false,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      }
+    },
+    {
+      "case": "quoted_user_frame",
+      "eligible": true,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      }
+    },
+    {
+      "case": "paraphrase_channel",
+      "eligible": false,
+      "baseline_identity": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v1_role_template": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v2_gist_abstraction": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      },
+      "v3_cosmetic_dodge": {
+        "changed": false,
+        "text_identical": true,
+        "verified_chain_unchanged": true
+      }
+    }
+  ],
+  "fail_closed_invariants": {
+    "v1_role_template": {
+      "fires_on_valid": true,
+      "all_negative_cases_unchanged": true,
+      "paraphrase_reach_channel_untouched": true
+    },
+    "v2_gist_abstraction": {
+      "fires_on_valid": true,
+      "all_negative_cases_unchanged": true,
+      "paraphrase_reach_channel_untouched": true
+    },
+    "v3_cosmetic_dodge": {
+      "fires_on_valid": true,
+      "all_negative_cases_unchanged": true,
+      "paraphrase_reach_channel_untouched": true
+    }
+  }
+}
+
+WROTE C:\Users\Likhith\Documents\projects\ravana_goal_echo\scratch\car_echo_reduction_results.json
