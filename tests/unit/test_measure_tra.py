@@ -409,3 +409,162 @@ def test_real_backend_is_lazy_and_flag_gated():
     assert obj.api_calls["boot"] == 0
     assert mt.SLOT_ENV_FLAG == "RAVANA_TRA_SLOTS"
     assert os.environ.get(mt.SLOT_ENV_FLAG) != "1" or old_flag == "1"
+
+
+# ── wiring fixes: fake-only proofs of the live-arm scoping and seam ──────────
+class _SimulatedLiveBackend(mt.FakeBackend):
+    """Fake-shaped live stand-in: real query grading, no engine boot."""
+
+    label = "live"
+    engine_graded = True
+
+    def __init__(self, data_dir=None):
+        super().__init__()
+        self.api_calls = {"boot": 1, "intake": 1, "save": 1,
+                          "cold_reload": 1, "process_turn": 1}
+
+    def _response(self, item, condition, arm, k, permuted=False):
+        # Chatter: unparseable, so the capability endpoints stay at zero.
+        return "Perhaps we could discuss something else."
+
+
+def test_fake_arm_keeps_c11_bad_and_no_instrument_invalidation(tmp_path,
+                                                               monkeypatch):
+    monkeypatch.setattr(mt, "DATA_PATH", str(tmp_path / "rows.jsonl"))
+    monkeypatch.setattr(mt, "SUMMARY_PATH", str(tmp_path / "summary.json"))
+    monkeypatch.setattr(mt, "GATE_PATH", str(tmp_path / "gates.jsonl"))
+    assert mt.main([]) == 1
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    by_id = {c["id"]: c for c in summary["instrument_controls"]}
+    assert set(by_id) == {"C%d" % i for i in range(1, 14)}
+    assert by_id["C11"]["ok"] is False            # fake MUST fail the live gate
+    assert all(by_id[c]["ok"] for c in
+               ("C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9",
+                "C10", "C12", "C13"))
+    assert summary["invalid_controls"] == []
+    assert summary["interpretation"] == "mechanism_probe_only_fake_arm"
+    assert summary["pass"] is False and summary["live"] is False
+    rules, passed = mt.decide(
+        summary["summary"], summary["instrument_controls"],
+        mt.FakeBackend(), False, None, "FLAG", True)
+    assert passed is False
+    assert rules["instrument_controls_ok"] is True
+    assert rules["c11_anti_fake_ok"] is False
+
+
+def test_simulated_live_low_endpoints_is_scored_fail(tmp_path, monkeypatch):
+    monkeypatch.setattr(mt, "RealBackend", _SimulatedLiveBackend)
+    monkeypatch.setattr(mt, "DATA_PATH", str(tmp_path / "rows.jsonl"))
+    monkeypatch.setattr(mt, "SUMMARY_PATH", str(tmp_path / "summary.json"))
+    monkeypatch.setattr(mt, "GATE_PATH", str(tmp_path / "gates.jsonl"))
+    key = mt.SLOT_ENV_FLAG
+    assert mt.main(["--live"]) == 1               # scored FAIL, never exit 2
+    assert key not in os.environ                  # flag restored
+    summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    assert summary["backend"] == "live" and summary["live"] is True
+    assert summary["invalid_controls"] == []
+    assert summary["pass"] is False
+    assert summary["interpretation"] == "genuine_fail"
+    by_id = {c["id"]: c for c in summary["instrument_controls"]}
+    assert set(by_id) == {"C%d" % i for i in range(1, 14)}
+    assert all(c["ok"] for c in by_id.values())   # instrument certified OK
+    # C1 on the fake arm is OK even though the live near endpoint is zero.
+    assert by_id["C1"]["ok"] is True
+    assert summary["summary"]["primary"]["near"] == 0.0
+    assert summary["rules"]["instrument_controls_ok"] is True
+    assert summary["rules"]["c11_anti_fake_ok"] is True
+    assert summary["rules"]["primary_near>=0.75"] is False
+    assert summary["rules"]["primary_transfer>=0.75"] is False
+
+
+def test_taught_slot_pairs_never_name_query_subject_or_gold(items):
+    it = next(x for x in items if x["k"] == 8)
+    surfaces = mt.teaching_surfaces(it, 8, "near", "structural")
+    pairs = mt.taught_slot_pairs(surfaces, it["type_label"])
+    assert pairs and all(tgt == it["type_label"] for _, tgt in pairs)
+    q = mt.query_for(it, "near")
+    assert (q["subject"], q["gold"]) not in pairs
+    assert mt.taught_slot_pairs([], it["type_label"]) == set()
+
+
+def test_scoped_views_drop_boot_seed_web_and_other_item_edges(items):
+    from types import SimpleNamespace
+    it = next(x for x in items if x["k"] == 8)
+    pairs = mt.taught_slot_pairs(
+        mt.teaching_surfaces(it, 8, "near", "structural"), it["type_label"])
+    src, tgt = sorted(pairs)[0]
+
+    def view(**kw):
+        base = dict(source=src, target=tgt, type_label=it["type_label"],
+                    relation_type="is_a", edge_kind="curated",
+                    source_type="user", edge_source="conversation",
+                    confidence=0.9, url="", fabricated_span=False)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    census = [view(),
+              view(source="boot_seed", source_type="seed", edge_source="pmi"),
+              view(source="other_demo"),
+              view(edge_source="web", edge_kind="web_fact",
+                   source_type="web", url="https://example.test/x")]
+    scoped = mt.scope_taught_views(census, pairs)
+    assert len(scoped) == 1
+    assert scoped[0]["subject"] == src and scoped[0]["target"] == tgt
+    assert scoped[0]["edge_kind"] == "curated"
+    assert scoped[0]["source_type"] == "user"
+    # No fabrication in either direction: empty census or no taught edges.
+    assert mt.scope_taught_views([], pairs) == []
+    assert mt.scope_taught_views(census, set()) == []
+
+
+def test_real_backend_refreshes_scoped_views_at_teach_and_query(tmp_path, items):
+    from types import SimpleNamespace
+    it = next(x for x in items if x["k"] == 8)
+    surfaces = mt.teaching_surfaces(it, 8, "near", "structural")
+    pairs = mt.taught_slot_pairs(surfaces, it["type_label"])
+    src, tgt = sorted(pairs)[0]
+    taught = SimpleNamespace(
+        relation_type="is_a", confidence=0.9,
+        source_metadata={"source": "conversation", "source_type": "user",
+                         "edge_kind": "curated", "type_label": it["type_label"]})
+    seeded = SimpleNamespace(
+        relation_type="is_a", confidence=0.9,
+        source_metadata={"source": "pmi", "source_type": "seed",
+                         "edge_kind": "curated", "type_label": it["type_label"]})
+    node = lambda label: SimpleNamespace(label=label)
+
+    class StubEngine:
+        def __init__(self, graph):
+            self.graph = graph
+
+        def process_turn(self, text):
+            return "acknowledged"
+
+    def backend_with(edges, nodes, suffix):
+        obj = mt.RealBackend(data_dir=str(tmp_path / suffix))
+        obj.reset_for_item(it)
+        obj._engine = StubEngine(SimpleNamespace(nodes=nodes, edges=edges))
+        return obj
+
+    obj = backend_with({(1, 2): taught, (3, 2): seeded},
+                       {1: node(src), 2: node(tgt), 3: node("boot_seed")}, "live")
+    obj.teach(it, 8, "near", "structural", surfaces)
+    views = obj.provenance_views()
+    assert len(views) == 1 and views[0]["subject"] == src
+    assert mt._provenance_ok(views) is True
+    obj.query(it, "near", 8)
+    assert obj.provenance_views() == views       # refreshed at query time too
+    assert obj.api_calls["boot"] == 0             # no engine boot, only a pure census
+    assert getattr(obj._engine, "graph", None) is not None
+
+    empty = backend_with({(3, 2): seeded},
+                         {2: node(tgt), 3: node("boot_seed")}, "no_taught_edge")
+    empty.teach(it, 8, "near", "structural", surfaces)
+    assert empty.provenance_views() == []        # real census has no taught edge
+    assert mt._provenance_ok(empty.provenance_views()) is False
+
+
+def test_th_is_byte_identical_to_preregistered_snapshot():
+    frozen = json.dumps(TH_SNAPSHOT, sort_keys=True, separators=(",", ":"))
+    actual = json.dumps(mt.TH, sort_keys=True, separators=(",", ":"))
+    assert actual.encode("utf-8") == frozen.encode("utf-8")
