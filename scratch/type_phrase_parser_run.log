@@ -1,0 +1,304 @@
+=== TYPE PHRASE PARSER EXPERIMENT (static + fake only) ===
+WORKTREE C:\Users\Likhith\Documents\projects\ravana_parser BRANCH goal/type-phrase-parser HEAD b75a24ed30bb1d05aa01f8161634a8180e76ca07
+MODULE chain_walker C:\Users\Likhith\Documents\projects\ravana_parser\ravana\src\ravana\chat\chain_walker.py sha256 32763764db0e209c346c1eebb8142bbbd577af8035c38012072932431c26d1ab
+MODULE schema_induction C:\Users\Likhith\Documents\projects\ravana_parser\ravana\src\ravana\chat\schema_induction.py sha256 d17cf6461d208e2e6ae9d272dd45459ddd3caf71f9b70bae285e745de9e970a6
+FIXED LABELS 68 probes; no benchmark answer key is read
+PROBE S01 [is_a_simple] 'lantern is a light source.'
+  expected_facts = [['IS_A', 'lantern', 'light source']]
+  PRODUCTION typed = [('IS_A', 'lantern', 'light source', 'light source', 'type')] relations = [] -> [('IS_A', 'lantern', 'light source')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'lantern', 'relation': 'IS_A', 'object': 'light source', 'confidence': 0.9}] | reason = accepted
+PROBE S02 [is_a_simple] 'ember is an iron alloy.'
+  expected_facts = [['IS_A', 'ember', 'iron alloy']]
+  PRODUCTION typed = [('IS_A', 'ember', 'iron alloy', 'iron alloy', 'type')] relations = [] -> [('IS_A', 'ember', 'iron alloy')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'ember', 'relation': 'IS_A', 'object': 'iron alloy', 'confidence': 0.9}] | reason = accepted
+PROBE S03 [is_a_simple] 'willow is a kind of tree.'
+  expected_facts = [['IS_A', 'willow', 'tree']]
+  PRODUCTION typed = [('IS_A', 'willow', 'tree', 'tree', 'type')] relations = [] -> [('IS_A', 'willow', 'tree')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'willow', 'relation': 'IS_A', 'object': 'tree', 'confidence': 0.9}] | reason = accepted
+PROBE S04 [is_a_simple] 'glacier is a type of ice mass.'
+  expected_facts = [['IS_A', 'glacier', 'ice mass']]
+  PRODUCTION typed = [('IS_A', 'glacier', 'ice mass', 'ice mass', 'type')] relations = [] -> [('IS_A', 'glacier', 'ice mass')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'glacier', 'relation': 'IS_A', 'object': 'ice mass', 'confidence': 0.9}] | reason = accepted
+PROBE S05 [is_a_simple] 'event is a structured whole.'
+  expected_facts = [['IS_A', 'event', 'structured whole']]
+  PRODUCTION typed = [('IS_A', 'event', 'structured whole', 'structured whole', 'type')] relations = [] -> [('IS_A', 'event', 'structured whole')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'event', 'relation': 'IS_A', 'object': 'structured whole', 'confidence': 0.9}] | reason = accepted
+PROBE S06 [is_a_simple] 'mosaic is a stone pattern.'
+  expected_facts = [['IS_A', 'mosaic', 'stone pattern']]
+  PRODUCTION typed = [('IS_A', 'mosaic', 'stone pattern', 'stone pattern', 'type')] relations = [] -> [('IS_A', 'mosaic', 'stone pattern')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'mosaic', 'relation': 'IS_A', 'object': 'stone pattern', 'confidence': 0.9}] | reason = accepted
+PROBE S07 [is_a_simple] 'harbor is a sheltered bay.'
+  expected_facts = [['IS_A', 'harbor', 'sheltered bay']]
+  PRODUCTION typed = [('IS_A', 'harbor', 'sheltered bay', 'sheltered bay', 'type')] relations = [] -> [('IS_A', 'harbor', 'sheltered bay')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'harbor', 'relation': 'IS_A', 'object': 'sheltered bay', 'confidence': 0.9}] | reason = accepted
+PROBE S08 [is_a_simple] 'canyon is a deep valley.'
+  expected_facts = [['IS_A', 'canyon', 'deep valley']]
+  PRODUCTION typed = [('IS_A', 'canyon', 'deep valley', 'deep valley', 'type')] relations = [] -> [('IS_A', 'canyon', 'deep valley')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'canyon', 'relation': 'IS_A', 'object': 'deep valley', 'confidence': 0.9}] | reason = accepted
+PROBE E01 [is_a_extended] 'civic event is a structured whole.'
+  expected_facts = [['IS_A', 'civic event', 'structured whole']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'civic event', 'relation': 'IS_A', 'object': 'structured whole', 'confidence': 0.9}] | reason = accepted
+PROBE E02 [is_a_extended] 'old lantern is a bright light source.'
+  expected_facts = [['IS_A', 'old lantern', 'bright light source']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'old lantern', 'relation': 'IS_A', 'object': 'bright light source', 'confidence': 0.8}] | reason = accepted
+PROBE E03 [is_a_extended] 'rain shadow is a dry region.'
+  expected_facts = [['IS_A', 'rain shadow', 'dry region']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'rain shadow', 'relation': 'IS_A', 'object': 'dry region', 'confidence': 0.9}] | reason = accepted
+PROBE E04 [is_a_extended] 'iron alloy is a metal mixture.'
+  expected_facts = [['IS_A', 'iron alloy', 'metal mixture']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'iron alloy', 'relation': 'IS_A', 'object': 'metal mixture', 'confidence': 0.9}] | reason = accepted
+PROBE E05 [is_a_extended] 'tremor is a sudden ground motion.'
+  expected_facts = [['IS_A', 'tremor', 'sudden ground motion']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'tremor', 'relation': 'IS_A', 'object': 'sudden ground motion', 'confidence': 0.8}] | reason = accepted
+PROBE E06 [is_a_extended] 'ripple is a small water wave.'
+  expected_facts = [['IS_A', 'ripple', 'small water wave']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'ripple', 'relation': 'IS_A', 'object': 'small water wave', 'confidence': 0.8}] | reason = accepted
+PROBE R01 [relation_simple] 'petal is part of blossom.'
+  expected_facts = [['PART_OF', 'petal', 'blossom']]
+  PRODUCTION typed = [] relations = [('PART_OF', 'petal', 'blossom')] -> [('PART_OF', 'petal', 'blossom')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'petal', 'relation': 'PART_OF', 'object': 'blossom', 'confidence': 0.9}] | reason = accepted
+PROBE R02 [relation_simple] 'blossom contains petal.'
+  expected_facts = [['PART_OF', 'petal', 'blossom']]
+  PRODUCTION typed = [] relations = [('PART_OF', 'petal', 'blossom')] -> [('PART_OF', 'petal', 'blossom')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'petal', 'relation': 'PART_OF', 'object': 'blossom', 'confidence': 0.9}] | reason = accepted
+PROBE R03 [relation_simple] 'thunder happens after lightning.'
+  expected_facts = [['PRECEDES', 'lightning', 'thunder']]
+  PRODUCTION typed = [] relations = [('PRECEDES', 'lightning', 'thunder')] -> [('PRECEDES', 'lightning', 'thunder')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'lightning', 'relation': 'PRECEDES', 'object': 'thunder', 'confidence': 0.9}] | reason = accepted
+PROBE R04 [relation_simple] 'night comes before dawn.'
+  expected_facts = [['PRECEDES', 'night', 'dawn']]
+  PRODUCTION typed = [] relations = [('PRECEDES', 'night', 'dawn')] -> [('PRECEDES', 'night', 'dawn')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'night', 'relation': 'PRECEDES', 'object': 'dawn', 'confidence': 0.9}] | reason = accepted
+PROBE R05 [relation_simple] 'mosaic resembles tapestry.'
+  expected_facts = [['RESEMBLES', 'mosaic', 'tapestry']]
+  PRODUCTION typed = [] relations = [('RESEMBLES', 'mosaic', 'tapestry')] -> [('RESEMBLES', 'mosaic', 'tapestry')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'mosaic', 'relation': 'RESEMBLES', 'object': 'tapestry', 'confidence': 0.9}] | reason = accepted
+PROBE R06 [relation_simple] 'lantern is similar to beacon.'
+  expected_facts = [['RESEMBLES', 'lantern', 'beacon']]
+  PRODUCTION typed = [] relations = [('RESEMBLES', 'lantern', 'beacon')] -> [('RESEMBLES', 'lantern', 'beacon')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'lantern', 'relation': 'RESEMBLES', 'object': 'beacon', 'confidence': 0.9}] | reason = accepted
+PROBE R07 [relation_simple] 'event is part of ceremony.'
+  expected_facts = [['PART_OF', 'event', 'ceremony']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / hedge_or_overbroad_negation_regex
+  EXTENDED         = [{'subject': 'event', 'relation': 'PART_OF', 'object': 'ceremony', 'confidence': 0.9}] | reason = accepted
+PROBE R08 [relation_simple] 'dawn follows night.'
+  expected_facts = [['PRECEDES', 'night', 'dawn']]
+  PRODUCTION typed = [] relations = [('PRECEDES', 'night', 'dawn')] -> [('PRECEDES', 'night', 'dawn')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'night', 'relation': 'PRECEDES', 'object': 'dawn', 'confidence': 0.9}] | reason = accepted
+PROBE M01 [multi_clause] 'lantern is a light source. mosaic is a stone pattern.'
+  expected_facts = [['IS_A', 'lantern', 'light source'], ['IS_A', 'mosaic', 'stone pattern']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'lantern', 'relation': 'IS_A', 'object': 'light source', 'confidence': 0.8}, {'subject': 'mosaic', 'relation': 'IS_A', 'object': 'stone pattern', 'confidence': 0.8}] | reason = accepted
+PROBE M02 [multi_clause] 'civic event is a structured whole; harbor is a sheltered bay.'
+  expected_facts = [['IS_A', 'civic event', 'structured whole'], ['IS_A', 'harbor', 'sheltered bay']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'civic event', 'relation': 'IS_A', 'object': 'structured whole', 'confidence': 0.8}, {'subject': 'harbor', 'relation': 'IS_A', 'object': 'sheltered bay', 'confidence': 0.8}] | reason = accepted
+PROBE M03 [multi_clause] 'petal is part of blossom. mosaic resembles tapestry.'
+  expected_facts = [['PART_OF', 'petal', 'blossom'], ['RESEMBLES', 'mosaic', 'tapestry']]
+  PRODUCTION typed = [] relations = [('PART_OF', 'petal', 'blossom'), ('RESEMBLES', 'mosaic', 'tapestry')] -> [('PART_OF', 'petal', 'blossom'), ('RESEMBLES', 'mosaic', 'tapestry')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'petal', 'relation': 'PART_OF', 'object': 'blossom', 'confidence': 0.8}, {'subject': 'mosaic', 'relation': 'RESEMBLES', 'object': 'tapestry', 'confidence': 0.8}] | reason = accepted
+PROBE M04 [multi_clause] 'lantern is a light source and willow is a kind of tree.'
+  expected_facts = [['IS_A', 'lantern', 'light source'], ['IS_A', 'willow', 'tree']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'lantern', 'relation': 'IS_A', 'object': 'light source', 'confidence': 0.8}, {'subject': 'willow', 'relation': 'IS_A', 'object': 'tree', 'confidence': 0.8}] | reason = accepted
+PROBE M05 [multi_clause] 'thunder happens after lightning. dawn follows night.'
+  expected_facts = [['PRECEDES', 'lightning', 'thunder'], ['PRECEDES', 'night', 'dawn']]
+  PRODUCTION typed = [] relations = [('PRECEDES', 'lightning', 'thunder'), ('PRECEDES', 'night', 'dawn')] -> [('PRECEDES', 'lightning', 'thunder'), ('PRECEDES', 'night', 'dawn')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'lightning', 'relation': 'PRECEDES', 'object': 'thunder', 'confidence': 0.8}, {'subject': 'night', 'relation': 'PRECEDES', 'object': 'dawn', 'confidence': 0.8}] | reason = accepted
+PROBE M06 [multi_clause] 'glacier is a type of ice mass; event is a structured whole.'
+  expected_facts = [['IS_A', 'glacier', 'ice mass'], ['IS_A', 'event', 'structured whole']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'glacier', 'relation': 'IS_A', 'object': 'ice mass', 'confidence': 0.8}, {'subject': 'event', 'relation': 'IS_A', 'object': 'structured whole', 'confidence': 0.8}] | reason = accepted
+PROBE M07 [multi_clause] 'mosaic resembles tapestry; petal is part of blossom.'
+  expected_facts = [['RESEMBLES', 'mosaic', 'tapestry'], ['PART_OF', 'petal', 'blossom']]
+  PRODUCTION typed = [] relations = [('RESEMBLES', 'mosaic', 'tapestry'), ('PART_OF', 'petal', 'blossom')] -> [('RESEMBLES', 'mosaic', 'tapestry'), ('PART_OF', 'petal', 'blossom')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'mosaic', 'relation': 'RESEMBLES', 'object': 'tapestry', 'confidence': 0.8}, {'subject': 'petal', 'relation': 'PART_OF', 'object': 'blossom', 'confidence': 0.8}] | reason = accepted
+PROBE P01 [permutation] 'light source is a lantern.'
+  expected_facts = [['IS_A', 'light source', 'lantern']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'light source', 'relation': 'IS_A', 'object': 'lantern', 'confidence': 0.9}] | reason = accepted
+PROBE P02 [permutation] 'tapestry resembles mosaic.'
+  expected_facts = [['RESEMBLES', 'tapestry', 'mosaic']]
+  PRODUCTION typed = [] relations = [('RESEMBLES', 'tapestry', 'mosaic')] -> [('RESEMBLES', 'tapestry', 'mosaic')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'tapestry', 'relation': 'RESEMBLES', 'object': 'mosaic', 'confidence': 0.9}] | reason = accepted
+PROBE P03 [permutation] 'blossom is part of petal.'
+  expected_facts = [['PART_OF', 'blossom', 'petal']]
+  PRODUCTION typed = [] relations = [('PART_OF', 'blossom', 'petal')] -> [('PART_OF', 'blossom', 'petal')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'blossom', 'relation': 'PART_OF', 'object': 'petal', 'confidence': 0.9}] | reason = accepted
+PROBE P04 [permutation] 'dawn happens after night.'
+  expected_facts = [['PRECEDES', 'night', 'dawn']]
+  PRODUCTION typed = [] relations = [('PRECEDES', 'night', 'dawn')] -> [('PRECEDES', 'night', 'dawn')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'night', 'relation': 'PRECEDES', 'object': 'dawn', 'confidence': 0.9}] | reason = accepted
+PROBE C01 [control_negation] 'lantern is not a light source.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C02 [control_negation] 'lantern is never a light source.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C03 [control_hedge] 'lantern might be a light source.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C04 [control_hedge] 'lantern is probably a light source.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C05 [control_question] 'is lantern a light source?'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | question / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = question
+PROBE C06 [control_question] 'what is a lantern?'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = question
+PROBE C07 [control_question] 'lantern is a light source?'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = question
+PROBE C08 [control_negation] 'petal is not part of blossom.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C09 [control_hedge] 'petal is probably part of blossom.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C10 [control_question] 'is petal part of blossom?'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | question / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = question
+PROBE C11 [control_negation] 'mosaic does not resemble tapestry.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C12 [control_hedge] 'thunder probably happens after lightning.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / hedge_or_overbroad_negation_regex
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C13 [control_negation] 'civic event is not a structured whole.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C14 [control_hedge] 'civic event might be a structured whole.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE C15 [control_question] 'civic event is a structured whole?'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | question / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = question
+PROBE C16 [control_malformed] 'colorless green ideas sleep furiously.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = no_relation_phrase
+PROBE C17 [control_malformed] 'lantern the of a source is.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = no_relation_phrase
+PROBE C18 [control_malformed] 'a is a.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = missing_argument
+PROBE C19 [control_malformed] 'lantern is a lantern.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = identical_arguments
+PROBE H01 [sealed_is_a] 'beacon is a sort of signal lamp.'
+  expected_facts = [['IS_A', 'beacon', 'signal lamp']]
+  PRODUCTION typed = [('IS_A', 'beacon', 'signal lamp', 'signal lamp', 'type')] relations = [] -> [('IS_A', 'beacon', 'signal lamp')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'beacon', 'relation': 'IS_A', 'object': 'signal lamp', 'confidence': 0.9}] | reason = accepted
+PROBE H02 [sealed_relation] 'marsh is akin to swamp.'
+  expected_facts = [['RESEMBLES', 'marsh', 'swamp']]
+  PRODUCTION typed = [] relations = [('RESEMBLES', 'marsh', 'swamp')] -> [('RESEMBLES', 'marsh', 'swamp')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'marsh', 'relation': 'RESEMBLES', 'object': 'swamp', 'confidence': 0.9}] | reason = accepted
+PROBE H03 [sealed_relation] 'delta includes channel.'
+  expected_facts = [['PART_OF', 'channel', 'delta']]
+  PRODUCTION typed = [] relations = [('PART_OF', 'channel', 'delta')] -> [('PART_OF', 'channel', 'delta')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'channel', 'relation': 'PART_OF', 'object': 'delta', 'confidence': 0.9}] | reason = accepted
+PROBE H04 [sealed_relation] 'engine is a component of turbine.'
+  expected_facts = [['PART_OF', 'engine', 'turbine']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / hedge_or_overbroad_negation_regex
+  EXTENDED         = [{'subject': 'engine', 'relation': 'PART_OF', 'object': 'turbine', 'confidence': 0.9}] | reason = accepted
+PROBE H05 [sealed_relation] 'shadow comes after light.'
+  expected_facts = [['PRECEDES', 'light', 'shadow']]
+  PRODUCTION typed = [] relations = [('PRECEDES', 'light', 'shadow')] -> [('PRECEDES', 'light', 'shadow')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'light', 'relation': 'PRECEDES', 'object': 'shadow', 'confidence': 0.9}] | reason = accepted
+PROBE H06 [sealed_is_a] 'frost is a form of ice deposit.'
+  expected_facts = [['IS_A', 'frost', 'ice deposit']]
+  PRODUCTION typed = [('IS_A', 'frost', 'ice deposit', 'ice deposit', 'type')] relations = [] -> [('IS_A', 'frost', 'ice deposit')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'frost', 'relation': 'IS_A', 'object': 'ice deposit', 'confidence': 0.9}] | reason = accepted
+PROBE H07 [sealed_is_a] 'quartz is a type of mineral grain.'
+  expected_facts = [['IS_A', 'quartz', 'mineral grain']]
+  PRODUCTION typed = [('IS_A', 'quartz', 'mineral grain', 'mineral grain', 'type')] relations = [] -> [('IS_A', 'quartz', 'mineral grain')] | is_a_regex_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'quartz', 'relation': 'IS_A', 'object': 'mineral grain', 'confidence': 0.9}] | reason = accepted
+PROBE H08 [sealed_is_a] 'old marsh is a salty wetland.'
+  expected_facts = [['IS_A', 'old marsh', 'salty wetland']]
+  PRODUCTION typed = [] relations = [] -> [] | anchored_is_a_regex_no_match / no_asserted_relation_phrase
+  EXTENDED         = [{'subject': 'old marsh', 'relation': 'IS_A', 'object': 'salty wetland', 'confidence': 0.9}] | reason = accepted
+PROBE H09 [sealed_multi_clause] 'beacon is a sort of signal lamp. marsh is akin to swamp.'
+  expected_facts = [['IS_A', 'beacon', 'signal lamp'], ['RESEMBLES', 'marsh', 'swamp']]
+  PRODUCTION typed = [] relations = [('RESEMBLES', 'marsh', 'swamp')] -> [('RESEMBLES', 'marsh', 'swamp')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'beacon', 'relation': 'IS_A', 'object': 'signal lamp', 'confidence': 0.8}, {'subject': 'marsh', 'relation': 'RESEMBLES', 'object': 'swamp', 'confidence': 0.8}] | reason = accepted
+PROBE H10 [sealed_multi_clause] 'delta includes channel; shadow comes after light.'
+  expected_facts = [['PART_OF', 'channel', 'delta'], ['PRECEDES', 'light', 'shadow']]
+  PRODUCTION typed = [] relations = [('PART_OF', 'channel', 'delta'), ('PRECEDES', 'light', 'shadow')] -> [('PART_OF', 'channel', 'delta'), ('PRECEDES', 'light', 'shadow')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'channel', 'relation': 'PART_OF', 'object': 'delta', 'confidence': 0.8}, {'subject': 'light', 'relation': 'PRECEDES', 'object': 'shadow', 'confidence': 0.8}] | reason = accepted
+PROBE H11 [sealed_control] 'marsh is not akin to swamp.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE H12 [sealed_control] 'beacon is probably a sort of signal lamp.'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | word_boundary_hedge_or_negation / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = hedge_or_negation
+PROBE H13 [sealed_control] 'is quartz a type of mineral grain?'
+  expected_facts = []
+  PRODUCTION typed = [] relations = [] -> [] | question / no_asserted_relation_phrase
+  EXTENDED         = [] | reason = question
+PROBE H14 [sealed_relation] 'channel is part of delta.'
+  expected_facts = [['PART_OF', 'channel', 'delta']]
+  PRODUCTION typed = [] relations = [('PART_OF', 'channel', 'delta')] -> [('PART_OF', 'channel', 'delta')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'channel', 'relation': 'PART_OF', 'object': 'delta', 'confidence': 0.9}] | reason = accepted
+PROBE H15 [sealed_relation] 'light happens before shadow.'
+  expected_facts = [['PRECEDES', 'light', 'shadow']]
+  PRODUCTION typed = [] relations = [('PRECEDES', 'light', 'shadow')] -> [('PRECEDES', 'light', 'shadow')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'light', 'relation': 'PRECEDES', 'object': 'shadow', 'confidence': 0.9}] | reason = accepted
+PROBE H16 [sealed_relation] 'frost resembles deposit.'
+  expected_facts = [['RESEMBLES', 'frost', 'deposit']]
+  PRODUCTION typed = [] relations = [('RESEMBLES', 'frost', 'deposit')] -> [('RESEMBLES', 'frost', 'deposit')] | anchored_is_a_regex_no_match / accepted
+  EXTENDED         = [{'subject': 'frost', 'relation': 'RESEMBLES', 'object': 'deposit', 'confidence': 0.9}] | reason = accepted
+GATE flag_equivalence production = True extended_inert_when_off = True
+GATES {"flag_off_extended_inert": true, "flag_off_production_byte_identical": true, "no_benchmark_answer_key_import": true, "no_engine_instance": true, "no_production_file_changed": true, "no_weight_store_write": true}
+PRIMARY n=52 production=0.75 extended=1.0
+SEALED  n=16 production=0.8889 extended=1.0
+CONTROLS refusal production 22/22 extended 22/22
+PERMUTATION direction production = False extended = True | PRECEDES canonicalisation production = True extended = True
+READ D00 FACT FROM UNMODIFIED PRODUCTION PARSER: taught unseen subject -> pick='light source' expected='light source' reason=trusted_typed_slot_strict_winner pass=True
+READ D01 taught unseen subject, disjoint typed options -> pick='light source' expected='light source' reason=trusted_typed_slot_strict_winner pass=True
+READ D02 same fact, options order permuted -> pick='light source' expected='light source' reason=trusted_typed_slot_strict_winner pass=True
+READ D03 untaught subject -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D04 disjoint options (taught slot absent) -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D05 unrelated subject present in graph -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D06 untrusted typed edge -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D07 wrong relation_type -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D08 multiword subject taught by extended parser -> pick='structured whole' expected='structured whole' reason=trusted_typed_slot_strict_winner pass=True
+READ D09 multi-clause teaching, first subject -> pick='light source' expected='light source' reason=trusted_typed_slot_strict_winner pass=True
+READ D10 multi-clause teaching, second subject -> pick='stone pattern' expected='stone pattern' reason=trusted_typed_slot_strict_winner pass=True
+READ D11 negated teaching surface yields no edge -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D12 hedged teaching surface yields no edge -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D13 relation fact without type_label stamp (production style) -> pick=None expected=None reason=no_trusted_typed_slot_above_floor pass=True
+READ D14 extended-only fact confidence above reader floor -> pick='sudden ground motion' expected='sudden ground motion' reason=trusted_typed_slot_strict_winner pass=True
+READ GATE True (15/15 cases)
+WROTE C:\Users\Likhith\Documents\projects\ravana_parser\scratch\type_phrase_parser_results.json
+METRICS production {"by_category": {"control_hedge": {"fn": 0, "fp": 0, "n": 5, "precision": 0.0, "recall": 0.0, "tp": 0}, "control_malformed": {"fn": 0, "fp": 0, "n": 4, "precision": 0.0, "recall": 0.0, "tp": 0}, "control_negation": {"fn": 0, "fp": 0, "n": 5, "precision": 0.0, "recall": 0.0, "tp": 0}, "control_question": {"fn": 0, "fp": 0, "n": 5, "precision": 0.0, "recall": 0.0, "tp": 0}, "is_a_extended": {"fn": 6, "fp": 0, "n": 6, "precision": 0.0, "recall": 0.0, "tp": 0}, "is_a_simple": {"fn": 0, "fp": 0, "n": 8, "precision": 1.0, "recall": 1.0, "tp": 8}, "multi_clause": {"fn": 8, "fp": 0, "n": 7, "precision": 1.0, "recall": 0.4286, "tp": 6}, "permutation": {"fn": 1, "fp": 0, "n": 4, "precision": 1.0, "recall": 0.75, "tp": 3}, "relation_simple": {"fn": 1, "fp": 0, "n": 8, "precision": 1.0, "recall": 0.875, "tp": 7}, "sealed_control": {"fn": 0, "fp": 0, "n": 3, "precision": 0.0, "recall": 0.0, "tp": 0}, "sealed_is_a": {"fn": 1, "fp": 0, "n": 4, "precision": 1.0, "recall": 0.75, "tp": 3}, "sealed_multi_clause": {"fn": 1, "fp": 0, "n": 2, "precision": 1.0, "recall": 0.75, "tp": 3}, "sealed_relation": {"fn": 1, "fp": 0, "n": 7, "precision": 1.0, "recall": 0.8571, "tp": 6}}, "f1": 0.7912, "fn": 19, "fp": 0, "item_exact_rate": 0.7794, "items_exact": 53, "items_total": 68, "precision": 1.0, "recall": 0.6545, "tp": 36}
+METRICS extended   {"by_category": {"control_hedge": {"fn": 0, "fp": 0, "n": 5, "precision": 0.0, "recall": 0.0, "tp": 0}, "control_malformed": {"fn": 0, "fp": 0, "n": 4, "precision": 0.0, "recall": 0.0, "tp": 0}, "control_negation": {"fn": 0, "fp": 0, "n": 5, "precision": 0.0, "recall": 0.0, "tp": 0}, "control_question": {"fn": 0, "fp": 0, "n": 5, "precision": 0.0, "recall": 0.0, "tp": 0}, "is_a_extended": {"fn": 0, "fp": 0, "n": 6, "precision": 1.0, "recall": 1.0, "tp": 6}, "is_a_simple": {"fn": 0, "fp": 0, "n": 8, "precision": 1.0, "recall": 1.0, "tp": 8}, "multi_clause": {"fn": 0, "fp": 0, "n": 7, "precision": 1.0, "recall": 1.0, "tp": 14}, "permutation": {"fn": 0, "fp": 0, "n": 4, "precision": 1.0, "recall": 1.0, "tp": 4}, "relation_simple": {"fn": 0, "fp": 0, "n": 8, "precision": 1.0, "recall": 1.0, "tp": 8}, "sealed_control": {"fn": 0, "fp": 0, "n": 3, "precision": 0.0, "recall": 0.0, "tp": 0}, "sealed_is_a": {"fn": 0, "fp": 0, "n": 4, "precision": 1.0, "recall": 1.0, "tp": 4}, "sealed_multi_clause": {"fn": 0, "fp": 0, "n": 2, "precision": 1.0, "recall": 1.0, "tp": 4}, "sealed_relation": {"fn": 0, "fp": 0, "n": 7, "precision": 1.0, "recall": 1.0, "tp": 7}}, "f1": 1.0, "fn": 0, "fp": 0, "item_exact_rate": 1.0, "items_exact": 68, "items_total": 68, "precision": 1.0, "recall": 1.0, "tp": 55}
+ALL GATES PASS True
+=== DONE ===

@@ -1,0 +1,24 @@
+=== INSTRUMENT ===
+  primitive sha256=d17cf6461d208e2e  bank sha256=7bc55db8637fb4b2
+  recorded rows sha256=c468f94263f0f7c4  graded=160
+  info audit: subject-own-type=[0, 160]  gold-has-type=[80, 80]
+
+=== H_a : TRA-OST (ostensive subject-type teaching) ===
+  TYPE-LABEL space: {"near": 40, "far": 40, "foil": 40, "negative": 40, "near+far": 80}
+  ORIGINAL word space: {"near": 0, "far": 0, "foil": 40, "negative": 40, "near+far": 0}
+  NO subject teaching: {"near": 0, "far": 0, "foil": 40, "negative": 40, "near+far": 0}
+  controls: {"disjoint_type": null, "unrelated_subject": null, "untrusted_seed_edge": null, "wrong_relation": null} pass=True
+  G6 type={"status": "FLAG", "flagged": ["tra_near", "tra_negative_reject"], "detail": "2 front(s) non-informative: tra_near=100.0, tra_negative_reject=100.0"} word={"status": "FLAG", "flagged": ["tra_near", "tra_negative_reject"], "detail": "2 front(s) non-informative: tra_near=0.0, tra_negative_reject=100.0"}
+
+=== H_b : TRA-VOCAB (broad conversational type channel) ===
+  broad lexicon: 84 words, 504 trusted is_a edges
+  typed-query: {"near": 3, "far": 4, "foil": 28, "negative": 40, "near+far": 7}
+  type-blind: {"near": 3, "far": 4, "foil": 28, "negative": 31, "near+far": 7}
+  gold typed by channel: 31/80
+  ORACLE subject-taught picks: 80/80
+  subject-dependent picks: 0/80 (identical to unrelated subject: 18)
+  controls: {"disjoint": null, "unrelated_no_scores": null} pass=True
+  G6 typed-query={"status": "FLAG", "flagged": ["tra_negative_reject"], "detail": "1 front(s) non-informative: tra_negative_reject=100.0"}
+
+WROTE C:\Users\Likhith\Documents\projects\ravana_goal_transfer\scratch\goal_unseen_type_results.json
+EXIT=0
