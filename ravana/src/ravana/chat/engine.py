@@ -10865,6 +10865,18 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                 consolidated = _relation_consolidator(user_input)
         except Exception:
             pass  # consolidation is best-effort; never break the turn
+        # TRA typed role-slot primitive (default-OFF, RAVANA_TRA_SLOTS=1).
+        # The consolidator itself checks the flag before touching the graph;
+        # the duck-typed getattr keeps older engines/fakes that lack the hook
+        # completely inert. Deliberately NOT added to `consolidated`, so the
+        # downstream associative weak_associations signal stays byte-identical.
+        try:
+            _slot_consolidator = getattr(
+                self, "_consolidate_asserted_typed_slots", None)
+            if callable(_slot_consolidator):
+                _slot_consolidator(user_input)
+        except Exception:
+            pass  # best-effort; never break the turn
         # Phase 1.6b: associative causal extraction (untrusted by design).
         # Keeps the fast chain-walk substrate but carries no source record.
         causal_edges = self._extract_and_store_causal_relations(
