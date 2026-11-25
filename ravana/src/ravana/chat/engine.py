@@ -8260,15 +8260,29 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             # boundary-level call here so a converged hypothesis can decide the
             # answer on EVERY path; the hook itself fails closed and defers to
             # directly taught edges. Defensive getattr keeps older fakes inert.
+            _subj_for_hooks = (getattr(getattr(self, "_source_gate_ctx", None),
+                                       "subject", None) or
+                               getattr(self, "_last_subject", None))
+            # TRA typed-slot hook (opt-in via RAVANA_TRA_SLOTS=1). Separate
+            # from RAVANA_SCHEMA: the benchmark enables only this flag, so a
+            # schema-gated boundary call would never reach it. Defensive getattr
+            # keeps older duck-typed fakes inert.
+            _typed_hook = getattr(self, "_typed_slot_candidate", None)
+            if callable(_typed_hook):
+                try:
+                    from .schema_induction import slots_enabled
+                    if slots_enabled():
+                        _pick = _typed_hook(user_input, _subj_for_hooks)
+                        if _pick is not None:
+                            response = _pick
+                except Exception:
+                    pass
             _schema_hook = getattr(self, "_schema_candidate", None)
             if callable(_schema_hook):
                 try:
                     from .schema_induction import schema_enabled
                     if schema_enabled():
-                        _subj = (getattr(getattr(self, "_source_gate_ctx", None),
-                                         "subject", None) or
-                                 getattr(self, "_last_subject", None))
-                        _pick = _schema_hook(user_input, _subj)
+                        _pick = _schema_hook(user_input, _subj_for_hooks)
                         if _pick is not None:
                             response = _pick
                 except Exception:
