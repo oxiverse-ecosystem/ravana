@@ -986,6 +986,41 @@ class ChainWalkerMixin:
         "RESEMBLES": "analogical",
     }
 
+    # TRA typed role-slot assertion (default-OFF behind RAVANA_TRA_SLOTS=1).
+    # Ported verbatim from the POSITIVE scratch parser
+    # (scratch/tra_slot_write_read_experiment.py IS_A_RE). Only a declarative
+    # "X is a/an [kind|type|sort|form of] Y" statement mints a typed slot;
+    # hedged, negated and interrogative clauses are refused by the shared
+    # assertion predicates below. No trust threshold is widened.
+    _TYPED_IS_A_RE = re.compile(
+        r"^\s*(?:(?:a|an|the)\s+)?(?P<s>[a-z][a-z\-]+)\s+is\s+(?:a|an)\s+"
+        r"(?:(?:kind|type|sort|form)\s+of\s+)?"
+        r"(?P<o>[a-z][a-z\-]+(?:\s+[a-z][a-z\-]+)?)\s*[.!?]?\s*$", re.I)
+    # The shared _ASSERTION_NEGATION_RE uses `[a-z]n['\u2019]?t\b`, which also
+    # matches ordinary words like "event"/"went". The scratch parser used a
+    # word-boundary contraction form instead; port that exact semantics here
+    # so a taught "civic event" is not silently refused as a negation.
+    _TYPED_REFUSE_RE = re.compile(
+        r"\b(not|never|no|might|may|maybe|perhaps|possibly|probably|arguably|"
+        r"seems?|appears?|could|i think|i guess|not sure|unclear)\b|"
+        r"\bn['\u2019]t\b", re.I)
+
+    def _typed_slot_assertions(self, text: str) -> List[Tuple[str, str, str, str, str]]:
+        """-> list of (FAMILY, subject, object, type_label, slot_label)."""
+        out: List[Tuple[str, str, str, str, str]] = []
+        t = str(text or "").strip()
+        if not t or t.endswith("?") or self._TYPED_REFUSE_RE.search(t):
+            return out
+        m = self._TYPED_IS_A_RE.match(t)
+        if not m:
+            return out
+        subject = m.group("s").lower()
+        obj = " ".join(m.group("o").lower().split())
+        if subject and obj and subject != obj:
+            # type_label is the domain-general slot, slot_label its role name.
+            out.append(("IS_A", subject, obj, obj, "type"))
+        return out
+
     def _asserted_relation_propositions(self, text: str) -> List[Tuple[str, str, str]]:
         """Canonical (FAMILY, subject, object) triples stated declaratively.
 
@@ -1124,6 +1159,85 @@ class ChainWalkerMixin:
                         print("  [consolidate] %s %s %s -> %s (%s)" % (
                             subject, family, obj, verdict.route, verdict.reason),
                             flush=True)
+                except Exception:
+                    if getattr(self, "_trace_enabled", False):
+                        import traceback
+                        traceback.print_exc()
+                    continue
+        except Exception:
+            return written
+        return written
+
+    def _consolidate_asserted_typed_slots(self, text: str) -> int:
+        """Write declarative is_a assertions as provenanced typed slot edges.
+
+        NARROW, DEFAULT-OFF primitive (RAVANA_TRA_SLOTS=1). Uses the SAME
+        ``KnowledgeIntake.intake(Fact, Provenance, salience)`` API and a real
+        user-source ``Provenance`` as the relation families; only the post-write
+        ``type_label`` / ``slot_label`` / ``relation_type`` stamp is new. No
+        item metadata, gold answer or world_model enters this path, no trust
+        gate is widened, and no state is kept between turns. With the flag off
+        this returns 0 before touching the graph, so default behavior is
+        byte-identical.
+        """
+        try:
+            from .schema_induction import slots_enabled, _is_trusted_edge
+        except Exception:
+            return 0
+        if not slots_enabled():
+            return 0
+        parsed = self._typed_slot_assertions(text)
+        if not parsed:
+            return 0
+        getter = getattr(self, "_get_knowledge_intake", None)
+        if not callable(getter):
+            return 0
+        try:
+            intake = getter()
+        except Exception:
+            return 0
+        if intake is None:
+            return 0
+        written = 0
+        try:
+            from ravana.learn.intake import Fact, Provenance
+            for family, subj, obj, typelabel, slotlabel in parsed:
+                try:
+                    sid = self._ensure_assertion_node(subj)
+                    oid = self._ensure_assertion_node(obj)
+                    if sid is None or oid is None or sid == oid:
+                        continue
+                    fact = Fact(subject=subj, relation="is_a", obj=obj,
+                                confidence=0.9, source_sentence=text)
+                    prov = Provenance(
+                        source="conversation", source_type="user", url="",
+                        extractor="tra-typed-slot-assertion",
+                        operations=("taught-in-conversation",
+                                    "asserted-relation:" + family))
+                    verdict = intake.intake(fact, prov, salience=1.0)
+                    edge = self.graph.get_edge(sid, oid) if self.graph else None
+                    if edge is None:
+                        continue
+                    meta = getattr(edge, "source_metadata", None)
+                    if not isinstance(meta, dict) and hasattr(edge, "_ensure_source_metadata"):
+                        meta = edge._ensure_source_metadata()
+                    if not isinstance(meta, dict):
+                        continue
+                    # Defensive restore of the earned stamp (intake maps
+                    # source_type 'user' -> 'curated'); never broadens the gate.
+                    if not meta.get("edge_kind"):
+                        meta["edge_kind"] = "curated"
+                    if not _is_trusted_edge(edge):
+                        continue
+                    edge.relation_type = "is_a"
+                    meta["asserted_relation"] = family
+                    meta["type_label"] = typelabel
+                    meta["slot_label"] = slotlabel
+                    meta["slot_writer"] = "tra_typed_slot"
+                    written += 1
+                    if getattr(self, "_trace_enabled", False):
+                        print("  [typed-slot] %s is a %s -> %s (%s)" % (
+                            subj, obj, verdict.route, verdict.reason), flush=True)
                 except Exception:
                     if getattr(self, "_trace_enabled", False):
                         import traceback

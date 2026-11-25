@@ -41,6 +41,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 __all__ = [
     "ENV_FLAG",
     "SCHEMA_ENV_FLAG",
+    "SLOT_ENV_FLAG",
+    "TYPED_SLOT_REL",
     "TRUSTED_EDGE_KINDS",
     "TRUSTED_SOURCE",
     "enabled",
@@ -57,6 +59,10 @@ __all__ = [
     "admit_for_query",
     "traces_from_edges",
     "rank_candidates_for_unseen_subject",
+    "slots_enabled",
+    "TypedSlotEdgeView",
+    "typed_slot_views_from_graph",
+    "slot_keyed_forced_choice",
 ]
 
 ENV_FLAG = "RAVANA_RSI_DECLARATION_STORAGE"
@@ -113,6 +119,158 @@ def _is_trusted_edge(edge) -> bool:
     src = (str(getattr(edge, "edge_source", "") or "").strip().lower()
            or str(meta.get("source") or meta.get("edge_source") or "").strip().lower())
     return kind in TRUSTED_EDGE_KINDS or src == TRUSTED_SOURCE
+
+
+# ── TRA typed role-slot primitives (default-OFF behind RAVANA_TRA_SLOTS=1) ──
+# Ported from the POSITIVE scratch experiment
+# (docs/investigations/TRA_SLOT_WRITE_READ_EXPERIMENT.md). Two narrow, pure
+# primitives only: a read adapter over the live graph and a fail-closed forced-
+# choice scorer. No GloVe vector, item metadata, gold answer or world_model is
+# read anywhere in this path. No state is kept between calls.
+SLOT_ENV_FLAG = "RAVANA_TRA_SLOTS"
+TYPED_SLOT_REL = "is_a"
+CONGRUENCE_FLOOR = 0.20
+STRICT_MARGIN = 0.10
+
+
+def slots_enabled() -> bool:
+    """Default-OFF opt-in for the typed-role-slot write and read primitives.
+
+    Unset (or any value other than ``1``) means BOTH the write consolidator and
+    the read hook are inert, so default behaviour is byte-identical. Kept
+    distinct from ``RAVANA_SCHEMA`` so the two mechanisms can be A/B'd alone.
+    """
+    try:
+        return os.environ.get(SLOT_ENV_FLAG, "0") == "1"
+    except Exception:
+        return False
+
+
+@dataclass(frozen=True)
+class TypedSlotEdgeView:
+    """Minimal read shape of a provenance-stamped typed slot edge."""
+
+    source: str = ""
+    relation_type: str = ""
+    target: str = ""
+    type_label: str = ""
+    slot_label: str = ""
+    edge_kind: str = ""
+    edge_source: str = ""
+    source_type: str = ""
+    confidence: float = 0.0
+
+
+def _edge_confidence(edge) -> float:
+    try:
+        return float(getattr(edge, "confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def typed_slot_views_from_graph(graph) -> List[TypedSlotEdgeView]:
+    """Read graph edges into ``TypedSlotEdgeView`` records.
+
+    Provenance keys live in ``source_metadata`` on real ``ConceptEdge`` objects
+    (not as instance attributes), so they are read from that dict with an
+    attribute fallback for duck-typed fakes. Trust itself is still decided by
+    the shared ``_is_trusted_edge`` predicate inside the scorer; this adapter
+    never widens it.
+    """
+    if graph is None:
+        return []
+    nodes = getattr(graph, "nodes", None) or {}
+    out: List[TypedSlotEdgeView] = []
+    for (sid, tid), edge in (getattr(graph, "edges", None) or {}).items():
+        if edge is None:
+            continue
+        md = getattr(edge, "source_metadata", None)
+        if not isinstance(md, dict):
+            md = {}
+        snode = nodes.get(sid) if isinstance(nodes, dict) else None
+        tnode = nodes.get(tid) if isinstance(nodes, dict) else None
+        out.append(TypedSlotEdgeView(
+            source=str(getattr(snode, "label", "") or ""),
+            relation_type=str(getattr(edge, "relation_type", "") or "").strip().lower(),
+            target=str(getattr(tnode, "label", "") or ""),
+            type_label=str(md.get("type_label") or "").strip(),
+            slot_label=str(md.get("slot_label") or "").strip(),
+            edge_kind=(str(getattr(edge, "edge_kind", "") or "").strip().lower()
+                       or str(md.get("edge_kind") or "").strip().lower()),
+            edge_source=(str(getattr(edge, "edge_source", "") or "").strip().lower()
+                         or str(md.get("source") or "").strip().lower()),
+            source_type=str(md.get("source_type") or "").strip().lower(),
+            confidence=_edge_confidence(edge),
+        ))
+    return out
+
+
+def slot_keyed_forced_choice(
+    slot_views: Iterable[TypedSlotEdgeView],
+    subject: str,
+    options: Sequence[str],
+    *,
+    congruence_floor: float = CONGRUENCE_FLOOR,
+    strict_margin: float = STRICT_MARGIN,
+    typed_rel: str = TYPED_SLOT_REL,
+) -> Dict[str, Any]:
+    """Pure, stateless, fail-closed forced-choice over typed role slots.
+
+    An option is eligible ONLY if a provenance-trusted typed edge
+    (``relation_type == typed_rel`` with a dedicated ``type_label`` stamp) goes
+    from ``subject`` to that exact slot label. The score is the STORED edge
+    confidence -- an intake write signal -- NOT cosine similarity to the label
+    word. Disjoint options, an unrelated subject, an untrusted typed edge, a
+    tie or a below-floor score all return ``pick=None`` (TRA C10 fail-closed).
+    """
+    s = str(subject or "").strip().lower()
+    opt: Dict[str, str] = {}
+    for o in (options or ()):
+        key = str(o).strip().lower()
+        if key:
+            opt[key] = str(o)
+    scores: Dict[str, Dict[str, Any]] = {}
+    for e in (slot_views or ()):
+        if e is None:
+            continue
+        if str(getattr(e, "relation_type", "") or "").strip().lower() != typed_rel:
+            continue
+        slot = str(getattr(e, "type_label", "") or "").strip().lower()
+        if not slot or not _is_trusted_edge(e):
+            continue
+        if str(getattr(e, "source", "") or "").strip().lower() != s:
+            continue
+        # The stamped slot must agree with the edge target's exact identity.
+        if slot != str(getattr(e, "target", "") or "").strip().lower():
+            continue
+        if slot not in opt:
+            continue
+        cur = scores.setdefault(slot, {"score": 0.0, "support": 0})
+        cur["score"] = max(cur["score"], _edge_confidence(e))
+        cur["support"] += 1
+    eligible = {k: v for k, v in scores.items() if v["score"] >= congruence_floor}
+    out: Dict[str, Any] = {
+        "subject": subject,
+        "options": list(options or ()),
+        "all_slot_scores": {k: round(v["score"], 4) for k, v in scores.items()},
+        "eligible": sorted(eligible.keys()),
+        "congruence_floor": congruence_floor,
+        "strict_margin": strict_margin,
+    }
+    if not eligible:
+        out.update({"pick": None, "margin": None,
+                    "reason": "no_trusted_typed_slot_above_floor"})
+        return out
+    ranked = sorted(eligible.items(), key=lambda kv: (-kv[1]["score"], kv[0]))
+    top_k, top = ranked[0]
+    second = ranked[1][1] if len(ranked) > 1 else None
+    margin = round(top["score"] - (second["score"] if second else 0.0), 4)
+    out["margin"] = margin
+    if margin < strict_margin:
+        out.update({"pick": None, "reason": "strict_margin_not_met"})
+        return out
+    out.update({"pick": opt[top_k], "reason": "trusted_typed_slot_strict_winner"})
+    return out
 
 
 # ── Hook 1: keep option tokens out of subject resolution ────────────────────
