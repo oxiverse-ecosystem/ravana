@@ -1,0 +1,75 @@
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [PMI] Seeded 209 concepts, 309 connections (300 PMI-wired, 302 GloVe-wired), 207 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 262 words, ready to learn!
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+  [ground_query] input='mist is a weather phenomenon.'
+  [ground_query] pfc qtype='general' groups=['mist is a weather phenomenon']
+  [ground_query] query_phrase='mist is a weather phenomenon' words=['mist', 'weather', 'phenomenon']
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+  [ground_query] input='election is a civic event.'
+  [ground_query] pfc qtype='what_is' groups=['election is a civic event']
+  [ground_query] query_phrase='election is a civic event' words=['election', 'civic', 'event']
+  [ground_query] input='comet is a celestial event.'
+  [ground_query] pfc qtype='general' groups=['comet is a celestial event']
+  [ground_query] query_phrase='comet is a celestial event' words=['comet', 'celestial', 'event']
+  [ground_query] input='comet is a celestial event.'
+  [ground_query] pfc qtype='general' groups=['comet is a celestial event']
+  [ground_query] query_phrase='comet is a celestial event' words=['comet', 'celestial', 'event']
+  [ground_query] input='comet is a celestial event.'
+  [ground_query] pfc qtype='general' groups=['comet is a celestial event']
+  [ground_query] query_phrase='comet is a celestial event' words=['comet', 'celestial', 'event']
+  [ground_query] input='wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['wheel is part of a vehicle']
+  [ground_query] query_phrase='wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['wheel is part of a vehicle']
+  [ground_query] query_phrase='wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='wheel is part of a vehicle.'
+  [ground_query] pfc qtype='hypothetical' groups=['wheel is part of a vehicle']
+  [ground_query] query_phrase='wheel is part of a vehicle' words=['wheel', 'part', 'vehicle']
+  [ground_query] input='chapter is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['chapter is part of a book']
+  [ground_query] query_phrase='chapter is part of a book' words=['chapter', 'part', 'book']
+  [ground_query] input='chapter is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['chapter is part of a book']
+  [ground_query] query_phrase='chapter is part of a book' words=['chapter', 'part', 'book']
+  [ground_query] input='chapter is part of a book.'
+  [ground_query] pfc qtype='what_is' groups=['chapter is part of a book']
+  [ground_query] query_phrase='chapter is part of a book' words=['chapter', 'part', 'book']
+  [ground_query] input='sneeze is a reflex action.'
+  [ground_query] pfc qtype='general' groups=['sneeze is a reflex action']
+  [ground_query] query_phrase='sneeze is a reflex action' words=['sneeze', 'reflex', 'action']
+  [ground_query] input='sneeze is a reflex action.'
+  [ground_query] pfc qtype='general' groups=['sneeze is a reflex action']
+  [ground_query] query_phrase='sneeze is a reflex action' words=['sneeze', 'reflex', 'action']
+  [ground_query] input='sneeze is a reflex action.'
+  [ground_query] pfc qtype='general' groups=['sneeze is a reflex action']
+  [ground_query] query_phrase='sneeze is a reflex action' words=['sneeze', 'reflex', 'action']
+taught 6
+in_process_views 489
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [Loaded] Remembered 338 words from before!
+cold_views 489
+VIEW None  0.5
+VIEW None  0.5
+VIEW None  0.5
+VIEW None  0.5
+VIEW None  0.5
+VIEW None  0.5
+PICK {'subject': 'mist', 'options': ['weather phenomenon', 'civic event', 'celestial event', 'animal'], 'all_slot_scores': {'weather phenomenon': 0.3889}, 'eligible': ['weather phenomenon'], 'congruence_floor': 0.2, 'strict_margin': 0.1, 'margin': 0.3889, 'pick': 'weather phenomenon', 'reason': 'trusted_typed_slot_strict_winner'}
+DISJOINT {'subject': 'mist', 'options': ['apple', 'banana', 'chair', 'table'], 'all_slot_scores': {}, 'eligible': [], 'congruence_floor': 0.2, 'strict_margin': 0.1, 'pick': None, 'margin': None, 'reason': 'no_trusted_typed_slot_above_floor'}
+HOOK weather phenomenon
+EXIT=0
