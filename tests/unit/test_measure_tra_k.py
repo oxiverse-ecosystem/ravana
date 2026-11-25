@@ -9,6 +9,7 @@ subsets, additive JSON and flag restoration.
 """
 import collections
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -18,12 +19,14 @@ import pytest
 
 PROJ = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORKTREE_SCRIPTS = os.path.join(PROJ, "scripts")
-for _p in (PROJ, WORKTREE_SCRIPTS, os.path.join(PROJ, "ravana", "src")):
+WORKTREE_SCRATCH = os.path.join(PROJ, "scratch")
+for _p in (PROJ, WORKTREE_SCRATCH, WORKTREE_SCRIPTS, os.path.join(PROJ, "ravana", "src")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 import measure_tra_k as mt                    # noqa: E402
 import tra_k_items as tki                     # noqa: E402
+import trak_channel_from_substrate as adapter   # noqa: E402
 
 
 # Frozen pre-registration snapshots (spec / TH in the harness).
@@ -712,3 +715,146 @@ def test_provenance_views_accumulate_across_items_without_boot():
     b._all_provenance_views.extend(b.provenance_views_cache)
     b.reset_for_item({"item_id": "b"})
     assert [v["subject"] for v in b.provenance_views()] == ["s1"]
+
+
+# ── Wikidata substrate integration (fake-only, static) ───────────────────────
+def _adapter_substrate():
+    sub = adapter.load_substrate(adapter.DEFAULT_SUBSTRATE)
+    with open(adapter.DEFAULT_SUBSTRATE, "rb") as fh:
+        sub["digest"] = hashlib.sha256(fh.read()).hexdigest()
+    return sub
+
+
+def test_adapter_emits_trak_channel_format_with_source_native_provenance():
+    """Every emitted fact is a verbatim projection of a substrate record."""
+    sub = _adapter_substrate()
+    items = tki.build_items()
+    projection = adapter.build_projection(sub, items)
+    assert set(projection) == {it["item_id"] for it in items}
+    role_labels = set(tki.ROLE_TO_TYPE.values())
+    raw_index = {
+        (f["subject"], f["type_label"], f["source_url"], f["type_qid"],
+         f["wikidata_property"], f["sense"]): f for f in sub["facts"]}
+    seen = 0
+    for facts in projection.values():
+        assert facts
+        for fact in facts:
+            seen += 1
+            assert not (set(tki.REQUIRED_FACT_KEYS) - set(fact))
+            assert fact["channel"] == "B-wikidata"
+            assert fact["predicate"] == "is_a"
+            assert fact["source"] == fact["source_url"]
+            assert fact["license"] == "CC0-1.0"
+            assert fact["object"] not in role_labels  # source-native, not TRA labels
+            key = (fact["subject"], fact["object"], fact["source_url"],
+                   fact["type_qid"], fact["wikidata_property"], fact["sense"])
+            raw = raw_index[key]                     # no fabricated provenance
+            for field in adapter.PROVENANCE_FIELDS:
+                assert fact[field] == raw[field]
+    assert seen == 3200
+
+
+def test_adapter_output_ignores_oracle_fields():
+    """Poisoning type_sets/world_model/gold cannot change the projection."""
+    sub = _adapter_substrate()
+    items = tki.build_items()
+    base = adapter.build_projection(sub, items)
+    poisoned = copy.deepcopy(items[:4])
+    for it in poisoned:
+        it["type_sets"] = {"POISON": ["effect", "structured-whole"]}
+        it["world_model"] = {"POISON": ["gold-poison"]}
+        it["gold"] = "gold-poison"
+        it["unseen_test_words"] = {
+            "near": {"subject": "POISON", "gold": "gold-poison"}}
+    got = adapter.build_projection(sub, poisoned)
+    assert got == {it["item_id"]: base[it["item_id"]] for it in poisoned}
+    for facts in got.values():
+        for fact in facts:
+            assert "type_sets" not in fact and "world_model" not in fact
+            assert "gold" not in fact and "unseen_test_words" not in fact
+
+
+def test_adapter_no_answer_key_leak_and_schema_valid():
+    sub = _adapter_substrate()
+    items = tki.build_items()
+    projection = adapter.build_projection(sub, items)
+    for it in items:
+        key = tki.answer_key_tokens(it)
+        assert not ({f["subject"] for f in projection[it["item_id"]]} & key)
+    report = adapter.validate_projection(sub, projection, items)
+    assert report["ok"] is True
+    assert report["validate_errors"] == 0
+    assert report["overlap"]["answer_key_leak"] == 0
+    assert report["overlap"]["oracle_domain_tag_leak"] == 0
+    assert report["overlap"]["provenance_missing"] == 0
+
+
+def test_adapter_projection_is_byte_stable():
+    sub = _adapter_substrate()
+    items = tki.build_items()
+    a = json.dumps(adapter.build_projection(sub, items), sort_keys=True)
+    b = json.dumps(adapter.build_projection(sub, items), sort_keys=True)
+    assert a == b
+    for facts in adapter.build_projection(sub, items).values():
+        keys = [(f["subject"], f["object"], f["source_url"], f["type_qid"],
+                 f["sense"]) for f in facts]
+        assert keys == sorted(keys)
+
+
+def test_mutation_hook_stays_connected_for_source_native_channel(items):
+    """The scratch regrade moves on substrate facts whose type != role label."""
+    projection = adapter.build_projection(_adapter_substrate(), items)
+    it = next(x for x in items if x["pool"] == "primary" and x["k"] == 8)
+    sourced = dict(it)
+    sourced["channel_evidence"] = copy.deepcopy(projection[it["item_id"]])
+    assert sourced["channel_evidence"][0]["object"] not in tki.ROLE_TO_TYPE.values()
+    assert mt._channel_verdict(sourced) == "match"
+    ma = copy.deepcopy(sourced)
+    for fact in ma["channel_evidence"]:
+        fact["object"] = mt.MUTATION_SENTINEL
+    mb = copy.deepcopy(sourced)
+    mb["channel_evidence"] = []
+    assert mt._channel_verdict(ma) == "reject"
+    assert mt._channel_verdict(mb) == "reject"
+
+
+def test_substrate_channel_fake_main_restores_flags(tmp_path, monkeypatch):
+    """Fake arm with the substrate channel: mechanism probe only, flags intact."""
+    projection = adapter.build_projection(_adapter_substrate(), tki.build_items())
+    channel = tmp_path / "substrate_channel.json"
+    channel.write_text(json.dumps({"items": projection}), encoding="utf-8")
+    monkeypatch.setattr(mt, "DATA_PATH", str(tmp_path / "rows.jsonl"))
+    monkeypatch.setattr(mt, "SUMMARY_PATH", str(tmp_path / "summary.json"))
+    monkeypatch.setattr(mt, "GATE_PATH", str(tmp_path / "gates.jsonl"))
+    monkeypatch.setenv(tki.CHANNEL_ENV, str(channel))
+    monkeypatch.delenv("TRAK_MAX_PER_POOL", raising=False)
+    keys = (mt.SLOT_ENV_FLAG, mt.TRAK_ENV_FLAG)
+    old = {k: os.environ.get(k) for k in keys}
+    try:
+        for k in keys:
+            os.environ[k] = "0"
+        assert mt.main([]) == 1
+        assert all(os.environ[k] == "0" for k in keys)
+        for k in keys:
+            os.environ.pop(k, None)
+        assert mt.main([]) == 1
+        assert all(k not in os.environ for k in keys)
+        summary = json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))
+    finally:
+        for k in keys:
+            if old[k] is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = old[k]
+    assert summary["interpretation"] == "mechanism_probe_only_fake_arm"
+    assert summary["backend"] == "fake" and summary["live"] is False
+    assert summary["invalid_controls"] == []
+    assert summary["channel"]["external_items"] == 400
+    assert summary["channel"]["fallback_items"] == 0
+    assert summary["channel"]["overlap"]["answer_key_leak"] == 0
+    by_id = {c["id"]: c for c in summary["instrument_controls"]}
+    assert by_id["C11"]["ok"] is False
+    assert by_id["C14"]["ok"] is True and by_id["C15"]["ok"] is True
+    assert summary["saturation_gate"]["status"] == "FLAG"
+    assert summary["mutation_control"]["moved"] is True
+    assert summary["rules"]["backend_live"] is False

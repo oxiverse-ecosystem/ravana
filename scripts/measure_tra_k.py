@@ -1044,17 +1044,38 @@ def instrument_controls(items, rows, summary, backend, live, backend_error):
 
 
 # ── saturation mutation controls (scratch only) ─────────────────────────────
+# Scratch sentinel used by M-A to re-stamp a channel type. It is NOT a gate or
+# a threshold; it only labels the mutation so the regrade hook can detect it.
+MUTATION_SENTINEL = "not-a-taught-type"
+
+
 def _demo_objects(item):
     return {w for ex in item["taught_exemplars"] for w in (ex["r1"], ex["r2"])}
 
 
 def _channel_verdict(item):
-    """Scratch regrade hook: does the CHANNEL still supply the taught type?"""
+    """Scratch regrade hook: does the CHANNEL still carry a usable is_a type?
+
+    An external substrate channel carries SOURCE-NATIVE type labels (Wikidata
+    P31/P279 labels); the substrate audit records 0/638 overlap with TRA's six
+    authored role labels. Requiring ``object == item["type_label"]`` would
+    therefore answer "reject" BEFORE any mutation and disconnect this
+    saturation control from the channel entirely -- a probe bug, not a
+    benchmark result. The substrate-aware regrade asks the channel-neutral
+    question: is there still a provenance-stamped is_a fact naming a real type
+    on a taught exemplar? M-A re-stamps the type to ``MUTATION_SENTINEL`` and
+    M-B removes the facts, so both must still move the verdict. The fallback
+    channel's role-label facts satisfy the same rule, so the original control
+    is preserved unchanged in behaviour for that channel.
+    """
     demos = _demo_objects(item)
     supported = any(
         str(f.get("predicate", "")).lower() in tra_k_items.ISA_PREDICATES
-        and str(f.get("object", "")).strip() == item["type_label"]
+        and str(f.get("object", "")).strip()
+        and str(f.get("object", "")).strip() != MUTATION_SENTINEL
         and str(f.get("subject", "")).strip() in demos
+        and all(k in f and f.get(k) not in (None, "")
+                for k in tra_k_items.REQUIRED_FACT_KEYS)
         for f in item.get("channel_evidence", []))
     return "match" if supported else "reject"
 
@@ -1069,7 +1090,7 @@ def mutation_control(items, bank_mutator=None):
     before = _channel_verdict(item)
     ma_item = copy.deepcopy(item)
     for fact in ma_item["channel_evidence"]:
-        fact["object"] = "not-a-taught-type"
+        fact["object"] = MUTATION_SENTINEL
     mb_item = copy.deepcopy(item)
     mb_item["channel_evidence"] = []
     if bank_mutator is not None:

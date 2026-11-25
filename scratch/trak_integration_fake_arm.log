@@ -1,0 +1,77 @@
+==============================================================================
+TRA-K benchmark (pre-registered) -- backend=fake
+==============================================================================
+  commit=39ea03f families=400 primary=200 sealed=200
+  hash_rule=RAVANA-TRA-K-v1|TRA-K|<difficulty>|<item_id>
+  manifest_sha256 primary=c3e03c2cc664922b8b511722e00a35715a27688bbadfcde5af200bb457459637
+  manifest_sha256 sealed =9f43014cefd4c6e66c1b7a08ddf971062e334baad0b7f19ee967837fd42f25af
+  bank_sha256=0ed8bdc2ee1dd555adc4595868bce6794a14085c0d02761b8a957fc152e147cd
+  k_levels=(0, 1, 2, 4, 8) one_k_per_item=True
+  channel path=C:/Users/Likhith/Documents/projects/ravana_trak_integrate/scratch/trak_channel_from_substrate.json external=400 fallback=0 overlap={'overlap_type_sets': 3200, 'overlap_world_model': 0, 'facts': 3200, 'answer_key_leak': 0, 'oracle_domain_tag_leak': 0, 'provenance_missing': 0}
+
+--- instrument controls C1-C15 (before any score) ---
+  [ok] C1 -- channel near(k=8)>=0.90
+  [ok] C2 -- foil channel reject>=0.90 and naive accept<=0.10
+  [ok] C3 -- naive near-permuted>=0.15 and channel gap<=0.10
+  [ok] C4 -- chance<=0.35 and far-chance>=0.20
+  [ok] C5 -- negative channel reject>=0.85 and counterexample<=0.20
+  [ok] C6 -- monotonic k-curve max drop<=0.05 (both pools)
+  [ok] C7 -- graded near>=far>=foil max drop<=0.15 (both pools)
+  [ok] C8 -- role coverage>=0.95 + grader fixed vectors
+  [ok] C9 -- cold-reload retention>=0.80, fresh engine, counters>=1
+  [ok] C10 -- type contrast flips pick; disjoint returns None
+  [BAD] C11 -- anti-fake: live backend, real API counters, query-only grading
+        backend=fake live=False error=None graded_from_query=False calls={'boot': 0, 'intake': 0, 'save': 400, 'cold_reload': 400, 'process_turn': 0}
+  [ok] C12 -- provenance integrity; no fabricated URL/span; gate intact
+  [ok] C13 -- immediate(k=8)-baseline>=0.15 and coverage loss<=0.05
+  [ok] C14 -- unrelated subject never gets confident answer (HARD FAIL)
+  [ok] C15 -- channel evidence overlaps oracle only benignly; no deployable use
+
+--- decision rules (pre-registered, not tuned) ---
+  [ok] primary_transfer>=0.75
+  [ok] primary_near>=0.75
+  [ok] primary_far>=0.70
+  [ok] primary_far-chance>=0.20
+  [ok] primary_foil_reject>=0.85
+  [ok] primary_negative_reject>=0.80
+  [ok] primary_permuted>=near-0.10
+  [ok] primary_monotonic<=0.05
+  [ok] primary_graded<=0.15
+  [ok] primary_coverage>=0.95
+  [ok] primary_retention>=0.80
+  [ok] primary_control_delta<=0.05
+  [ok] sealed_transfer>=0.75
+  [ok] sealed_near>=0.75
+  [ok] sealed_far>=0.70
+  [ok] sealed_far-chance>=0.20
+  [ok] sealed_foil_reject>=0.85
+  [ok] sealed_negative_reject>=0.80
+  [ok] sealed_permuted>=near-0.10
+  [ok] sealed_monotonic<=0.05
+  [ok] sealed_graded<=0.15
+  [ok] sealed_coverage>=0.95
+  [ok] sealed_retention>=0.80
+  [ok] sealed_control_delta<=0.05
+  [ok] sealed_transfer within 0.10
+  [ok] sealed_near within 0.10
+  [ok] sealed_foil_reject within 0.10
+  [ok] instrument_controls_ok
+  [FAIL] c11_anti_fake_ok
+  [ok] subject_independence_ok
+  [ok] channel_independence_ok
+  [FAIL] backend_live
+  [ok] backend_error_free
+  [ok] saturation_flag_recorded
+  [ok] mutations_passed_if_saturated
+
+--- PRIMARY vs SEALED (channel arm) ---
+  primary transfer=1.000 near=1.000 far=1.000 foil=1.000 neg=1.000 chance=0.000 perm=1.000 mono=0.000 graded=0.000 cov=1.000 ret=1.000 growth=+1.000 ostensive=1.0
+  sealed  transfer=1.000 near=1.000 far=1.000 foil=1.000 neg=1.000 chance=0.000 perm=1.000 mono=0.000 graded=0.000 cov=1.000 ret=1.000 growth=+1.000 ostensive=1.0
+  saturation gate: FLAG -- 2 front(s) non-informative: tra_k_near=100, tra_k_negative_reject=100
+  mutation control M-A/M-B moved: True
+  interpretation: mechanism_probe_only_fake_arm
+  NOTE: fake backend cannot yield a capability claim (C11 BAD by construction).
+
+OVERALL: FAIL (mechanism_probe_only_fake_arm)
+artifacts: C:\Users\Likhith\Documents\projects\ravana_trak_integrate\scratch\tra_k_harness\tra_k_rows.jsonl , C:\Users\Likhith\Documents\projects\ravana_trak_integrate\scratch\tra_k_harness\tra_k_summary.json
+elapsed 1.3s | DONE
