@@ -6,7 +6,7 @@ saturated real endpoint must pass a mutation control before it is called valid.
 
 | Component | Verdict | Evidence | Caveat |
 |---|---|---|---|
-| CAR — conversational acquisition | **PENDING VERIFICATION** | Historic scorecard run PASS; later P2 remeasure FAIL on sealed adjacent-k monotonicity (`−0.4`). Investigation found the historical cause (curated hops written to dead node IDs) and `main` already carries F2/F3/F4; a fresh sealed rerun has not been completed. | Scorecard previously said PASS; do not report either verdict as current until rerun |
+| CAR — conversational acquisition | **PASS (verified 2026-11-26)** | Fresh sealed rerun on current `main`: all 10 criteria pass, primary Δ8 1.0 / sealed 0.9, adjacent-k reversals 0.0/0.0, cold-reload gain retained | Earlier P2 `−0.4` reversal was the stale-node-ID bug, now fixed and confirmed |
 | CLI — continual learning | **PASS** | primary on−off +0.267, sealed +0.154, compute ratio 1.000 | Sealed transfer saturated; REM flip 0.10 pre-registered calibration |
 | WFA — web-fact attribution | **FAIL** | Full run with all fixes: internal-source arm primary credible/discredited/unknown 1.00/1.00/1.00; sealed 1.00/0.80/1.00; anti-tautology PASS; overall unsaturated FAIL (exit 1) | Sealed discredited 0.80 < 0.90; unparseable ceiling and PD invalidation-withdrawal/exclusion-margin gates fail. Fresh-engine isolation remains an untested option for cross-condition interference. |
 | PDR — poisoned-data resistance | **PASS — G6 FLAG** | Repaired live run: all controls OK, backend live, 3,198 intake / 984 save / 984 reload calls; endpoints 1.00/0.00; M-A and M-B mutations both moved the graded observation | Saturated: valid mechanism check, **invalid as progress signal**. Full 82-item run used n=40/42 |
