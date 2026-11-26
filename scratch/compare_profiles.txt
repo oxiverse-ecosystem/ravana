@@ -1,0 +1,125 @@
+OLD boot_s=2.63 nodes=2167 glove=400001
+NEW boot_s=3.386 nodes=2167 glove=400001
+
+====================================================================================================
+TURN inclusion_short  prompt_len old=220 new=220  wall old=0.623s new=0.844s  ratio=0.74x
+  OLD activate=[] ground=[(1, 0.024306)]
+  NEW activate=[] ground=[(1, 0.019633)]
+
+  NEW TOP CUMULATIVE (20)  [old cumtime / old ncalls where available]
+      0.8443 cum    0.0006 tot          1 nc  engine.py:8187 process_turn | OLD cum=0.6224 nc=1
+      0.8010 cum    0.0015 tot          1 nc  engine.py:8404 _process_turn_impl | OLD cum=0.6048 nc=1
+      0.5420 cum    0.0106 tot        773 nc  __init__.py:330 _compile | OLD cum=0.5228 nc=773
+      0.5245 cum    0.0031 tot        385 nc  _compiler.py:757 compile | OLD cum=0.5053 nc=385
+      0.4983 cum    0.0048 tot          1 nc  user_model.py:1718 mine_personal_facts | OLD cum=0.4014 nc=1
+      0.3687 cum    0.0006 tot        339 nc  __init__.py:174 search | OLD cum=0.3708 nc=339
+      0.2672 cum    0.0024 tot        385 nc  _parser.py:963 parse | OLD cum=0.2598 nc=385
+      0.2630 cum    0.0172 tot       1516 nc  _parser.py:452 _parse_sub | OLD cum=0.2558 nc=1516
+      0.2603 cum    0.1005 tot       7045 nc  _parser.py:512 _parse | OLD cum=0.2532 nc=7045
+      0.2513 cum    0.0012 tot        385 nc  _compiler.py:590 _code | OLD cum=0.2393 nc=385
+      0.2185 cum    0.1059 tot       9384 nc  _compiler.py:39 _compile | OLD cum=0.2086 nc=9384
+      0.2149 cum    0.0002 tot         10 nc  <frozen importlib._bootstrap>:1360 _find_and_load | OLD cum=0.0464 nc=10
+      0.2141 cum    0.0001 tot         10 nc  <frozen importlib._bootstrap>:1308 _find_and_load_unlocked | OLD cum=0.0455 nc=10
+      0.2082 cum    0.0001 tot          8 nc  <frozen importlib._bootstrap>:914 _load_unlocked | OLD cum=0.0391 nc=8
+      0.2076 cum    0.0001 tot          8 nc  <frozen importlib._bootstrap_external>:757 exec_module | OLD cum=0.0383 nc=8
+      0.1836 cum    0.0003 tot          8 nc  <frozen importlib._bootstrap_external>:830 get_code
+      0.1276 cum    0.0001 tot         16 nc  <frozen importlib._bootstrap_external>:951 get_data
+      0.1261 cum    0.1261 tot         16 nc  ~:0 <built-in method _io.open_code>
+      0.0850 cum    0.0001 tot         26 nc  <frozen importlib._bootstrap>:483 _call_with_frames_removed
+      0.0746 cum    0.0002 tot          1 nc  engine_memory.py:2617 _try_memory_query | OLD cum=0.0458 nc=1
+
+  OLD TOP CUMULATIVE (12, for reference)
+      0.6224 cum    0.0006 tot          1 nc  engine.py:8187 process_turn
+      0.6048 cum    0.0016 tot          1 nc  engine.py:8404 _process_turn_impl
+      0.5228 cum    0.0107 tot        773 nc  __init__.py:330 _compile
+      0.5053 cum    0.0030 tot        385 nc  _compiler.py:757 compile
+      0.4014 cum    0.0045 tot          1 nc  user_model.py:1718 mine_personal_facts
+      0.3708 cum    0.0006 tot        339 nc  __init__.py:174 search
+      0.2598 cum    0.0023 tot        385 nc  _parser.py:963 parse
+      0.2558 cum    0.0168 tot       1516 nc  _parser.py:452 _parse_sub
+      0.2532 cum    0.0990 tot       7045 nc  _parser.py:512 _parse
+      0.2393 cum    0.0011 tot        385 nc  _compiler.py:590 _code
+      0.2086 cum    0.1013 tot       9384 nc  _compiler.py:39 _compile
+      0.0641 cum    0.0439 tot      99298 nc  _parser.py:168 __getitem__
+
+====================================================================================================
+TURN exclusion_long_context  prompt_len old=2349 new=2349  wall old=0.407s new=0.259s  ratio=1.57x
+  OLD activate=[] ground=[(1, 0.015388)]
+  NEW activate=[] ground=[(1, 0.008338)]
+
+  NEW TOP CUMULATIVE (20)  [old cumtime / old ncalls where available]
+      0.2585 cum    0.0001 tot          1 nc  engine.py:8187 process_turn | OLD cum=0.4066 nc=1
+      0.2525 cum    0.0004 tot          1 nc  engine.py:8404 _process_turn_impl | OLD cum=0.4012 nc=1
+      0.1265 cum    0.0848 tot          1 nc  user_model.py:1718 mine_personal_facts | OLD cum=0.2258 nc=1
+      0.0783 cum    0.0009 tot          2 nc  engine.py:3369 _structured_recall | OLD cum=0.0848 nc=2
+      0.0765 cum    0.0004 tot        425 nc  __init__.py:174 search | OLD cum=0.1100 nc=425
+      0.0552 cum    0.0032 tot       1585 nc  __init__.py:330 _compile | OLD cum=0.0801 nc=1585
+      0.0500 cum    0.0003 tot         39 nc  _compiler.py:757 compile | OLD cum=0.0704 nc=39
+      0.0328 cum    0.0328 tot        458 nc  ~:0 <method 'search' of 're.Pattern' objects> | OLD cum=0.0501 nc=458
+      0.0308 cum    0.0002 tot         39 nc  _parser.py:963 parse | OLD cum=0.0420 nc=39
+      0.0304 cum    0.0020 tot        213 nc  _parser.py:452 _parse_sub | OLD cum=0.0414 nc=213
+      0.0302 cum    0.0108 tot        834 nc  _parser.py:512 _parse | OLD cum=0.0410 nc=834
+      0.0261 cum    0.0001 tot          1 nc  engine_memory.py:2617 _try_memory_query | OLD cum=0.0528 nc=1
+      0.0208 cum    0.0000 tot          3 nc  <frozen importlib._bootstrap>:1360 _find_and_load
+      0.0206 cum    0.0000 tot          3 nc  <frozen importlib._bootstrap>:1308 _find_and_load_unlocked
+      0.0187 cum    0.0001 tot         39 nc  _compiler.py:590 _code | OLD cum=0.0276 nc=39
+      0.0173 cum    0.0083 tot       1146 nc  _compiler.py:39 _compile | OLD cum=0.0256 nc=1146
+      0.0171 cum    0.0000 tot          1 nc  <frozen importlib._bootstrap>:914 _load_unlocked
+      0.0170 cum    0.0000 tot          1 nc  <frozen importlib._bootstrap_external>:757 exec_module
+      0.0169 cum    0.0000 tot          1 nc  <frozen importlib._bootstrap_external>:830 get_code
+      0.0143 cum    0.0055 tot       1189 nc  engine_graph.py:580 _glove_vector | OLD cum=0.0247 nc=1189
+
+  OLD TOP CUMULATIVE (12, for reference)
+      0.4066 cum    0.0001 tot          1 nc  engine.py:8187 process_turn
+      0.4012 cum    0.0009 tot          1 nc  engine.py:8404 _process_turn_impl
+      0.2258 cum    0.1587 tot          1 nc  user_model.py:1718 mine_personal_facts
+      0.1100 cum    0.0007 tot        425 nc  __init__.py:174 search
+      0.0848 cum    0.0016 tot          2 nc  engine.py:3369 _structured_recall
+      0.0801 cum    0.0063 tot       1585 nc  __init__.py:330 _compile
+      0.0704 cum    0.0005 tot         39 nc  _compiler.py:757 compile
+      0.0528 cum    0.0001 tot          1 nc  engine_memory.py:2617 _try_memory_query
+      0.0501 cum    0.0501 tot        458 nc  ~:0 <method 'search' of 're.Pattern' objects>
+      0.0420 cum    0.0004 tot         39 nc  _parser.py:963 parse
+      0.0414 cum    0.0028 tot        213 nc  _parser.py:452 _parse_sub
+      0.0410 cum    0.0147 tot        834 nc  _parser.py:512 _parse
+
+====================================================================================================
+TURN forced_choice_provenance  prompt_len old=2388 new=2388  wall old=13.596s new=3.978s  ratio=3.42x
+  OLD activate=[(4, 10.101863)] ground=[(3, 0.024717)]
+  NEW activate=[(4, 0.11484)] ground=[(3, 0.017263)]
+
+  NEW TOP CUMULATIVE (20)  [old cumtime / old ncalls where available]
+      3.9781 cum    0.0001 tot          1 nc  engine.py:8187 process_turn | OLD cum=13.5959 nc=1
+      3.9733 cum    0.0070 tot          1 nc  engine.py:8404 _process_turn_impl | OLD cum=13.5903 nc=1
+      2.2267 cum    0.0880 tot          1 nc  chain_walker.py:1250 _extract_and_store_causal_relations | OLD cum=1.7377 nc=1
+      1.8944 cum    0.2297 tot     135291 nc  chain_walker.py:1387 _create_causal_edge | OLD cum=1.4681 nc=135291
+      1.7678 cum    0.0774 tot       4352 nc  graph.py:1694 add_edge | OLD cum=1.3847 nc=4352
+      1.6659 cum    0.0396 tot       4352 nc  graph.py:193 __init__ | OLD cum=1.3032 nc=4352
+      1.6183 cum    0.8402 tot       4352 nc  graph.py:381 _init_relation_vector | OLD cum=1.2683 nc=4352
+      0.6382 cum    0.6214 tot       4352 nc  _ufunc_config.py:496 inner | OLD cum=0.5144 nc=4352
+      0.6256 cum    0.1975 tot          3 nc  user_model.py:1718 mine_personal_facts | OLD cum=0.7366 nc=3
+      0.5179 cum    0.0582 tot          2 nc  chain_walker.py:295 _auto_expand_concepts | OLD cum=0.4717 nc=2
+      0.4724 cum    0.0010 tot        853 nc  __init__.py:174 search | OLD cum=0.5200 nc=853
+      0.4706 cum    0.0130 tot       3033 nc  __init__.py:330 _compile | OLD cum=0.5403 nc=3033
+      0.4497 cum    0.0027 tot        413 nc  _compiler.py:757 compile | OLD cum=0.5136 nc=413
+      0.2389 cum    0.0022 tot        413 nc  _parser.py:963 parse | OLD cum=0.2688 nc=413
+      0.2350 cum    0.0151 tot       1566 nc  _parser.py:452 _parse_sub
+      0.2325 cum    0.0891 tot       7162 nc  _parser.py:512 _parse
+      0.2305 cum    0.1511 tot       4968 nc  chain_walker.py:595 _word_causal_score
+      0.2057 cum    0.0010 tot        413 nc  _compiler.py:590 _code
+      0.1866 cum    0.0779 tot      16823 nc  engine_graph.py:580 _glove_vector
+      0.1789 cum    0.0886 tot       9704 nc  _compiler.py:39 _compile
+
+  OLD TOP CUMULATIVE (12, for reference)
+     13.5959 cum    0.0001 tot          1 nc  engine.py:8187 process_turn
+     13.5903 cum    0.0050 tot          1 nc  engine.py:8404 _process_turn_impl
+     10.1019 cum    6.7038 tot          4 nc  engine_memory.py:3476 _activate_from_input
+      1.7377 cum    0.0680 tot          1 nc  chain_walker.py:1250 _extract_and_store_causal_relations
+      1.4681 cum    0.1829 tot     135291 nc  chain_walker.py:1387 _create_causal_edge
+      1.3847 cum    0.0627 tot       4352 nc  graph.py:1694 add_edge
+      1.3032 cum    0.0293 tot       4352 nc  graph.py:193 __init__
+      1.2683 cum    0.6488 tot       4352 nc  graph.py:381 _init_relation_vector
+      0.9644 cum    0.9602 tot    6438578 nc  ~:0 <built-in method builtins.len>
+      0.8786 cum    0.8786 tot    3536170 nc  ~:0 <method 'get' of 'dict' objects>
+      0.7870 cum    0.7870 tot    3197410 nc  ~:0 <method 'lower' of 'str' objects>
+      0.7366 cum    0.2476 tot          3 nc  user_model.py:1718 mine_personal_facts

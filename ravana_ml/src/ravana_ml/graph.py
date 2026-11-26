@@ -4,6 +4,7 @@ import time
 from typing import Any, Optional, List, Tuple, Dict, Set
 from .tensor import StateTensor, RawTensor, tensor
 from collections import defaultdict
+from functools import lru_cache
 
 try:
     from scipy.sparse import csr_matrix
@@ -379,14 +380,9 @@ class ConceptEdge:
             p_graph.version = getattr(p_graph, "version", 0) + 1
 
     @staticmethod
-    def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
-        """Initialize relation vector from type label with deterministic seeding.
-
-        The first few dimensions act like type anchors so the initial relation
-        families are genuinely separable instead of merely pseudo-random.
-        Small deterministic noise keeps vectors from collapsing into one-hot
-        aliases while preserving a strong type signature.
-        """
+    @lru_cache(maxsize=None)
+    def _relation_vector_template(relation_type: str, dim: int) -> np.ndarray:
+        """Deterministic template for a relation type; never mutate directly."""
         type_order = {
             "semantic": 0,
             "causal": 1,
@@ -414,7 +410,18 @@ class ConceptEdge:
             vec += noise
 
         norm = np.linalg.norm(vec)
-        return vec / norm if norm > 0 else vec
+        template = vec / norm if norm > 0 else vec
+        return template
+
+    @staticmethod
+    def _init_relation_vector(relation_type: str, dim: int) -> np.ndarray:
+        """Initialize a relation vector from the cached deterministic template.
+
+        Hebbian learning mutates edge vectors in place, so every caller gets a
+        fresh copy. Same bytes as the old per-edge construction, without
+        regenerating the seeded noise 4,352 times per WFA turn.
+        """
+        return ConceptEdge._relation_vector_template(relation_type, dim).copy()
 
     @property
     def effective_weight(self) -> float:

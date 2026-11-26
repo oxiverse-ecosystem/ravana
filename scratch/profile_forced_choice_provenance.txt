@@ -1,61 +1,61 @@
-turn=forced_choice_provenance prompt_len=2388 wall=13.596s
+turn=forced_choice_provenance prompt_len=2388 wall=3.978s
 prompt='Reply with ONE token only. Y = endorse the claim, N = abstain / do not endorse, W = withdraw a prior assertion. No explanation.\nProvenance of this claim: discredited (source id: src_discredited_d19).\nTrusted sources for this run: http:///go/v1/AQ0tIhx7E5wYav9DNAEJ_H7yBt6niUTr5sWKejTlgJXsxoabMc3qAlVs5CZF0ePNunJfweeZzgsQME-nT0nlXjZCtbT8gaXpOjbMmcK_c9WnoJ1CbEEPoZP96WDYplSyFNf35Oa2ZZINIe7oZLRC1AbNDE9jz0HdNlmEx5IA5C4WR_3hMVi3k1BBY_-iwEQ1Wj7u_TPMj-olRshjy4lniWqiwQI, http:///go/v1/AQ0tIhx7E5wYav9DNAEJ_H7yBt6niUTr5sWKejTlghSaRx0EknorU8rsk7dlhIvKo-iGxf9WoZICyShtce54l2P4XSYItSDKaNphrdUdobXbh0QzCI1rQe1TIVF2fN3GPcNnrEkXdbdyLezHgKXDitKDlj9uCXOkGypEDUfxwemeHdV7Ovgu_GGCmVztdiPjDJDJCoKGsAlLzjc50A3K0Z0LTL0OpiKNhtVHDN0z8apgtsAX-RVjuWRO9olfWkKH4B7iZp8glws, http:///go/v1/AQL0B1wWhcDhav8-SAG4CB_A4vfXurJnuKTbU0rGgtA8P2SuSLhQVt1NSqTbcldpn9C7dxiI4SXlIlbdcdbp-bgwJ2j_qRPuwdBwmhbcIJgP1m8_L4zNIh03UcrpYC2d3oTjwhmi7zEP6Q8eXPpT-Q8Yz5_hr3U1vZF3u5Vcnq0qGqxLbSpuI9auIKp5exmzWNAybAU, http:///go/v1/AQO5xHaY9nwrav8-hAFhuggZwW23xgbImFwHJX4hgU6dnmZQW-JJqKPR42G6Vef-5q6VivtJ2aJZzwPAdW_29XpvOMsdK4G4f-e2xYJo6WiMIksI5Mc9JHCn1JPH4YEFAY6urz1nUt_Jqa-deJL5P8cNoq7nOe4Jkw0uTcekdC57TSsfLzNF_u8uCxUi2FTwBD3pFm_PhT6fEUa2zTF2-7SUj0VjWKya3s5mXDhlmwiTiQs, http:///go/v1/AQO5xHaY9nwrav8-hAFhuggZwW23xgbImFwHJX4hgpbJQki_6nNwDM_fgzH8QJPTNba6WvWw7w3jyzg3CoG2Y07ucIcRl3byfMuD_ckr7IdlcasLkClRLSCBgkhfrdanqZHSekw1zj3pxqnQYUhB-Y0KRPLwZXNcbS_OuSDXkvtqwTJKlyRMNhK5SHhO8zmpsBqVPO80dIl7nNAIQYQx1fJOxQFvpLjGrUo-AA, http:///go/v1/AQY7D4-4FAfrav83uAFLsrc0uhZ6obY8C8wIxh2QgYnl65F6ouLfQElq7hSUfzu2qwsLo5k3-zIv3GliNNBykyH4iq5Ju0Pt9d2QDdtSuTo4hMt8sNa1fi-FH-i883OdEAdUf_8L5wkBArmK63DPvh_AMvGQk_rRQUseQE3_mln6i8uTXbOrUrpGQAjuNWIink41qY7WNZMv__dyaWty4juYBo9qrP9OjN4F0q494LadQuQ1sSaa-tYB, http:///go/v1/AQYRZfzN7-AUav87tAFbLfTfjgAy-ROM91uZxWY3icIt0ciAcgIiAHG1xTLr8nTowx5vDvsB39mhki9IzJ01gcY-ld-s6RZn_uzgUPq0ol-cdSKqtkZ4_IC9subEojPbLegJDtS9DMRsrm2C-d96_7syKweytDkjJdB-_pxSwdfK15OgqIgXvVgbOd5HF2ytnxoqcLPen6Ht5ZzjYppEGC1yRoctls4DpsekL8H3ZOYdSQLSzC2UrZcPN1ZypCUjcq'
 
-         19542301 function calls (19505221 primitive calls) in 13.596 seconds
+         2504008 function calls (2466928 primitive calls) in 3.978 seconds
 
    Ordered by: cumulative time
-   List reduced from 783 to 50 due to restriction <50>
+   List reduced from 790 to 50 due to restriction <50>
 
    ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.000    0.000   13.596   13.596 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:8187(process_turn)
-        1    0.005    0.005   13.590   13.590 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:8404(_process_turn_impl)
-        4    6.704    1.676   10.102    2.525 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_memory.py:3476(_activate_from_input)
-        1    0.068    0.068    1.738    1.738 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\chain_walker.py:1250(_extract_and_store_causal_relations)
-   135291    0.183    0.000    1.468    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\chain_walker.py:1387(_create_causal_edge)
-     4352    0.063    0.000    1.385    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana_ml\src\ravana_ml\graph.py:1694(add_edge)
-     4352    0.029    0.000    1.303    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana_ml\src\ravana_ml\graph.py:193(__init__)
-     4352    0.649    0.000    1.268    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana_ml\src\ravana_ml\graph.py:381(_init_relation_vector)
-6438578/6427981    0.960    0.000    0.964    0.000 {built-in method builtins.len}
-  3536170    0.879    0.000    0.879    0.000 {method 'get' of 'dict' objects}
-  3197410    0.787    0.000    0.787    0.000 {method 'lower' of 'str' objects}
-        3    0.248    0.083    0.737    0.246 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
-     3033    0.017    0.000    0.540    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
-      853    0.001    0.000    0.520    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
-     4352    0.501    0.000    0.514    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\.venv\Lib\site-packages\numpy\_core\_ufunc_config.py:496(inner)
-      413    0.003    0.000    0.514    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
-        2    0.054    0.027    0.472    0.236 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\chain_walker.py:295(_auto_expand_concepts)
-  2275055    0.448    0.000    0.448    0.000 {method 'endswith' of 'str' objects}
-  2268117    0.447    0.000    0.447    0.000 {method 'startswith' of 'str' objects}
-      413    0.003    0.000    0.269    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:963(parse)
- 1566/413    0.017    0.000    0.264    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
- 7162/435    0.100    0.000    0.261    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
-      413    0.001    0.000    0.238    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:590(_code)
-    16823    0.094    0.000    0.226    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_graph.py:580(_glove_vector)
- 9704/413    0.101    0.000    0.207    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
-     4968    0.126    0.000    0.190    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\chain_walker.py:595(_word_causal_score)
-        1    0.000    0.000    0.157    0.157 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:6629(observe_user_query)
-     1040    0.151    0.000    0.151    0.000 {method 'search' of 're.Pattern' objects}
-    16413    0.067    0.000    0.151    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\.venv\Lib\site-packages\numpy\linalg\_linalg.py:2598(norm)
-        1    0.000    0.000    0.097    0.097 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_memory.py:2525(_detect_recall_trigger)
-        1    0.013    0.013    0.095    0.095 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:2371(_recall_seed_concepts)
-      198    0.000    0.000    0.076    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:280(finditer)
-   103670    0.045    0.000    0.065    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:168(__getitem__)
-       49    0.000    0.000    0.058    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:287(compile)
-   245197    0.054    0.000    0.054    0.000 {method 'append' of 'list' objects}
-    20941    0.018    0.000    0.048    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana_ml\src\ravana_ml\graph.py:334(weight)
-        9    0.000    0.000    0.047    0.005 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_web_search.py:1855(_router_says)
-        9    0.000    0.000    0.047    0.005 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_web_search.py:1835(_route_intent)
-        9    0.001    0.000    0.047    0.005 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\intent_router.py:472(classify)
-        1    0.000    0.000    0.047    0.047 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:6824(_detect_correction)
-    16412    0.046    0.000    0.046    0.000 {method 'dot' of 'numpy.ndarray' objects}
-    18506    0.043    0.000    0.046    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:2394(<genexpr>)
-        7    0.001    0.000    0.045    0.006 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\language\prefrontal_workspace.py:438(classify)
-    41882    0.029    0.000    0.045    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana_ml\src\ravana_ml\graph.py:375(_on_change)
-        7    0.003    0.000    0.045    0.006 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\language\prefrontal_workspace.py:401(_sentence_vector)
-        1    0.000    0.000    0.042    0.042 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:6899(_extract_correction_fact)
-      873    0.024    0.000    0.038    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\chain_walker.py:1988(_infer_relation_type)
-   141684    0.034    0.000    0.035    0.000 {built-in method builtins.getattr}
-10067/786    0.028    0.000    0.034    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:178(getwidth)
-    13310    0.033    0.000    0.033    0.000 {method 'astype' of 'numpy.ndarray' objects}
+        1    0.000    0.000    3.978    3.978 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:8187(process_turn)
+        1    0.007    0.007    3.973    3.973 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:8404(_process_turn_impl)
+        1    0.088    0.088    2.227    2.227 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\chain_walker.py:1250(_extract_and_store_causal_relations)
+   135291    0.230    0.000    1.894    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\chain_walker.py:1387(_create_causal_edge)
+     4352    0.077    0.000    1.768    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana_ml\src\ravana_ml\graph.py:1694(add_edge)
+     4352    0.040    0.000    1.666    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana_ml\src\ravana_ml\graph.py:193(__init__)
+     4352    0.840    0.000    1.618    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana_ml\src\ravana_ml\graph.py:381(_init_relation_vector)
+     4352    0.621    0.000    0.638    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\.venv\Lib\site-packages\numpy\_core\_ufunc_config.py:496(inner)
+        3    0.197    0.066    0.626    0.209 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+        2    0.058    0.029    0.518    0.259 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\chain_walker.py:295(_auto_expand_concepts)
+      853    0.001    0.000    0.472    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
+     3033    0.013    0.000    0.471    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
+      413    0.003    0.000    0.450    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
+      413    0.002    0.000    0.239    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:963(parse)
+ 1566/413    0.015    0.000    0.235    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
+ 7162/435    0.089    0.000    0.233    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
+     4968    0.151    0.000    0.230    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\chain_walker.py:595(_word_causal_score)
+      413    0.001    0.000    0.206    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:590(_code)
+    16823    0.078    0.000    0.187    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_graph.py:580(_glove_vector)
+ 9704/413    0.089    0.000    0.179    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
+     1040    0.146    0.000    0.146    0.000 {method 'search' of 're.Pattern' objects}
+   404665    0.146    0.000    0.146    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.142    0.142 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:6629(observe_user_query)
+    16413    0.064    0.000    0.137    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\.venv\Lib\site-packages\numpy\linalg\_linalg.py:2598(norm)
+        4    0.064    0.016    0.115    0.029 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_memory.py:3476(_activate_from_input)
+        1    0.000    0.000    0.064    0.064 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_memory.py:2525(_detect_recall_trigger)
+        1    0.008    0.008    0.063    0.063 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:2371(_recall_seed_concepts)
+    20941    0.022    0.000    0.060    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana_ml\src\ravana_ml\graph.py:334(weight)
+      4/2    0.000    0.000    0.059    0.029 <frozen importlib._bootstrap>:1360(_find_and_load)
+      198    0.000    0.000    0.058    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:280(finditer)
+      4/2    0.000    0.000    0.058    0.029 <frozen importlib._bootstrap>:1308(_find_and_load_unlocked)
+      4/2    0.000    0.000    0.058    0.029 <frozen importlib._bootstrap>:914(_load_unlocked)
+      3/2    0.000    0.000    0.058    0.029 <frozen importlib._bootstrap_external>:757(exec_module)
+   103670    0.040    0.000    0.057    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:168(__getitem__)
+    41882    0.036    0.000    0.056    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana_ml\src\ravana_ml\graph.py:375(_on_change)
+   269247    0.056    0.000    0.056    0.000 {method 'append' of 'list' objects}
+        3    0.000    0.000    0.051    0.017 <frozen importlib._bootstrap_external>:830(get_code)
+       49    0.000    0.000    0.051    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:287(compile)
+        1    0.000    0.000    0.047    0.047 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:6824(_detect_correction)
+      873    0.029    0.000    0.046    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\chain_walker.py:1988(_infer_relation_type)
+        1    0.000    0.000    0.044    0.044 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:6899(_extract_correction_fact)
+    16412    0.040    0.000    0.040    0.000 {method 'dot' of 'numpy.ndarray' objects}
+   141684    0.038    0.000    0.039    0.000 {built-in method builtins.getattr}
+    20941    0.011    0.000    0.038    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana_ml\src\ravana_ml\graph.py:343(confidence)
+        5    0.000    0.000    0.038    0.008 <frozen importlib._bootstrap_external>:951(get_data)
+        5    0.037    0.007    0.037    0.007 {built-in method _io.open_code}
+        9    0.000    0.000    0.036    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_web_search.py:1855(_router_says)
+        9    0.000    0.000    0.036    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_web_search.py:1835(_route_intent)
+        1    0.000    0.000    0.036    0.036 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\chain_walker.py:1087(_consolidate_asserted_relations)
+        9    0.001    0.000    0.036    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\intent_router.py:472(classify)
 
 

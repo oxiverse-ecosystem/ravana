@@ -1,0 +1,151 @@
+{
+  "baseline": [
+    {
+      "turn": 1,
+      "wall": 2.5096,
+      "nodes": 2276,
+      "edges": 22658
+    },
+    {
+      "turn": 2,
+      "wall": 1.293,
+      "nodes": 2282,
+      "edges": 22699
+    },
+    {
+      "turn": 3,
+      "wall": 1.2034,
+      "nodes": 2286,
+      "edges": 22722
+    },
+    {
+      "turn": 4,
+      "wall": 1.0345,
+      "nodes": 2291,
+      "edges": 22752
+    },
+    {
+      "turn": 5,
+      "wall": 1.062,
+      "nodes": 2294,
+      "edges": 22769
+    },
+    {
+      "turn": 6,
+      "wall": 0.2335,
+      "nodes": 2294,
+      "edges": 22769
+    },
+    {
+      "turn": 7,
+      "wall": 1.2491,
+      "nodes": 2298,
+      "edges": 22791
+    },
+    {
+      "turn": 8,
+      "wall": 1.033,
+      "nodes": 2302,
+      "edges": 22816
+    },
+    {
+      "turn": 9,
+      "wall": 0.9142,
+      "nodes": 2304,
+      "edges": 22828
+    },
+    {
+      "turn": 10,
+      "wall": 0.943,
+      "nodes": 2309,
+      "edges": 22855
+    },
+    {
+      "turn": 11,
+      "wall": 1.012,
+      "nodes": 2311,
+      "edges": 22867
+    },
+    {
+      "turn": 12,
+      "wall": 0.9821,
+      "nodes": 2313,
+      "edges": 22878
+    }
+  ],
+  "candidate": [
+    {
+      "turn": 1,
+      "wall": 1.1323,
+      "nodes": 2276,
+      "edges": 22658
+    },
+    {
+      "turn": 2,
+      "wall": 0.9202,
+      "nodes": 2282,
+      "edges": 22699
+    },
+    {
+      "turn": 3,
+      "wall": 0.9447,
+      "nodes": 2286,
+      "edges": 22722
+    },
+    {
+      "turn": 4,
+      "wall": 0.9622,
+      "nodes": 2291,
+      "edges": 22752
+    },
+    {
+      "turn": 5,
+      "wall": 0.9376,
+      "nodes": 2294,
+      "edges": 22769
+    },
+    {
+      "turn": 6,
+      "wall": 0.1885,
+      "nodes": 2294,
+      "edges": 22769
+    },
+    {
+      "turn": 7,
+      "wall": 1.0952,
+      "nodes": 2298,
+      "edges": 22791
+    },
+    {
+      "turn": 8,
+      "wall": 1.1155,
+      "nodes": 2302,
+      "edges": 22816
+    },
+    {
+      "turn": 9,
+      "wall": 1.0991,
+      "nodes": 2304,
+      "edges": 22828
+    },
+    {
+      "turn": 10,
+      "wall": 0.9894,
+      "nodes": 2309,
+      "edges": 22855
+    },
+    {
+      "turn": 11,
+      "wall": 0.9842,
+      "nodes": 2311,
+      "edges": 22867
+    },
+    {
+      "turn": 12,
+      "wall": 0.965,
+      "nodes": 2313,
+      "edges": 22878
+    }
+  ],
+  "identical_graph_counts": true
+}
