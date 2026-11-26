@@ -1,0 +1,50 @@
+Optional dependency 'bs4' not installed — capability 'BeautifulSoup HTML parsing (web scraping)' is disabled (degradation is intended; install it for full functionality).
+Optional dependency 'trafilatura' not installed — capability 'structured web extraction' is disabled (degradation is intended; install it for full functionality).
+WordNet corpus unavailable (ModuleNotFoundError); name-poison guard falls back to the narrow seed affect lexicon. Run: python -m nltk.downloader wordnet
+[A0  ] boil     present=False raw=0   trusted=0   dangling=1 minted=[]
+[A0  ] bruise   present=False raw=0   trusted=0   dangling=1 minted=[]
+[A0  ] cocoon   present=False raw=0   trusted=0   dangling=1 minted=[]
+[A0  ] echo     present=False raw=0   trusted=0   dangling=1 minted=[]
+[A0  ] snore    present=False raw=0   trusted=0   dangling=1 minted=[]
+[A0  ] tsunami  present=False raw=0   trusted=0   dangling=1 minted=[]
+[A0  ] webbing  present=False raw=0   trusted=0   dangling=1 minted=[]
+[A0  ] hiccup   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[A0  ] voice    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[A0  ] pearl    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2  ] boil     present=True  raw=1   trusted=1   dangling=0 minted=['heating']
+[F2  ] bruise   present=True  raw=1   trusted=1   dangling=0 minted=['impact']
+[F2  ] cocoon   present=True  raw=1   trusted=1   dangling=0 minted=['spinning']
+[F2  ] echo     present=True  raw=1   trusted=1   dangling=0 minted=['echo']
+[F2  ] snore    present=True  raw=1   trusted=1   dangling=0 minted=['snore']
+[F2  ] tsunami  present=True  raw=1   trusted=1   dangling=0 minted=['displacement']
+[F2  ] webbing  present=True  raw=1   trusted=1   dangling=0 minted=['spinning']
+[F2  ] hiccup   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2  ] voice    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2  ] pearl    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] boil     present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] bruise   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] cocoon   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] echo     present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] snore    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] tsunami  present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] webbing  present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] hiccup   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] voice    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F4  ] pearl    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] boil     present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] bruise   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] cocoon   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] echo     present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] snore    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] tsunami  present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] webbing  present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] hiccup   present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] voice    present=True  raw=1   trusted=1   dangling=0 minted=[]
+[F2F4] pearl    present=True  raw=1   trusted=1   dangling=0 minted=[]
+INSTRUMENT CHECK OK     A0 failure is dead endpoints, not a trust-gate rejection
+INSTRUMENT CHECK OK     F2 restores the same 2-hop curated chain on live endpoints
+INSTRUMENT CHECK OK     A0 leaves recorded-success items intact (no stale id)
+
+RATES: {"A0": {"all_ten": 0.3, "replayed_failures": 0.0, "replayed_successes": 1.0}, "F2": {"all_ten": 1.0, "replayed_failures": 1.0, "replayed_successes": 1.0}, "F2F4": {"all_ten": 1.0, "replayed_failures": 1.0, "replayed_successes": 1.0}, "F4": {"all_ten": 1.0, "replayed_failures": 1.0, "replayed_successes": 1.0}}
+VERDICT: {"definition_control_ok": true, "instrument_ok": true, "mechanism_confirmed": true, "overall": true, "untrusted_control_ok": true}
+WROTE C:\Users\Likhith\Documents\projects\ravana_car_adjk\scratch\car_adjk\results.json

@@ -1,0 +1,1726 @@
+{
+  "arms": [
+    "A0",
+    "F2",
+    "F4",
+    "F2F4"
+  ],
+  "controls": {
+    "definition_only": {
+      "raw_chains": 0,
+      "spec": "definition-only subject with is_a edge",
+      "trusted_chain": false
+    },
+    "deployable_counterpart": {
+      "arm": "F2 (production live-id resolution, graph-derived only)",
+      "deployable": true,
+      "trusted_chain": true
+    },
+    "oracle_non_deployable": {
+      "arm": "A0 + gold-key stamp (bypasses graph resolution)",
+      "deployable": false,
+      "note": "uses the item-bank answer key; upper bound only, never evidence",
+      "trusted_chain": true
+    },
+    "untrusted_competitor": {
+      "note": "co_occurrence edge at w/c=0.95 must stay rejected by assertable_chain",
+      "raw_chains": 2,
+      "rejected_by_trust": 1,
+      "trusted_all_hops": 1
+    }
+  },
+  "curves": {
+    "primary": [
+      0.0,
+      0.8,
+      0.8,
+      0.7,
+      0.8
+    ],
+    "sealed": [
+      0.0,
+      0.7,
+      0.3,
+      0.5,
+      0.9
+    ]
+  },
+  "instrument_checks": [
+    {
+      "evidence": {
+        "dangling_edges": 1,
+        "dead_id_live": false,
+        "probe_seeds": [
+          2
+        ],
+        "raw_chains": 0
+      },
+      "name": "A0 failure is dead endpoints, not a trust-gate rejection",
+      "ok": true
+    },
+    {
+      "evidence": {
+        "dangling_edges": 0,
+        "minted": {
+          "impact": 3
+        },
+        "raw_chains": 1,
+        "trusted": 1
+      },
+      "name": "F2 restores the same 2-hop curated chain on live endpoints",
+      "ok": true
+    },
+    {
+      "evidence": {
+        "hiccup": true,
+        "pearl": true,
+        "voice": true
+      },
+      "name": "A0 leaves recorded-success items intact (no stale id)",
+      "ok": true
+    }
+  ],
+  "items": {
+    "A0": {
+      "boil": {
+        "a": "heating",
+        "arm": "A0",
+        "b": "bubbles",
+        "chain_present": false,
+        "dangling_detail": [
+          [
+            0,
+            1
+          ]
+        ],
+        "dangling_edges": 1,
+        "dead_label": "heating",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 0,
+          "raw_chains": 0,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 0
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "heating",
+          "pruned": true
+        },
+        "subject": "boil",
+        "x": "boil"
+      },
+      "bruise": {
+        "a": "impact",
+        "arm": "A0",
+        "b": "rupture",
+        "chain_present": false,
+        "dangling_detail": [
+          [
+            0,
+            1
+          ]
+        ],
+        "dangling_edges": 1,
+        "dead_label": "impact",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 0,
+          "raw_chains": 0,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 0
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "impact",
+          "pruned": true
+        },
+        "subject": "bruise",
+        "x": "bruise"
+      },
+      "cocoon": {
+        "a": "spinning",
+        "arm": "A0",
+        "b": "silkworm",
+        "chain_present": false,
+        "dangling_detail": [
+          [
+            0,
+            1
+          ]
+        ],
+        "dangling_edges": 1,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 0,
+          "raw_chains": 0,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 0
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "spinning",
+          "pruned": true
+        },
+        "subject": "cocoon",
+        "x": "cocoon"
+      },
+      "echo": {
+        "a": "reflection",
+        "arm": "A0",
+        "b": "repetition",
+        "chain_present": false,
+        "dangling_detail": [
+          [
+            1,
+            2
+          ]
+        ],
+        "dangling_edges": 1,
+        "dead_label": "echo",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 0,
+          "raw_chains": 0,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 0
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": false,
+          "dead_label": "echo",
+          "pruned": true
+        },
+        "subject": "echo",
+        "x": "echo"
+      },
+      "hiccup": {
+        "a": "spasm",
+        "arm": "A0",
+        "b": "interruption",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "hiccup",
+        "x": "hiccup"
+      },
+      "pearl": {
+        "a": "irritation",
+        "arm": "A0",
+        "b": "secretion",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "pearl",
+        "x": "pearl"
+      },
+      "snore": {
+        "a": "vibration",
+        "arm": "A0",
+        "b": "breath",
+        "chain_present": false,
+        "dangling_detail": [
+          [
+            1,
+            2
+          ]
+        ],
+        "dangling_edges": 1,
+        "dead_label": "snore",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 0,
+          "raw_chains": 0,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 0
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": false,
+          "dead_label": "snore",
+          "pruned": true
+        },
+        "subject": "snore",
+        "x": "snore"
+      },
+      "tsunami": {
+        "a": "displacement",
+        "arm": "A0",
+        "b": "wave",
+        "chain_present": false,
+        "dangling_detail": [
+          [
+            0,
+            1
+          ]
+        ],
+        "dangling_edges": 1,
+        "dead_label": "displacement",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 0,
+          "raw_chains": 0,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 0
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "displacement",
+          "pruned": true
+        },
+        "subject": "tsunami",
+        "x": "tsunami"
+      },
+      "voice": {
+        "a": "vibration",
+        "arm": "A0",
+        "b": "sound",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "voice",
+        "x": "voice"
+      },
+      "webbing": {
+        "a": "spinning",
+        "arm": "A0",
+        "b": "thread",
+        "chain_present": false,
+        "dangling_detail": [
+          [
+            0,
+            1
+          ]
+        ],
+        "dangling_edges": 1,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 0,
+          "raw_chains": 0,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 0
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "spinning",
+          "pruned": true
+        },
+        "subject": "webbing",
+        "x": "webbing"
+      }
+    },
+    "F2": {
+      "boil": {
+        "a": "heating",
+        "arm": "F2",
+        "b": "bubbles",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "heating",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {
+          "heating": 3
+        },
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 3,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "heating",
+          "pruned": true
+        },
+        "subject": "boil",
+        "x": "boil"
+      },
+      "bruise": {
+        "a": "impact",
+        "arm": "F2",
+        "b": "rupture",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "impact",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {
+          "impact": 3
+        },
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 3,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "impact",
+          "pruned": true
+        },
+        "subject": "bruise",
+        "x": "bruise"
+      },
+      "cocoon": {
+        "a": "spinning",
+        "arm": "F2",
+        "b": "silkworm",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {
+          "spinning": 3
+        },
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 3,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "spinning",
+          "pruned": true
+        },
+        "subject": "cocoon",
+        "x": "cocoon"
+      },
+      "echo": {
+        "a": "reflection",
+        "arm": "F2",
+        "b": "repetition",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "echo",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {
+          "echo": 3
+        },
+        "probe_seed_ids": [
+          3
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 3
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": false,
+          "dead_label": "echo",
+          "pruned": true
+        },
+        "subject": "echo",
+        "x": "echo"
+      },
+      "hiccup": {
+        "a": "spasm",
+        "arm": "F2",
+        "b": "interruption",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "hiccup",
+        "x": "hiccup"
+      },
+      "pearl": {
+        "a": "irritation",
+        "arm": "F2",
+        "b": "secretion",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "pearl",
+        "x": "pearl"
+      },
+      "snore": {
+        "a": "vibration",
+        "arm": "F2",
+        "b": "breath",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "snore",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {
+          "snore": 3
+        },
+        "probe_seed_ids": [
+          3
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 3
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": false,
+          "dead_label": "snore",
+          "pruned": true
+        },
+        "subject": "snore",
+        "x": "snore"
+      },
+      "tsunami": {
+        "a": "displacement",
+        "arm": "F2",
+        "b": "wave",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "displacement",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {
+          "displacement": 3
+        },
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 3,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "displacement",
+          "pruned": true
+        },
+        "subject": "tsunami",
+        "x": "tsunami"
+      },
+      "voice": {
+        "a": "vibration",
+        "arm": "F2",
+        "b": "sound",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "voice",
+        "x": "voice"
+      },
+      "webbing": {
+        "a": "spinning",
+        "arm": "F2",
+        "b": "thread",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {
+          "spinning": 3
+        },
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 3,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": false,
+          "dead_label": "spinning",
+          "pruned": true
+        },
+        "subject": "webbing",
+        "x": "webbing"
+      }
+    },
+    "F2F4": {
+      "boil": {
+        "a": "heating",
+        "arm": "F2F4",
+        "b": "bubbles",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "heating",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "heating",
+          "pruned": false
+        },
+        "subject": "boil",
+        "x": "boil"
+      },
+      "bruise": {
+        "a": "impact",
+        "arm": "F2F4",
+        "b": "rupture",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "impact",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "impact",
+          "pruned": false
+        },
+        "subject": "bruise",
+        "x": "bruise"
+      },
+      "cocoon": {
+        "a": "spinning",
+        "arm": "F2F4",
+        "b": "silkworm",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "spinning",
+          "pruned": false
+        },
+        "subject": "cocoon",
+        "x": "cocoon"
+      },
+      "echo": {
+        "a": "reflection",
+        "arm": "F2F4",
+        "b": "repetition",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "echo",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": true,
+          "dead_label": "echo",
+          "pruned": false
+        },
+        "subject": "echo",
+        "x": "echo"
+      },
+      "hiccup": {
+        "a": "spasm",
+        "arm": "F2F4",
+        "b": "interruption",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "hiccup",
+        "x": "hiccup"
+      },
+      "pearl": {
+        "a": "irritation",
+        "arm": "F2F4",
+        "b": "secretion",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "pearl",
+        "x": "pearl"
+      },
+      "snore": {
+        "a": "vibration",
+        "arm": "F2F4",
+        "b": "breath",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "snore",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": true,
+          "dead_label": "snore",
+          "pruned": false
+        },
+        "subject": "snore",
+        "x": "snore"
+      },
+      "tsunami": {
+        "a": "displacement",
+        "arm": "F2F4",
+        "b": "wave",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "displacement",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "displacement",
+          "pruned": false
+        },
+        "subject": "tsunami",
+        "x": "tsunami"
+      },
+      "voice": {
+        "a": "vibration",
+        "arm": "F2F4",
+        "b": "sound",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "voice",
+        "x": "voice"
+      },
+      "webbing": {
+        "a": "spinning",
+        "arm": "F2F4",
+        "b": "thread",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "spinning",
+          "pruned": false
+        },
+        "subject": "webbing",
+        "x": "webbing"
+      }
+    },
+    "F4": {
+      "boil": {
+        "a": "heating",
+        "arm": "F4",
+        "b": "bubbles",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "heating",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "heating",
+          "pruned": false
+        },
+        "subject": "boil",
+        "x": "boil"
+      },
+      "bruise": {
+        "a": "impact",
+        "arm": "F4",
+        "b": "rupture",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "impact",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "impact",
+          "pruned": false
+        },
+        "subject": "bruise",
+        "x": "bruise"
+      },
+      "cocoon": {
+        "a": "spinning",
+        "arm": "F4",
+        "b": "silkworm",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "spinning",
+          "pruned": false
+        },
+        "subject": "cocoon",
+        "x": "cocoon"
+      },
+      "echo": {
+        "a": "reflection",
+        "arm": "F4",
+        "b": "repetition",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "echo",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": true,
+          "dead_label": "echo",
+          "pruned": false
+        },
+        "subject": "echo",
+        "x": "echo"
+      },
+      "hiccup": {
+        "a": "spasm",
+        "arm": "F4",
+        "b": "interruption",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "hiccup",
+        "x": "hiccup"
+      },
+      "pearl": {
+        "a": "irritation",
+        "arm": "F4",
+        "b": "secretion",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "pearl",
+        "x": "pearl"
+      },
+      "snore": {
+        "a": "vibration",
+        "arm": "F4",
+        "b": "breath",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "snore",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 2,
+          "dead_id_live": true,
+          "dead_label": "snore",
+          "pruned": false
+        },
+        "subject": "snore",
+        "x": "snore"
+      },
+      "tsunami": {
+        "a": "displacement",
+        "arm": "F4",
+        "b": "wave",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "displacement",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "displacement",
+          "pruned": false
+        },
+        "subject": "tsunami",
+        "x": "tsunami"
+      },
+      "voice": {
+        "a": "vibration",
+        "arm": "F4",
+        "b": "sound",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": null,
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": null,
+          "dead_id_live": null,
+          "dead_label": null,
+          "pruned": false
+        },
+        "subject": "voice",
+        "x": "voice"
+      },
+      "webbing": {
+        "a": "spinning",
+        "arm": "F4",
+        "b": "thread",
+        "chain_present": true,
+        "dangling_detail": [],
+        "dangling_edges": 0,
+        "dead_label": "spinning",
+        "endpoint_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "gate": {
+          "graded_assert": 1,
+          "raw_chains": 1,
+          "rejected_by_trust": 0,
+          "search_limit": 64,
+          "trusted_all_hops": 1
+        },
+        "minted_fresh_ids": {},
+        "probe_seed_ids": [
+          2
+        ],
+        "resolved_ids": {
+          "a": 0,
+          "b": 1,
+          "x": 2
+        },
+        "state_after_prune": {
+          "dead_id": 0,
+          "dead_id_live": true,
+          "dead_label": "spinning",
+          "pruned": false
+        },
+        "subject": "webbing",
+        "x": "webbing"
+      }
+    }
+  },
+  "monotonicity": {
+    "primary": {
+      "adjacent_deltas": [
+        0.8,
+        0.0,
+        -0.1,
+        0.1
+      ],
+      "curve": [
+        0.0,
+        0.8,
+        0.8,
+        0.7,
+        0.8
+      ],
+      "gate_bound": -0.1,
+      "pass": true,
+      "worst": -0.1
+    },
+    "sealed": {
+      "adjacent_deltas": [
+        0.7,
+        -0.4,
+        0.2,
+        0.4
+      ],
+      "curve": [
+        0.0,
+        0.7,
+        0.3,
+        0.5,
+        0.9
+      ],
+      "gate_bound": -0.1,
+      "pass": false,
+      "worst": -0.4
+    }
+  },
+  "rates": {
+    "A0": {
+      "all_ten": 0.3,
+      "replayed_failures": 0.0,
+      "replayed_successes": 1.0
+    },
+    "F2": {
+      "all_ten": 1.0,
+      "replayed_failures": 1.0,
+      "replayed_successes": 1.0
+    },
+    "F2F4": {
+      "all_ten": 1.0,
+      "replayed_failures": 1.0,
+      "replayed_successes": 1.0
+    },
+    "F4": {
+      "all_ten": 1.0,
+      "replayed_failures": 1.0,
+      "replayed_successes": 1.0
+    }
+  },
+  "replayed_run": "commit 20aca05, scratch/learn5_car_measured_PRE_LIVENESS.json",
+  "verdict": {
+    "definition_control_ok": true,
+    "instrument_ok": true,
+    "mechanism_confirmed": true,
+    "overall": true,
+    "untrusted_control_ok": true
+  }
+}
