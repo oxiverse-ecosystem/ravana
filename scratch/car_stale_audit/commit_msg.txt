@@ -1,0 +1,30 @@
+audit(car): verify stale-id fix and census remaining dead-endpoint write paths
+
+Static, boot-free audit of current main (6a6fef6) on a dedicated worktree.
+No engine, weight store, gate, rubric, threshold or production file changed.
+
+Deliverable: scratch/car_stale_audit/probe.py drives UNMODIFIED production
+functions on synthetic ConceptGraphs. Gating checks G1-G5 must pass on current
+main and fail on pre-fix code; an A/B shadow built from 254fbc9^ proves that
+(discriminating G3 uses a provenance-removal mutation control). An instrument
+control confirms the legacy resolver reproduces the recorded stale id.
+
+Result: current main 5/5 gating PASS, exit 0, deterministic report SHA
+81de456d4c51a2d2e421433d77f559de580f2f8c313860b06489164f67614bfa; pre-fix
+shadow 1/5 (only F3), exit 1, SHA
+7691cf4279396f7e2c4ed93fe62ab7de24a870237187dfaca4f1c0517f269897. Hashes
+stable across PYTHONHASHSEED=0/1.
+
+Remaining write paths that still accept dead ids (all exercised through the
+real writers on synthetic state, no boot): chain_walker._create_causal_edge
+(the CAR teaching channel), engine_memory._store_episodic,
+engine_persistence._weaken_edges_for_response, engine_generation sleep
+episodic graduation and engine.py inline replay (source-level),
+SchemaConsistencyGate._node_id on plain _all_labels hosts, ConceptGraph.add_edge
+(no F5 invariant), and capacity eviction via _prune_oldest (no index sync).
+core/sleep.py writers are cleared. The shipped F4 prune regression test is
+non-discriminating: it passes on pre-fix code because degree>=1 nodes are
+skipped before the guard.
+
+Full findings, file:line evidence and reproduce commands in
+scratch/car_stale_audit/REPORT.md.
