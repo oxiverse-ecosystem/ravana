@@ -1,0 +1,46 @@
+H_offset scratch experiment (no engine boot)
+graded rows: 160  fake excluded: 12320
+
+ARM                 near     far     foil(rej) neg(rej)  near+far
+OFFSET              1/40   1/40   23/40     40/40     2/80
+INSTANCE_MAX        3/40   1/40   15/40     40/40     4/80
+CENTROID            4/40   4/40   13/40     40/40     8/80
+SUBJECT_COS         4/40   0/40   30/40     40/40     4/80
+
+SUBJECT-INDEPENDENCE (picks emitted -> pick changed when subject -> zeppelin):
+  OFFSET             emitted=20  changed=18  same=2  
+  INSTANCE_MAX       emitted=21  changed=5   same=16 
+  CENTROID           emitted=24  changed=0   same=24 
+  SUBJECT_COS        emitted=23  changed=22  same=1  
+
+CONTROLS:
+  OFFSET             disjoint=None(no_category_above_floor) oov=None allneg=None(no_admitted_trace_negated)
+  INSTANCE_MAX       disjoint=None(no_category_above_floor) oov=None allneg=None(no_admitted_trace_negated)
+  CENTROID           disjoint=None(strict_margin_not_met) oov=None allneg=None(no_admitted_trace_negated)
+  SUBJECT_COS        disjoint=None(strict_margin_not_met) oov=None allneg=None(no_admitted_trace_negated)
+
+G6 (non-blocking FLAG):
+  OFFSET             near=2.5 negrej=100.0 -> FLAG
+  INSTANCE_MAX       near=7.5 negrej=100.0 -> FLAG
+  CENTROID           near=10.0 negrej=100.0 -> FLAG
+  SUBJECT_COS        near=10.0 negrej=100.0 -> FLAG
+
+ALPHA sensitivity (diagnostic only): {'0.0': {'emitted': 23, 'correct': 4, 'n': 80}, '0.5': {'emitted': 23, 'correct': 2, 'n': 80}, '1.0': {'emitted': 20, 'correct': 2, 'n': 80}, '2.0': {'emitted': 16, 'correct': 2, 'n': 80}, '4.0': {'emitted': 8, 'correct': 1, 'n': 80}}
+
+RAW RANK (gate removed) over 80 near+far cases:
+  OFFSET             raw_top1=18/80  emitted=20  emitted_correct= 2  gold_rank={1: 18, 3: 16, 2: 20, 4: 14, None: 12}
+  INSTANCE_MAX       raw_top1=19/80  emitted=21  emitted_correct= 4  gold_rank={4: 16, 2: 15, 1: 19, None: 12, 3: 18}
+  CENTROID           raw_top1=14/80  emitted=24  emitted_correct= 8  gold_rank={3: 21, 4: 16, 1: 14, 2: 17, None: 12}
+  SUBJECT_COS        raw_top1=16/80  emitted=23  emitted_correct= 4  gold_rank={2: 14, 3: 20, 4: 18, 1: 16, None: 12}
+
+HANDCHECK (probe input -> output):
+  tra_0000 near     OFFSET     subj=tempest   cands=['squall', 'shower', 'breeze', 'sunset'] gold=sunset -> pick=None reason=strict_margin_not_met
+  tra_0000 near     CENTROID   subj=tempest   cands=['squall', 'shower', 'breeze', 'sunset'] gold=sunset -> pick=None reason=strict_margin_not_met
+  tra_0001 far      OFFSET     subj=reward    cands=['guild', 'law', 'ceremony', 'habit'] gold=guild -> pick=None reason=no_category_above_floor
+  tra_0001 far      CENTROID   subj=reward    cands=['guild', 'law', 'ceremony', 'habit'] gold=guild -> pick=habit reason=strict_winner
+  tra_0000 foil     OFFSET     subj=tempest   cands=['squall', 'shower', 'breeze', 'storm'] gold=None -> pick=None reason=strict_margin_not_met
+  tra_0000 foil     CENTROID   subj=tempest   cands=['squall', 'shower', 'breeze', 'storm'] gold=None -> pick=storm reason=strict_winner
+  tra_0000 negative OFFSET     subj=rainbow   cands=['typhoon', 'squall', 'breeze', 'shower'] gold=None -> pick=None reason=no_admitted_trace_negated
+  tra_0000 negative CENTROID   subj=rainbow   cands=['typhoon', 'squall', 'breeze', 'shower'] gold=None -> pick=None reason=no_admitted_trace_negated
+
+EXIT=0
