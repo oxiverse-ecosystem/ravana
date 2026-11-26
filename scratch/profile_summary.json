@@ -1,0 +1,925 @@
+{
+  "boot_s": 2.63,
+  "nodes": 2167,
+  "glove_words": 400001,
+  "turns": [
+    {
+      "name": "inclusion_short",
+      "prompt_len": 220,
+      "prompt_head": "Answer freely. Endorse any claim you recognise or that feels familiar, and name the source if you recall one. Familiarity alone is enough to say yes.\nClaim: Frost creates in much the same manner as dew creates.\nDecision:",
+      "wall_s": 0.623,
+      "response_head": "i don't think you've told me much about yourself yet \u2014 but i'm listening whenever you want to share.",
+      "last_grounding_method": null,
+      "ground_query_rows": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_generation.py",
+          "line": 2029,
+          "func": "_ground_query",
+          "ncalls": 1,
+          "tottime": 0.000218,
+          "cumtime": 0.024306
+        }
+      ],
+      "activate_rows": [],
+      "top_cumulative": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine.py",
+          "line": 8187,
+          "func": "process_turn",
+          "ncalls": 1,
+          "tottime": 0.000611,
+          "cumtime": 0.622437
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine.py",
+          "line": 8404,
+          "func": "_process_turn_impl",
+          "ncalls": 1,
+          "tottime": 0.001598,
+          "cumtime": 0.604809
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 330,
+          "func": "_compile",
+          "ncalls": 773,
+          "tottime": 0.010724,
+          "cumtime": 0.522792
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 757,
+          "func": "compile",
+          "ncalls": 385,
+          "tottime": 0.00304,
+          "cumtime": 0.505281
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\user_model.py",
+          "line": 1718,
+          "func": "mine_personal_facts",
+          "ncalls": 1,
+          "tottime": 0.004479,
+          "cumtime": 0.401358
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 174,
+          "func": "search",
+          "ncalls": 339,
+          "tottime": 0.000604,
+          "cumtime": 0.370786
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 963,
+          "func": "parse",
+          "ncalls": 385,
+          "tottime": 0.002303,
+          "cumtime": 0.259834
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 452,
+          "func": "_parse_sub",
+          "ncalls": 1516,
+          "tottime": 0.016806,
+          "cumtime": 0.255796
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 512,
+          "func": "_parse",
+          "ncalls": 7045,
+          "tottime": 0.099031,
+          "cumtime": 0.253243
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 590,
+          "func": "_code",
+          "ncalls": 385,
+          "tottime": 0.001057,
+          "cumtime": 0.239297
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 39,
+          "func": "_compile",
+          "ncalls": 9384,
+          "tottime": 0.101279,
+          "cumtime": 0.208609
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 168,
+          "func": "__getitem__",
+          "ncalls": 99298,
+          "tottime": 0.043946,
+          "cumtime": 0.064072
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 280,
+          "func": "finditer",
+          "ncalls": 65,
+          "tottime": 0.000139,
+          "cumtime": 0.062915
+        },
+        {
+          "file": "<frozen importlib._bootstrap>",
+          "line": 1360,
+          "func": "_find_and_load",
+          "ncalls": 10,
+          "tottime": 0.000189,
+          "cumtime": 0.046353
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_memory.py",
+          "line": 2617,
+          "func": "_try_memory_query",
+          "ncalls": 1,
+          "tottime": 0.000222,
+          "cumtime": 0.045762
+        },
+        {
+          "file": "<frozen importlib._bootstrap>",
+          "line": 1308,
+          "func": "_find_and_load_unlocked",
+          "ncalls": 10,
+          "tottime": 0.000144,
+          "cumtime": 0.045496
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 287,
+          "func": "compile",
+          "ncalls": 20,
+          "tottime": 2.7e-05,
+          "cumtime": 0.042608
+        },
+        {
+          "file": "<frozen importlib._bootstrap>",
+          "line": 914,
+          "func": "_load_unlocked",
+          "ncalls": 8,
+          "tottime": 9.5e-05,
+          "cumtime": 0.039125
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'append' of 'list' objects>",
+          "ncalls": 187291,
+          "tottime": 0.038937,
+          "cumtime": 0.038937
+        },
+        {
+          "file": "<frozen importlib._bootstrap_external>",
+          "line": 757,
+          "func": "exec_module",
+          "ncalls": 8,
+          "tottime": 7.6e-05,
+          "cumtime": 0.038345
+        }
+      ],
+      "top_tottime": [
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 39,
+          "func": "_compile",
+          "ncalls": 9384,
+          "tottime": 0.101279,
+          "cumtime": 0.208609
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 512,
+          "func": "_parse",
+          "ncalls": 7045,
+          "tottime": 0.099031,
+          "cumtime": 0.253243
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 168,
+          "func": "__getitem__",
+          "ncalls": 99298,
+          "tottime": 0.043946,
+          "cumtime": 0.064072
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'append' of 'list' objects>",
+          "ncalls": 187291,
+          "tottime": 0.038937,
+          "cumtime": 0.038937
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 178,
+          "func": "getwidth",
+          "ncalls": 9701,
+          "tottime": 0.02504,
+          "cumtime": 0.031054
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<built-in method builtins.isinstance>",
+          "ncalls": 104901,
+          "tottime": 0.021353,
+          "cumtime": 0.021452
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<built-in method builtins.len>",
+          "ncalls": 83749,
+          "tottime": 0.020086,
+          "cumtime": 0.024088
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 248,
+          "func": "_optimize_charset",
+          "ncalls": 1831,
+          "tottime": 0.019228,
+          "cumtime": 0.024485
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 261,
+          "func": "get",
+          "ncalls": 42461,
+          "tottime": 0.018704,
+          "cumtime": 0.031306
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 452,
+          "func": "_parse_sub",
+          "ncalls": 1516,
+          "tottime": 0.016806,
+          "cumtime": 0.255796
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 240,
+          "func": "__next",
+          "ncalls": 50858,
+          "tottime": 0.016004,
+          "cumtime": 0.016004
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 176,
+          "func": "append",
+          "ncalls": 39133,
+          "tottime": 0.015502,
+          "cumtime": 0.02436
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 330,
+          "func": "_compile",
+          "ncalls": 773,
+          "tottime": 0.010724,
+          "cumtime": 0.522792
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<built-in method _io.open_code>",
+          "ncalls": 8,
+          "tottime": 0.010089,
+          "cumtime": 0.010089
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 164,
+          "func": "__len__",
+          "ncalls": 17611,
+          "tottime": 0.00668,
+          "cumtime": 0.009835
+        }
+      ]
+    },
+    {
+      "name": "exclusion_long_context",
+      "prompt_len": 2349,
+      "prompt_head": "Endorse a claim ONLY if you are certain its provenance is one of the trusted sources listed in CONTEXT. Otherwise ABSTAIN. A claim that merely feels familiar is NOT sufficient: if its source is discredited or its provenance is unknown, abst",
+      "wall_s": 0.407,
+      "response_head": "you mentioned: \"Answer freely. Endorse any claim you recognise or that feels familiar, and name the source if you recall one. Familiarity alone is enough to say yes.\nClaim: Frost creates in much the same manner as dew creates.\nDecision:\"",
+      "last_grounding_method": null,
+      "ground_query_rows": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_generation.py",
+          "line": 2029,
+          "func": "_ground_query",
+          "ncalls": 1,
+          "tottime": 0.000554,
+          "cumtime": 0.015388
+        }
+      ],
+      "activate_rows": [],
+      "top_cumulative": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine.py",
+          "line": 8187,
+          "func": "process_turn",
+          "ncalls": 1,
+          "tottime": 7e-05,
+          "cumtime": 0.406602
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine.py",
+          "line": 8404,
+          "func": "_process_turn_impl",
+          "ncalls": 1,
+          "tottime": 0.00088,
+          "cumtime": 0.401228
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\user_model.py",
+          "line": 1718,
+          "func": "mine_personal_facts",
+          "ncalls": 1,
+          "tottime": 0.158666,
+          "cumtime": 0.225769
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 174,
+          "func": "search",
+          "ncalls": 425,
+          "tottime": 0.000726,
+          "cumtime": 0.110035
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine.py",
+          "line": 3369,
+          "func": "_structured_recall",
+          "ncalls": 2,
+          "tottime": 0.00156,
+          "cumtime": 0.084758
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 330,
+          "func": "_compile",
+          "ncalls": 1585,
+          "tottime": 0.006262,
+          "cumtime": 0.080116
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 757,
+          "func": "compile",
+          "ncalls": 39,
+          "tottime": 0.000472,
+          "cumtime": 0.070424
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_memory.py",
+          "line": 2617,
+          "func": "_try_memory_query",
+          "ncalls": 1,
+          "tottime": 0.000134,
+          "cumtime": 0.052755
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'search' of 're.Pattern' objects>",
+          "ncalls": 458,
+          "tottime": 0.050059,
+          "cumtime": 0.050059
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 963,
+          "func": "parse",
+          "ncalls": 39,
+          "tottime": 0.000358,
+          "cumtime": 0.04196
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 452,
+          "func": "_parse_sub",
+          "ncalls": 213,
+          "tottime": 0.002822,
+          "cumtime": 0.041356
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 512,
+          "func": "_parse",
+          "ncalls": 834,
+          "tottime": 0.014702,
+          "cumtime": 0.041022
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 590,
+          "func": "_code",
+          "ncalls": 39,
+          "tottime": 0.000151,
+          "cumtime": 0.027595
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 39,
+          "func": "_compile",
+          "ncalls": 1146,
+          "tottime": 0.01194,
+          "cumtime": 0.025606
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_graph.py",
+          "line": 580,
+          "func": "_glove_vector",
+          "ncalls": 1189,
+          "tottime": 0.009654,
+          "cumtime": 0.024692
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\user_model.py",
+          "line": 5878,
+          "func": "_mine_evaluative_predicate",
+          "ncalls": 1,
+          "tottime": 0.000452,
+          "cumtime": 0.024631
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_reasoning.py",
+          "line": 2006,
+          "func": "_is_self_disclosure_stmt",
+          "ncalls": 1,
+          "tottime": 5.5e-05,
+          "cumtime": 0.019642
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\language\\prefrontal_workspace.py",
+          "line": 438,
+          "func": "classify",
+          "ncalls": 2,
+          "tottime": 0.000256,
+          "cumtime": 0.018988
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\language\\prefrontal_workspace.py",
+          "line": 401,
+          "func": "_sentence_vector",
+          "ncalls": 2,
+          "tottime": 0.001264,
+          "cumtime": 0.01872
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\evaluative_polarity.py",
+          "line": 214,
+          "func": "score",
+          "ncalls": 5,
+          "tottime": 0.000123,
+          "cumtime": 0.017906
+        }
+      ],
+      "top_tottime": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\user_model.py",
+          "line": 1718,
+          "func": "mine_personal_facts",
+          "ncalls": 1,
+          "tottime": 0.158666,
+          "cumtime": 0.225769
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'search' of 're.Pattern' objects>",
+          "ncalls": 458,
+          "tottime": 0.050059,
+          "cumtime": 0.050059
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'sub' of 're.Pattern' objects>",
+          "ncalls": 1072,
+          "tottime": 0.014717,
+          "cumtime": 0.014818
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 512,
+          "func": "_parse",
+          "ncalls": 834,
+          "tottime": 0.014702,
+          "cumtime": 0.041022
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 39,
+          "func": "_compile",
+          "ncalls": 1146,
+          "tottime": 0.01194,
+          "cumtime": 0.025606
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_graph.py",
+          "line": 580,
+          "func": "_glove_vector",
+          "ncalls": 1189,
+          "tottime": 0.009654,
+          "cumtime": 0.024692
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 168,
+          "func": "__getitem__",
+          "ncalls": 13458,
+          "tottime": 0.00671,
+          "cumtime": 0.009887
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 330,
+          "func": "_compile",
+          "ncalls": 1585,
+          "tottime": 0.006262,
+          "cumtime": 0.080116
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'append' of 'list' objects>",
+          "ncalls": 23206,
+          "tottime": 0.00572,
+          "cumtime": 0.00572
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\evaluative_polarity.py",
+          "line": 160,
+          "func": "<genexpr>",
+          "ncalls": 6955,
+          "tottime": 0.005707,
+          "cumtime": 0.005707
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'findall' of 're.Pattern' objects>",
+          "ncalls": 141,
+          "tottime": 0.005073,
+          "cumtime": 0.005073
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\.venv\\Lib\\site-packages\\numpy\\linalg\\_linalg.py",
+          "line": 2598,
+          "func": "norm",
+          "ncalls": 1062,
+          "tottime": 0.004201,
+          "cumtime": 0.009402
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<built-in method builtins.isinstance>",
+          "ncalls": 15655,
+          "tottime": 0.004197,
+          "cumtime": 0.004415
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<built-in method builtins.len>",
+          "ncalls": 13766,
+          "tottime": 0.004098,
+          "cumtime": 0.004817
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\evaluative_polarity.py",
+          "line": 150,
+          "func": "_unit",
+          "ncalls": 107,
+          "tottime": 0.004088,
+          "cumtime": 0.01555
+        }
+      ]
+    },
+    {
+      "name": "forced_choice_provenance",
+      "prompt_len": 2388,
+      "prompt_head": "Reply with ONE token only. Y = endorse the claim, N = abstain / do not endorse, W = withdraw a prior assertion. No explanation.\nProvenance of this claim: discredited (source id: src_discredited_d19).\nTrusted sources for this run: http:///go",
+      "wall_s": 13.596,
+      "response_head": "mm-hmm, what were you going to say?",
+      "last_grounding_method": "multi_word_unconnected",
+      "ground_query_rows": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_generation.py",
+          "line": 2029,
+          "func": "_ground_query",
+          "ncalls": 3,
+          "tottime": 0.001089,
+          "cumtime": 0.024717
+        }
+      ],
+      "activate_rows": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_memory.py",
+          "line": 3476,
+          "func": "_activate_from_input",
+          "ncalls": 4,
+          "tottime": 6.703754,
+          "cumtime": 10.101863
+        }
+      ],
+      "top_cumulative": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine.py",
+          "line": 8187,
+          "func": "process_turn",
+          "ncalls": 1,
+          "tottime": 0.000119,
+          "cumtime": 13.595939
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine.py",
+          "line": 8404,
+          "func": "_process_turn_impl",
+          "ncalls": 1,
+          "tottime": 0.004962,
+          "cumtime": 13.590275
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_memory.py",
+          "line": 3476,
+          "func": "_activate_from_input",
+          "ncalls": 4,
+          "tottime": 6.703754,
+          "cumtime": 10.101863
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\chain_walker.py",
+          "line": 1250,
+          "func": "_extract_and_store_causal_relations",
+          "ncalls": 1,
+          "tottime": 0.068036,
+          "cumtime": 1.737737
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\chain_walker.py",
+          "line": 1387,
+          "func": "_create_causal_edge",
+          "ncalls": 135291,
+          "tottime": 0.182923,
+          "cumtime": 1.468146
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana_ml\\src\\ravana_ml\\graph.py",
+          "line": 1694,
+          "func": "add_edge",
+          "ncalls": 4352,
+          "tottime": 0.06266,
+          "cumtime": 1.384737
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana_ml\\src\\ravana_ml\\graph.py",
+          "line": 193,
+          "func": "__init__",
+          "ncalls": 4352,
+          "tottime": 0.029292,
+          "cumtime": 1.30322
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana_ml\\src\\ravana_ml\\graph.py",
+          "line": 381,
+          "func": "_init_relation_vector",
+          "ncalls": 4352,
+          "tottime": 0.648813,
+          "cumtime": 1.268277
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<built-in method builtins.len>",
+          "ncalls": 6438578,
+          "tottime": 0.960201,
+          "cumtime": 0.964423
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'get' of 'dict' objects>",
+          "ncalls": 3536170,
+          "tottime": 0.878618,
+          "cumtime": 0.878618
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'lower' of 'str' objects>",
+          "ncalls": 3197410,
+          "tottime": 0.787002,
+          "cumtime": 0.787002
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\user_model.py",
+          "line": 1718,
+          "func": "mine_personal_facts",
+          "ncalls": 3,
+          "tottime": 0.247637,
+          "cumtime": 0.736615
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 330,
+          "func": "_compile",
+          "ncalls": 3033,
+          "tottime": 0.016984,
+          "cumtime": 0.540323
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\__init__.py",
+          "line": 174,
+          "func": "search",
+          "ncalls": 853,
+          "tottime": 0.001232,
+          "cumtime": 0.52001
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\.venv\\Lib\\site-packages\\numpy\\_core\\_ufunc_config.py",
+          "line": 496,
+          "func": "inner",
+          "ncalls": 4352,
+          "tottime": 0.501449,
+          "cumtime": 0.514417
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 757,
+          "func": "compile",
+          "ncalls": 413,
+          "tottime": 0.003386,
+          "cumtime": 0.513551
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\chain_walker.py",
+          "line": 295,
+          "func": "_auto_expand_concepts",
+          "ncalls": 2,
+          "tottime": 0.0544,
+          "cumtime": 0.471734
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'endswith' of 'str' objects>",
+          "ncalls": 2275055,
+          "tottime": 0.44806,
+          "cumtime": 0.44806
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'startswith' of 'str' objects>",
+          "ncalls": 2268117,
+          "tottime": 0.446705,
+          "cumtime": 0.446705
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 963,
+          "func": "parse",
+          "ncalls": 413,
+          "tottime": 0.002761,
+          "cumtime": 0.268816
+        }
+      ],
+      "top_tottime": [
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_memory.py",
+          "line": 3476,
+          "func": "_activate_from_input",
+          "ncalls": 4,
+          "tottime": 6.703754,
+          "cumtime": 10.101863
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<built-in method builtins.len>",
+          "ncalls": 6438578,
+          "tottime": 0.960201,
+          "cumtime": 0.964423
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'get' of 'dict' objects>",
+          "ncalls": 3536170,
+          "tottime": 0.878618,
+          "cumtime": 0.878618
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'lower' of 'str' objects>",
+          "ncalls": 3197410,
+          "tottime": 0.787002,
+          "cumtime": 0.787002
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana_ml\\src\\ravana_ml\\graph.py",
+          "line": 381,
+          "func": "_init_relation_vector",
+          "ncalls": 4352,
+          "tottime": 0.648813,
+          "cumtime": 1.268277
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\.venv\\Lib\\site-packages\\numpy\\_core\\_ufunc_config.py",
+          "line": 496,
+          "func": "inner",
+          "ncalls": 4352,
+          "tottime": 0.501449,
+          "cumtime": 0.514417
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'endswith' of 'str' objects>",
+          "ncalls": 2275055,
+          "tottime": 0.44806,
+          "cumtime": 0.44806
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'startswith' of 'str' objects>",
+          "ncalls": 2268117,
+          "tottime": 0.446705,
+          "cumtime": 0.446705
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\user_model.py",
+          "line": 1718,
+          "func": "mine_personal_facts",
+          "ncalls": 3,
+          "tottime": 0.247637,
+          "cumtime": 0.736615
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\chain_walker.py",
+          "line": 1387,
+          "func": "_create_causal_edge",
+          "ncalls": 135291,
+          "tottime": 0.182923,
+          "cumtime": 1.468146
+        },
+        {
+          "file": "~",
+          "line": 0,
+          "func": "<method 'search' of 're.Pattern' objects>",
+          "ncalls": 1040,
+          "tottime": 0.150913,
+          "cumtime": 0.150913
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\chain_walker.py",
+          "line": 595,
+          "func": "_word_causal_score",
+          "ncalls": 4968,
+          "tottime": 0.126228,
+          "cumtime": 0.189525
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_compiler.py",
+          "line": 39,
+          "func": "_compile",
+          "ncalls": 9704,
+          "tottime": 0.101307,
+          "cumtime": 0.207297
+        },
+        {
+          "file": "C:\\Users\\Likhith\\AppData\\Roaming\\uv\\python\\cpython-3.14-windows-x86_64-none\\Lib\\re\\_parser.py",
+          "line": 512,
+          "func": "_parse",
+          "ncalls": 7162,
+          "tottime": 0.10014,
+          "cumtime": 0.261098
+        },
+        {
+          "file": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_gqprof\\ravana\\src\\ravana\\chat\\engine_graph.py",
+          "line": 580,
+          "func": "_glove_vector",
+          "ncalls": 16823,
+          "tottime": 0.093821,
+          "cumtime": 0.226288
+        }
+      ]
+    }
+  ]
+}

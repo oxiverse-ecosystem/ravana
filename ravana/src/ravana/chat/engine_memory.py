@@ -3495,6 +3495,24 @@ class MemoryMixin:
         acc_ctx = np.zeros(self.dim, dtype=np.float32)
         word_count = 0
 
+        # Build the label views ONCE per call. The original inner loop scanned
+        # every graph node for every word (~N*W string operations per turn;
+        # WFA's 2.3k-char prompts produced 379 tokens and ~3.3M scans per turn).
+        # These indexes preserve the original match semantics exactly:
+        #   * word-boundary matches (label == w, starts/ends/contains " w ")
+        #     are all covered by labels whose token list contains w;
+        #   * `label in w` is covered by enumerating w's substrings of length
+        #     >= 3 and looking up whole labels.
+        labels_by_token: Dict[str, List[int]] = {}
+        label_to_nids: Dict[str, List[int]] = {}
+        for nid, node in self.graph.nodes.items():
+            if not node or not node.label:
+                continue
+            label = node.label.lower()
+            label_to_nids.setdefault(label, []).append(nid)
+            for token in label.split():
+                labels_by_token.setdefault(token, []).append(nid)
+
         for w in words:
             if w in STOP_WORDS and word_count > 0:
                 continue
@@ -3528,16 +3546,22 @@ class MemoryMixin:
                     n400_boost = 1.0 + n400_surprise * 2.0
                     scores[nid] = scores.get(nid, 0) + base * n400_boost
 
-            # Label matching (same as before)
-            # Snapshot: background learner may add nodes mid-turn.
-            for nid, node in list(self.graph.nodes.items()):
+            # Label matching (same semantics as the previous full-graph scan,
+            # but only candidate nodes are visited). Candidates are sorted by
+            # node id so the scores dict keeps the original insertion order.
+            candidates = set(labels_by_token.get(w, ()))
+            for start in range(len(w) - 2):
+                for end in range(start + 3, len(w) + 1):
+                    candidates.update(label_to_nids.get(w[start:end], ()))
+            for nid in sorted(candidates):
+                node = self.graph.nodes.get(nid)
                 if not node or not node.label:
                     continue
                 label = node.label.lower()
                 s = scores.get(nid, 0.0)
                 if label == w:
                     s += 5.0 * (1.0 + n400_surprise)
-                elif len(w) >= 3 and (label == w or label.startswith(w + " ") or (" " + w + " ") in label or label.endswith(" " + w)):
+                elif len(w) >= 3 and (label.startswith(w + " ") or (" " + w + " ") in label or label.endswith(" " + w)):
                     s += 3.0
                 elif len(label) >= 3 and label in w:
                     s += 2.0

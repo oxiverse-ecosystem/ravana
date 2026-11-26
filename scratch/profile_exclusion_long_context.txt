@@ -1,0 +1,61 @@
+turn=exclusion_long_context prompt_len=2349 wall=0.407s
+prompt='Endorse a claim ONLY if you are certain its provenance is one of the trusted sources listed in CONTEXT. Otherwise ABSTAIN. A claim that merely feels familiar is NOT sufficient: if its source is discredited or its provenance is unknown, abstain even though the claim sounds right.\nProvenance of this claim: credible (source id: https://jupiterscience.com/wiki/melting/).\nTrusted sources for this run: https://jupiterscience.com/wiki/melting/, http:///go/v1/AQ0tIhx7E5wYav9DNAEJ_H7yBt6niUTr5sWKejTlgJXsxoabMc3qAlVs5CZF0ePNunJfweeZzgsQME-nT0nlXjZCtbT8gaXpOjbMmcK_c9WnoJ1CbEEPoZP96WDYplSyFNf35Oa2ZZINIe7oZLRC1AbNDE9jz0HdNlmEx5IA5C4WR_3hMVi3k1BBY_-iwEQ1Wj7u_TPMj-olRshjy4lniWqiwQI, http:///go/v1/AQ0tIhx7E5wYav9DNAEJ_H7yBt6niUTr5sWKejTlghSaRx0EknorU8rsk7dlhIvKo-iGxf9WoZICyShtce54l2P4XSYItSDKaNphrdUdobXbh0QzCI1rQe1TIVF2fN3GPcNnrEkXdbdyLezHgKXDitKDlj9uCXOkGypEDUfxwemeHdV7Ovgu_GGCmVztdiPjDJDJCoKGsAlLzjc50A3K0Z0LTL0OpiKNhtVHDN0z8apgtsAX-RVjuWRO9olfWkKH4B7iZp8glws, http:///go/v1/AQL0B1wWhcDhav8-SAG4CB_A4vfXurJnuKTbU0rGgtA8P2SuSLhQVt1NSqTbcldpn9C7dxiI4SXlIlbdcdbp-bgwJ2j_qRPuwdBwmhbcIJgP1m8_L4zNIh03UcrpYC2d3oTjwhmi7zEP6Q8eXPpT-Q8Yz5_hr3U1vZF3u5Vcnq0qGqxLbSpuI9auIKp5exmzWNAybAU, http:///go/v1/AQO5xHaY9nwrav8-hAFhuggZwW23xgbImFwHJX4hgU6dnmZQW-JJqKPR42G6Vef-5q6VivtJ2aJZzwPAdW_29XpvOMsdK4G4f-e2xYJo6WiMIksI5Mc9JHCn1JPH4YEFAY6urz1nUt_Jqa-deJL5P8cNoq7nOe4Jkw0uTcekdC57TSsfLzNF_u8uCxUi2FTwBD3pFm_PhT6fEUa2zTF2-7SUj0VjWKya3s5mXDhlmwiTiQs, http:///go/v1/AQO5xHaY9nwrav8-hAFhuggZwW23xgbImFwHJX4hgpbJQki_6nNwDM_fgzH8QJPTNba6WvWw7w3jyzg3CoG2Y07ucIcRl3byfMuD_ckr7IdlcasLkClRLSCBgkhfrdanqZHSekw1zj3pxqnQYUhB-Y0KRPLwZXNcbS_OuSDXkvtqwTJKlyRMNhK5SHhO8zmpsBqVPO80dIl7nNAIQYQx1fJOxQFvpLjGrUo-AA, http:///go/v1/AQY7D4-4FAfrav83uAFLsrc0uhZ6obY8C8wIxh2QgYnl65F6ouLfQElq7hSUfzu2qwsLo5k3-zIv3GliNNBykyH4iq5Ju0Pt9d2QDdtSuTo4hMt8sNa1fi-FH-i883OdEAdUf_8L5wkBArmK63DPvh_AMvGQk_rRQUseQE3_mln6i8uTXbOrUrpGQAjuNWIink41qY7WNZMv__dyaWty4juYBo9qrP9OjN4F0q494LadQuQ1sSaa-tYB, http:///go/v1/AQYRZfzN7-AUav87tAFbLfTfjgAy-ROM91uZxWY3icIt0c'
+
+         168805 function calls (164353 primitive calls) in 0.407 seconds
+
+   Ordered by: cumulative time
+   List reduced from 510 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.407    0.407 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:8187(process_turn)
+        1    0.001    0.001    0.401    0.401 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:8404(_process_turn_impl)
+        1    0.159    0.159    0.226    0.226 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+      425    0.001    0.000    0.110    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
+        2    0.002    0.001    0.085    0.042 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:3369(_structured_recall)
+     1585    0.006    0.000    0.080    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
+       39    0.000    0.000    0.070    0.002 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
+        1    0.000    0.000    0.053    0.053 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_memory.py:2617(_try_memory_query)
+      458    0.050    0.000    0.050    0.000 {method 'search' of 're.Pattern' objects}
+       39    0.000    0.000    0.042    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:963(parse)
+   213/39    0.003    0.000    0.041    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
+   834/39    0.015    0.000    0.041    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
+       39    0.000    0.000    0.028    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:590(_code)
+  1146/39    0.012    0.000    0.026    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
+     1189    0.010    0.000    0.025    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_graph.py:580(_glove_vector)
+        1    0.000    0.000    0.025    0.025 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:5878(_mine_evaluative_predicate)
+        1    0.000    0.000    0.020    0.020 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_reasoning.py:2006(_is_self_disclosure_stmt)
+        2    0.000    0.000    0.019    0.009 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\language\prefrontal_workspace.py:438(classify)
+        2    0.001    0.001    0.019    0.009 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\language\prefrontal_workspace.py:401(_sentence_vector)
+        5    0.000    0.000    0.018    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\evaluative_polarity.py:214(score)
+        1    0.001    0.001    0.017    0.017 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_memory.py:1195(_retrieve_episodic)
+        1    0.000    0.000    0.017    0.017 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_memory.py:481(_record_episode)
+        5    0.000    0.000    0.016    0.003 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\evaluative_polarity.py:187(_all_centroids)
+        9    0.001    0.000    0.016    0.002 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\evaluative_polarity.py:167(_centroid)
+      107    0.004    0.000    0.016    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\evaluative_polarity.py:150(_unit)
+        1    0.001    0.001    0.015    0.015 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_generation.py:2029(_ground_query)
+     1072    0.015    0.000    0.015    0.000 {method 'sub' of 're.Pattern' objects}
+        1    0.000    0.000    0.012    0.012 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\language\prefrontal_workspace.py:598(detect)
+      898    0.001    0.000    0.012    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:183(sub)
+        1    0.000    0.000    0.012    0.012 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\language\prefrontal_workspace.py:1037(detect_question_type)
+      3/2    0.000    0.000    0.012    0.006 <frozen importlib._bootstrap>:1360(_find_and_load)
+      3/2    0.000    0.000    0.012    0.006 <frozen importlib._bootstrap>:1308(_find_and_load_unlocked)
+        1    0.000    0.000    0.010    0.010 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_web_search.py:1855(_router_says)
+        1    0.000    0.000    0.010    0.010 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_web_search.py:1835(_route_intent)
+        1    0.000    0.000    0.010    0.010 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\intent_router.py:472(classify)
+    13458    0.007    0.000    0.010    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:168(__getitem__)
+       19    0.000    0.000    0.009    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:287(compile)
+     1062    0.004    0.000    0.009    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\.venv\Lib\site-packages\numpy\linalg\_linalg.py:2598(norm)
+        5    0.000    0.000    0.009    0.002 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\topic_head.py:130(expand_contractions)
+        2    0.000    0.000    0.009    0.005 <frozen importlib._bootstrap>:1243(_find_spec)
+        2    0.000    0.000    0.009    0.004 <frozen importlib._bootstrap_external>:1288(find_spec)
+        2    0.000    0.000    0.009    0.004 <frozen importlib._bootstrap_external>:1259(_get_spec)
+      4/3    0.000    0.000    0.009    0.003 <frozen importlib._bootstrap>:483(_call_with_frames_removed)
+        1    0.000    0.000    0.009    0.009 {built-in method builtins.__import__}
+       48    0.001    0.000    0.009    0.000 <frozen importlib._bootstrap_external>:1361(find_spec)
+      132    0.002    0.000    0.008    0.000 {built-in method builtins.sum}
+      8/1    0.001    0.000    0.007    0.007 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:2859(_ingest_episodic)
+      692    0.002    0.000    0.006    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\relation_attrs.py:129(relation_of)
+        1    0.000    0.000    0.006    0.006 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\intent_router.py:250(_shape_features)
+        3    0.000    0.000    0.006    0.002 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:7133(_opinion_topic)
+
+
