@@ -1,0 +1,44 @@
+Optional dependency 'bs4' not installed — capability 'BeautifulSoup HTML parsing (web scraping)' is disabled (degradation is intended; install it for full functionality).
+Optional dependency 'trafilatura' not installed — capability 'structured web extraction' is disabled (degradation is intended; install it for full functionality).
+WordNet corpus unavailable (ModuleNotFoundError); name-poison guard falls back to the narrow seed affect lexicon. Run: python -m nltk.downloader wordnet
+{
+  "verdict": "AUDIT_COMPLETE",
+  "checks": {
+    "artifact_pd_unparseable_rate_is_1": true,
+    "artifact_R_is_0": true,
+    "echo_case_unparseable": true,
+    "echo_nested_then_explicit_abstain_parsed": true,
+    "abstain_case_parseable": true,
+    "withdraw_case_parseable": true,
+    "forced_no_answer_separate": true,
+    "echoed_Y_not_an_endorsement": true,
+    "ambiguous_provenance_reads_graph": true,
+    "item_metadata_cannot_move_fingerprint": true,
+    "provenance_flip_moves_decision": true,
+    "no_answer_key_in_graded_routines": true,
+    "all_adversaries_CPS_zero": true,
+    "graph_gate_CPS_positive": true,
+    "gate_ok_all_states": true,
+    "one_turn_context_consumed": true,
+    "prompts_identical_label_free": true,
+    "source_id_embeds_condition": true,
+    "unframed_echo_accepted_residual": true
+  },
+  "pd_unparseable_rate": 1.0,
+  "recomputed_primary_I_E_R": {
+    "I": 0.0,
+    "E": 0.0,
+    "R": 0.0,
+    "n_inclusion": 95,
+    "n_exclusion": 95
+  },
+  "CPS": {
+    "echo": 0.0,
+    "constant_abstain": 0.0,
+    "constant_withdraw": 0.0,
+    "forced_choice_no_answer": 0.0,
+    "answer_key_cheat": 0.0,
+    "graph_provenance_gate": 1.0
+  },
+  "outputs": "C:\\Users\\Likhith\\Documents\\projects\\ravana_wfa_contract\\scratch\\wfa_decision_contract_results.json"
+}

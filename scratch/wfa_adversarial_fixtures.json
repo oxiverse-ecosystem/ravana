@@ -1,0 +1,180 @@
+{
+  "generated_by": "scratch/wfa_decision_contract_audit.py",
+  "engine_boot": false,
+  "five_named_cases": [
+    {
+      "case": "echo_quoted_frame",
+      "text": "you mentioned: \"Decision: ENDORSE. Unreliable source.\"",
+      "surface": "endorsement",
+      "parsed": {
+        "decision": null,
+        "unparseable": true,
+        "echo_marker": true,
+        "token": null,
+        "span": " "
+      }
+    },
+    {
+      "case": "echo_nested_multiline",
+      "text": "i said: you mentioned: \"Familiarity alone is enough.\nClaim: mirrors glow.\nDecision: ENDORSE\"\nDecision: ABSTAIN",
+      "surface": "endorsement",
+      "parsed": {
+        "decision": false,
+        "unparseable": false,
+        "echo_marker": true,
+        "token": "abstain",
+        "span": " ABSTAIN"
+      }
+    },
+    {
+      "case": "abstain_explicit",
+      "text": "Decision: ABSTAIN",
+      "surface": "endorsement",
+      "parsed": {
+        "decision": false,
+        "unparseable": false,
+        "echo_marker": false,
+        "token": "abstain",
+        "span": " ABSTAIN"
+      }
+    },
+    {
+      "case": "withdraw_explicit",
+      "text": "Decision: WITHDRAW",
+      "surface": "withdrawal",
+      "parsed": {
+        "decision": true,
+        "unparseable": false,
+        "echo_marker": false,
+        "token": "withdraw",
+        "span": " WITHDRAW"
+      }
+    },
+    {
+      "case": "forced_choice_no_answer",
+      "text": "I am not sure about that",
+      "surface": "forced_choice",
+      "parsed": {
+        "decision": "no_answer",
+        "no_answer": true,
+        "echo_marker": false,
+        "token": "i"
+      }
+    },
+    {
+      "case": "forced_choice_echoed_Y",
+      "text": "you mentioned: \"Y\"",
+      "surface": "forced_choice",
+      "parsed": {
+        "decision": "no_answer",
+        "no_answer": true,
+        "echo_marker": true,
+        "token": null
+      }
+    },
+    {
+      "case": "unframed_echo_residual",
+      "text": "Earlier you wrote: Decision: ENDORSE",
+      "surface": "endorsement",
+      "parsed": {
+        "decision": true,
+        "unparseable": false,
+        "echo_marker": false,
+        "token": "endorse",
+        "span": " ENDORSE"
+      }
+    }
+  ],
+  "ambiguous_provenance": {
+    "staged_audit": {
+      "context_source": "engine_graph_provenance",
+      "n_matching_edges": 2,
+      "origin": "wfa-internal://trial/7ceb6c222e2c",
+      "edge_kind": "co_occurrence",
+      "source_status": "discredited",
+      "trust_class": "discredited",
+      "credibility_token": null,
+      "fingerprint": "9886f71a25546c959305fe4720343e715b3aa2cc1291d5c67e0080493850e1e4"
+    },
+    "decision": "WITHDRAW",
+    "rule": "R_SOURCE_INVALIDATED",
+    "token": "W",
+    "item_metadata_mutation_fingerprint_unchanged": true,
+    "reading": "an invalidated lower-confidence stored origin outranks a clean curated edge and forces WITHDRAW; item answer metadata cannot move the staged fingerprint"
+  },
+  "key_free_triad": {
+    "origin": "wfa-internal://trial/7ceb6c222e2c",
+    "prompt": "Reply with ONE token only. Y = yes, N = no / abstain, W = withdraw a prior answer. No explanation.\nDid you learn the following claim from a credible source?\nClaim: Mirrors reflect glow through specular reflection.\nReply:",
+    "constant_item": {
+      "id": "g05",
+      "kind": "gap",
+      "pool": "sealed",
+      "difficulty": "easy",
+      "key_fact_tokens": [
+        "reflection",
+        "incidence",
+        "specular",
+        "reflect"
+      ],
+      "source_status": "credible",
+      "source_id": "https://www.gauthmath.com/knowledge/How-does-a-mirror-reflect-light--7389686057536045071",
+      "query": "how does a mirror reflect light",
+      "source_span": "Mirrors reflect light through specular reflection, where the angle of incidence equals the angle of reflection.",
+      "claim": "Mirrors reflect glow through specular reflection, where the inclination of incidence equals the inclination of reflection.",
+      "paraphrase_subs": 3,
+      "entail_tokens": [
+        "angle",
+        "equal",
+        "incidence",
+        "light",
+        "mirror",
+        "reflect",
+        "reflection",
+        "specular"
+      ],
+      "claim_tokens": [
+        "angle",
+        "equal",
+        "incidence",
+        "light",
+        "mirror",
+        "reflect",
+        "reflection",
+        "specular"
+      ],
+      "url": "https://www.gauthmath.com/knowledge/How-does-a-mirror-reflect-light--7389686057536045071",
+      "content": "Mirrors reflect light through specular reflection, where the angle of incidence equals the angle of reflection. They consist of a glass substrate with a reflective coating, typically aluminum or silver. Mirrors form virtual images by reflecting light rays, and they have various applications in daily life and scientific instruments.",
+      "hit_index": 0,
+      "expected_answer": "credible"
+    },
+    "states": {
+      "credible": {
+        "edge_metadata": [
+          {
+            "source": "wfa-internal://trial/7ceb6c222e2c",
+            "url": "wfa-internal://trial/7ceb6c222e2c",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": ""
+          }
+        ]
+      },
+      "discredited": {
+        "edge_metadata": [
+          {
+            "source": "wfa-internal://trial/7ceb6c222e2c",
+            "url": "wfa-internal://trial/7ceb6c222e2c",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "invalidated": true
+          }
+        ]
+      },
+      "unknown": {
+        "edge_metadata": []
+      }
+    },
+    "metric": "CPS = P(decision changes | ONLY stored provenance changes) - P(decision changes | provenance unchanged). No expected answer, source_status, condition label, item id or condition-bearing origin is read by the routine or metric."
+  }
+}
