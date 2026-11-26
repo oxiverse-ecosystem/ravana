@@ -2419,7 +2419,23 @@ def main(argv=None):
         parametric=oracle,
         forced_choice=ForcedChoiceResponder(source, isolate) if source is not None else None,
     )
-    run_pd_arms(items, records, arms)
+    max_is = int(os.environ.get("WFA_IS_MAX_PER_POOL", "0") or 0)
+    bounded_diag = os.environ.get("WFA_BOUNDED_DIAGNOSTIC") == "1"
+    diag_items = items
+    if bounded_diag and max_is > 0:
+        seen_kind, keep, kept = Counter(), [], set()
+        for it in items:
+            kind = it.get("kind")
+            if kind in ("gap", "decoy"):
+                if seen_kind[kind] >= max_is:
+                    continue
+                seen_kind[kind] += 1
+            keep.append(it)
+            kept.add(it["id"])
+        diag_items = keep
+        print("BOUNDED DIAGNOSTIC (max_per_pool=%d, items=%d) -- "
+              "NO FULL-BANK VERDICT" % (max_is, len(diag_items)))
+    run_pd_arms(diag_items, records, arms)
     for pool in ("primary", "sealed"):
         summary[pool].update(process_dissociation(records, pool))
         summary[pool].update(pd_quality_counters(records, pool))
@@ -2495,12 +2511,11 @@ def main(argv=None):
             is_mode = "dedicated_engine_graph_derived_context"
         except Exception as exc:
             is_mode = "boot_failed: %s" % type(exc).__name__
-    max_is = int(os.environ.get("WFA_IS_MAX_PER_POOL", "0") or 0)
     is_flag_prev = os.environ.get(IS_FLAG)
     os.environ[IS_FLAG] = "1"          # opt-in for this arm only; restored below
     try:
-        is_items = items
-        if max_is > 0:                 # deterministic bounded subset (still >=20/pool)
+        is_items = diag_items if bounded_diag else items
+        if max_is > 0 and not bounded_diag:  # full-bank path: deterministic bounded subset
             seen, keep, kept = Counter(), [], set()
             for it in items:
                 if it["kind"] != "gap":
@@ -2582,6 +2597,9 @@ def main(argv=None):
     sat = front_gates.gate_saturation(gate_scores, None, "web")
     gate_invalid = sat.status == "FAIL"
 
+    summary["full_bank_verdict"] = not bounded_diag
+    if bounded_diag:
+        print("\nBOUNDED DIAGNOSTIC -- NO FULL-BANK VERDICT")
     rules, passed = decide(summary, checks_ok and not gate_invalid)
     print("\n--- decision rules (pre-registered, not tuned) ---")
     for name, ok in rules.items():
@@ -2609,6 +2627,10 @@ def main(argv=None):
 
     with open(SUMMARY_PATH, "w", encoding="utf-8") as sf:
         json.dump(summary, sf, indent=2)
+    if bounded_diag:
+        print("\nBOUNDED DIAGNOSTIC COMPLETED -- no full-bank verdict; summary -> %s"
+              % SUMMARY_PATH)
+        return 0
     verdict = "PASS" if passed else "FAIL"
     print("\n%s  WFA (unsaturated) -- %s  summary -> %s" % (
         verdict, "meets all criteria" if passed else "criteria not met", SUMMARY_PATH))
