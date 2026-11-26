@@ -1,0 +1,57 @@
+=== PHASE 3: RAW INGESTION vs EXPLICIT is_a WRITER ===
+STATIC/IN-MEMORY ONLY: no engine boot, no production edit, no answer key
+STATIC_GUARD {"dynamic_imports": [], "import_hits": [], "imports": ["__future__", "ast", "builtins", "collections", "datetime", "hashlib", "json", "os", "pathlib", "pickle", "ravana", "ravana_ml", "re", "subprocess", "sys"], "name_hits": [], "ok": true}
+INPUTS channel_sha256=18dac950d0f415539a5d9aa51e9859dd97d0fa7e9c284501322b70004d6372d0 rows=3200 unique_facts=88 assertable=86 self_loops=2 items=400
+SELF_LOOP_EXCLUDED branch branch https://www.wikidata.org/wiki/Q2923673
+SELF_LOOP_EXCLUDED joint joint https://www.wikidata.org/wiki/Q9644
+SELFTEST {"good_confidence": 0.3206, "good_reload": true, "good_route": "novel_write", "good_write": true, "production_parser_refuses_question": true, "production_writer_refuses_question": true, "selftest_probe_trusted": true, "wrong_option_never_picked": true}
+ARM_A raw_writes=0 typed_is_a=0 prov_full=0 reload_typed=0 reload_prov=0 edges=0
+  A_INPUT angle is a two-dimensional object. OUTPUT typed_is_a= False
+  A_INPUT arc is a curve. OUTPUT typed_is_a= False
+  A_INPUT axis is a directed line. OUTPUT typed_is_a= False
+RAW_POSITIVE_CONTROL {"supported_causal_surface_edges": 1, "supported_causal_surface_writes": true}
+ARM_B_writer_prod_parser parse TP=70 FP=0 FN=16 P=1.0000 R=0.8140 write=70 prov=69 reload_prov=69 read=70/86 edges=70
+  B_writer_prod_parser INPUT angle is a two-dimensional object. EMITTED [['angle', 'two-dimensional object']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  B_writer_prod_parser INPUT arc is a curve. EMITTED [['arc', 'curve']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  B_writer_prod_parser INPUT axis is a directed line. EMITTED [['axis', 'directed line']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  B_writer_prod_parser WRITE_FAILURE bone|particular anatomical entity|https://www.wikidata.org/wiki/Q265868|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE brain|particular anatomical entity|https://www.wikidata.org/wiki/Q1073|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE gland|particular anatomical entity|https://www.wikidata.org/wiki/Q9647|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE habit|pattern of behavior|https://www.wikidata.org/wiki/Q1299714|Q2515887|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE liver|particular anatomical entity|https://www.wikidata.org/wiki/Q9368|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE lung|particular anatomical entity|https://www.wikidata.org/wiki/Q7886|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE muscle|particular anatomical entity|https://www.wikidata.org/wiki/Q7365|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE nerve|particular anatomical entity|https://www.wikidata.org/wiki/Q9620|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE piston|oboe family instrument|https://www.wikidata.org/wiki/Q7198510|Q42889517|P279|alternate {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE reflex|response to external stimulus|https://www.wikidata.org/wiki/Q179405|Q14863388|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE reward|Wikimedia article covering multiple topics|https://www.wikidata.org/wiki/Q112121323|Q21484471|P31|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE skin|particular anatomical entity|https://www.wikidata.org/wiki/Q1074|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE storm|environmental system process|https://www.wikidata.org/wiki/Q81054|Q116118210|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE team|group of humans|https://www.wikidata.org/wiki/Q327245|Q16334295|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE tendon|particular anatomical entity|https://www.wikidata.org/wiki/Q232358|Q112826975|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser WRITE_FAILURE triangle|planar generalized triangle|https://www.wikidata.org/wiki/Q19821|Q117307846|P279|primary {'written': False, 'reason': 'no_parse'}
+  B_writer_prod_parser PROVENANCE_FAILURE vessel|Void being|https://www.wikidata.org/wiki/Q116547333|Q116590321|P279|primary missing=[]
+ARM_C_writer_compositional parse TP=86 FP=0 FN=0 P=1.0000 R=1.0000 write=86 prov=84 reload_prov=84 read=86/86 edges=86
+  C_writer_compositional INPUT angle is a two-dimensional object. EMITTED [['angle', 'two-dimensional object']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  C_writer_compositional INPUT arc is a curve. EMITTED [['arc', 'curve']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  C_writer_compositional INPUT axis is a directed line. EMITTED [['axis', 'directed line']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  C_writer_compositional PROVENANCE_FAILURE reward|Wikimedia article covering multiple topics|https://www.wikidata.org/wiki/Q112121323|Q21484471|P31|primary missing=[]
+  C_writer_compositional PROVENANCE_FAILURE vessel|Void being|https://www.wikidata.org/wiki/Q116547333|Q116590321|P279|primary missing=[]
+ARM_D_writer_structured parse TP=86 FP=0 FN=0 P=1.0000 R=1.0000 write=86 prov=86 reload_prov=86 read=86/86 edges=86
+  D_writer_structured INPUT angle is a two-dimensional object. EMITTED [['angle', 'two-dimensional object']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  D_writer_structured INPUT arc is a curve. EMITTED [['arc', 'curve']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+  D_writer_structured INPUT axis is a directed line. EMITTED [['axis', 'directed line']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'curated'}
+ARM_E_writer_unprovenanced_control parse TP=86 FP=0 FN=0 P=1.0000 R=1.0000 write=86 prov=0 reload_prov=0 read=86/86 edges=86
+  E_writer_unprovenanced_control INPUT angle is a two-dimensional object. EMITTED [['angle', 'two-dimensional object']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'web_fact'}
+  E_writer_unprovenanced_control INPUT arc is a curve. EMITTED [['arc', 'curve']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'web_fact'}
+  E_writer_unprovenanced_control INPUT axis is a directed line. EMITTED [['axis', 'directed line']] WRITE {'written': True, 'route': 'novel_write', 'reason': 'novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated', 'consistency': 0.5, 'edge_kind': 'web_fact'}
+  E_writer_unprovenanced_control PROVENANCE_FAILURE angle|two-dimensional object|https://www.wikidata.org/wiki/Q11352|Q118870638|P279|primary missing=['channel', 'source_id', 'source_url', 'span', 'text_evidence', 'text_evidence_kind', 'wikidata_property', 'wikidata_relation', 'subject_qid', 'type_qid', 'subject_description', 'type_description', 'enwiki_title', 'sense', 'sense_selection', 'snapshot', 'license', 'license_url']
+  E_writer_unprovenanced_control PROVENANCE_FAILURE arc|curve|https://www.wikidata.org/wiki/Q147572|Q161973|P279|primary missing=['channel', 'source_id', 'source_url', 'span', 'text_evidence', 'text_evidence_kind', 'wikidata_property', 'wikidata_relation', 'subject_qid', 'type_qid', 'subject_description', 'type_description', 'enwiki_title', 'sense', 'sense_selection', 'snapshot', 'license', 'license_url']
+  E_writer_unprovenanced_control PROVENANCE_FAILURE axis|directed line|https://www.wikidata.org/wiki/Q138638473|Q138638380|P279|primary missing=['channel', 'source_id', 'source_url', 'span', 'text_evidence', 'text_evidence_kind', 'wikidata_property', 'wikidata_relation', 'subject_qid', 'type_qid', 'subject_description', 'type_description', 'enwiki_title', 'sense', 'sense_selection', 'snapshot', 'license', 'license_url']
+  E_writer_unprovenanced_control PROVENANCE_FAILURE ... 83 more (see results JSON)
+CONTROLS {"default_typed_slot_hook_OFF": true, "mutation_label_flips_provenance": true, "mutation_missing_label_fail_closed": true, "mutation_qid_flips_provenance": true, "production_parser_accepts_short_channel_surface": true, "raw_path_positive_control": true, "unprovenanced_arm_writes_no_full_provenance": true}
+FINDINGS_SHA256 47dffb9bd1d4f1a59b076b43bdb1485f9bb55880ba382be78c5f726836c80d8b
+FALSIFIERS {"F1_raw_suffices": false, "F2_writer_fails": false, "F3_parser_needed": false, "F4_reload_loss": false, "F5_contamination": false, "F6_instrument": false}
+RECOMMENDATION DO_NOT_IMPLEMENT_PARSER; structured channel write suffices; raw ingestion is insufficient
+INTEGRITY hash_ok=True engine_instances=0 unexpected_reads=[]
+EXIT=0

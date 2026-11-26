@@ -1,0 +1,6142 @@
+{
+ "falsifiers_evaluated": {
+  "F1_raw_suffices": {
+   "text": "RAW arm recovers all assertable expected typed is_a facts WITH full channel provenance and all of them survive cold reload -> the explicit writer is unnecessary; recommendation must flip to raw-ingestion-suffices.",
+   "triggered": false
+  },
+  "F2_writer_fails": {
+   "text": "D_writer_structured writes fewer than all assertable expected edges, or preserves channel provenance on <88, or reload survival <88 -> the structured write path does not suffice.",
+   "triggered": false
+  },
+  "F3_parser_needed": {
+   "text": "D_writer_structured (no parser) cannot write an expected fact while B/C parser arms can -> a parser is genuinely required by the input channel; do not claim 'no parser needed'.",
+   "triggered": false
+  },
+  "F4_reload_loss": {
+   "text": "Any arm's write-time success > its cold-reload survival -> the stamp is not durable; do not recommend implementation on that arm.",
+   "triggered": false
+  },
+  "F5_contamination": {
+   "text": "Any forbidden answer-key name/import in this script, any open() of a path outside the allowlist, any CognitiveChatEngine import, or any production-file hash change -> EXPERIMENT INVALID.",
+   "triggered": false
+  },
+  "F6_instrument": {
+   "text": "The instrument self-test (known-good write + known-bad refusal + mutation controls) fails -> numbers are unscorable.",
+   "triggered": false
+  }
+ },
+ "findings": {
+  "arms": {
+   "A_raw_process_turn": {
+    "parse": {
+     "emitted_correct_facts": 0,
+     "emitted_wrong_facts": 0,
+     "missed_facts": 86,
+     "n": 86,
+     "precision": 0.0,
+     "recall": 0.0
+    },
+    "read": {
+     "above_congruence_floor": 0,
+     "congruence_floor": 0.2,
+     "n": 86,
+     "picked": 0,
+     "refused": 0,
+     "views": 0
+    },
+    "reload": {
+     "edges_total": 0,
+     "provenance_full": 0,
+     "typed_is_a": 0
+    },
+    "write": {
+     "edges_total": 0,
+     "expected": 86,
+     "provenance_full": 0,
+     "routes": {},
+     "typed_is_a": 0,
+     "written": 0
+    }
+   },
+   "B_writer_prod_parser": {
+    "parse": {
+     "emitted_correct_facts": 70,
+     "emitted_wrong_facts": 0,
+     "missed_facts": 16,
+     "n": 86,
+     "precision": 1.0,
+     "recall": 0.814
+    },
+    "read": {
+     "above_congruence_floor": 70,
+     "congruence_floor": 0.2,
+     "n": 86,
+     "picked": 70,
+     "refused": 16,
+     "views": 70
+    },
+    "reload": {
+     "edges_total": 70,
+     "provenance_full": 69,
+     "provenance_full_all88": 69,
+     "typed_is_a": 70,
+     "typed_is_a_all88": 70
+    },
+    "write": {
+     "edges_total": 70,
+     "expected": 86,
+     "provenance_full": 69,
+     "provenance_full_all88": 69,
+     "routes": {
+      "novel_write": 70
+     },
+     "typed_is_a": 70,
+     "typed_is_a_all88": 70,
+     "written": 70
+    }
+   },
+   "C_writer_compositional": {
+    "parse": {
+     "emitted_correct_facts": 86,
+     "emitted_wrong_facts": 0,
+     "missed_facts": 0,
+     "n": 86,
+     "precision": 1.0,
+     "recall": 1.0
+    },
+    "read": {
+     "above_congruence_floor": 86,
+     "congruence_floor": 0.2,
+     "n": 86,
+     "picked": 86,
+     "refused": 0,
+     "views": 86
+    },
+    "reload": {
+     "edges_total": 86,
+     "provenance_full": 84,
+     "provenance_full_all88": 84,
+     "typed_is_a": 86,
+     "typed_is_a_all88": 86
+    },
+    "write": {
+     "edges_total": 86,
+     "expected": 86,
+     "provenance_full": 84,
+     "provenance_full_all88": 84,
+     "routes": {
+      "novel_write": 86
+     },
+     "typed_is_a": 86,
+     "typed_is_a_all88": 86,
+     "written": 86
+    }
+   },
+   "D_writer_structured": {
+    "parse": {
+     "emitted_correct_facts": 86,
+     "emitted_wrong_facts": 0,
+     "missed_facts": 0,
+     "n": 86,
+     "precision": 1.0,
+     "recall": 1.0
+    },
+    "read": {
+     "above_congruence_floor": 86,
+     "congruence_floor": 0.2,
+     "n": 86,
+     "picked": 86,
+     "refused": 0,
+     "views": 86
+    },
+    "reload": {
+     "edges_total": 86,
+     "provenance_full": 86,
+     "provenance_full_all88": 86,
+     "typed_is_a": 86,
+     "typed_is_a_all88": 86
+    },
+    "write": {
+     "edges_total": 86,
+     "expected": 86,
+     "provenance_full": 86,
+     "provenance_full_all88": 86,
+     "routes": {
+      "?": 2,
+      "novel_write": 86
+     },
+     "typed_is_a": 86,
+     "typed_is_a_all88": 86,
+     "written": 86
+    }
+   },
+   "E_writer_unprovenanced_control": {
+    "parse": {
+     "emitted_correct_facts": 86,
+     "emitted_wrong_facts": 0,
+     "missed_facts": 0,
+     "n": 86,
+     "precision": 1.0,
+     "recall": 1.0
+    },
+    "read": {
+     "above_congruence_floor": 86,
+     "congruence_floor": 0.2,
+     "n": 86,
+     "picked": 86,
+     "refused": 0,
+     "views": 86
+    },
+    "reload": {
+     "edges_total": 86,
+     "provenance_full": 0,
+     "provenance_full_all88": 0,
+     "typed_is_a": 86,
+     "typed_is_a_all88": 86
+    },
+    "write": {
+     "edges_total": 86,
+     "expected": 86,
+     "provenance_full": 0,
+     "provenance_full_all88": 0,
+     "routes": {
+      "?": 2,
+      "novel_write": 86
+     },
+     "typed_is_a": 86,
+     "typed_is_a_all88": 86,
+     "written": 86
+    }
+   }
+  },
+  "controls": {
+   "default_typed_slot_hook_OFF": true,
+   "mutation_label_flips_provenance": true,
+   "mutation_missing_label_fail_closed": true,
+   "mutation_qid_flips_provenance": true,
+   "production_parser_accepts_short_channel_surface": true,
+   "raw_path_positive_control": true,
+   "unprovenanced_arm_writes_no_full_provenance": true
+  },
+  "falsifiers": {
+   "F1_raw_suffices": false,
+   "F2_writer_fails": false,
+   "F3_parser_needed": false,
+   "F4_reload_loss": false,
+   "F5_contamination": false,
+   "F6_instrument": false
+  },
+  "inputs": {
+   "assertable_facts": 86,
+   "channel_rows": 3200,
+   "channel_sha256": "18dac950d0f415539a5d9aa51e9859dd97d0fa7e9c284501322b70004d6372d0",
+   "items": 400,
+   "self_loops_excluded": 2,
+   "surface": "subject is a object.",
+   "unique_facts": 88
+  },
+  "raw_positive_control": {
+   "supported_causal_surface_edges": 1,
+   "supported_causal_surface_writes": true
+  },
+  "recommendation": "DO_NOT_IMPLEMENT_PARSER; structured channel write suffices; raw ingestion is insufficient",
+  "selftest": {
+   "good_confidence": 0.3206,
+   "good_reload": true,
+   "good_route": "novel_write",
+   "good_write": true,
+   "production_parser_refuses_question": true,
+   "production_writer_refuses_question": true,
+   "selftest_probe_trusted": true,
+   "wrong_option_never_picked": true
+  }
+ },
+ "integrity": {
+  "contamination_ok": true,
+  "engine_instances_constructed": 0,
+  "files_opened": [
+   "C:/Users/Likhith/Documents/projects/ravana_p3_parser/scratch/trak_channel_from_substrate.json"
+  ],
+  "hash_unchanged": true,
+  "instrument_ok": true,
+  "production_hashes_after": {
+   "chain_walker.py": "32763764db0e209c346c1eebb8142bbbd577af8035c38012072932431c26d1ab",
+   "engine.py": "aef686019a3ff8b6702bb952f8b311be94b5866943d711ff980f50efe50e10d9",
+   "graph.py": "258776ffc84466f4353d04106138ddc7f74f0a1994a5365ec9c949958325b1ba",
+   "intake.py": "b0c2fade580818993c0feb632c71712a325eea45b73ef8751914d5a214d49401",
+   "schema_induction.py": "d17cf6461d208e2e6ae9d272dd45459ddd3caf71f9b70bae285e745de9e970a6"
+  },
+  "production_hashes_before": {
+   "chain_walker.py": "32763764db0e209c346c1eebb8142bbbd577af8035c38012072932431c26d1ab",
+   "engine.py": "aef686019a3ff8b6702bb952f8b311be94b5866943d711ff980f50efe50e10d9",
+   "graph.py": "258776ffc84466f4353d04106138ddc7f74f0a1994a5365ec9c949958325b1ba",
+   "intake.py": "b0c2fade580818993c0feb632c71712a325eea45b73ef8751914d5a214d49401",
+   "schema_induction.py": "d17cf6461d208e2e6ae9d272dd45459ddd3caf71f9b70bae285e745de9e970a6"
+  },
+  "static_guard": {
+   "dynamic_imports": [],
+   "import_hits": [],
+   "imports": [
+    "__future__",
+    "ast",
+    "builtins",
+    "collections",
+    "datetime",
+    "hashlib",
+    "json",
+    "os",
+    "pathlib",
+    "pickle",
+    "ravana",
+    "ravana_ml",
+    "re",
+    "subprocess",
+    "sys"
+   ],
+   "name_hits": [],
+   "ok": true
+  },
+  "unexpected_reads": []
+ },
+ "per_fact": {
+  "A_raw_process_turn": [],
+  "B_writer_prod_parser": [
+   {
+    "emitted": [
+     [
+      "angle",
+      "two-dimensional object"
+     ]
+    ],
+    "input": "angle is a two-dimensional object.",
+    "key": "angle|two-dimensional object|https://www.wikidata.org/wiki/Q11352|Q118870638|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "arc",
+      "curve"
+     ]
+    ],
+    "input": "arc is a curve.",
+    "key": "arc|curve|https://www.wikidata.org/wiki/Q147572|Q161973|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "axis",
+      "directed line"
+     ]
+    ],
+    "input": "axis is a directed line.",
+    "key": "axis|directed line|https://www.wikidata.org/wiki/Q138638473|Q138638380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bark",
+      "plant material"
+     ]
+    ],
+    "input": "bark is a plant material.",
+    "key": "bark|plant material|https://www.wikidata.org/wiki/Q184453|Q28969364|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bearing",
+      "connector"
+     ]
+    ],
+    "input": "bearing is a connector.",
+    "key": "bearing|connector|https://www.wikidata.org/wiki/Q190100|Q18819626|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "belt",
+      "fashion accessory"
+     ]
+    ],
+    "input": "belt is a fashion accessory.",
+    "key": "belt|fashion accessory|https://www.wikidata.org/wiki/Q134560|Q1065579|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "bone is a particular anatomical entity.",
+    "key": "bone|particular anatomical entity|https://www.wikidata.org/wiki/Q265868|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [],
+    "input": "brain is a particular anatomical entity.",
+    "key": "brain|particular anatomical entity|https://www.wikidata.org/wiki/Q1073|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [],
+    "input": "branch is a branch.",
+    "key": "branch|branch|https://www.wikidata.org/wiki/Q2923673|Q113627424|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "breeze",
+      "wind"
+     ]
+    ],
+    "input": "breeze is a wind.",
+    "key": "breeze|wind|https://www.wikidata.org/wiki/Q1402881|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bud",
+      "plant organ"
+     ]
+    ],
+    "input": "bud is a plant organ.",
+    "key": "bud|plant organ|https://www.wikidata.org/wiki/Q189838|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cam",
+      "copying"
+     ]
+    ],
+    "input": "cam is a copying.",
+    "key": "cam|copying|https://www.wikidata.org/wiki/Q1027896|Q1156791|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "chord",
+      "group"
+     ]
+    ],
+    "input": "chord is a group.",
+    "key": "chord|group|https://www.wikidata.org/wiki/Q170439|Q16887380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circle",
+      "rose"
+     ]
+    ],
+    "input": "circle is a rose.",
+    "key": "circle|rose|https://www.wikidata.org/wiki/Q17278|Q1155211|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circuit",
+      "trail"
+     ]
+    ],
+    "input": "circuit is a trail.",
+    "key": "circuit|trail|https://www.wikidata.org/wiki/Q17176291|Q17455228|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cloud",
+      "weather"
+     ]
+    ],
+    "input": "cloud is a weather.",
+    "key": "cloud|weather|https://www.wikidata.org/wiki/Q8074|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "clutch",
+      "machine element"
+     ]
+    ],
+    "input": "clutch is a machine element.",
+    "key": "clutch|machine element|https://www.wikidata.org/wiki/Q194302|Q839546|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "coil",
+      "winding"
+     ]
+    ],
+    "input": "coil is a winding.",
+    "key": "coil|winding|https://www.wikidata.org/wiki/Q2981904|Q1412831|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cone",
+      "geometric primitive"
+     ]
+    ],
+    "input": "cone is a geometric primitive.",
+    "key": "cone|geometric primitive|https://www.wikidata.org/wiki/Q42344|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "contract",
+      "description"
+     ]
+    ],
+    "input": "contract is a description.",
+    "key": "contract|description|https://www.wikidata.org/wiki/Q93288|Q141439861|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cube",
+      "uniform prism"
+     ]
+    ],
+    "input": "cube is a uniform prism.",
+    "key": "cube|uniform prism|https://www.wikidata.org/wiki/Q812880|Q141962261|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "curve",
+      "line"
+     ]
+    ],
+    "input": "curve is a line.",
+    "key": "curve|line|https://www.wikidata.org/wiki/Q161973|Q1228250|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "custom",
+      "proto-patient"
+     ]
+    ],
+    "input": "custom is a proto-patient.",
+    "key": "custom|proto-patient|https://www.wikidata.org/wiki/Q140418774|Q134506144|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "dew",
+      "condensation water"
+     ]
+    ],
+    "input": "dew is a condensation water.",
+    "key": "dew|condensation water|https://www.wikidata.org/wiki/Q41097|Q1781205|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "drizzle",
+      "weather"
+     ]
+    ],
+    "input": "drizzle is a weather.",
+    "key": "drizzle|weather|https://www.wikidata.org/wiki/Q211521|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fern",
+      "tracheophyte"
+     ]
+    ],
+    "input": "fern is a tracheophyte.",
+    "key": "fern|tracheophyte|https://www.wikidata.org/wiki/Q80005|Q27133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "frost",
+      "hydrometeor"
+     ]
+    ],
+    "input": "frost is a hydrometeor.",
+    "key": "frost|hydrometeor|https://www.wikidata.org/wiki/Q4590598|Q1972098|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fruit",
+      "plant-based food"
+     ]
+    ],
+    "input": "fruit is a plant-based food.",
+    "key": "fruit|plant-based food|https://www.wikidata.org/wiki/Q3314483|Q107122728|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fuse",
+      "power resistor"
+     ]
+    ],
+    "input": "fuse is a power resistor.",
+    "key": "fuse|power resistor|https://www.wikidata.org/wiki/Q182221|Q64706764|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gale",
+      "wind"
+     ]
+    ],
+    "input": "gale is a wind.",
+    "key": "gale|wind|https://www.wikidata.org/wiki/Q2144546|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "game",
+      "creative work"
+     ]
+    ],
+    "input": "game is a creative work.",
+    "key": "game|creative work|https://www.wikidata.org/wiki/Q11410|Q17537576|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gear",
+      "configuration option"
+     ]
+    ],
+    "input": "gear is a configuration option.",
+    "key": "gear|configuration option|https://www.wikidata.org/wiki/Q116925316|Q105029446|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "gland is a particular anatomical entity.",
+    "key": "gland|particular anatomical entity|https://www.wikidata.org/wiki/Q9647|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "glow",
+      "human"
+     ]
+    ],
+    "input": "glow is a human.",
+    "key": "glow|human|https://www.wikidata.org/wiki/Q12587407|Q5|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "guild",
+      "association"
+     ]
+    ],
+    "input": "guild is a association.",
+    "key": "guild|association|https://www.wikidata.org/wiki/Q939871|Q15911314|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "habit is a pattern of behavior.",
+    "key": "habit|pattern of behavior|https://www.wikidata.org/wiki/Q1299714|Q2515887|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "hail",
+      "precipitation"
+     ]
+    ],
+    "input": "hail is a precipitation.",
+    "key": "hail|precipitation|https://www.wikidata.org/wiki/Q37602|Q25257|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "heart",
+      "animal organ"
+     ]
+    ],
+    "input": "heart is a animal organ.",
+    "key": "heart|animal organ|https://www.wikidata.org/wiki/Q1072|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "joint is a joint.",
+    "key": "joint|joint|https://www.wikidata.org/wiki/Q9644|Q109321311|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "kidney",
+      "animal organ"
+     ]
+    ],
+    "input": "kidney is a animal organ.",
+    "key": "kidney|animal organ|https://www.wikidata.org/wiki/Q9377|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "law",
+      "rule"
+     ]
+    ],
+    "input": "law is a rule.",
+    "key": "law|rule|https://www.wikidata.org/wiki/Q7748|Q1151067|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "leaf",
+      "plant organ"
+     ]
+    ],
+    "input": "leaf is a plant organ.",
+    "key": "leaf|plant organ|https://www.wikidata.org/wiki/Q33971|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "lever",
+      "simple machine"
+     ]
+    ],
+    "input": "lever is a simple machine.",
+    "key": "lever|simple machine|https://www.wikidata.org/wiki/Q40164|Q186713|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "line",
+      "one-dimensional region"
+     ]
+    ],
+    "input": "line is a one-dimensional region.",
+    "key": "line|one-dimensional region|https://www.wikidata.org/wiki/Q1228250|Q123691911|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "liver is a particular anatomical entity.",
+    "key": "liver|particular anatomical entity|https://www.wikidata.org/wiki/Q9368|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [],
+    "input": "lung is a particular anatomical entity.",
+    "key": "lung|particular anatomical entity|https://www.wikidata.org/wiki/Q7886|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "market",
+      "recurring event"
+     ]
+    ],
+    "input": "market is a recurring event.",
+    "key": "market|recurring event|https://www.wikidata.org/wiki/Q132510|Q15275719|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "mist",
+      "fog"
+     ]
+    ],
+    "input": "mist is a fog.",
+    "key": "mist|fog|https://www.wikidata.org/wiki/Q192196|Q37477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "moss",
+      "taxon"
+     ]
+    ],
+    "input": "moss is a taxon.",
+    "key": "moss|taxon|https://www.wikidata.org/wiki/Q25347|Q16521|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "muscle is a particular anatomical entity.",
+    "key": "muscle|particular anatomical entity|https://www.wikidata.org/wiki/Q7365|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [],
+    "input": "nerve is a particular anatomical entity.",
+    "key": "nerve|particular anatomical entity|https://www.wikidata.org/wiki/Q9620|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "norm",
+      "intersection"
+     ]
+    ],
+    "input": "norm is a intersection.",
+    "key": "norm|intersection|https://www.wikidata.org/wiki/Q7051416|Q185837|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "petal",
+      "floral part"
+     ]
+    ],
+    "input": "petal is a floral part.",
+    "key": "petal|floral part|https://www.wikidata.org/wiki/Q107412|Q3389552|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "piston is a oboe family instrument.",
+    "key": "piston|oboe family instrument|https://www.wikidata.org/wiki/Q7198510|Q42889517|P279|alternate",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "plane",
+      "geometric primitive"
+     ]
+    ],
+    "input": "plane is a geometric primitive.",
+    "key": "plane|geometric primitive|https://www.wikidata.org/wiki/Q17285|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "point",
+      "piercing equipment"
+     ]
+    ],
+    "input": "point is a piercing equipment.",
+    "key": "point|piercing equipment|https://www.wikidata.org/wiki/Q1700214|Q111547477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "pollen",
+      "microgametophyte"
+     ]
+    ],
+    "input": "pollen is a microgametophyte.",
+    "key": "pollen|microgametophyte|https://www.wikidata.org/wiki/Q79932|Q12036890|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "prism",
+      "prismatoid"
+     ]
+    ],
+    "input": "prism is a prismatoid.",
+    "key": "prism|prismatoid|https://www.wikidata.org/wiki/Q180544|Q1757451|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "radius",
+      "line segment"
+     ]
+    ],
+    "input": "radius is a line segment.",
+    "key": "radius|line segment|https://www.wikidata.org/wiki/Q173817|Q166154|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rainbow",
+      "photometeor"
+     ]
+    ],
+    "input": "rainbow is a photometeor.",
+    "key": "rainbow|photometeor|https://www.wikidata.org/wiki/Q1052|Q494057|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rank",
+      "class"
+     ]
+    ],
+    "input": "rank is a class.",
+    "key": "rank|class|https://www.wikidata.org/wiki/Q4120621|Q16889133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "reflex is a response to external stimulus.",
+    "key": "reflex|response to external stimulus|https://www.wikidata.org/wiki/Q179405|Q14863388|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [],
+    "input": "reward is a Wikimedia article covering multiple topics.",
+    "key": "reward|Wikimedia article covering multiple topics|https://www.wikidata.org/wiki/Q112121323|Q21484471|P31|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "ritual",
+      "process"
+     ]
+    ],
+    "input": "ritual is a process.",
+    "key": "ritual|process|https://www.wikidata.org/wiki/Q189819|Q10843872|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "role",
+      "functional complex"
+     ]
+    ],
+    "input": "role is a functional complex.",
+    "key": "role|functional complex|https://www.wikidata.org/wiki/Q141525968|Q141523012|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "root",
+      "software library"
+     ]
+    ],
+    "input": "root is a software library.",
+    "key": "root|software library|https://www.wikidata.org/wiki/Q947171|Q188860|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rotor",
+      "device"
+     ]
+    ],
+    "input": "rotor is a device.",
+    "key": "rotor|device|https://www.wikidata.org/wiki/Q15141537|Q1183543|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rumor",
+      "belief"
+     ]
+    ],
+    "input": "rumor is a belief.",
+    "key": "rumor|belief|https://www.wikidata.org/wiki/Q878352|Q34394|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "seed",
+      "plant structure"
+     ]
+    ],
+    "input": "seed is a plant structure.",
+    "key": "seed|plant structure|https://www.wikidata.org/wiki/Q40763|Q20011319|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "shower",
+      "plumbing fixture"
+     ]
+    ],
+    "input": "shower is a plumbing fixture.",
+    "key": "shower|plumbing fixture|https://www.wikidata.org/wiki/Q7863|Q2024731|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "signal",
+      "sign"
+     ]
+    ],
+    "input": "signal is a sign.",
+    "key": "signal|sign|https://www.wikidata.org/wiki/Q174984|Q3695082|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "skin is a particular anatomical entity.",
+    "key": "skin|particular anatomical entity|https://www.wikidata.org/wiki/Q1074|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "spring",
+      "water resource"
+     ]
+    ],
+    "input": "spring is a water resource.",
+    "key": "spring|water resource|https://www.wikidata.org/wiki/Q124714|Q1049799|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "square",
+      "cross-polytope"
+     ]
+    ],
+    "input": "square is a cross-polytope.",
+    "key": "square|cross-polytope|https://www.wikidata.org/wiki/Q164|Q1187914|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "stem",
+      "ship element"
+     ]
+    ],
+    "input": "stem is a ship element.",
+    "key": "stem|ship element|https://www.wikidata.org/wiki/Q1458952|Q15688633|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "storm is a environmental system process.",
+    "key": "storm|environmental system process|https://www.wikidata.org/wiki/Q81054|Q116118210|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "sunset",
+      "objectset"
+     ]
+    ],
+    "input": "sunset is a objectset.",
+    "key": "sunset|objectset|https://www.wikidata.org/wiki/Q166564|Q106674426|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "switch",
+      "interface"
+     ]
+    ],
+    "input": "switch is a interface.",
+    "key": "switch|interface|https://www.wikidata.org/wiki/Q114981662|Q110558466|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "team is a group of humans.",
+    "key": "team|group of humans|https://www.wikidata.org/wiki/Q327245|Q16334295|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [],
+    "input": "tendon is a particular anatomical entity.",
+    "key": "tendon|particular anatomical entity|https://www.wikidata.org/wiki/Q232358|Q112826975|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "thunder",
+      "natural phenomenon"
+     ]
+    ],
+    "input": "thunder is a natural phenomenon.",
+    "key": "thunder|natural phenomenon|https://www.wikidata.org/wiki/Q83301|Q1322005|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "tissue",
+      "multicellular structure"
+     ]
+    ],
+    "input": "tissue is a multicellular structure.",
+    "key": "tissue|multicellular structure|https://www.wikidata.org/wiki/Q40397|Q27062218|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "triangle is a planar generalized triangle.",
+    "key": "triangle|planar generalized triangle|https://www.wikidata.org/wiki/Q19821|Q117307846|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "trunk",
+      "plant stem"
+     ]
+    ],
+    "input": "trunk is a plant stem.",
+    "key": "trunk|plant stem|https://www.wikidata.org/wiki/Q193472|Q134267|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "valley",
+      "depression"
+     ]
+    ],
+    "input": "valley is a depression.",
+    "key": "valley|depression|https://www.wikidata.org/wiki/Q39816|Q190429|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vertex",
+      "simplex"
+     ]
+    ],
+    "input": "vertex is a simplex.",
+    "key": "vertex|simplex|https://www.wikidata.org/wiki/Q26401|Q331350|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vessel",
+      "void being"
+     ]
+    ],
+    "input": "vessel is a Void being.",
+    "key": "vessel|Void being|https://www.wikidata.org/wiki/Q116547333|Q116590321|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vine",
+      "plant"
+     ]
+    ],
+    "input": "vine is a plant.",
+    "key": "vine|plant|https://www.wikidata.org/wiki/Q917284|Q756|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   }
+  ],
+  "C_writer_compositional": [
+   {
+    "emitted": [
+     [
+      "angle",
+      "two-dimensional object"
+     ]
+    ],
+    "input": "angle is a two-dimensional object.",
+    "key": "angle|two-dimensional object|https://www.wikidata.org/wiki/Q11352|Q118870638|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "arc",
+      "curve"
+     ]
+    ],
+    "input": "arc is a curve.",
+    "key": "arc|curve|https://www.wikidata.org/wiki/Q147572|Q161973|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "axis",
+      "directed line"
+     ]
+    ],
+    "input": "axis is a directed line.",
+    "key": "axis|directed line|https://www.wikidata.org/wiki/Q138638473|Q138638380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bark",
+      "plant material"
+     ]
+    ],
+    "input": "bark is a plant material.",
+    "key": "bark|plant material|https://www.wikidata.org/wiki/Q184453|Q28969364|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bearing",
+      "connector"
+     ]
+    ],
+    "input": "bearing is a connector.",
+    "key": "bearing|connector|https://www.wikidata.org/wiki/Q190100|Q18819626|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "belt",
+      "fashion accessory"
+     ]
+    ],
+    "input": "belt is a fashion accessory.",
+    "key": "belt|fashion accessory|https://www.wikidata.org/wiki/Q134560|Q1065579|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bone",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "bone is a particular anatomical entity.",
+    "key": "bone|particular anatomical entity|https://www.wikidata.org/wiki/Q265868|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "brain",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "brain is a particular anatomical entity.",
+    "key": "brain|particular anatomical entity|https://www.wikidata.org/wiki/Q1073|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "branch is a branch.",
+    "key": "branch|branch|https://www.wikidata.org/wiki/Q2923673|Q113627424|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "breeze",
+      "wind"
+     ]
+    ],
+    "input": "breeze is a wind.",
+    "key": "breeze|wind|https://www.wikidata.org/wiki/Q1402881|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bud",
+      "plant organ"
+     ]
+    ],
+    "input": "bud is a plant organ.",
+    "key": "bud|plant organ|https://www.wikidata.org/wiki/Q189838|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cam",
+      "copying"
+     ]
+    ],
+    "input": "cam is a copying.",
+    "key": "cam|copying|https://www.wikidata.org/wiki/Q1027896|Q1156791|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "chord",
+      "group"
+     ]
+    ],
+    "input": "chord is a group.",
+    "key": "chord|group|https://www.wikidata.org/wiki/Q170439|Q16887380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circle",
+      "rose"
+     ]
+    ],
+    "input": "circle is a rose.",
+    "key": "circle|rose|https://www.wikidata.org/wiki/Q17278|Q1155211|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circuit",
+      "trail"
+     ]
+    ],
+    "input": "circuit is a trail.",
+    "key": "circuit|trail|https://www.wikidata.org/wiki/Q17176291|Q17455228|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cloud",
+      "weather"
+     ]
+    ],
+    "input": "cloud is a weather.",
+    "key": "cloud|weather|https://www.wikidata.org/wiki/Q8074|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "clutch",
+      "machine element"
+     ]
+    ],
+    "input": "clutch is a machine element.",
+    "key": "clutch|machine element|https://www.wikidata.org/wiki/Q194302|Q839546|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "coil",
+      "winding"
+     ]
+    ],
+    "input": "coil is a winding.",
+    "key": "coil|winding|https://www.wikidata.org/wiki/Q2981904|Q1412831|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cone",
+      "geometric primitive"
+     ]
+    ],
+    "input": "cone is a geometric primitive.",
+    "key": "cone|geometric primitive|https://www.wikidata.org/wiki/Q42344|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "contract",
+      "description"
+     ]
+    ],
+    "input": "contract is a description.",
+    "key": "contract|description|https://www.wikidata.org/wiki/Q93288|Q141439861|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cube",
+      "uniform prism"
+     ]
+    ],
+    "input": "cube is a uniform prism.",
+    "key": "cube|uniform prism|https://www.wikidata.org/wiki/Q812880|Q141962261|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "curve",
+      "line"
+     ]
+    ],
+    "input": "curve is a line.",
+    "key": "curve|line|https://www.wikidata.org/wiki/Q161973|Q1228250|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "custom",
+      "proto-patient"
+     ]
+    ],
+    "input": "custom is a proto-patient.",
+    "key": "custom|proto-patient|https://www.wikidata.org/wiki/Q140418774|Q134506144|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "dew",
+      "condensation water"
+     ]
+    ],
+    "input": "dew is a condensation water.",
+    "key": "dew|condensation water|https://www.wikidata.org/wiki/Q41097|Q1781205|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "drizzle",
+      "weather"
+     ]
+    ],
+    "input": "drizzle is a weather.",
+    "key": "drizzle|weather|https://www.wikidata.org/wiki/Q211521|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fern",
+      "tracheophyte"
+     ]
+    ],
+    "input": "fern is a tracheophyte.",
+    "key": "fern|tracheophyte|https://www.wikidata.org/wiki/Q80005|Q27133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "frost",
+      "hydrometeor"
+     ]
+    ],
+    "input": "frost is a hydrometeor.",
+    "key": "frost|hydrometeor|https://www.wikidata.org/wiki/Q4590598|Q1972098|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fruit",
+      "plant-based food"
+     ]
+    ],
+    "input": "fruit is a plant-based food.",
+    "key": "fruit|plant-based food|https://www.wikidata.org/wiki/Q3314483|Q107122728|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fuse",
+      "power resistor"
+     ]
+    ],
+    "input": "fuse is a power resistor.",
+    "key": "fuse|power resistor|https://www.wikidata.org/wiki/Q182221|Q64706764|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gale",
+      "wind"
+     ]
+    ],
+    "input": "gale is a wind.",
+    "key": "gale|wind|https://www.wikidata.org/wiki/Q2144546|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "game",
+      "creative work"
+     ]
+    ],
+    "input": "game is a creative work.",
+    "key": "game|creative work|https://www.wikidata.org/wiki/Q11410|Q17537576|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gear",
+      "configuration option"
+     ]
+    ],
+    "input": "gear is a configuration option.",
+    "key": "gear|configuration option|https://www.wikidata.org/wiki/Q116925316|Q105029446|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gland",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "gland is a particular anatomical entity.",
+    "key": "gland|particular anatomical entity|https://www.wikidata.org/wiki/Q9647|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "glow",
+      "human"
+     ]
+    ],
+    "input": "glow is a human.",
+    "key": "glow|human|https://www.wikidata.org/wiki/Q12587407|Q5|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "guild",
+      "association"
+     ]
+    ],
+    "input": "guild is a association.",
+    "key": "guild|association|https://www.wikidata.org/wiki/Q939871|Q15911314|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "habit",
+      "pattern of behavior"
+     ]
+    ],
+    "input": "habit is a pattern of behavior.",
+    "key": "habit|pattern of behavior|https://www.wikidata.org/wiki/Q1299714|Q2515887|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "hail",
+      "precipitation"
+     ]
+    ],
+    "input": "hail is a precipitation.",
+    "key": "hail|precipitation|https://www.wikidata.org/wiki/Q37602|Q25257|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "heart",
+      "animal organ"
+     ]
+    ],
+    "input": "heart is a animal organ.",
+    "key": "heart|animal organ|https://www.wikidata.org/wiki/Q1072|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [],
+    "input": "joint is a joint.",
+    "key": "joint|joint|https://www.wikidata.org/wiki/Q9644|Q109321311|P279|primary",
+    "write": {
+     "reason": "no_parse",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "kidney",
+      "animal organ"
+     ]
+    ],
+    "input": "kidney is a animal organ.",
+    "key": "kidney|animal organ|https://www.wikidata.org/wiki/Q9377|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "law",
+      "rule"
+     ]
+    ],
+    "input": "law is a rule.",
+    "key": "law|rule|https://www.wikidata.org/wiki/Q7748|Q1151067|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "leaf",
+      "plant organ"
+     ]
+    ],
+    "input": "leaf is a plant organ.",
+    "key": "leaf|plant organ|https://www.wikidata.org/wiki/Q33971|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "lever",
+      "simple machine"
+     ]
+    ],
+    "input": "lever is a simple machine.",
+    "key": "lever|simple machine|https://www.wikidata.org/wiki/Q40164|Q186713|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "line",
+      "one-dimensional region"
+     ]
+    ],
+    "input": "line is a one-dimensional region.",
+    "key": "line|one-dimensional region|https://www.wikidata.org/wiki/Q1228250|Q123691911|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "liver",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "liver is a particular anatomical entity.",
+    "key": "liver|particular anatomical entity|https://www.wikidata.org/wiki/Q9368|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "lung",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "lung is a particular anatomical entity.",
+    "key": "lung|particular anatomical entity|https://www.wikidata.org/wiki/Q7886|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "market",
+      "recurring event"
+     ]
+    ],
+    "input": "market is a recurring event.",
+    "key": "market|recurring event|https://www.wikidata.org/wiki/Q132510|Q15275719|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "mist",
+      "fog"
+     ]
+    ],
+    "input": "mist is a fog.",
+    "key": "mist|fog|https://www.wikidata.org/wiki/Q192196|Q37477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "moss",
+      "taxon"
+     ]
+    ],
+    "input": "moss is a taxon.",
+    "key": "moss|taxon|https://www.wikidata.org/wiki/Q25347|Q16521|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "muscle",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "muscle is a particular anatomical entity.",
+    "key": "muscle|particular anatomical entity|https://www.wikidata.org/wiki/Q7365|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "nerve",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "nerve is a particular anatomical entity.",
+    "key": "nerve|particular anatomical entity|https://www.wikidata.org/wiki/Q9620|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "norm",
+      "intersection"
+     ]
+    ],
+    "input": "norm is a intersection.",
+    "key": "norm|intersection|https://www.wikidata.org/wiki/Q7051416|Q185837|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "petal",
+      "floral part"
+     ]
+    ],
+    "input": "petal is a floral part.",
+    "key": "petal|floral part|https://www.wikidata.org/wiki/Q107412|Q3389552|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "piston",
+      "oboe family instrument"
+     ]
+    ],
+    "input": "piston is a oboe family instrument.",
+    "key": "piston|oboe family instrument|https://www.wikidata.org/wiki/Q7198510|Q42889517|P279|alternate",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "plane",
+      "geometric primitive"
+     ]
+    ],
+    "input": "plane is a geometric primitive.",
+    "key": "plane|geometric primitive|https://www.wikidata.org/wiki/Q17285|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "point",
+      "piercing equipment"
+     ]
+    ],
+    "input": "point is a piercing equipment.",
+    "key": "point|piercing equipment|https://www.wikidata.org/wiki/Q1700214|Q111547477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "pollen",
+      "microgametophyte"
+     ]
+    ],
+    "input": "pollen is a microgametophyte.",
+    "key": "pollen|microgametophyte|https://www.wikidata.org/wiki/Q79932|Q12036890|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "prism",
+      "prismatoid"
+     ]
+    ],
+    "input": "prism is a prismatoid.",
+    "key": "prism|prismatoid|https://www.wikidata.org/wiki/Q180544|Q1757451|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "radius",
+      "line segment"
+     ]
+    ],
+    "input": "radius is a line segment.",
+    "key": "radius|line segment|https://www.wikidata.org/wiki/Q173817|Q166154|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rainbow",
+      "photometeor"
+     ]
+    ],
+    "input": "rainbow is a photometeor.",
+    "key": "rainbow|photometeor|https://www.wikidata.org/wiki/Q1052|Q494057|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rank",
+      "class"
+     ]
+    ],
+    "input": "rank is a class.",
+    "key": "rank|class|https://www.wikidata.org/wiki/Q4120621|Q16889133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "reflex",
+      "response to external stimulus"
+     ]
+    ],
+    "input": "reflex is a response to external stimulus.",
+    "key": "reflex|response to external stimulus|https://www.wikidata.org/wiki/Q179405|Q14863388|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "reward",
+      "wikimedia article covering multiple topics"
+     ]
+    ],
+    "input": "reward is a Wikimedia article covering multiple topics.",
+    "key": "reward|Wikimedia article covering multiple topics|https://www.wikidata.org/wiki/Q112121323|Q21484471|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "ritual",
+      "process"
+     ]
+    ],
+    "input": "ritual is a process.",
+    "key": "ritual|process|https://www.wikidata.org/wiki/Q189819|Q10843872|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "role",
+      "functional complex"
+     ]
+    ],
+    "input": "role is a functional complex.",
+    "key": "role|functional complex|https://www.wikidata.org/wiki/Q141525968|Q141523012|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "root",
+      "software library"
+     ]
+    ],
+    "input": "root is a software library.",
+    "key": "root|software library|https://www.wikidata.org/wiki/Q947171|Q188860|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rotor",
+      "device"
+     ]
+    ],
+    "input": "rotor is a device.",
+    "key": "rotor|device|https://www.wikidata.org/wiki/Q15141537|Q1183543|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rumor",
+      "belief"
+     ]
+    ],
+    "input": "rumor is a belief.",
+    "key": "rumor|belief|https://www.wikidata.org/wiki/Q878352|Q34394|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "seed",
+      "plant structure"
+     ]
+    ],
+    "input": "seed is a plant structure.",
+    "key": "seed|plant structure|https://www.wikidata.org/wiki/Q40763|Q20011319|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "shower",
+      "plumbing fixture"
+     ]
+    ],
+    "input": "shower is a plumbing fixture.",
+    "key": "shower|plumbing fixture|https://www.wikidata.org/wiki/Q7863|Q2024731|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "signal",
+      "sign"
+     ]
+    ],
+    "input": "signal is a sign.",
+    "key": "signal|sign|https://www.wikidata.org/wiki/Q174984|Q3695082|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "skin",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "skin is a particular anatomical entity.",
+    "key": "skin|particular anatomical entity|https://www.wikidata.org/wiki/Q1074|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "spring",
+      "water resource"
+     ]
+    ],
+    "input": "spring is a water resource.",
+    "key": "spring|water resource|https://www.wikidata.org/wiki/Q124714|Q1049799|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "square",
+      "cross-polytope"
+     ]
+    ],
+    "input": "square is a cross-polytope.",
+    "key": "square|cross-polytope|https://www.wikidata.org/wiki/Q164|Q1187914|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "stem",
+      "ship element"
+     ]
+    ],
+    "input": "stem is a ship element.",
+    "key": "stem|ship element|https://www.wikidata.org/wiki/Q1458952|Q15688633|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "storm",
+      "environmental system process"
+     ]
+    ],
+    "input": "storm is a environmental system process.",
+    "key": "storm|environmental system process|https://www.wikidata.org/wiki/Q81054|Q116118210|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "sunset",
+      "objectset"
+     ]
+    ],
+    "input": "sunset is a objectset.",
+    "key": "sunset|objectset|https://www.wikidata.org/wiki/Q166564|Q106674426|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "switch",
+      "interface"
+     ]
+    ],
+    "input": "switch is a interface.",
+    "key": "switch|interface|https://www.wikidata.org/wiki/Q114981662|Q110558466|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "team",
+      "group of humans"
+     ]
+    ],
+    "input": "team is a group of humans.",
+    "key": "team|group of humans|https://www.wikidata.org/wiki/Q327245|Q16334295|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "tendon",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "tendon is a particular anatomical entity.",
+    "key": "tendon|particular anatomical entity|https://www.wikidata.org/wiki/Q232358|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "thunder",
+      "natural phenomenon"
+     ]
+    ],
+    "input": "thunder is a natural phenomenon.",
+    "key": "thunder|natural phenomenon|https://www.wikidata.org/wiki/Q83301|Q1322005|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "tissue",
+      "multicellular structure"
+     ]
+    ],
+    "input": "tissue is a multicellular structure.",
+    "key": "tissue|multicellular structure|https://www.wikidata.org/wiki/Q40397|Q27062218|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "triangle",
+      "planar generalized triangle"
+     ]
+    ],
+    "input": "triangle is a planar generalized triangle.",
+    "key": "triangle|planar generalized triangle|https://www.wikidata.org/wiki/Q19821|Q117307846|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "trunk",
+      "plant stem"
+     ]
+    ],
+    "input": "trunk is a plant stem.",
+    "key": "trunk|plant stem|https://www.wikidata.org/wiki/Q193472|Q134267|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "valley",
+      "depression"
+     ]
+    ],
+    "input": "valley is a depression.",
+    "key": "valley|depression|https://www.wikidata.org/wiki/Q39816|Q190429|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vertex",
+      "simplex"
+     ]
+    ],
+    "input": "vertex is a simplex.",
+    "key": "vertex|simplex|https://www.wikidata.org/wiki/Q26401|Q331350|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vessel",
+      "void being"
+     ]
+    ],
+    "input": "vessel is a Void being.",
+    "key": "vessel|Void being|https://www.wikidata.org/wiki/Q116547333|Q116590321|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vine",
+      "plant"
+     ]
+    ],
+    "input": "vine is a plant.",
+    "key": "vine|plant|https://www.wikidata.org/wiki/Q917284|Q756|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   }
+  ],
+  "D_writer_structured": [
+   {
+    "emitted": [
+     [
+      "angle",
+      "two-dimensional object"
+     ]
+    ],
+    "input": "angle is a two-dimensional object.",
+    "key": "angle|two-dimensional object|https://www.wikidata.org/wiki/Q11352|Q118870638|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "arc",
+      "curve"
+     ]
+    ],
+    "input": "arc is a curve.",
+    "key": "arc|curve|https://www.wikidata.org/wiki/Q147572|Q161973|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "axis",
+      "directed line"
+     ]
+    ],
+    "input": "axis is a directed line.",
+    "key": "axis|directed line|https://www.wikidata.org/wiki/Q138638473|Q138638380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bark",
+      "plant material"
+     ]
+    ],
+    "input": "bark is a plant material.",
+    "key": "bark|plant material|https://www.wikidata.org/wiki/Q184453|Q28969364|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bearing",
+      "connector"
+     ]
+    ],
+    "input": "bearing is a connector.",
+    "key": "bearing|connector|https://www.wikidata.org/wiki/Q190100|Q18819626|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "belt",
+      "fashion accessory"
+     ]
+    ],
+    "input": "belt is a fashion accessory.",
+    "key": "belt|fashion accessory|https://www.wikidata.org/wiki/Q134560|Q1065579|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bone",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "bone is a particular anatomical entity.",
+    "key": "bone|particular anatomical entity|https://www.wikidata.org/wiki/Q265868|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "brain",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "brain is a particular anatomical entity.",
+    "key": "brain|particular anatomical entity|https://www.wikidata.org/wiki/Q1073|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "branch",
+      "branch"
+     ]
+    ],
+    "input": "branch is a branch.",
+    "key": "branch|branch|https://www.wikidata.org/wiki/Q2923673|Q113627424|P279|primary",
+    "write": {
+     "reason": "node_admission_failed",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "breeze",
+      "wind"
+     ]
+    ],
+    "input": "breeze is a wind.",
+    "key": "breeze|wind|https://www.wikidata.org/wiki/Q1402881|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bud",
+      "plant organ"
+     ]
+    ],
+    "input": "bud is a plant organ.",
+    "key": "bud|plant organ|https://www.wikidata.org/wiki/Q189838|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cam",
+      "copying"
+     ]
+    ],
+    "input": "cam is a copying.",
+    "key": "cam|copying|https://www.wikidata.org/wiki/Q1027896|Q1156791|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "chord",
+      "group"
+     ]
+    ],
+    "input": "chord is a group.",
+    "key": "chord|group|https://www.wikidata.org/wiki/Q170439|Q16887380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circle",
+      "rose"
+     ]
+    ],
+    "input": "circle is a rose.",
+    "key": "circle|rose|https://www.wikidata.org/wiki/Q17278|Q1155211|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circuit",
+      "trail"
+     ]
+    ],
+    "input": "circuit is a trail.",
+    "key": "circuit|trail|https://www.wikidata.org/wiki/Q17176291|Q17455228|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cloud",
+      "weather"
+     ]
+    ],
+    "input": "cloud is a weather.",
+    "key": "cloud|weather|https://www.wikidata.org/wiki/Q8074|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "clutch",
+      "machine element"
+     ]
+    ],
+    "input": "clutch is a machine element.",
+    "key": "clutch|machine element|https://www.wikidata.org/wiki/Q194302|Q839546|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "coil",
+      "winding"
+     ]
+    ],
+    "input": "coil is a winding.",
+    "key": "coil|winding|https://www.wikidata.org/wiki/Q2981904|Q1412831|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cone",
+      "geometric primitive"
+     ]
+    ],
+    "input": "cone is a geometric primitive.",
+    "key": "cone|geometric primitive|https://www.wikidata.org/wiki/Q42344|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "contract",
+      "description"
+     ]
+    ],
+    "input": "contract is a description.",
+    "key": "contract|description|https://www.wikidata.org/wiki/Q93288|Q141439861|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cube",
+      "uniform prism"
+     ]
+    ],
+    "input": "cube is a uniform prism.",
+    "key": "cube|uniform prism|https://www.wikidata.org/wiki/Q812880|Q141962261|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "curve",
+      "line"
+     ]
+    ],
+    "input": "curve is a line.",
+    "key": "curve|line|https://www.wikidata.org/wiki/Q161973|Q1228250|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "custom",
+      "proto-patient"
+     ]
+    ],
+    "input": "custom is a proto-patient.",
+    "key": "custom|proto-patient|https://www.wikidata.org/wiki/Q140418774|Q134506144|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "dew",
+      "condensation water"
+     ]
+    ],
+    "input": "dew is a condensation water.",
+    "key": "dew|condensation water|https://www.wikidata.org/wiki/Q41097|Q1781205|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "drizzle",
+      "weather"
+     ]
+    ],
+    "input": "drizzle is a weather.",
+    "key": "drizzle|weather|https://www.wikidata.org/wiki/Q211521|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fern",
+      "tracheophyte"
+     ]
+    ],
+    "input": "fern is a tracheophyte.",
+    "key": "fern|tracheophyte|https://www.wikidata.org/wiki/Q80005|Q27133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "frost",
+      "hydrometeor"
+     ]
+    ],
+    "input": "frost is a hydrometeor.",
+    "key": "frost|hydrometeor|https://www.wikidata.org/wiki/Q4590598|Q1972098|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fruit",
+      "plant-based food"
+     ]
+    ],
+    "input": "fruit is a plant-based food.",
+    "key": "fruit|plant-based food|https://www.wikidata.org/wiki/Q3314483|Q107122728|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fuse",
+      "power resistor"
+     ]
+    ],
+    "input": "fuse is a power resistor.",
+    "key": "fuse|power resistor|https://www.wikidata.org/wiki/Q182221|Q64706764|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gale",
+      "wind"
+     ]
+    ],
+    "input": "gale is a wind.",
+    "key": "gale|wind|https://www.wikidata.org/wiki/Q2144546|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "game",
+      "creative work"
+     ]
+    ],
+    "input": "game is a creative work.",
+    "key": "game|creative work|https://www.wikidata.org/wiki/Q11410|Q17537576|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gear",
+      "configuration option"
+     ]
+    ],
+    "input": "gear is a configuration option.",
+    "key": "gear|configuration option|https://www.wikidata.org/wiki/Q116925316|Q105029446|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gland",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "gland is a particular anatomical entity.",
+    "key": "gland|particular anatomical entity|https://www.wikidata.org/wiki/Q9647|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "glow",
+      "human"
+     ]
+    ],
+    "input": "glow is a human.",
+    "key": "glow|human|https://www.wikidata.org/wiki/Q12587407|Q5|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "guild",
+      "association"
+     ]
+    ],
+    "input": "guild is a association.",
+    "key": "guild|association|https://www.wikidata.org/wiki/Q939871|Q15911314|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "habit",
+      "pattern of behavior"
+     ]
+    ],
+    "input": "habit is a pattern of behavior.",
+    "key": "habit|pattern of behavior|https://www.wikidata.org/wiki/Q1299714|Q2515887|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "hail",
+      "precipitation"
+     ]
+    ],
+    "input": "hail is a precipitation.",
+    "key": "hail|precipitation|https://www.wikidata.org/wiki/Q37602|Q25257|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "heart",
+      "animal organ"
+     ]
+    ],
+    "input": "heart is a animal organ.",
+    "key": "heart|animal organ|https://www.wikidata.org/wiki/Q1072|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "joint",
+      "joint"
+     ]
+    ],
+    "input": "joint is a joint.",
+    "key": "joint|joint|https://www.wikidata.org/wiki/Q9644|Q109321311|P279|primary",
+    "write": {
+     "reason": "node_admission_failed",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "kidney",
+      "animal organ"
+     ]
+    ],
+    "input": "kidney is a animal organ.",
+    "key": "kidney|animal organ|https://www.wikidata.org/wiki/Q9377|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "law",
+      "rule"
+     ]
+    ],
+    "input": "law is a rule.",
+    "key": "law|rule|https://www.wikidata.org/wiki/Q7748|Q1151067|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "leaf",
+      "plant organ"
+     ]
+    ],
+    "input": "leaf is a plant organ.",
+    "key": "leaf|plant organ|https://www.wikidata.org/wiki/Q33971|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "lever",
+      "simple machine"
+     ]
+    ],
+    "input": "lever is a simple machine.",
+    "key": "lever|simple machine|https://www.wikidata.org/wiki/Q40164|Q186713|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "line",
+      "one-dimensional region"
+     ]
+    ],
+    "input": "line is a one-dimensional region.",
+    "key": "line|one-dimensional region|https://www.wikidata.org/wiki/Q1228250|Q123691911|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "liver",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "liver is a particular anatomical entity.",
+    "key": "liver|particular anatomical entity|https://www.wikidata.org/wiki/Q9368|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "lung",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "lung is a particular anatomical entity.",
+    "key": "lung|particular anatomical entity|https://www.wikidata.org/wiki/Q7886|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "market",
+      "recurring event"
+     ]
+    ],
+    "input": "market is a recurring event.",
+    "key": "market|recurring event|https://www.wikidata.org/wiki/Q132510|Q15275719|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "mist",
+      "fog"
+     ]
+    ],
+    "input": "mist is a fog.",
+    "key": "mist|fog|https://www.wikidata.org/wiki/Q192196|Q37477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "moss",
+      "taxon"
+     ]
+    ],
+    "input": "moss is a taxon.",
+    "key": "moss|taxon|https://www.wikidata.org/wiki/Q25347|Q16521|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "muscle",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "muscle is a particular anatomical entity.",
+    "key": "muscle|particular anatomical entity|https://www.wikidata.org/wiki/Q7365|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "nerve",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "nerve is a particular anatomical entity.",
+    "key": "nerve|particular anatomical entity|https://www.wikidata.org/wiki/Q9620|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "norm",
+      "intersection"
+     ]
+    ],
+    "input": "norm is a intersection.",
+    "key": "norm|intersection|https://www.wikidata.org/wiki/Q7051416|Q185837|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "petal",
+      "floral part"
+     ]
+    ],
+    "input": "petal is a floral part.",
+    "key": "petal|floral part|https://www.wikidata.org/wiki/Q107412|Q3389552|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "piston",
+      "oboe family instrument"
+     ]
+    ],
+    "input": "piston is a oboe family instrument.",
+    "key": "piston|oboe family instrument|https://www.wikidata.org/wiki/Q7198510|Q42889517|P279|alternate",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "plane",
+      "geometric primitive"
+     ]
+    ],
+    "input": "plane is a geometric primitive.",
+    "key": "plane|geometric primitive|https://www.wikidata.org/wiki/Q17285|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "point",
+      "piercing equipment"
+     ]
+    ],
+    "input": "point is a piercing equipment.",
+    "key": "point|piercing equipment|https://www.wikidata.org/wiki/Q1700214|Q111547477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "pollen",
+      "microgametophyte"
+     ]
+    ],
+    "input": "pollen is a microgametophyte.",
+    "key": "pollen|microgametophyte|https://www.wikidata.org/wiki/Q79932|Q12036890|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "prism",
+      "prismatoid"
+     ]
+    ],
+    "input": "prism is a prismatoid.",
+    "key": "prism|prismatoid|https://www.wikidata.org/wiki/Q180544|Q1757451|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "radius",
+      "line segment"
+     ]
+    ],
+    "input": "radius is a line segment.",
+    "key": "radius|line segment|https://www.wikidata.org/wiki/Q173817|Q166154|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rainbow",
+      "photometeor"
+     ]
+    ],
+    "input": "rainbow is a photometeor.",
+    "key": "rainbow|photometeor|https://www.wikidata.org/wiki/Q1052|Q494057|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rank",
+      "class"
+     ]
+    ],
+    "input": "rank is a class.",
+    "key": "rank|class|https://www.wikidata.org/wiki/Q4120621|Q16889133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "reflex",
+      "response to external stimulus"
+     ]
+    ],
+    "input": "reflex is a response to external stimulus.",
+    "key": "reflex|response to external stimulus|https://www.wikidata.org/wiki/Q179405|Q14863388|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "reward",
+      "Wikimedia article covering multiple topics"
+     ]
+    ],
+    "input": "reward is a Wikimedia article covering multiple topics.",
+    "key": "reward|Wikimedia article covering multiple topics|https://www.wikidata.org/wiki/Q112121323|Q21484471|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "ritual",
+      "process"
+     ]
+    ],
+    "input": "ritual is a process.",
+    "key": "ritual|process|https://www.wikidata.org/wiki/Q189819|Q10843872|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "role",
+      "functional complex"
+     ]
+    ],
+    "input": "role is a functional complex.",
+    "key": "role|functional complex|https://www.wikidata.org/wiki/Q141525968|Q141523012|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "root",
+      "software library"
+     ]
+    ],
+    "input": "root is a software library.",
+    "key": "root|software library|https://www.wikidata.org/wiki/Q947171|Q188860|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rotor",
+      "device"
+     ]
+    ],
+    "input": "rotor is a device.",
+    "key": "rotor|device|https://www.wikidata.org/wiki/Q15141537|Q1183543|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rumor",
+      "belief"
+     ]
+    ],
+    "input": "rumor is a belief.",
+    "key": "rumor|belief|https://www.wikidata.org/wiki/Q878352|Q34394|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "seed",
+      "plant structure"
+     ]
+    ],
+    "input": "seed is a plant structure.",
+    "key": "seed|plant structure|https://www.wikidata.org/wiki/Q40763|Q20011319|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "shower",
+      "plumbing fixture"
+     ]
+    ],
+    "input": "shower is a plumbing fixture.",
+    "key": "shower|plumbing fixture|https://www.wikidata.org/wiki/Q7863|Q2024731|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "signal",
+      "sign"
+     ]
+    ],
+    "input": "signal is a sign.",
+    "key": "signal|sign|https://www.wikidata.org/wiki/Q174984|Q3695082|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "skin",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "skin is a particular anatomical entity.",
+    "key": "skin|particular anatomical entity|https://www.wikidata.org/wiki/Q1074|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "spring",
+      "water resource"
+     ]
+    ],
+    "input": "spring is a water resource.",
+    "key": "spring|water resource|https://www.wikidata.org/wiki/Q124714|Q1049799|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "square",
+      "cross-polytope"
+     ]
+    ],
+    "input": "square is a cross-polytope.",
+    "key": "square|cross-polytope|https://www.wikidata.org/wiki/Q164|Q1187914|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "stem",
+      "ship element"
+     ]
+    ],
+    "input": "stem is a ship element.",
+    "key": "stem|ship element|https://www.wikidata.org/wiki/Q1458952|Q15688633|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "storm",
+      "environmental system process"
+     ]
+    ],
+    "input": "storm is a environmental system process.",
+    "key": "storm|environmental system process|https://www.wikidata.org/wiki/Q81054|Q116118210|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "sunset",
+      "objectset"
+     ]
+    ],
+    "input": "sunset is a objectset.",
+    "key": "sunset|objectset|https://www.wikidata.org/wiki/Q166564|Q106674426|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "switch",
+      "interface"
+     ]
+    ],
+    "input": "switch is a interface.",
+    "key": "switch|interface|https://www.wikidata.org/wiki/Q114981662|Q110558466|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "team",
+      "group of humans"
+     ]
+    ],
+    "input": "team is a group of humans.",
+    "key": "team|group of humans|https://www.wikidata.org/wiki/Q327245|Q16334295|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "tendon",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "tendon is a particular anatomical entity.",
+    "key": "tendon|particular anatomical entity|https://www.wikidata.org/wiki/Q232358|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "thunder",
+      "natural phenomenon"
+     ]
+    ],
+    "input": "thunder is a natural phenomenon.",
+    "key": "thunder|natural phenomenon|https://www.wikidata.org/wiki/Q83301|Q1322005|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "tissue",
+      "multicellular structure"
+     ]
+    ],
+    "input": "tissue is a multicellular structure.",
+    "key": "tissue|multicellular structure|https://www.wikidata.org/wiki/Q40397|Q27062218|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "triangle",
+      "planar generalized triangle"
+     ]
+    ],
+    "input": "triangle is a planar generalized triangle.",
+    "key": "triangle|planar generalized triangle|https://www.wikidata.org/wiki/Q19821|Q117307846|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "trunk",
+      "plant stem"
+     ]
+    ],
+    "input": "trunk is a plant stem.",
+    "key": "trunk|plant stem|https://www.wikidata.org/wiki/Q193472|Q134267|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "valley",
+      "depression"
+     ]
+    ],
+    "input": "valley is a depression.",
+    "key": "valley|depression|https://www.wikidata.org/wiki/Q39816|Q190429|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vertex",
+      "simplex"
+     ]
+    ],
+    "input": "vertex is a simplex.",
+    "key": "vertex|simplex|https://www.wikidata.org/wiki/Q26401|Q331350|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vessel",
+      "Void being"
+     ]
+    ],
+    "input": "vessel is a Void being.",
+    "key": "vessel|Void being|https://www.wikidata.org/wiki/Q116547333|Q116590321|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vine",
+      "plant"
+     ]
+    ],
+    "input": "vine is a plant.",
+    "key": "vine|plant|https://www.wikidata.org/wiki/Q917284|Q756|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "curated",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   }
+  ],
+  "E_writer_unprovenanced_control": [
+   {
+    "emitted": [
+     [
+      "angle",
+      "two-dimensional object"
+     ]
+    ],
+    "input": "angle is a two-dimensional object.",
+    "key": "angle|two-dimensional object|https://www.wikidata.org/wiki/Q11352|Q118870638|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "arc",
+      "curve"
+     ]
+    ],
+    "input": "arc is a curve.",
+    "key": "arc|curve|https://www.wikidata.org/wiki/Q147572|Q161973|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "axis",
+      "directed line"
+     ]
+    ],
+    "input": "axis is a directed line.",
+    "key": "axis|directed line|https://www.wikidata.org/wiki/Q138638473|Q138638380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bark",
+      "plant material"
+     ]
+    ],
+    "input": "bark is a plant material.",
+    "key": "bark|plant material|https://www.wikidata.org/wiki/Q184453|Q28969364|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bearing",
+      "connector"
+     ]
+    ],
+    "input": "bearing is a connector.",
+    "key": "bearing|connector|https://www.wikidata.org/wiki/Q190100|Q18819626|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "belt",
+      "fashion accessory"
+     ]
+    ],
+    "input": "belt is a fashion accessory.",
+    "key": "belt|fashion accessory|https://www.wikidata.org/wiki/Q134560|Q1065579|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bone",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "bone is a particular anatomical entity.",
+    "key": "bone|particular anatomical entity|https://www.wikidata.org/wiki/Q265868|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "brain",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "brain is a particular anatomical entity.",
+    "key": "brain|particular anatomical entity|https://www.wikidata.org/wiki/Q1073|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "branch",
+      "branch"
+     ]
+    ],
+    "input": "branch is a branch.",
+    "key": "branch|branch|https://www.wikidata.org/wiki/Q2923673|Q113627424|P279|primary",
+    "write": {
+     "reason": "node_admission_failed",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "breeze",
+      "wind"
+     ]
+    ],
+    "input": "breeze is a wind.",
+    "key": "breeze|wind|https://www.wikidata.org/wiki/Q1402881|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "bud",
+      "plant organ"
+     ]
+    ],
+    "input": "bud is a plant organ.",
+    "key": "bud|plant organ|https://www.wikidata.org/wiki/Q189838|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cam",
+      "copying"
+     ]
+    ],
+    "input": "cam is a copying.",
+    "key": "cam|copying|https://www.wikidata.org/wiki/Q1027896|Q1156791|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "chord",
+      "group"
+     ]
+    ],
+    "input": "chord is a group.",
+    "key": "chord|group|https://www.wikidata.org/wiki/Q170439|Q16887380|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circle",
+      "rose"
+     ]
+    ],
+    "input": "circle is a rose.",
+    "key": "circle|rose|https://www.wikidata.org/wiki/Q17278|Q1155211|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "circuit",
+      "trail"
+     ]
+    ],
+    "input": "circuit is a trail.",
+    "key": "circuit|trail|https://www.wikidata.org/wiki/Q17176291|Q17455228|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cloud",
+      "weather"
+     ]
+    ],
+    "input": "cloud is a weather.",
+    "key": "cloud|weather|https://www.wikidata.org/wiki/Q8074|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "clutch",
+      "machine element"
+     ]
+    ],
+    "input": "clutch is a machine element.",
+    "key": "clutch|machine element|https://www.wikidata.org/wiki/Q194302|Q839546|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "coil",
+      "winding"
+     ]
+    ],
+    "input": "coil is a winding.",
+    "key": "coil|winding|https://www.wikidata.org/wiki/Q2981904|Q1412831|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cone",
+      "geometric primitive"
+     ]
+    ],
+    "input": "cone is a geometric primitive.",
+    "key": "cone|geometric primitive|https://www.wikidata.org/wiki/Q42344|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "contract",
+      "description"
+     ]
+    ],
+    "input": "contract is a description.",
+    "key": "contract|description|https://www.wikidata.org/wiki/Q93288|Q141439861|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "cube",
+      "uniform prism"
+     ]
+    ],
+    "input": "cube is a uniform prism.",
+    "key": "cube|uniform prism|https://www.wikidata.org/wiki/Q812880|Q141962261|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "curve",
+      "line"
+     ]
+    ],
+    "input": "curve is a line.",
+    "key": "curve|line|https://www.wikidata.org/wiki/Q161973|Q1228250|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "custom",
+      "proto-patient"
+     ]
+    ],
+    "input": "custom is a proto-patient.",
+    "key": "custom|proto-patient|https://www.wikidata.org/wiki/Q140418774|Q134506144|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "dew",
+      "condensation water"
+     ]
+    ],
+    "input": "dew is a condensation water.",
+    "key": "dew|condensation water|https://www.wikidata.org/wiki/Q41097|Q1781205|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "drizzle",
+      "weather"
+     ]
+    ],
+    "input": "drizzle is a weather.",
+    "key": "drizzle|weather|https://www.wikidata.org/wiki/Q211521|Q11663|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fern",
+      "tracheophyte"
+     ]
+    ],
+    "input": "fern is a tracheophyte.",
+    "key": "fern|tracheophyte|https://www.wikidata.org/wiki/Q80005|Q27133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "frost",
+      "hydrometeor"
+     ]
+    ],
+    "input": "frost is a hydrometeor.",
+    "key": "frost|hydrometeor|https://www.wikidata.org/wiki/Q4590598|Q1972098|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fruit",
+      "plant-based food"
+     ]
+    ],
+    "input": "fruit is a plant-based food.",
+    "key": "fruit|plant-based food|https://www.wikidata.org/wiki/Q3314483|Q107122728|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "fuse",
+      "power resistor"
+     ]
+    ],
+    "input": "fuse is a power resistor.",
+    "key": "fuse|power resistor|https://www.wikidata.org/wiki/Q182221|Q64706764|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gale",
+      "wind"
+     ]
+    ],
+    "input": "gale is a wind.",
+    "key": "gale|wind|https://www.wikidata.org/wiki/Q2144546|Q8094|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "game",
+      "creative work"
+     ]
+    ],
+    "input": "game is a creative work.",
+    "key": "game|creative work|https://www.wikidata.org/wiki/Q11410|Q17537576|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gear",
+      "configuration option"
+     ]
+    ],
+    "input": "gear is a configuration option.",
+    "key": "gear|configuration option|https://www.wikidata.org/wiki/Q116925316|Q105029446|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "gland",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "gland is a particular anatomical entity.",
+    "key": "gland|particular anatomical entity|https://www.wikidata.org/wiki/Q9647|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "glow",
+      "human"
+     ]
+    ],
+    "input": "glow is a human.",
+    "key": "glow|human|https://www.wikidata.org/wiki/Q12587407|Q5|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "guild",
+      "association"
+     ]
+    ],
+    "input": "guild is a association.",
+    "key": "guild|association|https://www.wikidata.org/wiki/Q939871|Q15911314|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "habit",
+      "pattern of behavior"
+     ]
+    ],
+    "input": "habit is a pattern of behavior.",
+    "key": "habit|pattern of behavior|https://www.wikidata.org/wiki/Q1299714|Q2515887|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "hail",
+      "precipitation"
+     ]
+    ],
+    "input": "hail is a precipitation.",
+    "key": "hail|precipitation|https://www.wikidata.org/wiki/Q37602|Q25257|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "heart",
+      "animal organ"
+     ]
+    ],
+    "input": "heart is a animal organ.",
+    "key": "heart|animal organ|https://www.wikidata.org/wiki/Q1072|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "joint",
+      "joint"
+     ]
+    ],
+    "input": "joint is a joint.",
+    "key": "joint|joint|https://www.wikidata.org/wiki/Q9644|Q109321311|P279|primary",
+    "write": {
+     "reason": "node_admission_failed",
+     "written": false
+    }
+   },
+   {
+    "emitted": [
+     [
+      "kidney",
+      "animal organ"
+     ]
+    ],
+    "input": "kidney is a animal organ.",
+    "key": "kidney|animal organ|https://www.wikidata.org/wiki/Q9377|Q24060765|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "law",
+      "rule"
+     ]
+    ],
+    "input": "law is a rule.",
+    "key": "law|rule|https://www.wikidata.org/wiki/Q7748|Q1151067|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "leaf",
+      "plant organ"
+     ]
+    ],
+    "input": "leaf is a plant organ.",
+    "key": "leaf|plant organ|https://www.wikidata.org/wiki/Q33971|Q24060707|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "lever",
+      "simple machine"
+     ]
+    ],
+    "input": "lever is a simple machine.",
+    "key": "lever|simple machine|https://www.wikidata.org/wiki/Q40164|Q186713|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "line",
+      "one-dimensional region"
+     ]
+    ],
+    "input": "line is a one-dimensional region.",
+    "key": "line|one-dimensional region|https://www.wikidata.org/wiki/Q1228250|Q123691911|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "liver",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "liver is a particular anatomical entity.",
+    "key": "liver|particular anatomical entity|https://www.wikidata.org/wiki/Q9368|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "lung",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "lung is a particular anatomical entity.",
+    "key": "lung|particular anatomical entity|https://www.wikidata.org/wiki/Q7886|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "market",
+      "recurring event"
+     ]
+    ],
+    "input": "market is a recurring event.",
+    "key": "market|recurring event|https://www.wikidata.org/wiki/Q132510|Q15275719|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "mist",
+      "fog"
+     ]
+    ],
+    "input": "mist is a fog.",
+    "key": "mist|fog|https://www.wikidata.org/wiki/Q192196|Q37477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "moss",
+      "taxon"
+     ]
+    ],
+    "input": "moss is a taxon.",
+    "key": "moss|taxon|https://www.wikidata.org/wiki/Q25347|Q16521|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "muscle",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "muscle is a particular anatomical entity.",
+    "key": "muscle|particular anatomical entity|https://www.wikidata.org/wiki/Q7365|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "nerve",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "nerve is a particular anatomical entity.",
+    "key": "nerve|particular anatomical entity|https://www.wikidata.org/wiki/Q9620|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "norm",
+      "intersection"
+     ]
+    ],
+    "input": "norm is a intersection.",
+    "key": "norm|intersection|https://www.wikidata.org/wiki/Q7051416|Q185837|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "petal",
+      "floral part"
+     ]
+    ],
+    "input": "petal is a floral part.",
+    "key": "petal|floral part|https://www.wikidata.org/wiki/Q107412|Q3389552|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "piston",
+      "oboe family instrument"
+     ]
+    ],
+    "input": "piston is a oboe family instrument.",
+    "key": "piston|oboe family instrument|https://www.wikidata.org/wiki/Q7198510|Q42889517|P279|alternate",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "plane",
+      "geometric primitive"
+     ]
+    ],
+    "input": "plane is a geometric primitive.",
+    "key": "plane|geometric primitive|https://www.wikidata.org/wiki/Q17285|Q1541599|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "point",
+      "piercing equipment"
+     ]
+    ],
+    "input": "point is a piercing equipment.",
+    "key": "point|piercing equipment|https://www.wikidata.org/wiki/Q1700214|Q111547477|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "pollen",
+      "microgametophyte"
+     ]
+    ],
+    "input": "pollen is a microgametophyte.",
+    "key": "pollen|microgametophyte|https://www.wikidata.org/wiki/Q79932|Q12036890|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "prism",
+      "prismatoid"
+     ]
+    ],
+    "input": "prism is a prismatoid.",
+    "key": "prism|prismatoid|https://www.wikidata.org/wiki/Q180544|Q1757451|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "radius",
+      "line segment"
+     ]
+    ],
+    "input": "radius is a line segment.",
+    "key": "radius|line segment|https://www.wikidata.org/wiki/Q173817|Q166154|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rainbow",
+      "photometeor"
+     ]
+    ],
+    "input": "rainbow is a photometeor.",
+    "key": "rainbow|photometeor|https://www.wikidata.org/wiki/Q1052|Q494057|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rank",
+      "class"
+     ]
+    ],
+    "input": "rank is a class.",
+    "key": "rank|class|https://www.wikidata.org/wiki/Q4120621|Q16889133|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "reflex",
+      "response to external stimulus"
+     ]
+    ],
+    "input": "reflex is a response to external stimulus.",
+    "key": "reflex|response to external stimulus|https://www.wikidata.org/wiki/Q179405|Q14863388|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "reward",
+      "Wikimedia article covering multiple topics"
+     ]
+    ],
+    "input": "reward is a Wikimedia article covering multiple topics.",
+    "key": "reward|Wikimedia article covering multiple topics|https://www.wikidata.org/wiki/Q112121323|Q21484471|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "ritual",
+      "process"
+     ]
+    ],
+    "input": "ritual is a process.",
+    "key": "ritual|process|https://www.wikidata.org/wiki/Q189819|Q10843872|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "role",
+      "functional complex"
+     ]
+    ],
+    "input": "role is a functional complex.",
+    "key": "role|functional complex|https://www.wikidata.org/wiki/Q141525968|Q141523012|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "root",
+      "software library"
+     ]
+    ],
+    "input": "root is a software library.",
+    "key": "root|software library|https://www.wikidata.org/wiki/Q947171|Q188860|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rotor",
+      "device"
+     ]
+    ],
+    "input": "rotor is a device.",
+    "key": "rotor|device|https://www.wikidata.org/wiki/Q15141537|Q1183543|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "rumor",
+      "belief"
+     ]
+    ],
+    "input": "rumor is a belief.",
+    "key": "rumor|belief|https://www.wikidata.org/wiki/Q878352|Q34394|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "seed",
+      "plant structure"
+     ]
+    ],
+    "input": "seed is a plant structure.",
+    "key": "seed|plant structure|https://www.wikidata.org/wiki/Q40763|Q20011319|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "shower",
+      "plumbing fixture"
+     ]
+    ],
+    "input": "shower is a plumbing fixture.",
+    "key": "shower|plumbing fixture|https://www.wikidata.org/wiki/Q7863|Q2024731|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "signal",
+      "sign"
+     ]
+    ],
+    "input": "signal is a sign.",
+    "key": "signal|sign|https://www.wikidata.org/wiki/Q174984|Q3695082|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "skin",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "skin is a particular anatomical entity.",
+    "key": "skin|particular anatomical entity|https://www.wikidata.org/wiki/Q1074|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "spring",
+      "water resource"
+     ]
+    ],
+    "input": "spring is a water resource.",
+    "key": "spring|water resource|https://www.wikidata.org/wiki/Q124714|Q1049799|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "square",
+      "cross-polytope"
+     ]
+    ],
+    "input": "square is a cross-polytope.",
+    "key": "square|cross-polytope|https://www.wikidata.org/wiki/Q164|Q1187914|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "stem",
+      "ship element"
+     ]
+    ],
+    "input": "stem is a ship element.",
+    "key": "stem|ship element|https://www.wikidata.org/wiki/Q1458952|Q15688633|P31|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "storm",
+      "environmental system process"
+     ]
+    ],
+    "input": "storm is a environmental system process.",
+    "key": "storm|environmental system process|https://www.wikidata.org/wiki/Q81054|Q116118210|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "sunset",
+      "objectset"
+     ]
+    ],
+    "input": "sunset is a objectset.",
+    "key": "sunset|objectset|https://www.wikidata.org/wiki/Q166564|Q106674426|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "switch",
+      "interface"
+     ]
+    ],
+    "input": "switch is a interface.",
+    "key": "switch|interface|https://www.wikidata.org/wiki/Q114981662|Q110558466|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "team",
+      "group of humans"
+     ]
+    ],
+    "input": "team is a group of humans.",
+    "key": "team|group of humans|https://www.wikidata.org/wiki/Q327245|Q16334295|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "tendon",
+      "particular anatomical entity"
+     ]
+    ],
+    "input": "tendon is a particular anatomical entity.",
+    "key": "tendon|particular anatomical entity|https://www.wikidata.org/wiki/Q232358|Q112826975|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "thunder",
+      "natural phenomenon"
+     ]
+    ],
+    "input": "thunder is a natural phenomenon.",
+    "key": "thunder|natural phenomenon|https://www.wikidata.org/wiki/Q83301|Q1322005|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "tissue",
+      "multicellular structure"
+     ]
+    ],
+    "input": "tissue is a multicellular structure.",
+    "key": "tissue|multicellular structure|https://www.wikidata.org/wiki/Q40397|Q27062218|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "triangle",
+      "planar generalized triangle"
+     ]
+    ],
+    "input": "triangle is a planar generalized triangle.",
+    "key": "triangle|planar generalized triangle|https://www.wikidata.org/wiki/Q19821|Q117307846|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "trunk",
+      "plant stem"
+     ]
+    ],
+    "input": "trunk is a plant stem.",
+    "key": "trunk|plant stem|https://www.wikidata.org/wiki/Q193472|Q134267|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "valley",
+      "depression"
+     ]
+    ],
+    "input": "valley is a depression.",
+    "key": "valley|depression|https://www.wikidata.org/wiki/Q39816|Q190429|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vertex",
+      "simplex"
+     ]
+    ],
+    "input": "vertex is a simplex.",
+    "key": "vertex|simplex|https://www.wikidata.org/wiki/Q26401|Q331350|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vessel",
+      "Void being"
+     ]
+    ],
+    "input": "vessel is a Void being.",
+    "key": "vessel|Void being|https://www.wikidata.org/wiki/Q116547333|Q116590321|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   },
+   {
+    "emitted": [
+     [
+      "vine",
+      "plant"
+     ]
+    ],
+    "input": "vine is a plant.",
+    "key": "vine|plant|https://www.wikidata.org/wiki/Q917284|Q756|P279|primary",
+    "write": {
+     "consistency": 0.5,
+     "edge_kind": "web_fact",
+     "reason": "novel concept (0.50 < 0.55); written weakly -- nothing to interfere with, but poorly elaborated",
+     "route": "novel_write",
+     "written": true
+    }
+   }
+  ]
+ },
+ "pre_registered_falsifiers": {
+  "F1_raw_suffices": "RAW arm recovers all assertable expected typed is_a facts WITH full channel provenance and all of them survive cold reload -> the explicit writer is unnecessary; recommendation must flip to raw-ingestion-suffices.",
+  "F2_writer_fails": "D_writer_structured writes fewer than all assertable expected edges, or preserves channel provenance on <88, or reload survival <88 -> the structured write path does not suffice.",
+  "F3_parser_needed": "D_writer_structured (no parser) cannot write an expected fact while B/C parser arms can -> a parser is genuinely required by the input channel; do not claim 'no parser needed'.",
+  "F4_reload_loss": "Any arm's write-time success > its cold-reload survival -> the stamp is not durable; do not recommend implementation on that arm.",
+  "F5_contamination": "Any forbidden answer-key name/import in this script, any open() of a path outside the allowlist, any CognitiveChatEngine import, or any production-file hash change -> EXPERIMENT INVALID.",
+  "F6_instrument": "The instrument self-test (known-good write + known-bad refusal + mutation controls) fails -> numbers are unscorable."
+ },
+ "run": {
+  "branch": "experiment/phase3-parser-ingestion",
+  "findings_sha256": "47dffb9bd1d4f1a59b076b43bdb1485f9bb55880ba382be78c5f726836c80d8b",
+  "finished_utc": "2026-11-26T08:34:12.659418+00:00",
+  "python": "3.14.9",
+  "pythonhashseed": "0",
+  "sha": "ac4ec88609a5ace17b79dbd08d235e9a0d777978",
+  "started_utc": "2026-11-26T08:34:12.268733+00:00"
+ },
+ "schema": "ravana-phase3-is-a-ingestion-v1"
+}
