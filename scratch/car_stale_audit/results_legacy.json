@@ -1,0 +1,268 @@
+{
+  "checks": [
+    {
+      "evidence": "web_to_graph.py:151-163 (F2 live-only check at write choke point)",
+      "id": "G1",
+      "input": {
+        "host_index": "plain dict",
+        "label": "echo",
+        "stale_id": 0
+      },
+      "kind": "gating",
+      "output": {
+        "index_after": [
+          0
+        ],
+        "legacy_resolver_id": 0,
+        "live": false,
+        "resolved_id": 0
+      },
+      "status": "FAIL"
+    },
+    {
+      "evidence": "instrument validation: the A0 arm must reproduce the recorded pre-fix behaviour (it is expected to FAIL G1 on current code and to FAIL G1 again under the shadow)",
+      "id": "I1",
+      "input": {
+        "legacy_resolver": "return _all_labels.get(label)",
+        "stale_id": 0
+      },
+      "kind": "instrument",
+      "output": {
+        "fixed_writer_returns_stale": true,
+        "legacy_returns_stale": true
+      },
+      "status": "PASS"
+    },
+    {
+      "evidence": "web_learning.py:3112-3127; interface.py:70-85",
+      "id": "G2",
+      "input": {
+        "label": "echo",
+        "shims": [
+          "_EngineGraphShim",
+          "_GraphEngineShim"
+        ],
+        "stale_id": 0
+      },
+      "kind": "gating",
+      "output": {
+        "cli_shim_resolved": 0,
+        "engine_shim_resolved": 0
+      },
+      "status": "FAIL"
+    },
+    {
+      "evidence": "graph.py:1546-1566 (F4 provenance guard); mutation control removes the stamp",
+      "id": "G3",
+      "input": {
+        "control": "same shape, no provenance",
+        "trusted": "edge_kind=curated on a degree-0 (adjacency-lag) node"
+      },
+      "kind": "gating",
+      "output": {
+        "control_node_pruned": true,
+        "control_prune_count": 1,
+        "trusted_node_survived": false
+      },
+      "status": "FAIL"
+    },
+    {
+      "evidence": "engine_generation.py:1516-1531 (source-level; invoking _sleep_consolidate needs a boot)",
+      "id": "G4",
+      "input": {
+        "check": "F1 sync after junk-prune sweep",
+        "file": "engine_generation.py"
+      },
+      "kind": "gating",
+      "output": {
+        "markers_present": false
+      },
+      "status": "FAIL"
+    },
+    {
+      "evidence": "explanation.py:261-289",
+      "id": "G5",
+      "input": {
+        "check": "F3 trust-first partition before limit",
+        "file": "explanation.py"
+      },
+      "kind": "gating",
+      "output": {
+        "markers_present": true
+      },
+      "status": "PASS"
+    },
+    {
+      "evidence": "chain_walker.py:1394-1401,1425-1430 \u2014 _concept_keywords[0] without get_node()",
+      "id": "H0",
+      "input": {
+        "stale_ids": [
+          0,
+          1
+        ],
+        "writer": "ChainWalkerMixin._create_causal_edge"
+      },
+      "kind": "open",
+      "output": {
+        "dangling_edge_written": true,
+        "dangling_endpoints": [
+          0,
+          1
+        ],
+        "endpoint_live": false
+      },
+      "status": "OPEN"
+    },
+    {
+      "evidence": "engine_memory.py:2594-2606 \u2014 _concept_keywords[0] without get_node()",
+      "id": "H1",
+      "input": {
+        "stale_ids": [
+          0,
+          1
+        ],
+        "writer": "MemoryMixin._store_episodic"
+      },
+      "kind": "open",
+      "output": {
+        "dangling_edge_written": true,
+        "dangling_endpoints": [
+          0,
+          1
+        ]
+      },
+      "status": "OPEN"
+    },
+    {
+      "evidence": "engine_persistence.py:588-596 \u2014 _concept_keywords[0] without get_node()",
+      "id": "H2",
+      "input": {
+        "stale_ids": [
+          0,
+          1
+        ],
+        "writer": "PersistenceMixin._weaken_edges_for_response"
+      },
+      "kind": "open",
+      "output": {
+        "added_edges": [
+          [
+            0,
+            1
+          ]
+        ],
+        "dangling_edge_written": true
+      },
+      "status": "OPEN"
+    },
+    {
+      "evidence": "engine_generation.py:1471-1481; engine.py:9585-9595 \u2014 direct add_edge(_a_ids[0], _b_ids[0])",
+      "id": "H3",
+      "input": {
+        "writers": [
+          "GenerationMixin._sleep_consolidate",
+          "CognitiveChatEngine.process_turn"
+        ]
+      },
+      "kind": "open",
+      "output": {
+        "unguarded_index_pattern_found": true
+      },
+      "status": "OPEN"
+    },
+    {
+      "evidence": "intake.py:315-320 (no get_node check); graph/engine.py:330,526 plain dict index; chain_walker.py:144 \u2014 production chat path uses live-only shim, other hosts do not",
+      "id": "H4",
+      "input": {
+        "host": "plain _all_labels dict",
+        "resolver": "SchemaConsistencyGate._node_id",
+        "stale_id": 0
+      },
+      "kind": "open",
+      "output": {
+        "dead": true,
+        "resolved_id": 0
+      },
+      "status": "OPEN"
+    },
+    {
+      "evidence": "graph.py:1694-1782 \u2014 final write choke point accepts dead endpoints (F5 dangling-edge invariant from root-cause doc was never shipped)",
+      "id": "H5",
+      "input": {
+        "dead_source": 0,
+        "live_target": 1,
+        "primitive": "ConceptGraph.add_edge"
+      },
+      "kind": "open",
+      "output": {
+        "edge_inserted": true,
+        "outgoing_index_has_dead_key": true,
+        "source_has_liveness_guard": false
+      },
+      "status": "OPEN"
+    },
+    {
+      "evidence": "graph.py:1332-1336 add_node -> _prune_oldest (2439-2441); F1 sync only in engine_generation.py:1516-1531 after prune_low_degree_junk_nodes",
+      "id": "H6",
+      "input": {
+        "added_ids": [
+          0,
+          1,
+          2
+        ],
+        "max_nodes": 2
+      },
+      "kind": "open",
+      "output": {
+        "evicted_ids": [
+          0
+        ],
+        "index_synced_by_eviction": false
+      },
+      "status": "OPEN"
+    },
+    {
+      "evidence": "sleep.py:180-193,373-404 \u2014 endpoints checked with get_node() before add_edge",
+      "id": "C1",
+      "input": {
+        "file": "core/sleep.py",
+        "writers": [
+          192,
+          344,
+          400
+        ]
+      },
+      "kind": "cleared",
+      "output": {
+        "live_node_checks_present": true
+      },
+      "status": "CLEARED"
+    }
+  ],
+  "engine_booted": false,
+  "mode": "legacy-shadow",
+  "probe": "car_stale_id_write_paths",
+  "report_sha256": "7691cf4279396f7e2c4ed93fe62ab7de24a870237187dfaca4f1c0517f269897",
+  "source_hashes": {
+    "ravana/src/ravana/chat/chain_walker.py": "6988928714173025",
+    "ravana/src/ravana/chat/engine_generation.py": "07b97832e0539146",
+    "ravana/src/ravana/chat/engine_memory.py": "5f69852595a833f4",
+    "ravana/src/ravana/chat/engine_persistence.py": "76f08c87dfaee3c0",
+    "ravana/src/ravana/chat/interface.py": "8ffefa2ae2f19f85",
+    "ravana/src/ravana/chat/web_learning.py": "80e65c8558bb9a95",
+    "ravana/src/ravana/learn/explanation.py": "73b3a45218064336",
+    "ravana/src/ravana/learn/intake.py": "1a1d38ccad5b5145",
+    "ravana/src/ravana/web/web_to_graph.py": "a917162d6e028f91",
+    "ravana_ml/src/ravana_ml/graph.py": "c27eaa590d731ba9"
+  },
+  "summary": {
+    "gating_pass": 1,
+    "gating_total": 5,
+    "instrument_pass": 1,
+    "instrument_total": 1,
+    "open_holes": 7,
+    "open_total": 7
+  },
+  "verdict": "FAIL",
+  "version": 1
+}

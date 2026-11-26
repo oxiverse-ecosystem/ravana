@@ -1,0 +1,18 @@
+Optional dependency 'bs4' not installed — capability 'BeautifulSoup HTML parsing (web scraping)' is disabled (degradation is intended; install it for full functionality).
+Optional dependency 'trafilatura' not installed — capability 'structured web extraction' is disabled (degradation is intended; install it for full functionality).
+WordNet corpus unavailable (ModuleNotFoundError); name-poison guard falls back to the narrow seed affect lexicon. Run: python -m nltk.downloader wordnet
+[G1] gating/FAIL  input={'label': 'echo', 'stale_id': 0, 'host_index': 'plain dict'}  output={'resolved_id': 0, 'live': False, 'legacy_resolver_id': 0, 'index_after': [0]}
+[I1] instrument/PASS  input={'legacy_resolver': 'return _all_labels.get(label)', 'stale_id': 0}  output={'legacy_returns_stale': True, 'fixed_writer_returns_stale': True}
+[G2] gating/FAIL  input={'label': 'echo', 'stale_id': 0, 'shims': ['_EngineGraphShim', '_GraphEngineShim']}  output={'engine_shim_resolved': 0, 'cli_shim_resolved': 0}
+[G3] gating/FAIL  input={'trusted': 'edge_kind=curated on a degree-0 (adjacency-lag) node', 'control': 'same shape, no provenance'}  output={'trusted_node_survived': False, 'control_node_pruned': True, 'control_prune_count': 1}
+[G4] gating/FAIL  input={'file': 'engine_generation.py', 'check': 'F1 sync after junk-prune sweep'}  output={'markers_present': False}
+[G5] gating/PASS  input={'file': 'explanation.py', 'check': 'F3 trust-first partition before limit'}  output={'markers_present': True}
+[H0] open/OPEN  input={'writer': 'ChainWalkerMixin._create_causal_edge', 'stale_ids': [0, 1]}  output={'dangling_edge_written': True, 'endpoint_live': False, 'dangling_endpoints': [0, 1]}
+[H1] open/OPEN  input={'writer': 'MemoryMixin._store_episodic', 'stale_ids': [0, 1]}  output={'dangling_edge_written': True, 'dangling_endpoints': [0, 1]}
+[H2] open/OPEN  input={'writer': 'PersistenceMixin._weaken_edges_for_response', 'stale_ids': [0, 1]}  output={'dangling_edge_written': True, 'added_edges': [(0, 1)]}
+[H3] open/OPEN  input={'writers': ['GenerationMixin._sleep_consolidate', 'CognitiveChatEngine.process_turn']}  output={'unguarded_index_pattern_found': True}
+[H4] open/OPEN  input={'resolver': 'SchemaConsistencyGate._node_id', 'host': 'plain _all_labels dict', 'stale_id': 0}  output={'resolved_id': 0, 'dead': True}
+[H5] open/OPEN  input={'primitive': 'ConceptGraph.add_edge', 'dead_source': 0, 'live_target': 1}  output={'edge_inserted': True, 'outgoing_index_has_dead_key': True, 'source_has_liveness_guard': False}
+[H6] open/OPEN  input={'max_nodes': 2, 'added_ids': [0, 1, 2]}  output={'evicted_ids': [0], 'index_synced_by_eviction': False}
+[C1] cleared/CLEARED  input={'file': 'core/sleep.py', 'writers': [192, 344, 400]}  output={'live_node_checks_present': True}
+SUMMARY: {'gating_pass': 1, 'gating_total': 5, 'instrument_pass': 1, 'instrument_total': 1, 'open_holes': 7, 'open_total': 7}  VERDICT: FAIL  sha256=7691cf4279396f7e2c4ed93fe62ab7de24a870237187dfaca4f1c0517f269897  report=C:\Users\Likhith\Documents\projects\ravana_car_stale_audit\scratch\car_stale_audit\results_legacy.json
