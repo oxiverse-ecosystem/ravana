@@ -1,0 +1,510 @@
+{
+  "engine_booted": false,
+  "expectations": {
+    "H0-A-live": "WRITTEN",
+    "H0-A-mixed": "OPEN",
+    "H0-A-new": "OPEN",
+    "H0-A-strengthen": "STRENGTHENED",
+    "H0-B-live": "WRITTEN",
+    "H0-B-mixed": "WRITTEN",
+    "H0-B-new": "CLOSED",
+    "H0-B-strengthen": "UNCHANGED",
+    "H0-C-new": "CLOSED",
+    "H0-C-strengthen": "STRENGTHENED",
+    "H1-A": "OPEN",
+    "H1-C": "CLOSED",
+    "H1-C-live": "WRITTEN",
+    "H5-A": "OPEN",
+    "H5-C": "CLOSED",
+    "H5-C-live": "WRITTEN"
+  },
+  "falsifiers": {
+    "F-A_baseline_vulnerability": "PASS",
+    "F-B_local_guard_fired_and_no_regression": "PASS",
+    "F-C_addedge_guard_fired": "PASS"
+  },
+  "import_root": "C:\\Users\\Likhith\\Documents\\projects\\ravana_car_stale_guard\\ravana_ml\\src\\ravana_ml",
+  "mismatches": {},
+  "probe": "car_stale_write_guard_ab",
+  "production_files_edited": false,
+  "records": [
+    {
+      "arm": "A baseline",
+      "id": "H0-A-new",
+      "input": {
+        "preplanted_edge": false,
+        "stale_index": [
+          "impact",
+          "bruise"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "confidence": 0.7,
+        "dangling_edges": [
+          0,
+          1
+        ],
+        "edge_exists": true,
+        "endpoint_live": [
+          false,
+          false
+        ],
+        "relation_type": "causal",
+        "resolver_index": {
+          "bruise": [
+            1
+          ],
+          "impact": [
+            0
+          ]
+        },
+        "weight": 0.75
+      },
+      "status": "OPEN"
+    },
+    {
+      "arm": "B local guard",
+      "id": "H0-B-new",
+      "input": {
+        "guard_fired": true,
+        "index": "identical stale index",
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [],
+        "confidence": null,
+        "dangling_edges": [],
+        "edge_exists": false,
+        "endpoint_live": [
+          false,
+          false
+        ],
+        "relation_type": null,
+        "resolver_index": {
+          "bruise": [],
+          "impact": []
+        },
+        "weight": null
+      },
+      "status": "CLOSED"
+    },
+    {
+      "arm": "C add_edge guard",
+      "id": "H0-C-new",
+      "input": {
+        "index": "identical stale index",
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "confidence": null,
+        "dangling_edges": [],
+        "edge_exists": false,
+        "endpoint_live": [
+          false,
+          false
+        ],
+        "relation_type": null,
+        "resolver_index": {
+          "bruise": [
+            1
+          ],
+          "impact": [
+            0
+          ]
+        },
+        "weight": null
+      },
+      "status": "CLOSED"
+    },
+    {
+      "arm": "A baseline",
+      "id": "H0-A-live",
+      "input": {
+        "live_index": [
+          "impact",
+          "bruise"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "confidence": 0.7,
+        "dangling_edges": [],
+        "edge_exists": true,
+        "endpoint_live": [
+          true,
+          true
+        ],
+        "relation_type": "causal",
+        "resolver_index": {
+          "bruise": [
+            1
+          ],
+          "impact": [
+            0
+          ]
+        },
+        "weight": 0.75
+      },
+      "status": "WRITTEN"
+    },
+    {
+      "arm": "B local guard",
+      "id": "H0-B-live",
+      "input": {
+        "live_index": [
+          "impact",
+          "bruise"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "confidence": 0.7,
+        "dangling_edges": [],
+        "edge_exists": true,
+        "endpoint_live": [
+          true,
+          true
+        ],
+        "relation_type": "causal",
+        "resolver_index": {
+          "bruise": [
+            1
+          ],
+          "impact": [
+            0
+          ]
+        },
+        "weight": 0.75
+      },
+      "status": "WRITTEN"
+    },
+    {
+      "arm": "A baseline",
+      "id": "H0-A-mixed",
+      "input": {
+        "index": [
+          "dead_impact",
+          "live_impact"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "dangling_edges": [
+          0,
+          1
+        ],
+        "live_id_written": false,
+        "returned": true,
+        "stale_id_written": true
+      },
+      "status": "OPEN"
+    },
+    {
+      "arm": "B local guard",
+      "id": "H0-B-mixed",
+      "input": {
+        "index": [
+          "dead_impact",
+          "live_impact"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "dangling_edges": [],
+        "live_id_written": true,
+        "returned": true,
+        "stale_id_written": false
+      },
+      "status": "WRITTEN"
+    },
+    {
+      "arm": "A baseline",
+      "id": "H0-A-strengthen",
+      "input": {
+        "preplanted_edge": "0.1/semantic",
+        "stale_index": [
+          "impact",
+          "bruise"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "confidence": 0.3,
+        "dangling_edges": [
+          0,
+          1
+        ],
+        "edge_exists": true,
+        "endpoint_live": [
+          false,
+          false
+        ],
+        "relation_type": "causal",
+        "resolver_index": {
+          "bruise": [
+            1
+          ],
+          "impact": [
+            0
+          ]
+        },
+        "weight": 0.4
+      },
+      "status": "STRENGTHENED"
+    },
+    {
+      "arm": "B local guard",
+      "id": "H0-B-strengthen",
+      "input": {
+        "preplanted_edge": "0.1/semantic",
+        "stale_index": [
+          "impact",
+          "bruise"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [],
+        "confidence": 0.1,
+        "dangling_edges": [
+          0,
+          1
+        ],
+        "edge_exists": true,
+        "endpoint_live": [
+          false,
+          false
+        ],
+        "relation_type": "semantic",
+        "resolver_index": {
+          "bruise": [],
+          "impact": []
+        },
+        "weight": 0.1
+      },
+      "status": "UNCHANGED"
+    },
+    {
+      "arm": "C add_edge guard",
+      "id": "H0-C-strengthen",
+      "input": {
+        "preplanted_edge": "0.1/semantic",
+        "stale_index": [
+          "impact",
+          "bruise"
+        ],
+        "text": "impact causes bruise."
+      },
+      "output": {
+        "beliefs": [
+          [
+            "impact",
+            "causal",
+            "bruise"
+          ]
+        ],
+        "confidence": 0.3,
+        "dangling_edges": [
+          0,
+          1
+        ],
+        "edge_exists": true,
+        "endpoint_live": [
+          false,
+          false
+        ],
+        "relation_type": "causal",
+        "resolver_index": {
+          "bruise": [
+            1
+          ],
+          "impact": [
+            0
+          ]
+        },
+        "weight": 0.4
+      },
+      "status": "STRENGTHENED"
+    },
+    {
+      "arm": "A baseline",
+      "id": "H5-A",
+      "input": {
+        "dead_source": "dead_src",
+        "live_target": "live_tgt"
+      },
+      "output": {
+        "dangling_edges": [
+          0
+        ],
+        "edge_inserted": true,
+        "returned_edge_type": "ConceptEdge",
+        "returned_in_edges": true,
+        "source_live": false,
+        "target_live": true
+      },
+      "status": "OPEN"
+    },
+    {
+      "arm": "C add_edge guard",
+      "id": "H5-C",
+      "input": {
+        "dead_source": "dead_src",
+        "live_target": "live_tgt"
+      },
+      "output": {
+        "dangling_edges": [],
+        "edge_inserted": false,
+        "returned_edge_type": "ConceptEdge",
+        "returned_in_edges": false,
+        "source_live": false,
+        "target_live": true
+      },
+      "status": "CLOSED"
+    },
+    {
+      "arm": "C add_edge guard",
+      "id": "H5-C-live",
+      "input": {
+        "live_source": "dead_src",
+        "live_target": "live_tgt"
+      },
+      "output": {
+        "dangling_edges": [],
+        "edge_inserted": true,
+        "returned_edge_type": "ConceptEdge",
+        "returned_in_edges": true,
+        "source_live": true,
+        "target_live": true
+      },
+      "status": "WRITTEN"
+    },
+    {
+      "arm": "A baseline",
+      "id": "H1-A",
+      "input": {
+        "stale_index": [
+          "echo_subj",
+          "echo_assoc"
+        ]
+      },
+      "output": {
+        "dangling_edges": [
+          0,
+          1
+        ],
+        "edge_inserted": true,
+        "endpoints_live": [
+          false,
+          false
+        ]
+      },
+      "status": "OPEN"
+    },
+    {
+      "arm": "C add_edge guard",
+      "id": "H1-C",
+      "input": {
+        "stale_index": [
+          "echo_subj",
+          "echo_assoc"
+        ]
+      },
+      "output": {
+        "dangling_edges": [],
+        "edge_inserted": false,
+        "endpoints_live": [
+          false,
+          false
+        ]
+      },
+      "status": "CLOSED"
+    },
+    {
+      "arm": "C add_edge guard",
+      "id": "H1-C-live",
+      "input": {
+        "live_index": [
+          "echo_subj",
+          "echo_assoc"
+        ]
+      },
+      "output": {
+        "dangling_edges": [],
+        "edge_inserted": true,
+        "endpoints_live": [
+          true,
+          true
+        ]
+      },
+      "status": "WRITTEN"
+    }
+  ],
+  "report_sha256": "e22b79102cb791bf40d7c6e7f7f748161e352e744e0b6d447341ea6876feffb3",
+  "source_hashes_lf_sha256_16": {
+    "ravana/src/ravana/chat/chain_walker.py": "6988928714173025",
+    "ravana/src/ravana/chat/engine_memory.py": "5f69852595a833f4",
+    "ravana/src/ravana/web/web_to_graph.py": "dd55295ae9bc6a71",
+    "ravana_ml/src/ravana_ml/graph.py": "96fd85a1b7fdbf34"
+  },
+  "store_state_after": {
+    "ravana_weights.db": "absent",
+    "ravana_weights.pkl": "absent"
+  },
+  "store_state_before": {
+    "ravana_weights.db": "absent",
+    "ravana_weights.pkl": "absent"
+  },
+  "verdict": "PASS",
+  "version": 1
+}

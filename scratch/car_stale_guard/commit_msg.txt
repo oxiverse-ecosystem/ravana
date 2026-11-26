@@ -1,0 +1,19 @@
+experiment(car): A/B stale-endpoint write guard on the top open hole
+
+Scratch-only, boot-free probe on the highest-severity remaining CAR write path
+(ChainWalkerMixin._create_causal_edge, H0 in the stale-endpoint audit).
+
+- Arm A reproduces the vulnerability: stale index ids 0/1 produce a dangling
+  causal edge (0,1) with weight 0.75 plus a false belief assertion.
+- Arm B (candidate local guard): F2-style live-only resolver at the write
+  choke point closes both the new-edge and the existing-edge strengthen branch;
+  live and mixed-index controls still write the edge.
+- Arm C (ConceptGraph.add_edge guard): closes direct/episodic dead-endpoint
+  writes but is BYPASSED by the strengthen branch and still records a false
+  belief -- a choke-point-only fix is insufficient.
+
+No engine boot, no weight-store access, no production edit, no gate or
+threshold change. Verdict PASS, 3/3 falsifiers, deterministic report hash
+e22b79102cb791bf40d7c6e7f7f748161e352e744e0b6d447341ea6876feffb3
+under PYTHONHASHSEED=0/1 (commit metadata excluded from the hash). Script, results, logs and FINDING.md under
+scratch/car_stale_guard/.

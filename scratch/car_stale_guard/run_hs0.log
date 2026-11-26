@@ -1,0 +1,38 @@
+Optional dependency 'bs4' not installed — capability 'BeautifulSoup HTML parsing (web scraping)' is disabled (degradation is intended; install it for full functionality).
+Optional dependency 'trafilatura' not installed — capability 'structured web extraction' is disabled (degradation is intended; install it for full functionality).
+WordNet corpus unavailable (ModuleNotFoundError); name-poison guard falls back to the narrow seed affect lexicon. Run: python -m nltk.downloader wordnet
+[H0-A-new] A baseline status=OPEN         input={'stale_index': ['impact', 'bruise'], 'text': 'impact causes bruise.', 'preplanted_edge': False}
+        -> {'edge_exists': True, 'weight': 0.75, 'relation_type': 'causal', 'confidence': 0.7, 'endpoint_live': [False, False], 'dangling_edges': [0, 1], 'beliefs': [['impact', 'causal', 'bruise']], 'resolver_index': {'impact': [0], 'bruise': [1]}}
+[H0-B-new] B local guard status=CLOSED       input={'index': 'identical stale index', 'text': 'impact causes bruise.', 'guard_fired': True}
+        -> {'edge_exists': False, 'weight': None, 'relation_type': None, 'confidence': None, 'endpoint_live': [False, False], 'dangling_edges': [], 'beliefs': [], 'resolver_index': {'impact': [], 'bruise': []}}
+[H0-C-new] C add_edge guard status=CLOSED       input={'index': 'identical stale index', 'text': 'impact causes bruise.'}
+        -> {'edge_exists': False, 'weight': None, 'relation_type': None, 'confidence': None, 'endpoint_live': [False, False], 'dangling_edges': [], 'beliefs': [['impact', 'causal', 'bruise']], 'resolver_index': {'impact': [0], 'bruise': [1]}}
+[H0-A-live] A baseline status=WRITTEN      input={'live_index': ['impact', 'bruise'], 'text': 'impact causes bruise.'}
+        -> {'edge_exists': True, 'weight': 0.75, 'relation_type': 'causal', 'confidence': 0.7, 'endpoint_live': [True, True], 'dangling_edges': [], 'beliefs': [['impact', 'causal', 'bruise']], 'resolver_index': {'impact': [0], 'bruise': [1]}}
+[H0-B-live] B local guard status=WRITTEN      input={'live_index': ['impact', 'bruise'], 'text': 'impact causes bruise.'}
+        -> {'edge_exists': True, 'weight': 0.75, 'relation_type': 'causal', 'confidence': 0.7, 'endpoint_live': [True, True], 'dangling_edges': [], 'beliefs': [['impact', 'causal', 'bruise']], 'resolver_index': {'impact': [0], 'bruise': [1]}}
+[H0-A-mixed] A baseline status=OPEN         input={'index': ['dead_impact', 'live_impact'], 'text': 'impact causes bruise.'}
+        -> {'live_id_written': False, 'stale_id_written': True, 'dangling_edges': [0, 1], 'beliefs': [['impact', 'causal', 'bruise']], 'returned': True}
+[H0-B-mixed] B local guard status=WRITTEN      input={'index': ['dead_impact', 'live_impact'], 'text': 'impact causes bruise.'}
+        -> {'live_id_written': True, 'stale_id_written': False, 'dangling_edges': [], 'beliefs': [['impact', 'causal', 'bruise']], 'returned': True}
+[H0-A-strengthen] A baseline status=STRENGTHENED input={'stale_index': ['impact', 'bruise'], 'preplanted_edge': '0.1/semantic', 'text': 'impact causes bruise.'}
+        -> {'edge_exists': True, 'weight': 0.4, 'relation_type': 'causal', 'confidence': 0.3, 'endpoint_live': [False, False], 'dangling_edges': [0, 1], 'beliefs': [['impact', 'causal', 'bruise']], 'resolver_index': {'impact': [0], 'bruise': [1]}}
+[H0-B-strengthen] B local guard status=UNCHANGED    input={'stale_index': ['impact', 'bruise'], 'preplanted_edge': '0.1/semantic', 'text': 'impact causes bruise.'}
+        -> {'edge_exists': True, 'weight': 0.1, 'relation_type': 'semantic', 'confidence': 0.1, 'endpoint_live': [False, False], 'dangling_edges': [0, 1], 'beliefs': [], 'resolver_index': {'impact': [], 'bruise': []}}
+[H0-C-strengthen] C add_edge guard status=STRENGTHENED input={'stale_index': ['impact', 'bruise'], 'preplanted_edge': '0.1/semantic', 'text': 'impact causes bruise.'}
+        -> {'edge_exists': True, 'weight': 0.4, 'relation_type': 'causal', 'confidence': 0.3, 'endpoint_live': [False, False], 'dangling_edges': [0, 1], 'beliefs': [['impact', 'causal', 'bruise']], 'resolver_index': {'impact': [0], 'bruise': [1]}}
+[H5-A] A baseline status=OPEN         input={'dead_source': 'dead_src', 'live_target': 'live_tgt'}
+        -> {'source_live': False, 'target_live': True, 'edge_inserted': True, 'dangling_edges': [0], 'returned_edge_type': 'ConceptEdge', 'returned_in_edges': True}
+[H5-C] C add_edge guard status=CLOSED       input={'dead_source': 'dead_src', 'live_target': 'live_tgt'}
+        -> {'source_live': False, 'target_live': True, 'edge_inserted': False, 'dangling_edges': [], 'returned_edge_type': 'ConceptEdge', 'returned_in_edges': False}
+[H5-C-live] C add_edge guard status=WRITTEN      input={'live_source': 'dead_src', 'live_target': 'live_tgt'}
+        -> {'source_live': True, 'target_live': True, 'edge_inserted': True, 'dangling_edges': [], 'returned_edge_type': 'ConceptEdge', 'returned_in_edges': True}
+[H1-A] A baseline status=OPEN         input={'stale_index': ['echo_subj', 'echo_assoc']}
+        -> {'edge_inserted': True, 'dangling_edges': [0, 1], 'endpoints_live': [False, False]}
+[H1-C] C add_edge guard status=CLOSED       input={'stale_index': ['echo_subj', 'echo_assoc']}
+        -> {'edge_inserted': False, 'dangling_edges': [], 'endpoints_live': [False, False]}
+[H1-C-live] C add_edge guard status=WRITTEN      input={'live_index': ['echo_subj', 'echo_assoc']}
+        -> {'edge_inserted': True, 'dangling_edges': [], 'endpoints_live': [True, True]}
+FALSIFIERS: {'F-A_baseline_vulnerability': 'PASS', 'F-B_local_guard_fired_and_no_regression': 'PASS', 'F-C_addedge_guard_fired': 'PASS'}
+VERDICT: PASS  mismatches={}  sha256=e22b79102cb791bf40d7c6e7f7f748161e352e744e0b6d447341ea6876feffb3
+report=C:\Users\Likhith\Documents\projects\ravana_car_stale_guard\scratch\car_stale_guard\results.json
