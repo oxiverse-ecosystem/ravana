@@ -34,8 +34,11 @@ MANIFEST = {
     # Fallback-channel bank. The option-space fields are part of the canonical
     # sealed records; the pre-registered BANK_SHA (item_id/difficulty/pool/role/
     # k/hash) is deliberately UNCHANGED by the option-space fix.
-    "primary": "cb0e8b623fd38185803640a201d0325757d9291b4314d4eba5fa4697c21f56d2",
-    "sealed": "5470033a9652d108b014b5206b788725f84e578e45af0742abe023b4366675b6",
+    # These are the hashes of the committed (LF-blob) substrate snapshot.
+    # substrate_sha256() normalises CRLF worktree bytes to LF before hashing,
+    # so Windows and Linux checkouts now freeze to these same values.
+    "primary": "05439e9fb9208b78af934575864af16656273a363c13b5c787685b952132775e",
+    "sealed": "32facbe95e7f558967f679f89851b3797119d82438daf1132d1c8fd1390558be",
 }
 BANK_SHA = "0ed8bdc2ee1dd555adc4595868bce6794a14085c0d02761b8a957fc152e147cd"
 TH_SNAPSHOT = {
@@ -113,6 +116,24 @@ def test_manifest_hashes_frozen(items):
     assert tki.item_manifest_hash(items) == BANK_SHA
     assert tki.manifest_hashes(tki.build_items()) == MANIFEST
     assert len(MANIFEST["primary"]) == len(MANIFEST["sealed"]) == 64
+
+
+def test_substrate_digest_and_manifest_ignore_checkout_line_endings(tmp_path):
+    """CRLF worktrees and LF CI checkouts must freeze to the same pin."""
+    with open(tki.SUBSTRATE_PATH, "rb") as fh:
+        raw = fh.read()
+    lf = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    lf_path = tmp_path / "substrate_lf.json"
+    crlf_path = tmp_path / "substrate_crlf.json"
+    lf_path.write_bytes(lf)
+    crlf_path.write_bytes(lf.replace(b"\n", b"\r\n"))
+    sub_lf = tki.load_substrate(str(lf_path))
+    sub_crlf = tki.load_substrate(str(crlf_path))
+    assert sub_lf["digest"] == sub_crlf["digest"] == tki.load_substrate()["digest"]
+    bank_lf = tki.build_items(substrate=sub_lf)
+    bank_crlf = tki.build_items(substrate=sub_crlf)
+    assert tki.manifest_hashes(bank_lf) == MANIFEST
+    assert tki.manifest_hashes(bank_crlf) == MANIFEST
 
 
 def test_hash_split_deterministic(items):
@@ -737,8 +758,7 @@ def test_provenance_views_accumulate_across_items_without_boot():
 # ── Wikidata substrate integration (fake-only, static) ───────────────────────
 def _adapter_substrate():
     sub = adapter.load_substrate(adapter.DEFAULT_SUBSTRATE)
-    with open(adapter.DEFAULT_SUBSTRATE, "rb") as fh:
-        sub["digest"] = hashlib.sha256(fh.read()).hexdigest()
+    sub["digest"] = tki.substrate_sha256(adapter.DEFAULT_SUBSTRATE)
     return sub
 
 

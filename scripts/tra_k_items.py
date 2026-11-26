@@ -103,6 +103,10 @@ REQUIRED_FACT_KEYS = ("subject", "predicate", "object", "source")
 ISA_PREDICATES = ("is_a", "type_of", "instance_of")
 
 # The substrate snapshot is the ONLY source of subject-type assertions.
+# Git stores this file with LF endings; core.autocrlf can materialise CRLF in a
+# Windows worktree. The content digest MUST therefore be newline-normalised
+# (see substrate_sha256) or every frozen provenance string and manifest hash
+# changes with the checkout platform.
 SUBSTRATE_PATH = os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "scratch", "trak_substrate.json")
 SUBSTRATE_SCHEMA = "ravana-trak-semantic-substrate-v1"
@@ -290,6 +294,21 @@ def _fact(*, subject, predicate, object_, source, channel="B",
 
 
 # ── substrate projection + admission rule (declared TRA-K channel input) ─────
+def substrate_sha256(path):
+    """SHA-256 of the substrate's CHECKED-IN CONTENT (LF-normalised bytes).
+
+    The committed blob is LF. A Windows checkout with ``core.autocrlf=true``
+    materialises the same content with CRLF, and hashing those raw bytes made
+    the frozen ``snapshot`` provenance -- and therefore every pinned manifest
+    hash -- platform-dependent. Normalise line endings first so the digest
+    names the committed snapshot, not the local checkout's newline style.
+    """
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    return hashlib.sha256(
+        raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
+
+
 def load_substrate(path=None):
     """Load the checked-in Wikidata snapshot (cached, static, no network)."""
     path = path or SUBSTRATE_PATH
@@ -299,8 +318,7 @@ def load_substrate(path=None):
             data = json.load(fh)
         if data.get("schema") != SUBSTRATE_SCHEMA:
             raise ValueError("unexpected substrate schema: %r" % data.get("schema"))
-        with open(path, "rb") as fh:
-            data["digest"] = hashlib.sha256(fh.read()).hexdigest()
+        data["digest"] = substrate_sha256(path)
         data["by_subject"] = collections.defaultdict(list)
         for raw in data["facts"]:
             data["by_subject"][str(raw["subject"]).strip().lower()].append(raw)

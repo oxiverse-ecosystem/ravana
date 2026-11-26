@@ -133,8 +133,13 @@ or any gate; that requires a future, separately preregistered harness run.
 | Artifact | SHA-256 |
 |---|---|
 | `scratch/wikidata_sparql_raw.json` | `52f74c9d5fa2f3a1d5376cd7ef43508ea98490b2eee248ff5824b6a33eb18812` |
-| `scratch/trak_substrate.json` (file) | `f9997f666889f089fa5a12fb5238bd34cce4d5227be5d14d36f6a1cd01aa0ea3` |
+| `scratch/trak_substrate.json` (file, LF-normalised) | `a24e2714b3ab077c05f03e894600bace822a8c9b1f2b2ad8d1d7226e1bd02de6` |
 | Substrate canonical facts digest | `ed4759ea57184fd74f2d6d932d12eeecec2e84de6bc075eb3cdc27469c106a90` |
+
+The file digest is taken over LF-normalised bytes: the committed blob is LF,
+while `core.autocrlf=true` checkouts materialise CRLF. Hashing raw worktree
+bytes made the frozen TRA-K provenance `snapshot` (and therefore its manifest
+pin) platform-dependent; `tra_k_items.substrate_sha256()` normalises first.
 
 Full machine-readable audit: `scratch/trak_substrate_coverage.json`.
 Build scripts: `scratch/trak_fetch_sparql_batches.py` and
