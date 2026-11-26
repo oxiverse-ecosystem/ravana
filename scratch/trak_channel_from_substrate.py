@@ -219,8 +219,7 @@ def main(argv=None):
 
     substrate = load_substrate(args.substrate)
     # Digest is metadata only; it never enters a channel fact's provenance.
-    with open(args.substrate, "rb") as fh:
-        substrate["digest"] = hashlib.sha256(fh.read()).hexdigest()
+    substrate["digest"] = tki.substrate_sha256(args.substrate)
     items = tki.build_items()
     projection = build_projection(substrate, items, args.max_per_item)
     report = validate_projection(substrate, projection, items)

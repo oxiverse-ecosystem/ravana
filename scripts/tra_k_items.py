@@ -53,6 +53,37 @@ same domain first). The original ``unseen_test_words`` domain-word candidates
 are retained only as the oracle-side record; the graded query path reads
 ``typed_queries``. No option or gold label is drawn from ``type_sets``,
 ``world_model`` or any domain-word gold target.
+
+SUBJECT-TYPE CHANNEL INPUT (this fix)
+-------------------------------------
+The benchmark declares a supplied knowledge channel. A channel that omits the
+queried subject's own type cannot support the query at all (a benchmark INPUT
+defect, not an engine defect). Two changes are made here, both STATIC:
+
+1. Query-subject roles (``near_subject``, ``far_subject``, ``neg_subject``) are
+   drawn only from words the substrate actually covers. The four snapshot gaps
+   (``sleet``/``chill``/``marrow``/``thorn``) may remain distractors or demo
+   words but are never query subjects. Coverage is read from the checked-in
+   substrate snapshot, never from oracle fields.
+2. Every item carries one ADMITTED substrate fact for each query subject
+   (near/far/negative), projected verbatim from the snapshot with full CC0
+   provenance. Low-credibility conflicting facts (alternate sense / weaker
+   evidence tier, or a different substrate entry) are also admitted, so the
+   right label is not the only type present. The graded option label is
+   selected by the source-provenance rule below, never by "only type left".
+
+ADMISSION RULE (source provenance, not authority)
+-------------------------------------------------
+A channel fact is admitted iff it (a) has all REQUIRED_FACT_KEYS, (b) is an
+``is_a``-predicate, (c) names either a taught demo object or a declared query
+subject, and (d) when it names a query subject, it carries the full substrate
+provenance field set (source/source_id/snapshot/license/license_url/source_url/
+span/subject_qid/type_qid/wikidata_property/sense). Gold targets and other
+answer-key tokens remain forbidden subjects. The admitted subject fact with the
+best evidence tier (primary sense > alternate; item description > type
+description > label) is the POSITIVE subject-type assertion; the rest are
+deterministic misleading facts. ``type_sets``/``world_model``/gold are never
+read to build, rank or admit a fact.
 """
 from __future__ import annotations
 
@@ -70,6 +101,31 @@ CHANNEL_ENV = "TRAK_CHANNEL_JSON"
 FALLBACK_SOURCE = "TRA-K-fallback-deterministic"
 REQUIRED_FACT_KEYS = ("subject", "predicate", "object", "source")
 ISA_PREDICATES = ("is_a", "type_of", "instance_of")
+
+# The substrate snapshot is the ONLY source of subject-type assertions.
+# Git stores this file with LF endings; core.autocrlf can materialise CRLF in a
+# Windows worktree. The content digest MUST therefore be newline-normalised
+# (see substrate_sha256) or every frozen provenance string and manifest hash
+# changes with the checkout platform.
+SUBSTRATE_PATH = os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "scratch", "trak_substrate.json")
+SUBSTRATE_SCHEMA = "ravana-trak-semantic-substrate-v1"
+SUBSTRATE_CHANNEL = "B-wikidata"
+SUBSTRATE_PROVENANCE_FIELDS = (
+    "license", "license_url", "source_url", "span", "text_evidence",
+    "text_evidence_kind", "wikidata_property", "wikidata_relation",
+    "subject_qid", "type_qid", "subject_description", "type_description",
+    "enwiki_title", "sense", "sense_selection",
+)
+# A subject-naming fact is admitted ONLY with the full substrate trail.
+SUBSTRATE_PROVENANCE_KEYS = (
+    "source", "source_id", "snapshot", "license", "license_url",
+    "source_url", "span", "subject_qid", "type_qid", "wikidata_property",
+    "sense",
+)
+SUBJECT_TYPE_ROLE = "subject_type"        # the positive, best-evidence assertion
+MISLEADING_ROLE = "misleading"            # deterministic low-credibility conflict
+_SUBSTRATE_CACHE = {}
 
 ROLES = {
     "EFFECT":   {"type_label": "effect",            "phrase": "causes"},
@@ -178,17 +234,25 @@ def item_manifest_hash(items):
     return hashlib.sha256(blob).hexdigest()
 
 
-def _split_words(pool, seed):
+def _split_words(pool, seed, subject_pool=None):
     """Deterministically carve a 24-word pool into query + distractor + demo.
 
     Query subject and gold are reserved first so they are NEVER in the taught
     exemplar object set (TRA validation rule 3, kept unchanged).
+
+    ``subject_pool`` restricts ONLY the query-subject roles (near, negative)
+    to substrate-covered words. Gold, distractors and demo words still come
+    from the full pool, so 24-word pools still yield 17 demo words and the
+    400-family / 40-per-k split is unchanged.
     """
+    subject_pool = pool if subject_pool is None else subject_pool
+    if len(subject_pool) < 4:
+        raise ValueError("insufficient covered query subjects for %s" % seed)
     near_gold = _hash_pick(seed + "|NG", pool, 1)[0]
-    near_subject = _hash_pick(seed + "|NS", pool, 1, {near_gold})[0]
+    near_subject = _hash_pick(seed + "|NS", subject_pool, 1, {near_gold})[0]
     neg_target = _hash_pick(seed + "|NT", pool, 1,
                             {near_gold, near_subject})[0]
-    neg_subject = _hash_pick(seed + "|NSub", pool, 1,
+    neg_subject = _hash_pick(seed + "|NSub", subject_pool, 1,
                              {near_gold, near_subject, neg_target})[0]
     reserved = {near_gold, near_subject, neg_target, neg_subject}
     remaining = [w for w in pool if w not in reserved]
@@ -227,6 +291,193 @@ def _fact(*, subject, predicate, object_, source, channel="B",
            "snapshot": str(snapshot)}
     out.update(extra)
     return out
+
+
+# ── substrate projection + admission rule (declared TRA-K channel input) ─────
+def substrate_sha256(path):
+    """SHA-256 of the substrate's CHECKED-IN CONTENT (LF-normalised bytes).
+
+    The committed blob is LF. A Windows checkout with ``core.autocrlf=true``
+    materialises the same content with CRLF, and hashing those raw bytes made
+    the frozen ``snapshot`` provenance -- and therefore every pinned manifest
+    hash -- platform-dependent. Normalise line endings first so the digest
+    names the committed snapshot, not the local checkout's newline style.
+    """
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    return hashlib.sha256(
+        raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
+
+
+def load_substrate(path=None):
+    """Load the checked-in Wikidata snapshot (cached, static, no network)."""
+    path = path or SUBSTRATE_PATH
+    key = os.path.realpath(path)
+    if key not in _SUBSTRATE_CACHE:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if data.get("schema") != SUBSTRATE_SCHEMA:
+            raise ValueError("unexpected substrate schema: %r" % data.get("schema"))
+        data["digest"] = substrate_sha256(path)
+        data["by_subject"] = collections.defaultdict(list)
+        for raw in data["facts"]:
+            data["by_subject"][str(raw["subject"]).strip().lower()].append(raw)
+        # Cached low-credibility-first order for deterministic conflict borrow.
+        data["low_first"] = sorted(data["facts"], key=_evidence_rank)
+        _SUBSTRATE_CACHE[key] = data
+    return _SUBSTRATE_CACHE[key]
+
+
+def covered_subjects(substrate=None):
+    """Words with a typed fact in the substrate snapshot (query-subject pool)."""
+    substrate = substrate or load_substrate()
+    return {s for s, rows in substrate["by_subject"].items() if rows}
+
+
+def substrate_fact(raw, snapshot, item_id, role):
+    """Project one substrate record verbatim into a channel fact.
+
+    No field is invented: subject/type label/source/QIDs/span/sense come from
+    the snapshot. ``evidence_role`` only labels SELECTION (positive vs
+    misleading); it never changes the source-native assertion.
+    """
+    out = {
+        "subject": raw["subject"], "predicate": "is_a",
+        "object": raw["type_label"], "channel": SUBSTRATE_CHANNEL,
+        "source": raw["source_url"],
+        "source_id": _digest(raw.get("source_url"), raw.get("subject_qid"),
+                             raw.get("type_qid"), raw.get("type_label"),
+                             raw.get("wikidata_property"), raw.get("sense"))[:16],
+        "snapshot": snapshot,
+    }
+    for key in SUBSTRATE_PROVENANCE_FIELDS:
+        out[key] = raw.get(key, "")
+    out["item_id"] = item_id
+    out["evidence_role"] = role
+    return out
+
+
+def _evidence_rank(raw):
+    """Deterministic credibility: primary sense, then evidence tier."""
+    sense = 2 if raw.get("sense") == "primary" else 0
+    kind = {"item_description": 3, "type_description": 2,
+            "label_only": 1}.get(raw.get("text_evidence_kind"), 0)
+    return (sense, kind, _digest(str(raw.get("type_label")),
+                                 str(raw.get("type_qid"))))
+
+
+def subject_channel_facts(item, substrate=None):
+    """(admitted subject-type fact, misleading facts) for each query subject.
+
+    The positive assertion is the highest-credibility substrate record for the
+    subject; a conflicting lower-credibility record is admitted as a
+    misleading fact (or, for a single-label subject, one source-traceable
+    conflicting assertion from another substrate entry). Oracle fields are
+    never consulted.
+    """
+    substrate = substrate or load_substrate()
+    by_subject = substrate["by_subject"]
+    snap = "%s@%s" % (SUBSTRATE_SCHEMA, substrate["digest"][:16])
+    iid = item["item_id"]
+    admitted, misleading = [], []
+    for subj in sorted(query_subject_words(item)):
+        rows = sorted(by_subject.get(subj, []), key=_evidence_rank, reverse=True)
+        if not rows:
+            continue                      # build-time coverage check forbids this
+        best = rows[0]
+        positive = substrate_fact(best, snap, iid, SUBJECT_TYPE_ROLE)
+        admitted.append(positive)
+        conflict = next((r for r in reversed(rows)
+                         if r["type_label"] != best["type_label"]), None)
+        if conflict is None:
+            # No conflict for this word: borrow a LOW-credibility assertion
+            # from another substrate entry, keeping THAT entry's subject and
+            # provenance verbatim. It is an honest fact about another word.
+            forbidden = forbidden_channel_subjects(item) | query_subject_words(item)
+            conflict = next((r for r in substrate["low_first"]
+                             if r["type_label"] != best["type_label"]
+                             and str(r["subject"]).strip().lower() not in forbidden),
+                            None)
+        if conflict is not None:
+            misleading.append(substrate_fact(conflict, snap, iid,
+                                             MISLEADING_ROLE))
+    return admitted, misleading
+
+
+def query_subject_words(item):
+    """Declared query subjects: near/far anchors and the negative subject."""
+    out = {str(item["unseen_test_words"][c]["subject"]).strip().lower()
+           for c in ("near", "far")}
+    out.add(str(item["negative"]["subject"]).strip().lower())
+    return out
+
+
+def forbidden_channel_subjects(item):
+    """Answer-key tokens that MUST NOT be named by any channel fact.
+
+    Query subjects are NOT forbidden: their own substrate type assertion is
+    the declared TRA-K input (see module admission rule).
+    """
+    return ({str(w).strip().lower() for w in answer_key_tokens(item)}
+            - query_subject_words(item))
+
+
+def substrate_provenance_ok(fact):
+    return (isinstance(fact, dict)
+            and all(fact.get(k) not in (None, "") for k in SUBSTRATE_PROVENANCE_KEYS))
+
+
+def admitted_channel_fact(fact, item):
+    """Source-provenance admission rule for one channel fact (module doc)."""
+    if not isinstance(fact, dict):
+        return False
+    if any(k not in fact or fact.get(k) in (None, "") for k in REQUIRED_FACT_KEYS):
+        return False
+    if str(fact.get("predicate", "")).lower() not in ISA_PREDICATES:
+        return False
+    subj = str(fact.get("subject", "")).strip().lower()
+    if subj in forbidden_channel_subjects(item):
+        return False
+    if subj in query_subject_words(item):
+        return substrate_provenance_ok(fact)
+    return True
+
+
+def _fact_credibility(f):
+    return (1 if f.get("sense") == "primary" else 0,
+            {"item_description": 3, "type_description": 2,
+             "label_only": 1}.get(f.get("text_evidence_kind"), 0),
+            _digest(str(f.get("object")), str(f.get("source_id"))))
+
+
+def admitted_subject_facts(item, subject, role=SUBJECT_TYPE_ROLE):
+    """All ADMITTED subject facts, highest credibility first."""
+    target = str(subject).strip().lower()
+    facts = [f for f in item.get("channel_evidence", [])
+             if admitted_channel_fact(f, item)
+             and str(f.get("subject", "")).strip().lower() == target
+             and (role is None or f.get("evidence_role") == role)]
+    return sorted(facts, key=_fact_credibility, reverse=True)
+
+
+def admitted_subject_fact(item, subject, role=SUBJECT_TYPE_ROLE):
+    """Highest-credibility ADMITTED subject fact, or None (fail closed)."""
+    facts = admitted_subject_facts(item, subject, role)
+    return facts[0] if facts else None
+
+
+def ordered_channel_facts(item):
+    """Teaching order: positive subject facts, conflicts, then demo facts."""
+    def key(fact):
+        subj = str(fact.get("subject", "")).strip().lower()
+        if subj in query_subject_words(item):
+            return (0 if fact.get("evidence_role") == SUBJECT_TYPE_ROLE else 1,
+                    str(fact.get("object", "")), str(fact.get("source_id", "")))
+        if fact.get("evidence_role") == MISLEADING_ROLE:
+            return (2, str(fact.get("subject", "")), str(fact.get("object", "")))
+        return (3, str(fact.get("subject", "")), str(fact.get("object", "")))
+    return sorted((f for f in (item.get("channel_evidence") or [])
+                   if admitted_channel_fact(f, item)), key=key)
 
 
 def fallback_channel_evidence(item):
@@ -388,22 +639,29 @@ def channel_answer_label(evidence, demo_objects, seed, rank=0, forbidden=()):
 
 
 def collect_channel_label_pools(items):
-    """{domain: labels} and global labels, both from channel facts only."""
+    """{domain: labels} and global labels, both from admitted channel facts.
+
+    Includes source-native subject assertions and their low-credibility
+    conflicts, so a graded option's correct label and its foil labels all come
+    from the declared channel (never from TRA's oracle fields).
+    """
     by_domain, glob = collections.defaultdict(set), set()
     for it in items:
         labels = {str(f.get("object", "")).strip()
-                  for f in channel_demo_facts(it.get("channel_evidence", []),
-                                               channel_demo_objects(it))}
+                  for f in ordered_channel_facts(it)}
+        labels.discard("")
         by_domain[it["domain"]].update(labels)
         glob.update(labels)
     return dict(by_domain), glob
 
 
-def _clean_foils(correct, foils, banned):
+def _clean_foils(correct, foils, banned, limit=None):
     """Drop foils that overlap the correct label or a query-subject string."""
-    correct = correct.lower()
+    correct = str(correct).lower()
     out = []
     for label in foils:
+        if limit is not None and len(out) >= limit:
+            break
         low = label.lower()
         if low == correct or low in banned or correct in low or low in correct:
             continue
@@ -414,15 +672,42 @@ def _clean_foils(correct, foils, banned):
     return out
 
 
+_LABEL_ORDER_CACHE = {}
+
+
+def _label_order(labels):
+    """One deterministic (label, lower) order per label set object.
+
+    The source-native channel exposes ~600 labels, so re-sorting it for every
+    one of the 2,000 option probes is quadratic; cache by set identity.
+    Determinism is unaffected -- the order is a fixed sha256 key, independent
+    of PYTHONHASHSEED and of insertion order.
+    """
+    key = id(labels)
+    got = _LABEL_ORDER_CACHE.get(key)
+    if got is not None and got[0] is labels:
+        return got[1]
+    if len(_LABEL_ORDER_CACHE) > 16:
+        _LABEL_ORDER_CACHE.clear()
+    order = sorted(((str(l), str(l).lower()) for l in labels),
+                   key=lambda pair: _digest("TRA-K-foil-order", pair[0]))
+    _LABEL_ORDER_CACHE[key] = (labels, order)
+    return order
+
+
 def _foil_labels(correct, domain_labels, global_labels, seed, condition, banned):
     """Deterministic foils from other channel facts, same domain first."""
-    forbidden = {correct.lower()} | set(banned)
-    local = sorted((l for l in domain_labels if l.lower() not in forbidden),
-                   key=lambda l: _digest(seed, condition, "D", l))
-    remote = sorted((l for l in global_labels
-                     if l.lower() not in forbidden and l not in local),
-                    key=lambda l: _digest(seed, condition, "G", l))
-    return _clean_foils(correct, local + remote, banned)
+    forbidden = {str(correct).strip().lower()} | {
+        str(b).strip().lower() for b in banned}
+    offset = int(_digest(seed, condition, "ORDER")[:8], 16)
+    dom = _label_order(domain_labels)
+    glob = _label_order(global_labels)
+    local = [lab for lab, low in dom[offset:] + dom[:offset]
+             if low not in forbidden]
+    seen = {lab.lower() for lab in local}
+    remote = [lab for lab, low in glob[offset:] + glob[:offset]
+              if low not in forbidden and low not in seen]
+    return _clean_foils(correct, local + remote, banned, limit=32)
 
 
 def typed_option_space(item, domain_labels, global_labels, seed=None):
@@ -435,20 +720,54 @@ def typed_option_space(item, domain_labels, global_labels, seed=None):
     """
     seed = seed or _digest(item["item_id"], "typed-options")
     evidence = item.get("channel_evidence", [])
-    demos = channel_demo_objects(item)
     subjects = {item["unseen_test_words"][c]["subject"] for c in ("near", "far")}
     subjects.add(item["negative"]["subject"])
-    banned = {s.strip().lower() for s in subjects}
-    ranked = _rank_channel_labels(evidence, demos, seed)
+    # Options must not collide with any domain-word answer token (gold,
+    # distractor or query subject): those are oracle-side domain words, not
+    # source-native type labels. They are used only as a NEGATIVE filter.
+    banned = {str(s).strip().lower() for s in subjects}
+    banned |= {str(w).strip().lower() for w in answer_key_tokens(item)}
+    banned |= {str(c).strip().lower()
+               for cond in ("near", "far") for c in item["unseen_test_words"][cond]["candidates"]}
+    ranked = [str(f["object"]).strip() for f in ordered_channel_facts(item)
+              if str(f.get("object", "")).strip()]
     if not ranked:
         raise ValueError("%s: no channel is_a label for typed options"
                          % item["item_id"])
-    near_label = next((l for l in ranked if l.lower() not in banned), ranked[0])
-    far_label = next((l for l in ranked
-                      if l.lower() not in banned and l != near_label), near_label)
-    neg_label = next((l for l in ranked if l.lower() not in banned
-                      and l not in (near_label, far_label)),
-                     far_label if far_label != near_label else near_label)
+
+    def _subject_label(cond):
+        """The ADMITTED subject fact decides the correct source-native label.
+
+        Prefer the highest-credibility assertion whose label does not collide
+        with a domain-word token (those remain the oracle-side word pool).
+        """
+        facts = admitted_subject_facts(
+            item, item["unseen_test_words"][cond]["subject"])
+        if not facts:
+            return None
+        for fact in facts:
+            label = str(fact["object"]).strip()
+            if label.lower() not in banned:
+                return label
+        return str(facts[0]["object"]).strip()
+
+    near_label = _subject_label("near")
+    far_label = _subject_label("far")
+    neg_facts = admitted_subject_facts(item, item["negative"]["subject"])
+    neg_label = next((str(f["object"]).strip() for f in neg_facts
+                      if str(f["object"]).strip().lower() not in banned),
+                     str(neg_facts[0]["object"]).strip() if neg_facts else None)
+    # Fail closed: never fall back to the demo support winner for a missing
+    # subject assertion -- absence is an item defect, not a licence to guess.
+    if not near_label or not far_label:
+        raise ValueError("%s: missing subject type assertion" % item["item_id"])
+    if far_label == near_label:
+        alternatives = [l for l in ranked if l != near_label and l.lower() not in banned]
+        far_label = alternatives[0] if alternatives else near_label
+    if not neg_label or neg_label in (near_label, far_label):
+        alternatives = [l for l in ranked if l not in (near_label, far_label)
+                        and l.lower() not in banned]
+        neg_label = alternatives[0] if alternatives else (far_label or near_label)
 
     def _opts(label, condition):
         foils = _foil_labels(label, domain_labels, global_labels, seed,
@@ -497,12 +816,14 @@ def channel_negation_assertion(fact):
 
 def answer_key_tokens(item):
     """Tokens that channel evidence must NEVER name (oracle answer key)."""
-    out = {item["subject"]}
+    out = {item.get("subject")}
     for cond in ("near", "far"):
-        q = item["unseen_test_words"][cond]
-        out.update((q["subject"], q["gold"]))
-    out.add(item["negative"]["subject"])
-    out.add(item["negative"]["counterexample_target"])
+        q = item.get("unseen_test_words", {}).get(cond, {})
+        out.update((q.get("subject"), q.get("gold")))
+    neg = item.get("negative", {})
+    out.add(neg.get("subject"))
+    out.add(neg.get("counterexample_target"))
+    out.discard(None)
     return out
 
 
@@ -519,14 +840,18 @@ def channel_overlap(items):
     offenders = []
     for it in items:
         facts = it.get("channel_evidence", [])
-        subs = {str(f.get("subject", "")) for f in facts}
+        subs = {str(f.get("subject", "")) for f in facts
+                if admitted_channel_fact(f, it)}
         objs = {str(f.get("object", "")) for f in facts
-                if str(f.get("predicate", "")).lower() in ISA_PREDICATES}
-        key = answer_key_tokens(it)
+                if admitted_channel_fact(f, it)
+                and str(f.get("predicate", "")).lower() in ISA_PREDICATES}
+        key = forbidden_channel_subjects(it)
         ts_keys = set(it.get("type_sets", {}))
         ts_vals = {v for vals in it.get("type_sets", {}).values() for v in vals}
         wm_vals = {w for targets in it.get("world_model", {}).values() for w in targets}
-        leak = subs & key
+        # A fact naming a forbidden answer-key token is a leak even when it
+        # fails another admission clause (e.g. missing provenance).
+        leak = {str(f.get("subject", "")).strip().lower() for f in facts} & key
         domain_tag_leak = {o for o in objs if o in ts_vals and o != it["type_label"]}
         wm_leak = subs & wm_vals
         no_prov = [f for f in facts
@@ -554,14 +879,18 @@ def channel_overlap(items):
 
 
 # ── bank construction ───────────────────────────────────────────────────────
-def build_items(n=N_FAMILIES, channel_override=None):
+def build_items(n=N_FAMILIES, channel_override=None, substrate=None):
     """Return the frozen bank (default 400 families, 200/200 split).
 
     ``channel_override`` maps item_id -> external fact list; items absent from
     it get the deterministic fallback. The ONLY schema difference from TRA is
-    the added ``channel_evidence`` field.
+    the added ``channel_evidence`` field. The substrate snapshot supplies the
+    declared query-subject type assertions; it is never derived from oracle
+    fields (``type_sets``/``world_model``/gold).
     """
     channel_override = channel_override or {}
+    substrate = substrate or load_substrate()
+    covered = covered_subjects(substrate)
     items = []
     for fidx in range(n):
         role = ROLE_KEYS[fidx % len(ROLE_KEYS)]
@@ -573,8 +902,13 @@ def build_items(n=N_FAMILIES, channel_override=None):
         item_id = "tra_k_%04d" % fidx
         type_label = ROLE_TO_TYPE[role]
         seed = "%s|%s|%s" % (HASH_PREFIX, COMPONENT, item_id)
-        pool_words = _split_words(OBJECTS[domain], seed + "|near")
-        far_words = _split_words(OBJECTS[far_domain], seed + "|far")
+        near_pool = set(OBJECTS[domain]) & covered
+        far_pool = set(OBJECTS[far_domain]) & covered
+        if len(near_pool) < 4 or len(far_pool) < 4:
+            raise ValueError("%s: substrate does not cover enough query words"
+                             % item_id)
+        pool_words = _split_words(OBJECTS[domain], seed + "|near", near_pool)
+        far_words = _split_words(OBJECTS[far_domain], seed + "|far", far_pool)
 
         demo = pool_words["demo"][:17]
         pairs = [(demo[i], demo[i + 1]) for i in range(16)]
@@ -634,6 +968,22 @@ def build_items(n=N_FAMILIES, channel_override=None):
         if not evidence:
             evidence = fallback_channel_evidence({
                 "type_label": type_label, "taught_exemplars": taught})
+        # Declared input: the queried subjects' OWN substrate type assertions
+        # plus deterministic low-credibility conflicts. Both come from the
+        # substrate snapshot and are admitted by the source-provenance rule.
+        # No oracle field is read here.
+        provisional = {
+            "item_id": item_id,
+            "subject": near_subject,
+            "unseen_test_words": {
+                "near": {"subject": near_subject, "gold": near_gold},
+                "far": {"subject": far_subject, "gold": far_gold}},
+            "negative": {"subject": pool_words["neg_subject"],
+                         "counterexample_target": pool_words["neg_target"]},
+            "channel_evidence": evidence,
+        }
+        admitted, misleading = subject_channel_facts(provisional, substrate)
+        evidence = admitted + misleading + list(evidence)
 
         items.append({
             "item_id": item_id,
@@ -769,8 +1119,21 @@ def validate_items(items):
                     k not in f or f.get(k) in (None, "") for k in REQUIRED_FACT_KEYS):
                 errors.append("%s channel fact lacks provenance" % iid)
                 break
-        if set(answer_key_tokens(it)) & {str(f.get("subject", "")) for f in ev}:
+        if set(forbidden_channel_subjects(it)) & {
+                str(f.get("subject", "")).strip().lower() for f in ev}:
             errors.append("%s channel evidence names answer key" % iid)
+        # The declared TRA-K input: each query subject's OWN substrate type
+        # assertion must be present and admissible. Missing = item defect.
+        for cond, subj in (("near", it["unseen_test_words"]["near"]["subject"]),
+                           ("far", it["unseen_test_words"]["far"]["subject"]),
+                           ("negative", it["negative"]["subject"])):
+            fact = admitted_subject_fact(it, subj)
+            if fact is None or not substrate_provenance_ok(fact):
+                errors.append("%s %s lacks admitted substrate subject fact"
+                              % (iid, cond))
+        if len({str(f.get("object", "")).strip() for f in ev
+                if admitted_channel_fact(f, it)}) < 2:
+            errors.append("%s channel has no conflicting type label" % iid)
         # --- typed option space (channel labels, never TRA domain words) ---
         tq = it.get("typed_queries")
         if not isinstance(tq, dict) or set(tq) != set(TYPED_CONDITIONS):

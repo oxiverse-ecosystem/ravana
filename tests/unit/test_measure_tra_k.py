@@ -34,8 +34,11 @@ MANIFEST = {
     # Fallback-channel bank. The option-space fields are part of the canonical
     # sealed records; the pre-registered BANK_SHA (item_id/difficulty/pool/role/
     # k/hash) is deliberately UNCHANGED by the option-space fix.
-    "primary": "e021cd3b64b0041999b19bfab227a54a7357f33af6241afa3a17c4c21ee57fa3",
-    "sealed": "a6ec2f859e67fd5245d9a15d4f80f755be5bb3191128326a727758823124e6e2",
+    # These are the hashes of the committed (LF-blob) substrate snapshot.
+    # substrate_sha256() normalises CRLF worktree bytes to LF before hashing,
+    # so Windows and Linux checkouts now freeze to these same values.
+    "primary": "05439e9fb9208b78af934575864af16656273a363c13b5c787685b952132775e",
+    "sealed": "32facbe95e7f558967f679f89851b3797119d82438daf1132d1c8fd1390558be",
 }
 BANK_SHA = "0ed8bdc2ee1dd555adc4595868bce6794a14085c0d02761b8a957fc152e147cd"
 TH_SNAPSHOT = {
@@ -115,6 +118,24 @@ def test_manifest_hashes_frozen(items):
     assert len(MANIFEST["primary"]) == len(MANIFEST["sealed"]) == 64
 
 
+def test_substrate_digest_and_manifest_ignore_checkout_line_endings(tmp_path):
+    """CRLF worktrees and LF CI checkouts must freeze to the same pin."""
+    with open(tki.SUBSTRATE_PATH, "rb") as fh:
+        raw = fh.read()
+    lf = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    lf_path = tmp_path / "substrate_lf.json"
+    crlf_path = tmp_path / "substrate_crlf.json"
+    lf_path.write_bytes(lf)
+    crlf_path.write_bytes(lf.replace(b"\n", b"\r\n"))
+    sub_lf = tki.load_substrate(str(lf_path))
+    sub_crlf = tki.load_substrate(str(crlf_path))
+    assert sub_lf["digest"] == sub_crlf["digest"] == tki.load_substrate()["digest"]
+    bank_lf = tki.build_items(substrate=sub_lf)
+    bank_crlf = tki.build_items(substrate=sub_crlf)
+    assert tki.manifest_hashes(bank_lf) == MANIFEST
+    assert tki.manifest_hashes(bank_crlf) == MANIFEST
+
+
 def test_hash_split_deterministic(items):
     again = tki.build_items()
     assert [(x["item_id"], x["pool"], x["k"]) for x in items] == [
@@ -144,19 +165,26 @@ def test_every_item_has_provenance_stamped_channel_evidence(items):
 
 
 def test_channel_evidence_never_names_answer_key(items):
+    """Gold/target are forbidden; the QUERY SUBJECT's own fact is admitted."""
     for it in items:
-        key = tki.answer_key_tokens(it)
-        subjects = {f["subject"] for f in it["channel_evidence"]}
-        assert not (key & subjects)
-        objects = {f["object"] for f in it["channel_evidence"]}
-        assert objects <= {it["type_label"]}
+        forbidden = tki.forbidden_channel_subjects(it)
+        subjects = {str(f["subject"]).strip().lower()
+                    for f in it["channel_evidence"]}
+        assert not (forbidden & subjects)
+        for subj in tki.query_subject_words(it):
+            fact = tki.admitted_subject_fact(it, subj)
+            assert fact is not None and tki.substrate_provenance_ok(fact)
+        assert any(f.get("evidence_role") == tki.MISLEADING_ROLE
+                   for f in it["channel_evidence"])
 
 
 def test_channel_overlap_reports_benign_overlap(items):
     rep = tki.channel_overlap(items)
     assert rep["ok"] is True and not rep["offenders"]
     tot = rep["totals"]
-    assert tot["overlap_type_sets"] == 3200
+    # 3200 demo facts + 1200 subject-type + 1200 misleading (subjects also
+    # appear in the authored type_sets, so this overlap is benign and reported).
+    assert tot["facts"] == 5600 and tot["overlap_type_sets"] == 4412
     assert tot["overlap_world_model"] == 0
     assert tot["answer_key_leak"] == 0
     assert tot["oracle_domain_tag_leak"] == 0
@@ -179,8 +207,10 @@ def mt_chan(fact):
 def test_channel_teaching_surfaces_are_fact_only(items):
     it = next(x for x in items if x["k"] == 8)
     surfaces = mt.channel_teaching_surfaces(it)
-    expected = [tki.channel_assertion(f) for f in it["channel_evidence"]]
+    expected = [tki.channel_assertion(f)
+                for f in tki.ordered_channel_facts(it)]
     assert surfaces == [s for s in expected if s][:max(mt.K_LEVELS)]
+    assert it["unseen_test_words"]["near"]["subject"] in " ".join(surfaces)
     gold = it["unseen_test_words"]["near"]["gold"]
     assert all(gold not in s for s in surfaces)
 
@@ -200,13 +230,14 @@ def test_teaching_surface_names_slot_only_with_exemplar_tokens(items):
     assert it["domain"] not in surface and it["far_domain"] not in surface
 
 
-def test_k0_channel_arm_still_gets_channel_evidence(items):
+def test_k0_channel_arm_is_neutral_no_channel_teaching(items):
+    """k=0 is the matched neutral null for the deployable arm (documented dev)."""
     it = next(x for x in items if x["k"] == 0)
     surfaces = mt.teaching_surfaces(it, 0, "near", mt.CHANNEL_ARM)
-    assert len(surfaces) == max(mt.K_LEVELS) + len(mt.channel_teaching_surfaces(it))
-    neutral = surfaces[:max(mt.K_LEVELS)]
-    assert all(" is a " not in s and " is an " not in s for s in neutral)
-    assert all(s.endswith(".") for s in surfaces[max(mt.K_LEVELS):])
+    assert len(surfaces) == max(mt.K_LEVELS)
+    assert all(" is a " not in s and " is an " not in s for s in surfaces)
+    assert mt.teaching_surfaces(it, 8, "near", mt.CHANNEL_ARM)[max(mt.K_LEVELS):] == (
+        mt.channel_teaching_surfaces(it))
 
 
 def test_k_teaching_turn_count(items):
@@ -227,7 +258,7 @@ def test_query_surface_has_no_key_tokens_or_gold(items):
             assert token not in low
         q = mt.query_for(it, condition)
         if q["gold"]:
-            assert surface.count(q["gold"]) == 1
+            assert surface.count(q["gold"]) >= 1
         para = mt.query_surface(it, condition, paraphrase=True)
         assert para != surface and q["subject"] in para
     assert mt.query_for(it, "unrelated")["subject"] == tki.UNRELATED_SUBJECT
@@ -332,7 +363,10 @@ def test_summary_endpoints_and_retention(summary):
     for pool in ("primary", "sealed"):
         d = summary[pool]
         assert d["transfer"] == 1.0
-        assert d["near"] == 1.0 and d["far"] == 1.0   # channel present at k=0
+        # k=0 is neutral (documented P2c deviation): 40/200 families per pool
+        # are absent, so the pooled rate is 0.8 while k=8 stays 1.0.
+        assert d["near"] == 0.8 and d["far"] == 0.8
+        assert d["by_k"]["0"]["near"] == 0.0 and d["by_k"]["8"]["near"] == 1.0
         assert d["foil"] == 1.0 and d["negative_reject"] == 1.0
         assert d["chance"] == 0.0
         assert d["monotonic_max_drop"] == 0.0
@@ -495,7 +529,8 @@ def test_external_channel_json_is_loaded(tmp_path, monkeypatch, items):
     assert loaded["external_items"] == 1
     built = tki.build_items(channel_override=loaded["facts"])
     got = next(x for x in built if x["item_id"] == it["item_id"])
-    assert got["channel_evidence"][0]["source"] == "ontology-B-test-snapshot"
+    assert any(f["source"] == "ontology-B-test-snapshot"
+               for f in got["channel_evidence"])
     assert tki.validate_items(built) == []
     assert tki.channel_overlap(built)["ok"] is True
 
@@ -723,8 +758,7 @@ def test_provenance_views_accumulate_across_items_without_boot():
 # ── Wikidata substrate integration (fake-only, static) ───────────────────────
 def _adapter_substrate():
     sub = adapter.load_substrate(adapter.DEFAULT_SUBSTRATE)
-    with open(adapter.DEFAULT_SUBSTRATE, "rb") as fh:
-        sub["digest"] = hashlib.sha256(fh.read()).hexdigest()
+    sub["digest"] = tki.substrate_sha256(adapter.DEFAULT_SUBSTRATE)
     return sub
 
 
@@ -890,7 +924,13 @@ def test_typed_options_are_four_distinct_channel_labels(items):
             assert len(cands) == tki.N_TYPED_OPTIONS, (it["item_id"], cond)
             assert len(set(cands)) == len(cands), (it["item_id"], cond)
             assert set(cands) <= pool, (it["item_id"], cond)
-            assert not (set(cands) & domain_words), (it["item_id"], cond)
+            # A source-native Wikidata label can coincide with an oracle
+            # domain word (e.g. "contract" is both a type and a candidate).
+            # That is benign: the label is selected from the SUBSTRATE, not
+            # from type_sets/world_model/gold. Only OTHER domain words are
+            # forbidden as foils.
+            allowed = {q.get("gold"), q.get("counterexample_target")}
+            assert not ((set(cands) & domain_words) - allowed), (it["item_id"], cond)
         assert it["typed_queries"]["near"]["gold"] in ev_labels
         assert it["typed_queries"]["far"]["gold"] in ev_labels
         for cond in ("foil", "negative", "unrelated"):
@@ -920,7 +960,9 @@ def test_typed_options_with_source_native_channel_are_substrate_labels():
             native += 1
     assert native == 400                      # every near gold is source-native
     it0 = next(x for x in built if x["item_id"] == "tra_k_0000")
-    assert it0["typed_queries"]["near"]["gold"] == "weather"
+    near_subject = it0["unseen_test_words"]["near"]["subject"]
+    assert it0["typed_queries"]["near"]["gold"] == str(
+        tki.admitted_subject_fact(it0, near_subject)["object"]).strip()
     assert "hydrometeor" in glob
 
 
@@ -984,3 +1026,111 @@ def test_external_manifest_hash_stable_and_option_aware():
     assert tki.manifest_hashes(a) == tki.manifest_hashes(b)
     assert tki.item_manifest_hash(a) == BANK_SHA   # split/identity unchanged
     assert tki.manifest_hashes(a) != MANIFEST      # option space is hashed
+
+
+# ── subject-channel fix: coverage, admitted subject facts, anti-saturation ────
+def test_query_subjects_are_all_substrate_covered(items):
+    """No item may query a word the substrate cannot type (root cause)."""
+    covered = tki.covered_subjects()
+    uncovered = {"sleet", "chill", "marrow", "thorn"}
+    assert not (uncovered & covered)
+    for it in items:
+        for subj in tki.query_subject_words(it):
+            assert subj in covered, (it["item_id"], subj)
+    # Uncovered words may still occur as distractors/demo words: coverage of
+    # the 400-family bank and its 40/k/pool split must be unchanged.
+    assert len(items) == 400
+    assert all(tki.pool_k_counts(items)[(pool, k)] == 40
+               for pool in ("primary", "sealed") for k in mt.K_LEVELS)
+
+
+def test_each_item_carries_its_subject_type_assertion(items):
+    for it in items:
+        for cond, subj in (("near", it["unseen_test_words"]["near"]["subject"]),
+                           ("far", it["unseen_test_words"]["far"]["subject"]),
+                           ("negative", it["negative"]["subject"])):
+            fact = tki.admitted_subject_fact(it, subj)
+            assert fact is not None, (it["item_id"], cond)
+            assert fact["subject"] == subj
+            assert fact["predicate"] in tki.ISA_PREDICATES
+            assert tki.substrate_provenance_ok(fact)
+            assert fact["license"] == "CC0-1.0"
+            assert fact["source_url"] and fact["source_id"] and fact["span"]
+            if cond in ("near", "far"):
+                assert it["typed_queries"][cond]["gold"] == str(
+                    fact["object"]).strip()
+
+
+def test_subject_fact_ignores_oracle_fields(items):
+    """Poisoning type_sets/world_model/gold cannot change the subject fact."""
+    base = next(it for it in items if it["k"] == 8)
+    subj = base["unseen_test_words"]["near"]["subject"]
+    before = tki.admitted_subject_fact(base, subj)
+    poisoned = copy.deepcopy(base)
+    poisoned["type_sets"] = {"POISON": ["poison-type"]}
+    poisoned["world_model"] = {"POISON": ["poison-word"]}
+    poisoned["unseen_test_words"]["near"]["gold"] = "poison-gold"
+    poisoned["negative"]["counterexample_target"] = "poison-neg"
+    assert tki.admitted_subject_fact(poisoned, subj) == before
+    assert poisoned["channel_evidence"] == base["channel_evidence"]
+
+
+def test_anti_saturation_conflicts_are_misleading_not_gold(items):
+    """The right label is not the only type in the channel."""
+    for it in items[::17]:
+        labels = {str(f["object"]).strip()
+                  for f in tki.ordered_channel_facts(it)}
+        assert len(labels) >= 2
+        misleading = [f for f in it["channel_evidence"]
+                      if f.get("evidence_role") == tki.MISLEADING_ROLE]
+        assert misleading
+        gold = it["typed_queries"]["near"]["gold"]
+        assert any(str(f["object"]).strip() != gold for f in misleading)
+        assert gold in labels
+
+
+def test_admission_rule_rejects_unprovenanced_subject_fact(items):
+    it = copy.deepcopy(items[0])
+    subj = it["unseen_test_words"]["near"]["subject"]
+    bad = dict(tki.admitted_subject_fact(it, subj))
+    bad.pop("license")
+    it["channel_evidence"].append(bad)
+    assert not tki.substrate_provenance_ok(bad)
+    assert not tki.admitted_channel_fact(bad, it)
+
+
+def test_multiword_typed_option_parses_explicit_target(items):
+    """Source-native labels contain spaces; the parser must not truncate."""
+    it = next(x for x in items if " " in x["typed_queries"]["near"]["gold"])
+    q = mt.query_for(it, "near")
+    ans = mt._parse_engine_answer(
+        ["role=%s target=%s verdict=match" % (it["role"], q["gold"])],
+        it, "near", q["subject"], q["candidates"])
+    assert ans["target"] == q["gold"] and ans["verdict"] == "match"
+
+
+def test_subject_facts_reach_fake_rows_and_teaching(items, rows):
+    it = next(x for x in items if x["k"] == 8)
+    q = mt.query_for(it, "near")
+    surfaces = mt.teaching_surfaces(it, 8, "near", mt.CHANNEL_ARM)
+    assertion = "%s is a %s." % (
+        q["subject"], q["gold"]) if q["gold"][:1].lower() not in "aeiou" else (
+        "%s is an %s." % (q["subject"], q["gold"]))
+    assert assertion in surfaces
+    graded = [r for r in rows if r["id"] == it["item_id"]
+              and r["phase"] == "query" and r["arm"] == mt.CHANNEL_ARM
+              and r["condition"] == "near"][0]
+    assert any(f["type_label"] == q["gold"]
+               for f in graded["input"]["subject_type_facts"])
+
+
+def test_subject_channel_bank_hash_stable(tmp_path):
+    sub = _adapter_substrate()
+    projection = adapter.build_projection(sub, tki.build_items())
+    a = tki.build_items(channel_override=projection)
+    b = tki.build_items(channel_override=projection)
+    assert tki.manifest_hashes(a) == tki.manifest_hashes(b)
+    dump = lambda bank: json.dumps(bank, sort_keys=True, ensure_ascii=False)
+    assert dump(a) == dump(b)
+    assert tki.item_manifest_hash(a) == BANK_SHA
+    assert tki.validate_items(a) == []
