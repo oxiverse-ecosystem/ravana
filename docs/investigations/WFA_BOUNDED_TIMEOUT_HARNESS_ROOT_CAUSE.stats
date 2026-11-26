@@ -1,0 +1,121 @@
+WATCHDOG dumped at 180.0s
+counts={'inc_exc': 116, 'inv': 57, 'fc': 57, 'boot': 0, 'turn': 0}
+
+         208432148 function calls (201808510 primitive calls) in 179.996 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1929 to 70 due to restriction <70>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.002    0.002  180.007  180.007 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\scripts\measure_learn5_wfa.py:2299(main)
+        1    0.003    0.003  179.626  179.626 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\scripts\measure_learn5_wfa.py:1488(run_pd_arms)
+      230    0.002    0.000  179.622    0.781 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\scratch\profile_bounded_timeout.py:34(wrapped)
+      287    0.022    0.000  179.351    0.625 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine.py:8187(process_turn)
+      287    0.362    0.001  177.872    0.620 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine.py:8404(_process_turn_impl)
+      116    0.003    0.000   84.928    0.732 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\scripts\measure_learn5_wfa.py:1292(__call__)
+   390670    2.473    0.000   83.681    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
+    79892    0.589    0.000   79.561    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
+   154665    0.210    0.000   71.548    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
+      488   18.993    0.039   65.437    0.134 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+       57    0.001    0.000   64.410    1.130 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\scripts\measure_learn5_wfa.py:1367(__call__)
+    79893    0.430    0.000   43.145    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:963(parse)
+281735/79893    2.755    0.000   42.368    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
+1129069/84797   15.791    0.000   41.849    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
+    79892    0.196    0.000   35.336    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:590(_code)
+1566787/79893   14.867    0.000   30.988    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
+       57    0.001    0.000   30.279    0.531 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\scripts\measure_learn5_wfa.py:1335(__call__)
+      114    0.001    0.000   30.261    0.265 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\scripts\measure_learn5_wfa.py:1327(_ask)
+  3073760    3.972    0.000   28.345    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:2245(clip)
+  3073934    4.388    0.000   24.376    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:48(_wrapfunc)
+      156    5.793    0.037   21.600    0.138 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\core\system1.py:17(settle)
+  3071731    6.131    0.000   19.394    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:38(_wrapit)
+      108    4.641    0.043   19.190    0.178 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\core\coherence.py:57(settle)
+       18    0.007    0.000   12.651    0.703 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine_generation.py:1214(_sleep_consolidate)
+      156    0.019    0.000   11.863    0.076 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\user_model.py:6629(observe_user_query)
+  3071575    1.921    0.000   10.764    0.000 {method 'clip' of 'numpy.ndarray' objects}
+      565    0.159    0.000   10.468    0.019 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine.py:3369(_structured_recall)
+ 16929973    7.036    0.000   10.319    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:168(__getitem__)
+   173211    9.606    0.000    9.606    0.000 {method 'search' of 're.Pattern' objects}
+  3073760    8.860    0.000    8.860    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\_methods.py:96(_clip)
+      326    0.003    0.000    8.782    0.027 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\junk_scorer.py:477(record_label)
+     1872    0.008    0.000    8.758    0.005 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\junk_scorer.py:153(wordnet_grounding)
+      2/1    0.000    0.000    8.543    8.543 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\util.py:117(__getattr__)
+      2/1    0.000    0.000    8.543    8.543 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\util.py:69(__load)
+        1    0.000    0.000    8.517    8.517 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1157(__init__)
+    31442    0.043    0.000    7.143    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:280(finditer)
+     8243    0.007    0.000    6.709    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:287(compile)
+ 31515002    6.404    0.000    6.404    0.000 {method 'append' of 'list' objects}
+1630406/154391    4.224    0.000    5.218    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:178(getwidth)
+  7225380    2.998    0.000    5.102    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:261(get)
+        1    0.040    0.040    5.009    5.009 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1286(map_wn)
+        1    0.203    0.203    4.969    4.969 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1260(map_to_one)
+        1    0.730    0.730    4.752    4.752 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1246(map_to_many)
+    17641    0.029    0.000    4.744    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:164(match)
+      169    0.026    0.000    4.662    0.028 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine_memory.py:2617(_try_memory_query)
+17548164/15830825    3.722    0.000    4.351    0.000 {built-in method builtins.len}
+    79893    0.454    0.000    4.130    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:525(_compile_info)
+  6686063    2.524    0.000    4.003    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:176(append)
+        2    0.991    0.496    3.904    1.952 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1228(index_sense)
+ 19267516    3.814    0.000    3.817    0.000 {built-in method builtins.isinstance}
+   593493    0.245    0.000    3.591    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1551(__next__)
+   335180    2.602    0.000    3.367    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:248(_optimize_charset)
+   593493    0.275    0.000    3.346    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1543(next)
+   134265    0.130    0.000    3.286    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:183(sub)
+      156    0.010    0.000    3.223    0.021 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\user_model.py:6824(_detect_correction)
+        1    1.257    1.257    3.095    3.095 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1411(_load_lemma_pos_offset_map)
+   593725    1.413    0.000    3.078    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1472(readline)
+       18    0.000    0.000    2.792    0.155 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana-v2\src\ravana_grace\core\sleep.py:1791(run_cycle)
+       18    0.037    0.002    2.792    0.155 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana-v2\src\ravana_grace\core\sleep.py:274(execute_sleep_cycle)
+589338/18    1.728    0.000    2.749    0.153 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana-v2\src\ravana_grace\core\sleep.py:106(_safe_deepcopy)
+      166    0.007    0.000    2.705    0.016 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine_self_query.py:1680(_route_self_query)
+  8562388    2.655    0.000    2.655    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:240(__next)
+      210    0.020    0.000    2.628    0.013 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\response_gen.py:5462(_detect_emotional_disclosure)
+      156    0.003    0.000    2.555    0.016 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\user_model.py:6899(_extract_correction_fact)
+ 1313/230    0.083    0.000    2.120    0.009 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine.py:2859(_ingest_episodic)
+    74389    0.066    0.000    2.042    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:98(closegroup)
+      483    0.012    0.000    1.862    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\engine_reasoning.py:2006(_is_self_disclosure_stmt)
+      488    0.019    0.000    1.854    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\user_model.py:6211(mine_stance_reversal)
+8220008/8199235    1.629    0.000    1.821    0.000 {built-in method builtins.getattr}
+      154    0.005    0.000    1.747    0.011 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\response_gen.py:2452(_handle_chitchat)
+
+
+
+===== by tottime =====
+         208432148 function calls (201808510 primitive calls) in 179.996 seconds
+
+   Ordered by: internal time
+   List reduced from 1929 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      488   18.993    0.039   65.437    0.134 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+1129069/84797   15.791    0.000   41.849    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
+1566787/79893   14.867    0.000   30.988    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
+   173211    9.606    0.000    9.606    0.000 {method 'search' of 're.Pattern' objects}
+  3073760    8.860    0.000    8.860    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\_methods.py:96(_clip)
+ 16929973    7.036    0.000   10.319    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:168(__getitem__)
+ 31515002    6.404    0.000    6.404    0.000 {method 'append' of 'list' objects}
+  3071731    6.131    0.000   19.394    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:38(_wrapit)
+      156    5.793    0.037   21.600    0.138 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\core\system1.py:17(settle)
+      108    4.641    0.043   19.190    0.178 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana\src\ravana\core\coherence.py:57(settle)
+  3073934    4.388    0.000   24.376    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:48(_wrapfunc)
+1630406/154391    4.224    0.000    5.218    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:178(getwidth)
+  3073760    3.972    0.000   28.345    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:2245(clip)
+ 19267516    3.814    0.000    3.817    0.000 {built-in method builtins.isinstance}
+17548164/15830825    3.722    0.000    4.351    0.000 {built-in method builtins.len}
+  7225380    2.998    0.000    5.102    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:261(get)
+281735/79893    2.755    0.000   42.368    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
+  8562388    2.655    0.000    2.655    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:240(__next)
+   335180    2.602    0.000    3.367    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:248(_optimize_charset)
+  6686063    2.524    0.000    4.003    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:176(append)
+   390670    2.473    0.000   83.681    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
+  3071575    1.921    0.000   10.764    0.000 {method 'clip' of 'numpy.ndarray' objects}
+589338/18    1.728    0.000    2.749    0.153 C:\Users\Likhith\Documents\projects\ravana_wfa_profile\ravana-v2\src\ravana_grace\core\sleep.py:106(_safe_deepcopy)
+8220008/8199235    1.629    0.000    1.821    0.000 {built-in method builtins.getattr}
+   150582    1.475    0.000    1.490    0.000 {method 'sub' of 're.Pattern' objects}
+   593725    1.413    0.000    3.078    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1472(readline)
+        1    1.257    1.257    3.095    3.095 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1411(_load_lemma_pos_offset_map)
+  3043260    1.102    0.000    1.629    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:164(__len__)
+  5820882    1.051    0.000    1.051    0.000 {built-in method builtins.ord}
+        2    0.991    0.496    3.904    1.952 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1228(index_sense)
+
+
