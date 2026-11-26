@@ -31,6 +31,24 @@ present in this item's own channel facts and three deterministic foils from
 other channel facts (same domain first). Overlap with the oracle fields is
 REPORTED and any deployable path that uses them is a HARD FAIL (control C15).
 
+SUBJECT-TYPE INPUT AND k=0 (this fix)
+-------------------------------------
+The benchmark input defect (a query subject absent from its channel) is fixed
+in ``tra_k_items.py``: query subjects are substrate-covered and each item
+carries the subject's own source-native type assertion plus low-credibility
+conflicts, admitted by the documented source-provenance rule. The harness
+never reads ``type_sets``/``world_model``/gold to build or rank channel facts;
+those fields are consulted only by the negative answer-key filter that
+FORBIDS a channel fact from naming them.
+
+DEVIATION from the earlier P2c implementation (documented, not a threshold
+change): channel teaching is now given at k>=1 only. At k=0 the deployable
+arm receives the same 8 matched NEUTRAL turns as the cold baseline, so k=0 is
+a true null; the spec's "P2c in the same k calls" implies zero teaching at
+k=0. Our previous code taught channel facts even at k=0, which made the
+k=0 point a second copy of the k>=1 arm and flattened the learning curve.
+All C1-C15 thresholds and the G6/M-A/M-B controls are unchanged.
+
 Controls C1-C13 are copied unchanged from TRA (thresholds frozen). C14
 (subject independence) and C15 (channel independence) are the two new gates.
 C11 is a CAPABILITY gate: the fake arm MUST fail it; it is evaluated on the
@@ -185,9 +203,9 @@ _NEUTRAL = ("what do you know about %s?",
 
 
 def channel_teaching_surfaces(item):
-    """P2c: assertions built ONLY from provenance-stamped channel facts."""
+    """P2c: assertions from ADMITTED provenance-stamped channel facts only."""
     out = []
-    for fact in item.get("channel_evidence", []):
+    for fact in tra_k_items.ordered_channel_facts(item):
         surface = tra_k_items.channel_assertion(fact)
         if surface and surface not in out:
             out.append(surface)
@@ -203,7 +221,7 @@ def channel_negation_surfaces(item):
     source-native type labels; no oracle field contributes a token.
     """
     out = []
-    for fact in item.get("channel_evidence", []):
+    for fact in tra_k_items.ordered_channel_facts(item):
         surface = tra_k_items.channel_negation_assertion(fact)
         if surface and surface not in out:
             out.append(surface)
@@ -213,10 +231,10 @@ def channel_negation_surfaces(item):
 
 
 def teaching_surfaces(item, k, condition, arm, permuted=False):
-    """P2 (+ P2c for the channel arm). k=0 -> 8 matched neutral turns.
+    """P2 (+ P2c for k>=1). k=0 -> 8 matched neutral turns, NO channel teaching.
 
-    P2c is present at EVERY k including 0: that is the benchmark's claim -- the
-    independent channel, not eight sparse exemplars, supplies the type signal.
+    The k=0 point is the matched-exposure null: even the deployable channel
+    arm receives only neutral turns there. Channel assertions enter at k>=1.
     """
     if k == 0:
         subject = query_for(item, condition)["subject"]
@@ -237,7 +255,7 @@ def teaching_surfaces(item, k, condition, arm, permuted=False):
             article = "an" if label[:1].lower() in "aeiou" else "a"
             p2 = ["%s is %s %s." % (ex["r2"], article, label)
                   for ex in exemplars]
-    if arm == CHANNEL_ARM:
+    if arm == CHANNEL_ARM and k >= 1:
         # Negative control: the channel's own type labels are taught WITH
         # negation, matching the reject-only foil/negative option space.
         if condition == "negative":
@@ -269,9 +287,14 @@ def _parse_engine_answer(responses, item, condition, subject, candidates):
     m = re.search(r"\brole\s*[:=]\s*([a-z_-]+)", low)
     if m and m.group(1).upper() in ROLE_KEYS:
         role = m.group(1).upper()
-    m = re.search(r"\btarget\s*[:=]\s*([a-z0-9_-]+)", low)
-    if m and m.group(1) in cand_lower:
-        target = cand_lower[m.group(1)]
+    # Source-native type labels are multi-word (e.g. "cloud cover"). Capture
+    # the whole explicit target up to the verdict token instead of a single
+    # word, otherwise a shorter foil that prefixes the gold wins the parse.
+    m = re.search(r"\btarget\s*[:=]\s*(.+?)(?=\s+verdict\s*[:=]|\s*$)", low)
+    if m:
+        token = m.group(1).strip(" .!?,")
+        if token in cand_lower:
+            target = cand_lower[token]
     m = re.search(r"\bverdict\s*[:=]\s*([a-z_]+)", low)
     if m and m.group(1) in ("match", "reject", "no_answer"):
         verdict = m.group(1)
@@ -286,7 +309,9 @@ def _parse_engine_answer(responses, item, condition, subject, candidates):
                 role = rname
                 break
     if target is None:
-        for c in candidates:
+        # Longest first: a multi-word gold must not be shadowed by a foil that
+        # is its own prefix (source-native labels contain spaces).
+        for c in sorted(candidates, key=lambda x: -len(str(x))):
             if re.search(r"\b" + re.escape(c.lower()) + r"\b", ev_low):
                 target = c
                 break
@@ -397,9 +422,12 @@ def _fake_correct(arm, condition, k, permuted=False, phase="query"):
     P1 ``baseline`` is COLD -- no channel evidence has been taught yet, so
     every arm must be absent there (otherwise growth is a tautological 0).
 
-    CHANNEL arm: the independent channel is taught at every k (including 0),
-    so near/far are correct at all k and the k-curve is flat -- saturation is
-    expected and handled by G6 + M-A/M-B, not by a threshold change.
+    CHANNEL arm: the independent channel is taught at k>=1 only. At k=0 the
+    arm is the matched neutral null, so near/far are absent there and the
+    k-curve grows from 0 -> 1. Reject probes (foil/negative/unrelated) stay
+    correct at k=0 because declining is the right answer before teaching.
+    Saturation at the interior k levels is handled by G6 + M-A/M-B, not by a
+    threshold change.
     OSTENSIVE arm: positive control A, known to saturate at k>=1.
     Controls naive/chance/counterexample stay wrong on their target cells.
     """
@@ -407,8 +435,9 @@ def _fake_correct(arm, condition, k, permuted=False, phase="query"):
     if phase == "baseline":
         return False                               # cold: nothing taught yet
     if arm in (CHANNEL_ARM, "permuted"):
-        # Reversing demonstration order does not affect an independent channel.
-        return True                                # channel rejects / classifies
+        # Reversing demo order does not affect an independent channel; both
+        # arms share the k=0 neutral null and the k>=1 channel teaching.
+        return True if reject_cond else k >= 1
     if arm == OSTENSIVE_ARM:
         return True if reject_cond else k >= 1
     if arm == "naive":
@@ -627,7 +656,13 @@ def run_item(item, k, condition, arm, phase, backend, permuted=False,
                   "teaching_turns": len(surfaces),
                   "teaching_surfaces": surfaces if not is_engine else [],
                   "channel_facts": len(item.get("channel_evidence", [])),
-                  "channel_sources": source_names},
+                  "channel_sources": source_names,
+                  "subject_type_facts": [
+                      {"subject": str(f.get("subject", "")),
+                       "type_label": str(f.get("object", "")),
+                       "source": str(f.get("source", ""))}
+                      for f in tra_k_items.ordered_channel_facts(item)
+                      if f.get("evidence_role") == tra_k_items.SUBJECT_TYPE_ROLE]},
         "output": answer,
         "gold": {"role": item["role"], "target": q["gold"],
                  "should_reject": condition in ("foil", "negative", "unrelated")},
@@ -782,11 +817,11 @@ def summarize(items, rows):
         p["baseline"] = _rate(base)
         p["growth"] = (round((p["immediate"] or 0) - (p["baseline"] or 0), 4)
                        if p["immediate"] is not None else None)
-        # k=0 NULL CONTROL: on the ostensive arm (A), eight neutral turns are
-        # indistinguishable from a cold baseline. The CHANNEL arm is NOT a
-        # null at k=0 -- channel evidence is present by design and is exactly
-        # the capability under test -- so comparing it to baseline here would
-        # score the benchmark's own claim as a confound.
+        # k=0 NULL CONTROL: eight matched neutral turns are indistinguishable
+        # from a cold baseline on the ostensive arm AND on the deployable
+        # channel arm (channel teaching now starts at k>=1). Comparing either
+        # to baseline therefore scores a genuine null, not the benchmark's
+        # own claim.
         k0 = _rows(rows, pool=pool, arm=OSTENSIVE_ARM, condition="near", k=0)
         k0_rate = _rate(k0)
         p["k0_minus_baseline"] = (round(abs(k0_rate - p["baseline"]), 4)
