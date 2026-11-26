@@ -1,0 +1,10 @@
+verdict: POSITIVE
+instrument: {"channel_facts_total": 44986, "channel_overlap_ok": true, "channel_overlap_totals": {"answer_key_leak": 0, "facts": 47386, "oracle_domain_tag_leak": 0, "overlap_type_sets": 7796, "overlap_world_model": 0, "provenance_missing": 0}, "families": 400, "substrate_covered_words": 140, "substrate_facts": 980, "validate_errors": 0}
+anti_leakage_ast: True []
+  DIRECT   emit=800/800 (100.00%) correct=800 precision=1.0 foil=400 neg=400 unrel=400 disjoint=400
+  BRIDGE   emit=176/800 (22.00%) correct=176 precision=1.0 foil=400 neg=400 unrel=400 disjoint=400
+  DEMO     emit=194/800 (24.25%) correct= 10 precision=0.0515 foil=313 neg=400 unrel=400 disjoint=400
+  SUBJECT  emit=800/800 (100.00%) correct=800 precision=1.0 foil=400 neg=400 unrel=400 disjoint=400
+controls: {"information_audit": {"gold_is_subject_external_label": 800, "queries": 800}, "permutation": {"emit": 7, "emit_collapse_pct": 96.02, "n": 800}}
+g6: FLAG ['tra_k_bridge_precision_pct', 'tra_k_direct_coverage_pct', 'tra_k_bridge_negative_reject_pct']
+wrote C:\Users\Likhith\Documents\projects\ravana_type_bridge\scratch\ontology_type_bridge_results.json
