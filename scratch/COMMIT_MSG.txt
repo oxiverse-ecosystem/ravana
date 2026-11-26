@@ -1,0 +1,25 @@
+invest(scratch): profile WFA stall after PR #549 activation-index fix
+
+Re-ran the SAME three WFA turns from PR #549 on fixed main (c537d21) in a
+fresh worktree, cProfile sorted by cumulative, same frozen patches/store.
+
+The activation fix worked: forced-choice turn 13.596s -> 3.978s, with
+_activate_from_input 4 calls / 10.1019s -> 4 calls / 0.1149s (88x). It did
+not clear the stall. The NEW dominant hotspot is causal-edge extraction:
+_extract_and_store_causal_relations 2.2267s (56% of turn), with 135,291
+_create_causal_edge calls, 4,352 add_edge / ConceptEdge.__init__ calls, and
+4,352 _init_relation_vector calls costing 1.6183s (41% of turn) inside a
+numpy randn/normalise leaf of 0.6382s.
+
+_init_relation_vector is pure in (relation_type, dim), so a scratch
+monkeypatch that memoises the template and returns a fresh copy is
+output-identical: 104 exact functional pairs, copy isolation, candidate
+exercised exactly 4,352 times, and zero diffs in responses, grounding,
+2,276 nodes, 22,658 edges, 24,420 beliefs, 8 activations and every edge
+relation-vector hash. Forced-choice turn 2.353s -> 1.021s (2.3x); isolated
+function 258x. A 12-turn accumulation probe confirms identical graph growth
+and no new compounding.
+
+SCRATCH ONLY: no production file, gate or threshold changed. No production PR.
+Recommendation: memoise with per-edge copies; triage the 135k URL-token
+_create_causal_edge calls separately because filtering them changes outputs.

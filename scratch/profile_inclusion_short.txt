@@ -1,61 +1,61 @@
-turn=inclusion_short prompt_len=220 wall=0.623s
+turn=inclusion_short prompt_len=220 wall=0.844s
 prompt='Answer freely. Endorse any claim you recognise or that feels familiar, and name the source if you recall one. Familiarity alone is enough to say yes.\nClaim: Frost creates in much the same manner as dew creates.\nDecision:'
 
-         869615 function calls (833423 primitive calls) in 0.622 seconds
+         869934 function calls (833741 primitive calls) in 0.844 seconds
 
    Ordered by: cumulative time
-   List reduced from 639 to 50 due to restriction <50>
+   List reduced from 649 to 50 due to restriction <50>
 
    ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-        1    0.001    0.001    0.622    0.622 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:8187(process_turn)
-        1    0.002    0.002    0.605    0.605 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:8404(_process_turn_impl)
-      773    0.011    0.000    0.523    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
-      385    0.003    0.000    0.505    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
-        1    0.004    0.004    0.401    0.401 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
-      339    0.001    0.000    0.371    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
-      385    0.002    0.000    0.260    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:963(parse)
- 1516/385    0.017    0.000    0.256    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
- 7045/410    0.099    0.000    0.253    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
-      385    0.001    0.000    0.239    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:590(_code)
- 9384/385    0.101    0.000    0.209    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
-    99298    0.044    0.000    0.064    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:168(__getitem__)
-       65    0.000    0.000    0.063    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:280(finditer)
-     10/8    0.000    0.000    0.046    0.006 <frozen importlib._bootstrap>:1360(_find_and_load)
-        1    0.000    0.000    0.046    0.046 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_memory.py:2617(_try_memory_query)
-     10/8    0.000    0.000    0.045    0.006 <frozen importlib._bootstrap>:1308(_find_and_load_unlocked)
-       20    0.000    0.000    0.043    0.002 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:287(compile)
-      8/7    0.000    0.000    0.039    0.006 <frozen importlib._bootstrap>:914(_load_unlocked)
-   187291    0.039    0.000    0.039    0.000 {method 'append' of 'list' objects}
-      8/7    0.000    0.000    0.038    0.005 <frozen importlib._bootstrap_external>:757(exec_module)
-    42461    0.019    0.000    0.031    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:261(get)
- 9701/710    0.025    0.000    0.031    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:178(getwidth)
-        1    0.000    0.000    0.031    0.031 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_memory.py:481(_record_episode)
-      385    0.002    0.000    0.030    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:525(_compile_info)
-    18/15    0.000    0.000    0.029    0.002 <frozen importlib._bootstrap>:483(_call_with_frames_removed)
-     18/7    0.005    0.000    0.025    0.004 {built-in method builtins.exec}
+        1    0.001    0.001    0.844    0.844 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:8187(process_turn)
+        1    0.002    0.002    0.801    0.801 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:8404(_process_turn_impl)
+      773    0.011    0.000    0.542    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
+      385    0.003    0.000    0.524    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
+        1    0.005    0.005    0.498    0.498 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+      339    0.001    0.000    0.369    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
+      385    0.002    0.000    0.267    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:963(parse)
+ 1516/385    0.017    0.000    0.263    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
+ 7045/410    0.100    0.000    0.260    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
+      385    0.001    0.000    0.251    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:590(_code)
+ 9384/385    0.106    0.000    0.219    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
+     10/8    0.000    0.000    0.215    0.027 <frozen importlib._bootstrap>:1360(_find_and_load)
+     10/8    0.000    0.000    0.214    0.027 <frozen importlib._bootstrap>:1308(_find_and_load_unlocked)
+      8/7    0.000    0.000    0.208    0.030 <frozen importlib._bootstrap>:914(_load_unlocked)
+      8/7    0.000    0.000    0.208    0.030 <frozen importlib._bootstrap_external>:757(exec_module)
+        8    0.000    0.000    0.184    0.023 <frozen importlib._bootstrap_external>:830(get_code)
+       16    0.000    0.000    0.128    0.008 <frozen importlib._bootstrap_external>:951(get_data)
+       16    0.126    0.008    0.126    0.008 {built-in method _io.open_code}
+    26/22    0.000    0.000    0.085    0.004 <frozen importlib._bootstrap>:483(_call_with_frames_removed)
+        1    0.000    0.000    0.075    0.075 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_memory.py:2617(_try_memory_query)
+       65    0.000    0.000    0.074    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:280(finditer)
+    99298    0.047    0.000    0.068    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:168(__getitem__)
+       20    0.000    0.000    0.061    0.003 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:287(compile)
+        1    0.000    0.000    0.057    0.057 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:13052(_run_retrieval_practice)
+        1    0.000    0.000    0.057    0.057 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:12999(_get_knowledge_intake)
+        1    0.000    0.000    0.052    0.052 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:5878(_mine_evaluative_predicate)
+        1    0.000    0.000    0.050    0.050 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_reasoning.py:2006(_is_self_disclosure_stmt)
+     18/7    0.005    0.000    0.043    0.006 {built-in method builtins.exec}
+        1    0.000    0.000    0.043    0.043 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_web_search.py:1855(_router_says)
+        1    0.000    0.000    0.043    0.043 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_web_search.py:1835(_route_intent)
+   187291    0.040    0.000    0.040    0.000 {method 'append' of 'list' objects}
+        8    0.000    0.000    0.040    0.005 <frozen importlib._bootstrap_external>:822(source_to_code)
+        8    0.040    0.005    0.040    0.005 {built-in method builtins.compile}
+        1    0.000    0.000    0.039    0.039 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\agent\decision_gate.py:323(decide_tool_use)
+        1    0.000    0.000    0.038    0.038 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine.py:12627(_record_dialogue_turn)
+        1    0.000    0.000    0.038    0.038 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\learn\dialogue_memory.py:330(record_turn)
+        3    0.037    0.012    0.037    0.012 {method 'execute' of 'sqlite3.Connection' objects}
+ 9701/710    0.027    0.000    0.033    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:178(getwidth)
+    42461    0.019    0.000    0.032    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:261(get)
+      385    0.003    0.000    0.032    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:525(_compile_info)
+        1    0.000    0.000    0.030    0.030 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\intent_router.py:472(classify)
+        1    0.000    0.000    0.027    0.027 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\engine_memory.py:481(_record_episode)
+83725/73391    0.021    0.000    0.025    0.000 {built-in method builtins.len}
+    39133    0.016    0.000    0.025    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:176(append)
+        1    0.000    0.000    0.025    0.025 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\learn\intake.py:1(<module>)
+        1    0.000    0.000    0.025    0.025 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:2406(_mine_derivation)
+        1    0.000    0.000    0.025    0.025 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\intent_router.py:160(_reference_features)
      1831    0.019    0.000    0.024    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:248(_optimize_charset)
-    39133    0.016    0.000    0.024    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:176(append)
-        1    0.000    0.000    0.024    0.024 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_generation.py:2029(_ground_query)
-83749/73415    0.020    0.000    0.024    0.000 {built-in method builtins.len}
-        1    0.000    0.000    0.024    0.024 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_reasoning.py:2006(_is_self_disclosure_stmt)
-       46    0.000    0.000    0.023    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:164(match)
-      144    0.000    0.000    0.021    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:183(sub)
-   104901    0.021    0.000    0.021    0.000 {built-in method builtins.isinstance}
-        1    0.000    0.000    0.016    0.016 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_web_search.py:1855(_router_says)
-        1    0.000    0.000    0.016    0.016 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine_web_search.py:1835(_route_intent)
-    50858    0.016    0.000    0.016    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:240(__next)
-        1    0.000    0.000    0.016    0.016 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:5878(_mine_evaluative_predicate)
-      6/1    0.001    0.000    0.016    0.016 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:2859(_ingest_episodic)
-        1    0.000    0.000    0.015    0.015 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\user_model.py:6211(mine_stance_reversal)
-        8    0.000    0.000    0.015    0.002 <frozen importlib._bootstrap_external>:830(get_code)
-        1    0.000    0.000    0.015    0.015 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\intent_router.py:472(classify)
-        1    0.000    0.000    0.012    0.012 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:13052(_run_retrieval_practice)
-        1    0.000    0.000    0.012    0.012 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\engine.py:12999(_get_knowledge_intake)
-        8    0.000    0.000    0.011    0.001 <frozen importlib._bootstrap_external>:951(get_data)
-        1    0.000    0.000    0.011    0.011 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\agent\decision_gate.py:323(decide_tool_use)
-       10    0.000    0.000    0.011    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\dataclasses.py:1423(dataclass)
-       10    0.000    0.000    0.011    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\dataclasses.py:1440(wrap)
-       10    0.001    0.000    0.011    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\dataclasses.py:986(_process_class)
-        1    0.000    0.000    0.011    0.011 C:\Users\Likhith\Documents\projects\ravana_wfa_gqprof\ravana\src\ravana\chat\harm_intent_gate.py:290(check)
+   104901    0.022    0.000    0.022    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.022    0.022 C:\Users\Likhith\Documents\projects\ravana_wfa_restall\ravana\src\ravana\chat\user_model.py:7133(_opinion_topic)
 
 

@@ -1,0 +1,85 @@
+{
+  "functional": {
+    "pairs_checked": 104,
+    "failures": [],
+    "copy_isolation_ok": "True"
+  },
+  "microbench": {
+    "original": {
+      "median_s": 1.20797,
+      "reps": 3,
+      "calls": 4352
+    },
+    "cached": {
+      "median_s": 0.00468,
+      "reps": 3,
+      "calls": 4352
+    },
+    "speedup": 258.11
+  },
+  "baseline": {
+    "boot": 2.432,
+    "turns": [
+      {
+        "name": "inclusion_short",
+        "wall": 0.1998,
+        "prompt_len": 220,
+        "grounding": null
+      },
+      {
+        "name": "exclusion_long_context",
+        "wall": 0.2225,
+        "prompt_len": 2349,
+        "grounding": null
+      },
+      {
+        "name": "forced_choice_provenance",
+        "wall": 2.3526,
+        "prompt_len": 2388,
+        "grounding": "multi_word_unconnected"
+      }
+    ],
+    "response_sha256": [
+      "3489bade55f4ee8ab4ea1470f176f0bafd75214b90f4276aba92fd55d4c21805",
+      "1106cd76bbb345a4420dec8b9ca3d54b2b53070ee7a6bab77a6b9b4560665da4",
+      "2c1601e77c3c52a556a98249741a1adbb3d7bff5c592c6e6fb260254ef101115"
+    ]
+  },
+  "candidate": {
+    "boot": 2.723,
+    "cached_vec_calls": 4352,
+    "turns": [
+      {
+        "name": "inclusion_short",
+        "wall": 0.0547,
+        "prompt_len": 220,
+        "grounding": null
+      },
+      {
+        "name": "exclusion_long_context",
+        "wall": 0.1725,
+        "prompt_len": 2349,
+        "grounding": null
+      },
+      {
+        "name": "forced_choice_provenance",
+        "wall": 1.0214,
+        "prompt_len": 2388,
+        "grounding": "multi_word_unconnected"
+      }
+    ],
+    "response_sha256": [
+      "3489bade55f4ee8ab4ea1470f176f0bafd75214b90f4276aba92fd55d4c21805",
+      "1106cd76bbb345a4420dec8b9ca3d54b2b53070ee7a6bab77a6b9b4560665da4",
+      "2c1601e77c3c52a556a98249741a1adbb3d7bff5c592c6e6fb260254ef101115"
+    ]
+  },
+  "state_counts": {
+    "nodes": 2276,
+    "edges": 22658,
+    "beliefs": 24420,
+    "activations": 8
+  },
+  "diffs": [],
+  "identical_outputs": true
+}
