@@ -1,0 +1,241 @@
+{
+  "selection": {
+    "selected": "U1_unsat_accumulator",
+    "eligible": true,
+    "failed": [],
+    "G6_saturated": false,
+    "implementation_rule": "default-off flag permitted"
+  },
+  "candidates": {
+    "T0_production_text": {
+      "fc_explicit": 0.0,
+      "pd_unparseable": 1.0,
+      "pd": {
+        "primary": {
+          "I": null,
+          "E": null,
+          "R": null,
+          "F": null,
+          "exclusion_margin": null,
+          "withdrawal_rate": null,
+          "E_credible": null
+        },
+        "sealed": {
+          "I": null,
+          "E": null,
+          "R": null,
+          "F": null,
+          "exclusion_margin": null,
+          "withdrawal_rate": null,
+          "E_credible": null
+        }
+      },
+      "eligibility": {
+        "M1": false,
+        "M2": false,
+        "M3": false,
+        "M4": true,
+        "M5": true,
+        "M6": false,
+        "M7": true,
+        "M8": true,
+        "M9": true,
+        "M10": false,
+        "M11": false,
+        "M12": false,
+        "M13_text_only_falsifier": true,
+        "G6_saturated": false,
+        "eligible": false
+      }
+    },
+    "U1_unsat_accumulator": {
+      "fc_explicit": 1.0,
+      "pd_unparseable": 0.0,
+      "pd": {
+        "primary": {
+          "I": 1.0,
+          "E": 0.2,
+          "R": 0.8,
+          "F": 1.0,
+          "exclusion_margin": 0.8,
+          "withdrawal_rate": 0.8769,
+          "E_credible": 1.0
+        },
+        "sealed": {
+          "I": 1.0,
+          "E": 0.1,
+          "R": 0.9,
+          "F": 1.0,
+          "exclusion_margin": 0.9,
+          "withdrawal_rate": 0.8209,
+          "E_credible": 1.0
+        }
+      },
+      "eligibility": {
+        "M1": true,
+        "M2": true,
+        "M3": true,
+        "M4": true,
+        "M5": true,
+        "M6": true,
+        "M7": true,
+        "M8": true,
+        "M9": true,
+        "M10": true,
+        "M11": true,
+        "M12": false,
+        "M13_text_only_falsifier": true,
+        "G6_saturated": false,
+        "eligible": true,
+        "M12_zero_noise_prediction_confirmed": true
+      }
+    },
+    "U2_zero_noise_G6_control": {
+      "fc_explicit": 1.0,
+      "pd_unparseable": 0.0,
+      "pd": {
+        "primary": {
+          "I": 1.0,
+          "E": 0.0,
+          "R": 1.0,
+          "F": null,
+          "exclusion_margin": 1.0,
+          "withdrawal_rate": 1.0,
+          "E_credible": 1.0
+        },
+        "sealed": {
+          "I": 1.0,
+          "E": 0.0,
+          "R": 1.0,
+          "F": null,
+          "exclusion_margin": 1.0,
+          "withdrawal_rate": 1.0,
+          "E_credible": 1.0
+        }
+      },
+      "eligibility": {
+        "M1": true,
+        "M2": false,
+        "M3": true,
+        "M4": true,
+        "M5": true,
+        "M6": true,
+        "M7": true,
+        "M8": true,
+        "M9": true,
+        "M10": false,
+        "M11": false,
+        "M12": true,
+        "M13_text_only_falsifier": false,
+        "G6_saturated": true,
+        "eligible": false
+      }
+    },
+    "U4_ungraded_confidence_control": {
+      "fc_explicit": 1.0,
+      "pd_unparseable": 0.0,
+      "pd": {
+        "primary": {
+          "I": 1.0,
+          "E": 0.6,
+          "R": 0.4,
+          "F": 1.0,
+          "exclusion_margin": 0.4,
+          "withdrawal_rate": 0.4923,
+          "E_credible": 1.0
+        },
+        "sealed": {
+          "I": 1.0,
+          "E": 0.5333,
+          "R": 0.4667,
+          "F": 1.0,
+          "exclusion_margin": 0.4667,
+          "withdrawal_rate": 0.4179,
+          "E_credible": 1.0
+        }
+      },
+      "eligibility": {
+        "M1": true,
+        "M2": false,
+        "M3": false,
+        "M4": true,
+        "M5": true,
+        "M6": true,
+        "M7": true,
+        "M8": true,
+        "M9": true,
+        "M10": false,
+        "M11": false,
+        "M12": false,
+        "M13_text_only_falsifier": false,
+        "G6_saturated": false,
+        "eligible": false
+      }
+    },
+    "T3_text_only_falsifier": {
+      "fc_explicit": 0.0,
+      "pd_unparseable": 1.0,
+      "pd": {
+        "primary": {
+          "I": null,
+          "E": null,
+          "R": null,
+          "F": null,
+          "exclusion_margin": null,
+          "withdrawal_rate": null,
+          "E_credible": null
+        },
+        "sealed": {
+          "I": null,
+          "E": null,
+          "R": null,
+          "F": null,
+          "exclusion_margin": null,
+          "withdrawal_rate": null,
+          "E_credible": null
+        }
+      },
+      "eligibility": {
+        "M1": false,
+        "M2": false,
+        "M3": false,
+        "M4": true,
+        "M5": true,
+        "M6": false,
+        "M7": true,
+        "M8": true,
+        "M9": true,
+        "M10": false,
+        "M11": false,
+        "M12": false,
+        "M13_text_only_falsifier": true,
+        "G6_saturated": false,
+        "eligible": false
+      }
+    }
+  },
+  "graded": {
+    "0.1": {
+      "withdrawal_rate": 0.5385,
+      "analytic_phi": 0.5398
+    },
+    "0.3": {
+      "withdrawal_rate": 0.6308,
+      "analytic_phi": 0.6179
+    },
+    "0.5": {
+      "withdrawal_rate": 0.7692,
+      "analytic_phi": 0.6915
+    },
+    "0.7": {
+      "withdrawal_rate": 0.8462,
+      "analytic_phi": 0.758
+    },
+    "0.9": {
+      "withdrawal_rate": 0.8769,
+      "analytic_phi": 0.8159
+    },
+    "pass": true
+  }
+}
+SELECTION: {'selected': 'U1_unsat_accumulator', 'eligible': True, 'failed': [], 'G6_saturated': False, 'implementation_rule': 'default-off flag permitted'}
