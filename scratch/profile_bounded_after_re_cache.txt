@@ -1,0 +1,84 @@
+rc=0
+         18625562 function calls (18534564 primitive calls) in 16.990 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1927 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.005    0.005   16.993   16.993 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:2299(main)
+       24    0.002    0.000   15.190    0.633 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\engine.py:8187(process_turn)
+       24    0.031    0.001   15.078    0.628 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\engine.py:8404(_process_turn_impl)
+        1    0.000    0.000   13.965   13.965 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:1488(run_pd_arms)
+        4    0.000    0.000   10.650    2.662 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:1367(__call__)
+        1    0.001    0.001    9.998    9.998 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\engine_generation.py:1214(_sleep_consolidate)
+        7    0.000    0.000    9.918    1.417 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\junk_scorer.py:477(record_label)
+        7    0.000    0.000    9.916    1.417 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\junk_scorer.py:153(wordnet_grounding)
+      2/1    0.000    0.000    9.840    9.840 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\util.py:117(__getattr__)
+      2/1    0.000    0.000    9.840    9.840 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\util.py:69(__load)
+        1    0.000    0.000    9.823    9.823 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1157(__init__)
+        1    0.050    0.050    6.118    6.118 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1286(map_wn)
+        1    0.259    0.259    6.067    6.067 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1260(map_to_one)
+        1    1.008    1.008    5.792    5.792 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1246(map_to_many)
+        2    1.215    0.608    4.635    2.318 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1228(index_sense)
+   593493    0.270    0.000    4.041    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1551(__next__)
+   593493    0.308    0.000    3.771    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1543(next)
+   593535    1.565    0.000    3.464    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1472(readline)
+        1    1.402    1.402    3.333    3.333 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1411(_load_lemma_pos_offset_map)
+        8    0.000    0.000    2.977    0.372 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:1292(__call__)
+        1    0.000    0.000    2.353    2.353 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:2176(run_internal_source_arms)
+        6    0.000    0.000    2.353    0.392 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:2541(_run)
+       55    1.138    0.021    1.903    0.035 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+       17    0.440    0.026    1.705    0.100 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\core\system1.py:17(settle)
+        8    0.012    0.001    1.584    0.198 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\engine.py:912(__init__)
+        6    0.000    0.000    1.271    0.212 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:2058(run_internal_source_condition)
+   160003    0.174    0.000    1.260    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:2245(clip)
+        8    0.000    0.000    1.243    0.155 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:2050(_is_process_turn)
+   160021    0.194    0.000    1.086    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:48(_wrapfunc)
+    15949    0.013    0.000    1.041    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
+   318226    0.385    0.000    0.938    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1723(_read)
+   159862    0.276    0.000    0.866    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:38(_wrapit)
+  1429885    0.711    0.000    0.711    0.000 {method 'split' of 'str' objects}
+    42421    0.060    0.000    0.683    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
+    17967    0.599    0.000    0.599    0.000 {method 'search' of 're.Pattern' objects}
+       17    0.002    0.000    0.598    0.035 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\user_model.py:6629(observe_user_query)
+      747    0.005    0.000    0.592    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
+  1440656    0.380    0.000    0.579    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1421(_next_token)
+        2    0.000    0.000    0.503    0.251 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\scripts\measure_learn5_wfa.py:2392(_boot_pd_engine)
+2902306/2883626    0.492    0.000    0.498    0.000 {built-in method builtins.len}
+
+
+
+===== tottime =====
+         18625562 function calls (18534564 primitive calls) in 16.990 seconds
+
+   Ordered by: internal time
+   List reduced from 1927 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   593535    1.565    0.000    3.464    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1472(readline)
+        1    1.402    1.402    3.333    3.333 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1411(_load_lemma_pos_offset_map)
+        2    1.215    0.608    4.635    2.318 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1228(index_sense)
+       55    1.138    0.021    1.903    0.035 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+        1    1.008    1.008    5.792    5.792 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1246(map_to_many)
+  1429885    0.711    0.000    0.711    0.000 {method 'split' of 'str' objects}
+    17967    0.599    0.000    0.599    0.000 {method 'search' of 're.Pattern' objects}
+2902306/2883626    0.492    0.000    0.498    0.000 {built-in method builtins.len}
+       17    0.440    0.026    1.705    0.100 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana\src\ravana\core\system1.py:17(settle)
+   160003    0.393    0.000    0.393    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\_methods.py:96(_clip)
+   318226    0.385    0.000    0.938    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1723(_read)
+  1440656    0.380    0.000    0.579    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1421(_next_token)
+   593493    0.308    0.000    3.771    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1543(next)
+   159862    0.276    0.000    0.866    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:38(_wrapit)
+   593493    0.270    0.000    4.041    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\data.py:1551(__next__)
+        1    0.259    0.259    6.067    6.067 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\nltk\corpus\reader\wordnet.py:1260(map_to_one)
+       88    0.209    0.002    0.289    0.003 C:\Users\Likhith\Documents\projects\ravana_wfa_perf\ravana_ml\src\ravana_ml\nn\module.py:145(__init__)
+   331339    0.204    0.000    0.204    0.000 {method 'splitlines' of 'str' objects}
+  1442174    0.200    0.000    0.200    0.000 {built-in method builtins.next}
+   160021    0.194    0.000    1.086    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:48(_wrapfunc)
+   160003    0.174    0.000    1.260    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:2245(clip)
+   593521    0.172    0.000    0.172    0.000 {method 'pop' of 'list' objects}
+   318268    0.160    0.000    0.160    0.000 {built-in method _codecs.utf_8_decode}
+   625937    0.159    0.000    0.159    0.000 {method 'strip' of 'str' objects}
+     1483    0.155    0.000    0.160    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\_ufunc_config.py:496(inner)
+
+

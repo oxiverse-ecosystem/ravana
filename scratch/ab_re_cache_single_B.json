@@ -1,0 +1,29 @@
+{
+  "arm": "B_big_re_cache",
+  "big_cache": true,
+  "boot_s": 0.181,
+  "turns_s": 9.4,
+  "re_lookups": 683,
+  "real_compiles": 734,
+  "answers": [
+    "i don't think you've told me much about yourself yet \u2014 but i'm listening whenever you want to share.",
+    "honestly, discredited is a bit outside what i know right now i'd love to hear your take first.",
+    "mm-hmm, what were you going to say?",
+    "i said: honestly, discredited is a bit outside what i know right now i'd love to hear your take first.",
+    "i don't really have a solid grasp on decision so far what do you think about it.",
+    "mm-hmm, what were you going to say?",
+    "i don't think you've told me much about yourself yet \u2014 but i'm listening whenever you want to share.",
+    "honestly, Only is a bit outside what i know right now what's your sense of it.",
+    "mm-hmm, what were you going to say?",
+    "i said: honestly, Only is a bit outside what i know right now what's your sense of it.",
+    "if feel were different, the chain would go \u2014 possibly: Feel would be made of something unexpected; tides and impacts would feel very different.",
+    "mm-hmm, what were you going to say?",
+    "i said: if feel were different, the chain would go \u2014 possibly: Feel would be made of something unexpected; tides and impacts would feel very different.",
+    "honestly, decision is a bit outside what i know right now what made you wonder about that.",
+    "mm-hmm, what were you going to say?",
+    "i said: honestly, Only is a bit outside what i know right now what's your sense of it.",
+    "hmm, i'm not totally sure about Only yet, and that's okay what do you make of it.",
+    "mm-hmm, what were you going to say?"
+  ],
+  "state_sha256": "fcb77afc101e86bed814096a6b2fe3a5b1d00577276dc25576ee0a87158ba1c0"
+}

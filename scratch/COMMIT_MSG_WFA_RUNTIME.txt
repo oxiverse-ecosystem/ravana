@@ -1,0 +1,32 @@
+invest(scratch): A/B the remaining WFA runtime hotspots
+
+Re-profile after PR #549/#550/#552 on current main (51eee3e). The reported
+re._compile hotspot (83.7 s / 390,670 lookups in the 180 s watchdog run) is
+stdlib pattern-cache thrashing: CPython 3.14 keeps only 512 patterns, while
+mine_personal_facts reuses large static miner regexes every turn.
+
+Scratch driver sets re._MAXCACHE = re._MAXCACHE2 = 8192 before the unmodified
+harness runs. Focused 18-turn fresh-process A/B: 7,505 -> 734 real compiles
+(-90.2%), 11.73 s -> 9.40 s, byte-identical answers and state digest.
+Bounded WFA (84 items, no GloVe cache): 23.3 s/10,111 compiles -> 8.9 s/747,
+byte-identical probes and logs (summary differs only in its own elapsed_s).
+A/A repeat gives 16.2 s/10,094 compiles with identical output; two-arm
+same-process runs are invalid controls (arm ORDER changes 8 replies), so the
+A/B uses one arm per fresh process.
+
+Second, separate candidate memoises the immutable 400k-vector GloVe boot
+payload across sequential engine boots (key = npz path/size/mtime + dim),
+with fresh per-engine mutable dicts. With the parent's gitignored GloVe cache
+copied into the worktree: A 18.4 s -> re-only 16.2 s -> re+GloVe memo 9.3 s,
+all with the same probe-file SHA; 300-word vector digest equal across 6 boots.
+
+After-fix profile: re._compile 0.683 s, mine_personal_facts 1.903 s,
+numpy.clip 1.260 s in the bounded run; WordNet load and repeated boots now
+dominate. Full-bank re-only run (no GloVe cache) completed in 475.9 s with the
+unchanged FAIL; full bank WITH GloVe + both patches exceeded the 600 s cap in
+the PD arm. No Phase 0 verdict is claimed. No production file, gate,
+threshold, item, prompt, scoring rule or store was changed.
+
+Recommendation: land the re cache enlargement at harness startup; keep the
+GloVe memo as a separate default-OFF flag with the vector-digest control; do
+not touch numpy.clip or gates on this evidence.
