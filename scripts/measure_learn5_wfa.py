@@ -81,6 +81,15 @@ import re
 import sys
 import time
 
+# CPython 3.14's 512/256-entry regex caches are too small for WFA's repeated
+# long prompts: measured 390k re._compile calls in a 180s profile. Enlarging
+# the cache changes eviction only -- compiled pattern objects and their
+# semantics are identical (boot-free A/B: byte-identical replies and state).
+if hasattr(re, "_MAXCACHE"):
+    re._MAXCACHE = 8192
+if hasattr(re, "_MAXCACHE2"):
+    re._MAXCACHE2 = 8192
+
 PROJ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _HERE = os.path.dirname(os.path.abspath(__file__))
 for _p in (_HERE, PROJ, os.path.join(PROJ, "ravana", "src")):
