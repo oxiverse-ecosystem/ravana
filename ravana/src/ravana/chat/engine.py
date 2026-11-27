@@ -8185,6 +8185,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             return decision.token
         return response
 
+    def _apply_unsat_articulation_hook(self, response, ctx, user_input):
+        """Default-OFF graded-confidence articulation (RAVANA_WFA_UNSAT_ARTIC=1).
+
+        Runs immediately after the deterministic source monitor so it can add a
+        graded confidence readout without touching that monitor's decision or
+        any gate. Defers when the flag is off, no structured context is staged,
+        the instruction carries no source-decision mode, or the response is
+        already a bare decision token. Never raises into the turn.
+        """
+        try:
+            from . import wfa_unsat_articulation as ua
+            out, _audit = ua.apply_at_emission(response, ctx, user_input)
+            return out
+        except Exception:
+            return response
+
     def _apply_trusted_edge_choice(self, response: str, user_input: str) -> str:
         """Emission-boundary forced-choice hook (default OFF, stateless).
 
@@ -8343,6 +8359,13 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             _src_gate = getattr(self, "_apply_source_monitoring_gate", None)
             if _src_gate is not None:
                 response = _src_gate(response, getattr(self, "_source_gate_ctx", None))
+            # Optional unsaturating articulation (RAVANA_WFA_UNSAT_ARTIC=1).
+            # Defensive getattr keeps older duck-typed fakes byte-identical;
+            # with the flag off this method returns the response unchanged.
+            _unsat_hook = getattr(self, "_apply_unsat_articulation_hook", None)
+            if callable(_unsat_hook):
+                response = _unsat_hook(response, getattr(self, "_source_gate_ctx", None),
+                                       user_input)
         finally:
             # Consume the staged context for exactly ONE turn: no cross-turn
             # leakage even if generation raised.
