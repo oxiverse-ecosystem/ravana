@@ -1,0 +1,23 @@
+inputs identical to HEAD: True
+AST: True [] bank errors: 0
+cases 800 graded 125 primary 70 sealed 55 frozen theta 0.2667
+struct all {'n': 125, 'emit': 40, 'correct': 28, 'precision': 0.7, 'coverage': 0.32} primary {'n': 70, 'emit': 20, 'correct': 13, 'precision': 0.65, 'coverage': 0.2857} sealed {'n': 55, 'emit': 20, 'correct': 15, 'precision': 0.75, 'coverage': 0.3636}
+demo all {'n': 125, 'emit': 26, 'correct': 10, 'precision': 0.3846, 'coverage': 0.208} primary {'n': 70, 'emit': 13, 'correct': 6, 'precision': 0.4615, 'coverage': 0.1857} sealed {'n': 55, 'emit': 13, 'correct': 4, 'precision': 0.3077, 'coverage': 0.2364}
+controls: {"ast_anti_leakage": {"ok": true, "problems": []}, "bank_validate_errors": 0, "candidate_order_picks_changed": 0, "gold_key_permutation": {"accuracy_after": 0.1, "accuracy_before": 0.7, "all_keys_changed": true, "picks_identical": true}, "inputs_identical_to_head": true, "legacy_disjoint_emits_DIAGNOSTIC_ONLY": 6, "negated_teaching_emits": 0, "oov_disjoint_emits": 0, "subject_permutation": {"emits": 40, "picks_changed": 38, "rate": 0.95, "required": ">= 0.80"}, "unrelated_subject_emits": 0}
+primary/sealed delta 0.1
+G6: PASS no front in the saturated band
+hand-check:
+  tra_k_0012 blizzard text= severe snowstorm characterized by strong sustained winds and scores= {'breeze': 0.1667, 'sunset': 0.25, 'shower': 0.1429, 'squall': 0.1667} theta= 0.2417 pick= sunset key= breeze WRONG
+  tra_k_0027 ellipse text= type of curve on a plane  a type of conic section scores= {'vertex': 0.0667, 'square': 0.1667, 'circle': 0.5, 'sphere': 0.1429} theta= 0.35 pick= circle key= circle OK
+  tra_k_0030 ellipse text= type of curve on a plane  a type of conic section scores= {'sphere': 0.1429, 'circle': 0.5, 'radius': 0.125, 'square': 0.1667} theta= 0.325 pick= circle key= circle OK
+  tra_k_0040 diameter text= straight line segment that passes through the center of a ci scores= {'quadrant': 0.0909, 'radius': 0.3333, 'triangle': 0.2, 'slope': 0.125} theta= 0.2667 pick= radius key= radius OK
+  tra_k_0053 vine text= plant with a growth habit of trailing or scandent  that is   scores= {'herb': 0.3333, 'moss': 0.1429, 'blossom': 0.0909, 'bud': 0.0909} theta= 0.227 pick= herb key= herb OK
+  tra_k_0063 grain text= small  hard  dry seed used as food  may be ground into flour scores= {'stem': 0.1667, 'foliage': 0.1667, 'fruit': 0.3333, 'bud': 0.1667} theta= 0.2548 pick= fruit key= fruit OK
+  tra_k_0086 blizzard text= severe snowstorm characterized by strong sustained winds and scores= {'thunder': 0.0833, 'monsoon': 0.1667, 'drizzle': 0.1429, 'tempest': 0.25} theta= 0.2458 pick= tempest key= thunder WRONG
+  tra_k_0088 storm text= any disturbed state of an astronomical body s atmosphere scores= {'chill': 0.125, 'sleet': 0.2, 'cloud': 0.3333, 'frost': 0.2} theta= 0.2667 pick= cloud key= cloud OK
+  tra_k_0091 storm text= any disturbed state of an astronomical body s atmosphere scores= {'dew': 0.25, 'climate': 0.1667, 'cloud': 0.3333, 'overcast': 0.2} theta= 0.2429 pick= cloud key= cloud OK
+  tra_k_0095 storm text= any disturbed state of an astronomical body s atmosphere scores= {'cloud': 0.3333, 'sleet': 0.2, 'chill': 0.125, 'frost': 0.2} theta= 0.2429 pick= cloud key= cloud OK
+  tra_k_0124 leaf text= main organ of photosynthesis and transpiration in higher pla scores= {'vine': 0.1, 'fern': 0.0909, 'stem': 0.3333, 'bark': 0.1667} theta= 0.2667 pick= stem key= bark WRONG
+  tra_k_0130 tree text= perennial woody plant scores= {'shrub': 0.3333, 'petal': 0.0769, 'blossom': 0.1, 'foliage': 0.0909} theta= 0.2833 pick= shrub key= shrub OK
+VERDICT: POSITIVE
+results: C:\Users\Likhith\Documents\projects\ravana_struct_transfer\scratch\lexical_superordinate_v2_results.json
