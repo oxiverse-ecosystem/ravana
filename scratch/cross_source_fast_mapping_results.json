@@ -1,0 +1,425 @@
+{
+  "arms": {
+    "demo": {
+      "all": {
+        "correct": 15,
+        "coverage": 0.168,
+        "emit": 21,
+        "n": 125,
+        "precision": 0.7143
+      },
+      "primary": {
+        "correct": 8,
+        "coverage": 0.2,
+        "emit": 14,
+        "n": 70,
+        "precision": 0.5714
+      }
+    },
+    "text": {
+      "all": {
+        "correct": 10,
+        "coverage": 0.104,
+        "emit": 13,
+        "n": 125,
+        "precision": 0.7692
+      },
+      "primary": {
+        "correct": 3,
+        "coverage": 0.0571,
+        "emit": 4,
+        "n": 70,
+        "precision": 0.75
+      }
+    }
+  },
+  "controls": {
+    "ast_anti_leakage": {
+      "ok": true,
+      "problems": []
+    },
+    "bank_validate_errors": 0,
+    "disjoint_option_emits": 0,
+    "empty_subject_text_emits": 0,
+    "gold_key_permutation": {
+      "accuracy_after": 0.0769,
+      "accuracy_before": 0.7692,
+      "all_keys_changed": true,
+      "n": 125,
+      "pick_rows_identical": true
+    },
+    "negated_teaching_emits": 0,
+    "subject_text_permutation": {
+      "emits": 13,
+      "picks_changed": 12,
+      "rate": 0.9231,
+      "required": ">= 0.80"
+    }
+  },
+  "frozen_constants": {
+    "HASH_PREFIX": "RAVANA-LANG-FASTMAP-v1",
+    "MIN_CUE_SUPPORT": 2,
+    "MIN_DEMO_SUPPORT": 2,
+    "PERMUTE_OFFSET": 137,
+    "STOPWORDS": [
+      "a",
+      "about",
+      "also",
+      "an",
+      "and",
+      "another",
+      "any",
+      "are",
+      "as",
+      "at",
+      "be",
+      "been",
+      "being",
+      "by",
+      "can",
+      "class",
+      "could",
+      "did",
+      "do",
+      "does",
+      "each",
+      "for",
+      "from",
+      "had",
+      "has",
+      "have",
+      "he",
+      "her",
+      "his",
+      "i",
+      "in",
+      "into",
+      "is",
+      "it",
+      "its",
+      "kind",
+      "may",
+      "me",
+      "more",
+      "most",
+      "my",
+      "no",
+      "not",
+      "of",
+      "on",
+      "one",
+      "only",
+      "or",
+      "other",
+      "our",
+      "over",
+      "referring",
+      "refers",
+      "same",
+      "she",
+      "should",
+      "some",
+      "someone",
+      "something",
+      "such",
+      "term",
+      "than",
+      "that",
+      "the",
+      "their",
+      "them",
+      "then",
+      "there",
+      "these",
+      "they",
+      "this",
+      "those",
+      "to",
+      "two",
+      "type",
+      "under",
+      "used",
+      "very",
+      "was",
+      "we",
+      "were",
+      "which",
+      "who",
+      "whom",
+      "whose",
+      "will",
+      "with",
+      "would",
+      "you",
+      "your"
+    ]
+  },
+  "g6": {
+    "detail": "no front in the saturated band",
+    "flags": [],
+    "status": "PASS"
+  },
+  "handcheck": [
+    {
+      "candidates": [
+        "rainbow",
+        "tempest",
+        "monsoon",
+        "thunder"
+      ],
+      "correct": false,
+      "item_id": "tra_k_0017",
+      "key": "thunder",
+      "pick": "monsoon",
+      "subject": "blizzard",
+      "subject_text": "severe snowstorm characterized by strong sustained winds and low visibility  lasting for a prolonged period of time typically at least three or four hours",
+      "text_types": [
+        "extreme weather event",
+        "wind"
+      ]
+    },
+    {
+      "candidates": [
+        "plasma",
+        "vessel",
+        "cartilage",
+        "esophagus"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0034",
+      "key": "esophagus",
+      "pick": "esophagus",
+      "subject": "brain",
+      "subject_text": "organ that serves as the center of the nervous system in all vertebrate and most invertebrate animals",
+      "text_types": [
+        "accessory digestive gland",
+        "anatomical structure class type",
+        "animal organ",
+        "animal product",
+        "class of anatomical entity",
+        "glandular organ",
+        "lobular organ",
+        "nervous tissue",
+        "organ type",
+        "particular anatomical entity",
+        "segment of neural tree organ",
+        "urinary organ"
+      ]
+    },
+    {
+      "candidates": [
+        "moss",
+        "seed",
+        "tree",
+        "fern"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0120",
+      "key": "tree",
+      "pick": "tree",
+      "subject": "vine",
+      "subject_text": "plant with a growth habit of trailing or scandent  that is  climbing  stems or runners",
+      "text_types": [
+        "plant life form"
+      ]
+    },
+    {
+      "candidates": [
+        "stem",
+        "herb",
+        "seed",
+        "root"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0127",
+      "key": "seed",
+      "pick": "seed",
+      "subject": "leaf",
+      "subject_text": "main organ of photosynthesis and transpiration in higher plants  usually consisting of a flat green blade attached to the stem directly or by a stalk",
+      "text_types": [
+        "plant structure"
+      ]
+    },
+    {
+      "candidates": [
+        "shrub",
+        "petal",
+        "blossom",
+        "foliage"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0130",
+      "key": "shrub",
+      "pick": "shrub",
+      "subject": "tree",
+      "subject_text": "perennial woody plant",
+      "text_types": [
+        "plant life form"
+      ]
+    },
+    {
+      "candidates": [
+        "tree",
+        "leaf",
+        "root",
+        "fern"
+      ],
+      "correct": false,
+      "item_id": "tra_k_0133",
+      "key": "leaf",
+      "pick": "tree",
+      "subject": "bark",
+      "subject_text": "plant tissue outside the vascular cambium or the xylem  in older trees may be divided into dead outer bark and living inner bark  which consists of secondary phloem  external parenchymal tissue  located just below the epidermis of the stem",
+      "text_types": [
+        "developmental stage of plant",
+        "food plant",
+        "plant life form"
+      ]
+    },
+    {
+      "candidates": [
+        "leaf",
+        "stem",
+        "fern",
+        "vine"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0138",
+      "key": "leaf",
+      "pick": "leaf",
+      "subject": "branch",
+      "subject_text": "part of a tree  a shoot axis that develops from an axillary bud meristem or from equal divisions of a meristematic apical cell",
+      "text_types": [
+        "plant stem",
+        "plant structure",
+        "raw material"
+      ]
+    },
+    {
+      "candidates": [
+        "cartilage",
+        "esophagus",
+        "diaphragm",
+        "marrow"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0169",
+      "key": "esophagus",
+      "pick": "esophagus",
+      "subject": "heart",
+      "subject_text": "inner organ for the circulation of blood",
+      "text_types": [
+        "anatomical structure class type",
+        "animal organ",
+        "animal product",
+        "class of anatomical entity",
+        "organ type",
+        "particular anatomical entity"
+      ]
+    },
+    {
+      "candidates": [
+        "marrow",
+        "plasma",
+        "reflex",
+        "tendon"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0182",
+      "key": "tendon",
+      "pick": "tendon",
+      "subject": "bone",
+      "subject_text": "rigid organ that constitutes part of the endoskeleton of vertebrates",
+      "text_types": [
+        "animal organ",
+        "animal product",
+        "class of anatomical entity",
+        "organ type",
+        "particular anatomical entity",
+        "sensory organ",
+        "urinary organ"
+      ]
+    },
+    {
+      "candidates": [
+        "shrub",
+        "pollen",
+        "branch",
+        "sapling"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0267",
+      "key": "branch",
+      "pick": "branch",
+      "subject": "leaf",
+      "subject_text": "main organ of photosynthesis and transpiration in higher plants  usually consisting of a flat green blade attached to the stem directly or by a stalk",
+      "text_types": [
+        "plant structure"
+      ]
+    },
+    {
+      "candidates": [
+        "foliage",
+        "vine",
+        "sapling",
+        "blossom"
+      ],
+      "correct": true,
+      "item_id": "tra_k_0271",
+      "key": "foliage",
+      "pick": "foliage",
+      "subject": "leaf",
+      "subject_text": "main organ of photosynthesis and transpiration in higher plants  usually consisting of a flat green blade attached to the stem directly or by a stalk",
+      "text_types": [
+        "plant structure"
+      ]
+    },
+    {
+      "candidates": [
+        "stem",
+        "moss",
+        "leaf",
+        "tree"
+      ],
+      "correct": false,
+      "item_id": "tra_k_0280",
+      "key": "leaf",
+      "pick": "tree",
+      "subject": "bark",
+      "subject_text": "plant tissue outside the vascular cambium or the xylem  in older trees may be divided into dead outer bark and living inner bark  which consists of secondary phloem  external parenchymal tissue  located just below the epidermis of the stem",
+      "text_types": [
+        "developmental stage of plant",
+        "food plant",
+        "plant life form"
+      ]
+    }
+  ],
+  "hypothesis": "H_lang: subject-specific real-language evidence + demo-learned schema emits the type-sharing candidate above demo-only lookup",
+  "module_shas": {
+    "scratch/trak_substrate.json": {
+      "identical": true,
+      "main": "a24e2714b3ab077c05f03e894600bace822a8c9b1f2b2ad8d1d7226e1bd02de6",
+      "worktree": "a24e2714b3ab077c05f03e894600bace822a8c9b1f2b2ad8d1d7226e1bd02de6"
+    },
+    "scripts/front_gates.py": {
+      "identical": true,
+      "main": "e3e371301e65d49dbc2df7550388066744ec50548b6184d0b3ae86cefb3e3e1d",
+      "worktree": "e3e371301e65d49dbc2df7550388066744ec50548b6184d0b3ae86cefb3e3e1d"
+    },
+    "scripts/tra_k_items.py": {
+      "identical": true,
+      "main": "55a681826f5ede52bb05ab1cfcb0158eba2e67f18a7dc978588f8b1f8317a77a",
+      "worktree": "55a681826f5ede52bb05ab1cfcb0158eba2e67f18a7dc978588f8b1f8317a77a"
+    }
+  },
+  "n_cases": 800,
+  "n_graded": 125,
+  "n_primary": 70,
+  "scorer_sources": {
+    "cue_predict": "def cue_predict(text, cue_map):\n    \"\"\"Assimilate the subject's OWN language into the demo-learned schema.\"\"\"\n    counts = collections.Counter()\n    for w in content_words(text):\n        for ty, n in cue_map.get(w, {}).items():\n            counts[ty] += n\n    return frozenset(ty for ty, n in counts.items() if n >= MIN_CUE_SUPPORT)\n",
+    "learn_cue_map": "def learn_cue_map(demo_facts):\n    \"\"\"Word -> type counts from taught demonstrations (fast mapping schema).\"\"\"\n    mapping = collections.defaultdict(collections.Counter)\n    for text, taught_types in demo_facts:\n        words = content_words(text)\n        for w in words:\n            for ty in taught_types:\n                mapping[w][ty] += 1\n    return {w: dict(c) for w, c in mapping.items()}\n",
+    "pick": "def pick(predicted_types, candidate_types):\n    \"\"\"Emit the unique candidate whose admitted type matches; else abstain.\"\"\"\n    hits = [c for c, tys in candidate_types.items() if tys & predicted_types]\n    return hits[0] if len(hits) == 1 else None\n",
+    "schema_from_demos": "def schema_from_demos(demo_facts):\n    counts = collections.Counter()\n    for _text, taught_types in demo_facts:\n        for ty in taught_types:\n            counts[ty] += 1\n    return frozenset(ty for ty, n in counts.items() if n >= MIN_DEMO_SUPPORT)\n"
+  },
+  "verdict": "NEGATIVE / NO-GO"
+}
