@@ -1,0 +1,439 @@
+{
+ "bench": "tra",
+ "rows": 1120,
+ "items": [
+  "tra_0000",
+  "tra_0001",
+  "tra_0002",
+  "tra_0003",
+  "tra_0004",
+  "tra_0005",
+  "tra_0006",
+  "tra_0007",
+  "tra_0008",
+  "tra_0009",
+  "tra_0010",
+  "tra_0011",
+  "tra_0012",
+  "tra_0013",
+  "tra_0014",
+  "tra_0015",
+  "tra_0016",
+  "tra_0017",
+  "tra_0018",
+  "tra_0019",
+  "tra_0020",
+  "tra_0021",
+  "tra_0022",
+  "tra_0023",
+  "tra_0024",
+  "tra_0025",
+  "tra_0026",
+  "tra_0027",
+  "tra_0028",
+  "tra_0029",
+  "tra_0030",
+  "tra_0031",
+  "tra_0032",
+  "tra_0033",
+  "tra_0034",
+  "tra_0035",
+  "tra_0036",
+  "tra_0037",
+  "tra_0038",
+  "tra_0039"
+ ],
+ "max_per_pool": 20,
+ "store_hashes": {
+  "tra_0000": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0001": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0002": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0003": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0004": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0005": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0006": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0007": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0008": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0009": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0010": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0011": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0012": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0013": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0014": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0015": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0016": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0017": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0018": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0019": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0020": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0021": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0022": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0023": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0024": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0025": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0026": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0027": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0028": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0029": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0030": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0031": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0032": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0033": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0034": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0035": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0036": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0037": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0038": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "tra_0039": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+   "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+   "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+   "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  }
+ },
+ "api_calls": {
+  "boot": 80,
+  "intake": 2280,
+  "save": 40,
+  "cold_reload": 40,
+  "process_turn": 5170
+ },
+ "boot_count": 80,
+ "engine_graded": true,
+ "unparsed": 1086,
+ "api_error": null,
+ "seconds": 6630.3,
+ "summary": {
+  "primary": {
+   "transfer": 0.0,
+   "near": 0.0,
+   "far": 0.0,
+   "foil": 0.05,
+   "negative": 0.1,
+   "chance": 0.0,
+   "foil_reject": 0.05,
+   "negative_reject": 0.1,
+   "counterexample_reject": 0.05,
+   "monotonic_max_drop": 0.2,
+   "graded_max_drop": 0.0,
+   "role_coverage": 1.0
+  },
+  "sealed": {
+   "transfer": 0.0,
+   "near": 0.0,
+   "far": 0.0,
+   "foil": 0.05,
+   "negative": 0.1,
+   "chance": 0.0,
+   "foil_reject": 0.05,
+   "negative_reject": 0.1,
+   "counterexample_reject": 0.05,
+   "monotonic_max_drop": 0.25,
+   "graded_max_drop": 0.0,
+   "role_coverage": 1.0
+  }
+ },
+ "statistics": {
+  "primary": {
+   "near_correct": "0/20",
+   "near_wilson95": [
+    0.0,
+    0.1611
+   ],
+   "chance_correct": "0/20",
+   "transfer": 0.0,
+   "growth": 0
+  },
+  "sealed": {
+   "near_correct": "0/20",
+   "near_wilson95": [
+    0.0,
+    0.1611
+   ],
+   "chance_correct": "0/20",
+   "transfer": 0.0,
+   "growth": 0
+  }
+ },
+ "reachability": {
+  "calls": 0,
+  "emits": 0,
+  "forced_choice_turns": 0
+ },
+ "audit": []
+}
