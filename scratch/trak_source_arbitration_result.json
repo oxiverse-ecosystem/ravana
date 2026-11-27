@@ -1,0 +1,6664 @@
+{
+ "config": {
+  "base": "cd711c8",
+  "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arbitration",
+  "parent": "C:/Users/Likhith/Documents/projects/ravana",
+  "item_ids": [
+   "tra_k_0020",
+   "tra_k_0008",
+   "tra_k_0000",
+   "tra_k_0006"
+  ],
+  "channel": {
+   "path": "C:/Users/Likhith/Documents/projects/ravana_trak_arbitration/scratch/trak_channel_from_substrate.json",
+   "external": 400,
+   "error": null
+  },
+  "margins": {
+   "arbitration": 0.05,
+   "congruence_floor": 0.2,
+   "strict_margin": 0.1
+  },
+  "engine_booted": false,
+  "stores_written": false
+ },
+ "preflight": {
+  "pins": {
+   "scripts/measure_tra_k.py": {
+    "worktree": "03eb992163256a64d67d4a6d23eef9b275ca9f596c7c1bce492e42cd812a17a3",
+    "parent": "03eb992163256a64d67d4a6d23eef9b275ca9f596c7c1bce492e42cd812a17a3",
+    "match": true
+   },
+   "scripts/measure_learn5_rsi.py": {
+    "worktree": "c46daf09df71e916fa2adf3c9cf74605cad543518ec6f359ed3ce0278c3c0950",
+    "parent": "c46daf09df71e916fa2adf3c9cf74605cad543518ec6f359ed3ce0278c3c0950",
+    "match": true
+   },
+   "scripts/measure_tra.py": {
+    "worktree": "42540be3409f556d0c9bd405f62883f6ca45f3e227501e3964644fdc913e84c0",
+    "parent": "42540be3409f556d0c9bd405f62883f6ca45f3e227501e3964644fdc913e84c0",
+    "match": true
+   },
+   "scripts/front_gates.py": {
+    "worktree": "e3e371301e65d49dbc2df7550388066744ec50548b6184d0b3ae86cefb3e3e1d",
+    "parent": "e3e371301e65d49dbc2df7550388066744ec50548b6184d0b3ae86cefb3e3e1d",
+    "match": true
+   },
+   "scripts/tra_k_items.py": {
+    "worktree": "55a681826f5ede52bb05ab1cfcb0158eba2e67f18a7dc978588f8b1f8317a77a",
+    "parent": "55a681826f5ede52bb05ab1cfcb0158eba2e67f18a7dc978588f8b1f8317a77a",
+    "match": true
+   },
+   "data/subject_type_evidence/snapshot.json": {
+    "worktree": "4a058ab53df7443207f6031e858e4ebd60dcbe5b9036fcca50a996a59a76ec22",
+    "parent": "4a058ab53df7443207f6031e858e4ebd60dcbe5b9036fcca50a996a59a76ec22",
+    "match": true
+   },
+   "scratch/trak_channel_from_substrate.json": {
+    "worktree": "a2cb1317a2c666588982850f6720de7ab92832acbcf5ea93fb70acc6e6763a46",
+    "parent": "a2cb1317a2c666588982850f6720de7ab92832acbcf5ea93fb70acc6e6763a46",
+    "match": true
+   },
+   "scratch/m3_graded_probe.py": {
+    "worktree": "e5bc2aceec54245066d425660c738dfd07719f094285f19446b7c22cdf8abadb",
+    "parent": "e5bc2aceec54245066d425660c738dfd07719f094285f19446b7c22cdf8abadb",
+    "match": true
+   },
+   "ravana/src/ravana/chat/durable_provenance.py": {
+    "worktree": "876a0f2b9184b0841d6c567e9a1ba9d0ff221e463a7dde0569dca06c530e23b8",
+    "parent": "876a0f2b9184b0841d6c567e9a1ba9d0ff221e463a7dde0569dca06c530e23b8",
+    "match": true
+   },
+   "ravana/src/ravana/chat/source_evaluation.py": {
+    "worktree": "b7aca4c6891ca8ebb97b80d6aed7ba0bbd92d164733fdaca7f2d4e2447d0f5ba",
+    "parent": "b7aca4c6891ca8ebb97b80d6aed7ba0bbd92d164733fdaca7f2d4e2447d0f5ba",
+    "match": true
+   },
+   "ravana/src/ravana/chat/schema_induction.py": {
+    "worktree": "61780d61cebdea59a99fbb5200198dd214f965cc85c56992b5bbf3b68e6f0ad7",
+    "parent": "61780d61cebdea59a99fbb5200198dd214f965cc85c56992b5bbf3b68e6f0ad7",
+    "match": true
+   },
+   "ravana/src/ravana/learn/subject_type_evidence.py": {
+    "worktree": "0996dbd59929a3ecfd40938f0bb7786dca2da0527db9d33b6fac6ed7f7df55c1",
+    "parent": "0996dbd59929a3ecfd40938f0bb7786dca2da0527db9d33b6fac6ed7f7df55c1",
+    "match": true
+   },
+   "docs/investigations/M123_COMBINED_PREREG.md": {
+    "worktree": "84513f659d707ba4308867238fb9bf390d0833bffa7da1da9be11fdb20ea3536",
+    "parent": "84513f659d707ba4308867238fb9bf390d0833bffa7da1da9be11fdb20ea3536",
+    "match": true
+   }
+  },
+  "pins_ok": true,
+  "ast": {
+   "ok": true,
+   "problems": [],
+   "scanned": [
+    {
+     "function": "source_credibility",
+     "hits": []
+    },
+    {
+     "function": "slot_confidence",
+     "hits": []
+    },
+    {
+     "function": "alternative_confidence",
+     "hits": []
+    },
+    {
+     "function": "arbitrate",
+     "hits": []
+    },
+    {
+     "function": "self_loop_decision",
+     "hits": []
+    },
+    {
+     "function": "simulate_stream",
+     "hits": []
+    },
+    {
+     "function": "source_ordered_stream",
+     "hits": []
+    },
+    {
+     "function": "build_arm_views",
+     "hits": []
+    },
+    {
+     "function": "source_fields",
+     "hits": []
+    }
+   ],
+   "banned_tokens": [
+    "answer_key",
+    "answer_key_leak",
+    "condition",
+    "counterexample_target",
+    "display_gold",
+    "evidence_role",
+    "foil",
+    "forbidden_channel_subjects",
+    "gold",
+    "item_gold",
+    "item_id",
+    "k_levels",
+    "max_per_pool",
+    "misleading",
+    "negative",
+    "oracle",
+    "pool",
+    "q_gold",
+    "subject_type",
+    "type_sets",
+    "typed_queries",
+    "unrelated",
+    "unseen_test_words",
+    "world_model"
+   ]
+  },
+  "snapshot_consistency": {
+   "checked": 56,
+   "mismatches": 0,
+   "snapshot_sha256": "4a058ab53df7443207f6031e858e4ebd60dcbe5b9036fcca50a996a59a76ec22"
+  },
+  "boot_free_self_test": [
+   {
+    "name": "ast_anti_leakage",
+    "ok": true,
+    "detail": "[]"
+   },
+   {
+    "name": "arm_flags_default_off",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "all_six_arms_declared",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "gold_mutation_invariant",
+    "ok": true,
+    "detail": "{'ok': True, 'base': ['blizzard', 'snow storm', 'abc123', 'ENDORSE'], 'mutated': ['blizzard', 'snow storm', 'abc123', 'ENDORSE']}"
+   },
+   {
+    "name": "flag_off_inert",
+    "ok": true,
+    "detail": "{'flag_off': 1, 'flag_on': 0, 'production_calls': 0, 'scorer_calls': 0, 'trust_calls': 0, 'records_scanned': 0, 'm1_scanned': 0, 'm2_scanned': 0, 'records_admitted': 0, 'records_rejected': 0, 'veto_hits': 0, 'deferred_to_production': 0, 'picks': 0, 'errors': 0}"
+   },
+   {
+    "name": "read_picks_exact_option",
+    "ok": true,
+    "detail": "admitted_graded_probe_winner"
+   },
+   {
+    "name": "sham_admits_nothing",
+    "ok": true,
+    "detail": "no_admitted_subject_evidence"
+   },
+   {
+    "name": "read_sham_counters_matched",
+    "ok": true,
+    "detail": "{'production_calls': (1, 1), 'scorer_calls': (1, 1), 'trust_calls': (1, 1), 'records_scanned': (1, 1), 'm1_scanned': (1, 1), 'm2_scanned': (0, 0)}"
+   },
+   {
+    "name": "reader_arm_picks_and_matches_sham",
+    "ok": true,
+    "detail": "{'read': 'snow storm', 'sham': None, 'errors': 0}"
+   },
+   {
+    "name": "negation_veto",
+    "ok": true,
+    "detail": "all_candidates_negation_vetoed"
+   },
+   {
+    "name": "graph_view_confidence_shape",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "subject_independence",
+    "ok": true,
+    "detail": "no_admitted_subject_evidence"
+   },
+   {
+    "name": "m1_durable_roundtrip",
+    "ok": true,
+    "detail": "R_EXPLICIT_CREDIBLE_SOURCE"
+   },
+   {
+    "name": "m1_key_answer_independent",
+    "ok": true,
+    "detail": "claim key is a plain claim digest"
+   },
+   {
+    "name": "m2_subject_specific",
+    "ok": true,
+    "detail": "4"
+   },
+   {
+    "name": "m2_oov_empty",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "g6_status_recorded",
+    "ok": true,
+    "detail": "FLAG"
+   },
+   {
+    "name": "full_bank_valid",
+    "ok": true,
+    "detail": "{'errors': 0, 'overlap': {'overlap_type_sets': 4411, 'overlap_world_model': 0, 'facts': 5600, 'answer_key_leak': 0, 'oracle_domain_tag_leak': 0, 'provenance_missing': 0}}"
+   },
+   {
+    "name": "delayed_option_audit",
+    "ok": true,
+    "detail": "[]"
+   },
+   {
+    "name": "audit_mutation_detects",
+    "ok": true,
+    "detail": "{'planted': ['glow', 'mist', 'hail', 'gale'], 'detected': True, 'expected_options': ['intersection', 'snow storm', 'natural phenomenon', 'party']}"
+   },
+   {
+    "name": "channel_snapshot_loaded",
+    "ok": true,
+    "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_arbitration/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
+   }
+  ]
+ },
+ "arms": {
+  "BASELINE": {
+   "rows": [
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "blizzard",
+     "options": [
+      "intersection",
+      "snow storm",
+      "natural phenomenon",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "snow storm": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "guild",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "party",
+      "association"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "association": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 9,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 17,
+      "m1_scanned": 8,
+      "trust_calls": 17,
+      "records_admitted": 17,
+      "m2_scanned": 9
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "blizzard",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "party",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_rejected": 8,
+      "m2_scanned": 1,
+      "records_admitted": 1,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "party",
+      "snow storm",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "hydrometeor"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "hydrometeor": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "rank",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "class",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "class": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 12,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m2_scanned": 12,
+      "trust_calls": 12,
+      "records_admitted": 12
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "intersection",
+      "party",
+      "natural phenomenon"
+     ],
+     "pick": "atmospheric condition",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "atmospheric condition": 0.85
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "hydrometeor",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "overcast",
+     "options": [
+      "cloud cover",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": "cloud cover",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "cloud cover": 0.85
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "party",
+      "intersection",
+      "market",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "market": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "overcast",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "process",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "shower",
+     "options": [
+      "natural phenomenon",
+      "industrial plant",
+      "intersection",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 7,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 15,
+      "m1_scanned": 8,
+      "trust_calls": 15,
+      "records_rejected": 8,
+      "m2_scanned": 7,
+      "records_admitted": 7,
+      "veto_hits": 2
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "cloud cover",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "gale",
+     "options": [
+      "wind",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "wind": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "natural phenomenon",
+      "party",
+      "intersection",
+      "market"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "market": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 4,
+      "m2_scanned": 4,
+      "trust_calls": 4,
+      "records_admitted": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "gale",
+     "options": [
+      "party",
+      "process",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "monsoon",
+     "options": [
+      "party",
+      "natural phenomenon",
+      "intersection",
+      "economy"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "wind"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    }
+   ],
+   "simulation": {
+    "tra_k_0020": {
+     "blizzard": {
+      "traces": {
+       "snow storm": {
+        "label": "snow storm",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "Wikimedia disambiguation page": {
+        "label": "Wikimedia disambiguation page",
+        "cred": 0.35,
+        "source": {
+         "subject": "blizzard",
+         "object": "Wikimedia disambiguation page",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d695c1db9d7c6c8c",
+         "source_url": "https://www.wikidata.org/wiki/Q258298"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "Wikimedia disambiguation page",
+        "cred_challenger": 0.35,
+        "incumbent": "snow storm",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "blizzard",
+         "object": "Wikimedia disambiguation page",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d695c1db9d7c6c8c",
+         "source_url": "https://www.wikidata.org/wiki/Q258298"
+        },
+        "incumbent_source": {
+         "subject": "blizzard",
+         "object": "snow storm",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "dbe739db168e66b5",
+         "source_url": "https://www.wikidata.org/wiki/Q205418"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "Wikimedia disambiguation page",
+       "cred": 0.35,
+       "source": {
+        "subject": "blizzard",
+        "object": "Wikimedia disambiguation page",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "d695c1db9d7c6c8c",
+        "source_url": "https://www.wikidata.org/wiki/Q258298"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "guild": {
+      "traces": {
+       "association": {
+        "label": "association",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "student association": {
+        "label": "student association",
+        "cred": 0.2625,
+        "source": {
+         "subject": "guild",
+         "object": "student association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "00d94d1272ec64f5",
+         "source_url": "https://www.wikidata.org/wiki/Q11871480"
+        },
+        "conf": 0.63125,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "student association",
+        "cred_challenger": 0.2625,
+        "incumbent": "association",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "guild",
+         "object": "student association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "00d94d1272ec64f5",
+         "source_url": "https://www.wikidata.org/wiki/Q11871480"
+        },
+        "incumbent_source": {
+         "subject": "guild",
+         "object": "association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "17fce53aa143f6ec",
+         "source_url": "https://www.wikidata.org/wiki/Q939871"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "student association",
+       "cred": 0.2625,
+       "source": {
+        "subject": "guild",
+        "object": "student association",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "type_description",
+        "source_id": "00d94d1272ec64f5",
+        "source_url": "https://www.wikidata.org/wiki/Q11871480"
+       },
+       "conf": 0.63125,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0008": {
+     "frost": {
+      "traces": {
+       "hydrometeor": {
+        "label": "hydrometeor",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "phenomenon": {
+        "label": "phenomenon",
+        "cred": 0.7,
+        "source": {
+         "subject": "frost",
+         "object": "phenomenon",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "6a2cd73ef3bdcace",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "phenomenon",
+        "cred_challenger": 0.7,
+        "incumbent": "hydrometeor",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "frost",
+         "object": "phenomenon",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "6a2cd73ef3bdcace",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "incumbent_source": {
+         "subject": "frost",
+         "object": "hydrometeor",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "f099308715c5aa9b",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "phenomenon",
+       "cred": 0.7,
+       "source": {
+        "subject": "frost",
+        "object": "phenomenon",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "6a2cd73ef3bdcace",
+        "source_url": "https://www.wikidata.org/wiki/Q4590598"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "rank": {
+      "traces": {
+       "class": {
+        "label": "class",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "card game": {
+        "label": "card game",
+        "cred": 0.2625,
+        "source": {
+         "subject": "rank",
+         "object": "card game",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "4d76a658df016f82",
+         "source_url": "https://www.wikidata.org/wiki/Q25383758"
+        },
+        "conf": 0.63125,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "card game",
+        "cred_challenger": 0.2625,
+        "incumbent": "class",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "rank",
+         "object": "card game",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "4d76a658df016f82",
+         "source_url": "https://www.wikidata.org/wiki/Q25383758"
+        },
+        "incumbent_source": {
+         "subject": "rank",
+         "object": "class",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "117244877a41ece6",
+         "source_url": "https://www.wikidata.org/wiki/Q4120621"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "card game",
+       "cred": 0.2625,
+       "source": {
+        "subject": "rank",
+        "object": "card game",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "type_description",
+        "source_id": "4d76a658df016f82",
+        "source_url": "https://www.wikidata.org/wiki/Q25383758"
+       },
+       "conf": 0.63125,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0000": {
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "conf": 0.0,
+        "kind": "skipped_self_loop"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "economy",
+       "cred": 0.35,
+       "source": {
+        "subject": "market",
+        "object": "economy",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "d8ad09e4758a1813",
+        "source_url": "https://www.wikidata.org/wiki/Q37654"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "overcast": {
+      "traces": {
+       "cloud cover": {
+        "label": "cloud cover",
+        "cred": 0.7,
+        "source": {
+         "subject": "overcast",
+         "object": "cloud cover",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5bf73d24ea1b498e",
+         "source_url": "https://www.wikidata.org/wiki/Q1055865"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "cloud cover",
+       "cred": 0.7,
+       "source": {
+        "subject": "overcast",
+        "object": "cloud cover",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5bf73d24ea1b498e",
+        "source_url": "https://www.wikidata.org/wiki/Q1055865"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "shower": {
+      "traces": {
+       "industrial plant": {
+        "label": "industrial plant",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "party": {
+        "label": "party",
+        "cred": 0.35,
+        "source": {
+         "subject": "shower",
+         "object": "party",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7cc8059aa998c057",
+         "source_url": "https://www.wikidata.org/wiki/Q116154983"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "party",
+        "cred_challenger": 0.35,
+        "incumbent": "industrial plant",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "shower",
+         "object": "party",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7cc8059aa998c057",
+         "source_url": "https://www.wikidata.org/wiki/Q116154983"
+        },
+        "incumbent_source": {
+         "subject": "shower",
+         "object": "industrial plant",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "96caff622a4f9bdd",
+         "source_url": "https://www.wikidata.org/wiki/Q7863"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "party",
+       "cred": 0.35,
+       "source": {
+        "subject": "shower",
+        "object": "party",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "7cc8059aa998c057",
+        "source_url": "https://www.wikidata.org/wiki/Q116154983"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0006": {
+     "gale": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "wind speed": {
+        "label": "wind speed",
+        "cred": 0.35,
+        "source": {
+         "subject": "gale",
+         "object": "wind speed",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7f0880e89bfc14c0",
+         "source_url": "https://www.wikidata.org/wiki/Q3745520"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "wind speed",
+        "cred_challenger": 0.35,
+        "incumbent": "wind",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "gale",
+         "object": "wind speed",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7f0880e89bfc14c0",
+         "source_url": "https://www.wikidata.org/wiki/Q3745520"
+        },
+        "incumbent_source": {
+         "subject": "gale",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "59bff798545e9357",
+         "source_url": "https://www.wikidata.org/wiki/Q2144546"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "wind speed",
+       "cred": 0.35,
+       "source": {
+        "subject": "gale",
+        "object": "wind speed",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "7f0880e89bfc14c0",
+        "source_url": "https://www.wikidata.org/wiki/Q3745520"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "conf": 0.0,
+        "kind": "skipped_self_loop"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "economy",
+       "cred": 0.35,
+       "source": {
+        "subject": "market",
+        "object": "economy",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "d8ad09e4758a1813",
+        "source_url": "https://www.wikidata.org/wiki/Q37654"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "monsoon": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "source": {
+         "subject": "monsoon",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "a9e348763622e716",
+         "source_url": "https://www.wikidata.org/wiki/Q42967"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "wind",
+       "cred": 0.7,
+       "source": {
+        "subject": "monsoon",
+        "object": "wind",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "a9e348763622e716",
+        "source_url": "https://www.wikidata.org/wiki/Q42967"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    }
+   },
+   "reader_call_totals": {
+    "records_scanned": 141,
+    "trust_calls": 141,
+    "scorer_calls": 20,
+    "records_admitted": 125,
+    "production_calls": 20,
+    "hook_calls": 0
+   },
+   "decision_calls": 6
+  },
+  "BASELINE2": {
+   "rows": [
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "blizzard",
+     "options": [
+      "intersection",
+      "snow storm",
+      "natural phenomenon",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "snow storm": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "guild",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "party",
+      "association"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "association": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 9,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 17,
+      "m1_scanned": 8,
+      "trust_calls": 17,
+      "records_admitted": 17,
+      "m2_scanned": 9
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "blizzard",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "party",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_rejected": 8,
+      "m2_scanned": 1,
+      "records_admitted": 1,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "party",
+      "snow storm",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "hydrometeor"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "hydrometeor": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "rank",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "class",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "class": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 12,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m2_scanned": 12,
+      "trust_calls": 12,
+      "records_admitted": 12
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "intersection",
+      "party",
+      "natural phenomenon"
+     ],
+     "pick": "atmospheric condition",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "atmospheric condition": 0.85
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "hydrometeor",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "overcast",
+     "options": [
+      "cloud cover",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": "cloud cover",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "cloud cover": 0.85
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "party",
+      "intersection",
+      "market",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "market": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "overcast",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "process",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "shower",
+     "options": [
+      "natural phenomenon",
+      "industrial plant",
+      "intersection",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 7,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 15,
+      "m1_scanned": 8,
+      "trust_calls": 15,
+      "records_rejected": 8,
+      "m2_scanned": 7,
+      "records_admitted": 7,
+      "veto_hits": 2
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "cloud cover",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "gale",
+     "options": [
+      "wind",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "wind": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "natural phenomenon",
+      "party",
+      "intersection",
+      "market"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "market": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 4,
+      "m2_scanned": 4,
+      "trust_calls": 4,
+      "records_admitted": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "gale",
+     "options": [
+      "party",
+      "process",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "monsoon",
+     "options": [
+      "party",
+      "natural phenomenon",
+      "intersection",
+      "economy"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "wind"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    }
+   ],
+   "simulation": {
+    "tra_k_0020": {
+     "blizzard": {
+      "traces": {
+       "snow storm": {
+        "label": "snow storm",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "Wikimedia disambiguation page": {
+        "label": "Wikimedia disambiguation page",
+        "cred": 0.35,
+        "source": {
+         "subject": "blizzard",
+         "object": "Wikimedia disambiguation page",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d695c1db9d7c6c8c",
+         "source_url": "https://www.wikidata.org/wiki/Q258298"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "Wikimedia disambiguation page",
+        "cred_challenger": 0.35,
+        "incumbent": "snow storm",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "blizzard",
+         "object": "Wikimedia disambiguation page",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d695c1db9d7c6c8c",
+         "source_url": "https://www.wikidata.org/wiki/Q258298"
+        },
+        "incumbent_source": {
+         "subject": "blizzard",
+         "object": "snow storm",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "dbe739db168e66b5",
+         "source_url": "https://www.wikidata.org/wiki/Q205418"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "Wikimedia disambiguation page",
+       "cred": 0.35,
+       "source": {
+        "subject": "blizzard",
+        "object": "Wikimedia disambiguation page",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "d695c1db9d7c6c8c",
+        "source_url": "https://www.wikidata.org/wiki/Q258298"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "guild": {
+      "traces": {
+       "association": {
+        "label": "association",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "student association": {
+        "label": "student association",
+        "cred": 0.2625,
+        "source": {
+         "subject": "guild",
+         "object": "student association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "00d94d1272ec64f5",
+         "source_url": "https://www.wikidata.org/wiki/Q11871480"
+        },
+        "conf": 0.63125,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "student association",
+        "cred_challenger": 0.2625,
+        "incumbent": "association",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "guild",
+         "object": "student association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "00d94d1272ec64f5",
+         "source_url": "https://www.wikidata.org/wiki/Q11871480"
+        },
+        "incumbent_source": {
+         "subject": "guild",
+         "object": "association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "17fce53aa143f6ec",
+         "source_url": "https://www.wikidata.org/wiki/Q939871"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "student association",
+       "cred": 0.2625,
+       "source": {
+        "subject": "guild",
+        "object": "student association",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "type_description",
+        "source_id": "00d94d1272ec64f5",
+        "source_url": "https://www.wikidata.org/wiki/Q11871480"
+       },
+       "conf": 0.63125,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0008": {
+     "frost": {
+      "traces": {
+       "hydrometeor": {
+        "label": "hydrometeor",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "phenomenon": {
+        "label": "phenomenon",
+        "cred": 0.7,
+        "source": {
+         "subject": "frost",
+         "object": "phenomenon",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "6a2cd73ef3bdcace",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "phenomenon",
+        "cred_challenger": 0.7,
+        "incumbent": "hydrometeor",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "frost",
+         "object": "phenomenon",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "6a2cd73ef3bdcace",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "incumbent_source": {
+         "subject": "frost",
+         "object": "hydrometeor",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "f099308715c5aa9b",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "phenomenon",
+       "cred": 0.7,
+       "source": {
+        "subject": "frost",
+        "object": "phenomenon",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "6a2cd73ef3bdcace",
+        "source_url": "https://www.wikidata.org/wiki/Q4590598"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "rank": {
+      "traces": {
+       "class": {
+        "label": "class",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "card game": {
+        "label": "card game",
+        "cred": 0.2625,
+        "source": {
+         "subject": "rank",
+         "object": "card game",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "4d76a658df016f82",
+         "source_url": "https://www.wikidata.org/wiki/Q25383758"
+        },
+        "conf": 0.63125,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "card game",
+        "cred_challenger": 0.2625,
+        "incumbent": "class",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "rank",
+         "object": "card game",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "4d76a658df016f82",
+         "source_url": "https://www.wikidata.org/wiki/Q25383758"
+        },
+        "incumbent_source": {
+         "subject": "rank",
+         "object": "class",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "117244877a41ece6",
+         "source_url": "https://www.wikidata.org/wiki/Q4120621"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "card game",
+       "cred": 0.2625,
+       "source": {
+        "subject": "rank",
+        "object": "card game",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "type_description",
+        "source_id": "4d76a658df016f82",
+        "source_url": "https://www.wikidata.org/wiki/Q25383758"
+       },
+       "conf": 0.63125,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0000": {
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "conf": 0.0,
+        "kind": "skipped_self_loop"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "economy",
+       "cred": 0.35,
+       "source": {
+        "subject": "market",
+        "object": "economy",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "d8ad09e4758a1813",
+        "source_url": "https://www.wikidata.org/wiki/Q37654"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "overcast": {
+      "traces": {
+       "cloud cover": {
+        "label": "cloud cover",
+        "cred": 0.7,
+        "source": {
+         "subject": "overcast",
+         "object": "cloud cover",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5bf73d24ea1b498e",
+         "source_url": "https://www.wikidata.org/wiki/Q1055865"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "cloud cover",
+       "cred": 0.7,
+       "source": {
+        "subject": "overcast",
+        "object": "cloud cover",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5bf73d24ea1b498e",
+        "source_url": "https://www.wikidata.org/wiki/Q1055865"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "shower": {
+      "traces": {
+       "industrial plant": {
+        "label": "industrial plant",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "party": {
+        "label": "party",
+        "cred": 0.35,
+        "source": {
+         "subject": "shower",
+         "object": "party",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7cc8059aa998c057",
+         "source_url": "https://www.wikidata.org/wiki/Q116154983"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "party",
+        "cred_challenger": 0.35,
+        "incumbent": "industrial plant",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "shower",
+         "object": "party",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7cc8059aa998c057",
+         "source_url": "https://www.wikidata.org/wiki/Q116154983"
+        },
+        "incumbent_source": {
+         "subject": "shower",
+         "object": "industrial plant",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "96caff622a4f9bdd",
+         "source_url": "https://www.wikidata.org/wiki/Q7863"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "party",
+       "cred": 0.35,
+       "source": {
+        "subject": "shower",
+        "object": "party",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "7cc8059aa998c057",
+        "source_url": "https://www.wikidata.org/wiki/Q116154983"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0006": {
+     "gale": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "conf": 0.425,
+        "kind": "demoted"
+       },
+       "wind speed": {
+        "label": "wind speed",
+        "cred": 0.35,
+        "source": {
+         "subject": "gale",
+         "object": "wind speed",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7f0880e89bfc14c0",
+         "source_url": "https://www.wikidata.org/wiki/Q3745520"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "wind speed",
+        "cred_challenger": 0.35,
+        "incumbent": "wind",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "gale",
+         "object": "wind speed",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7f0880e89bfc14c0",
+         "source_url": "https://www.wikidata.org/wiki/Q3745520"
+        },
+        "incumbent_source": {
+         "subject": "gale",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "59bff798545e9357",
+         "source_url": "https://www.wikidata.org/wiki/Q2144546"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "supersedes": 1
+      },
+      "incumbent": {
+       "label": "wind speed",
+       "cred": 0.35,
+       "source": {
+        "subject": "gale",
+        "object": "wind speed",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "7f0880e89bfc14c0",
+        "source_url": "https://www.wikidata.org/wiki/Q3745520"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "conf": 0.0,
+        "kind": "skipped_self_loop"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "conf": 0.675,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "economy",
+       "cred": 0.35,
+       "source": {
+        "subject": "market",
+        "object": "economy",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "alternate",
+        "text_evidence_kind": "item_description",
+        "source_id": "d8ad09e4758a1813",
+        "source_url": "https://www.wikidata.org/wiki/Q37654"
+       },
+       "conf": 0.675,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "monsoon": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "source": {
+         "subject": "monsoon",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "a9e348763622e716",
+         "source_url": "https://www.wikidata.org/wiki/Q42967"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "wind",
+       "cred": 0.7,
+       "source": {
+        "subject": "monsoon",
+        "object": "wind",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "a9e348763622e716",
+        "source_url": "https://www.wikidata.org/wiki/Q42967"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    }
+   },
+   "reader_call_totals": {
+    "records_scanned": 141,
+    "trust_calls": 141,
+    "scorer_calls": 20,
+    "records_admitted": 125,
+    "production_calls": 20,
+    "hook_calls": 0
+   },
+   "decision_calls": 6
+  },
+  "ARBITRATION": {
+   "rows": [
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "blizzard",
+     "options": [
+      "intersection",
+      "snow storm",
+      "natural phenomenon",
+      "party"
+     ],
+     "pick": "snow storm",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "snow storm": 0.85
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "guild",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "party",
+      "association"
+     ],
+     "pick": "association",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "association": 0.85
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 9,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 17,
+      "m1_scanned": 8,
+      "trust_calls": 17,
+      "records_admitted": 17,
+      "m2_scanned": 9,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "blizzard",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "party",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_rejected": 8,
+      "m2_scanned": 1,
+      "records_admitted": 1,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "party",
+      "snow storm",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "hydrometeor"
+     ],
+     "pick": "hydrometeor",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "hydrometeor": 0.85
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "rank",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "class",
+      "party"
+     ],
+     "pick": "class",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "class": 0.85
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 12,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m2_scanned": 12,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "intersection",
+      "party",
+      "natural phenomenon"
+     ],
+     "pick": "atmospheric condition",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "atmospheric condition": 0.85
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "hydrometeor",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "overcast",
+     "options": [
+      "cloud cover",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": "cloud cover",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "cloud cover": 0.85
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "party",
+      "intersection",
+      "market",
+      "natural phenomenon"
+     ],
+     "pick": "market",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "market": 0.85
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "overcast",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "process",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "shower",
+     "options": [
+      "natural phenomenon",
+      "industrial plant",
+      "intersection",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 7,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 15,
+      "m1_scanned": 8,
+      "trust_calls": 15,
+      "records_rejected": 8,
+      "m2_scanned": 7,
+      "records_admitted": 7,
+      "veto_hits": 2
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "cloud cover",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "gale",
+     "options": [
+      "wind",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": "wind",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "wind": 0.85
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "natural phenomenon",
+      "party",
+      "intersection",
+      "market"
+     ],
+     "pick": "market",
+     "reason": "admitted_graded_probe_winner",
+     "scores": {
+      "market": 0.85
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 4,
+      "m2_scanned": 4,
+      "trust_calls": 4,
+      "records_admitted": 4,
+      "picks": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "gale",
+     "options": [
+      "party",
+      "process",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "monsoon",
+     "options": [
+      "party",
+      "natural phenomenon",
+      "intersection",
+      "economy"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "wind"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    }
+   ],
+   "simulation": {
+    "tra_k_0020": {
+     "blizzard": {
+      "traces": {
+       "snow storm": {
+        "label": "snow storm",
+        "cred": 0.7,
+        "source": {
+         "subject": "blizzard",
+         "object": "snow storm",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "dbe739db168e66b5",
+         "source_url": "https://www.wikidata.org/wiki/Q205418"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "Wikimedia disambiguation page": {
+        "label": "Wikimedia disambiguation page",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "Wikimedia disambiguation page",
+        "cred_challenger": 0.35,
+        "incumbent": "snow storm",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "blizzard",
+         "object": "Wikimedia disambiguation page",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d695c1db9d7c6c8c",
+         "source_url": "https://www.wikidata.org/wiki/Q258298"
+        },
+        "incumbent_source": {
+         "subject": "blizzard",
+         "object": "snow storm",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "dbe739db168e66b5",
+         "source_url": "https://www.wikidata.org/wiki/Q205418"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "snow storm",
+       "cred": 0.7,
+       "source": {
+        "subject": "blizzard",
+        "object": "snow storm",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "dbe739db168e66b5",
+        "source_url": "https://www.wikidata.org/wiki/Q205418"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "guild": {
+      "traces": {
+       "association": {
+        "label": "association",
+        "cred": 0.7,
+        "source": {
+         "subject": "guild",
+         "object": "association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "17fce53aa143f6ec",
+         "source_url": "https://www.wikidata.org/wiki/Q939871"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "student association": {
+        "label": "student association",
+        "cred": 0.2625,
+        "conf": 0.052500000000000005,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "student association",
+        "cred_challenger": 0.2625,
+        "incumbent": "association",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "guild",
+         "object": "student association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "00d94d1272ec64f5",
+         "source_url": "https://www.wikidata.org/wiki/Q11871480"
+        },
+        "incumbent_source": {
+         "subject": "guild",
+         "object": "association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "17fce53aa143f6ec",
+         "source_url": "https://www.wikidata.org/wiki/Q939871"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "association",
+       "cred": 0.7,
+       "source": {
+        "subject": "guild",
+        "object": "association",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "17fce53aa143f6ec",
+        "source_url": "https://www.wikidata.org/wiki/Q939871"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0008": {
+     "frost": {
+      "traces": {
+       "hydrometeor": {
+        "label": "hydrometeor",
+        "cred": 0.7,
+        "source": {
+         "subject": "frost",
+         "object": "hydrometeor",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "f099308715c5aa9b",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "phenomenon": {
+        "label": "phenomenon",
+        "cred": 0.7,
+        "conf": 0.13999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "phenomenon",
+        "cred_challenger": 0.7,
+        "incumbent": "hydrometeor",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "frost",
+         "object": "phenomenon",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "6a2cd73ef3bdcace",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "incumbent_source": {
+         "subject": "frost",
+         "object": "hydrometeor",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "f099308715c5aa9b",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "hydrometeor",
+       "cred": 0.7,
+       "source": {
+        "subject": "frost",
+        "object": "hydrometeor",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "f099308715c5aa9b",
+        "source_url": "https://www.wikidata.org/wiki/Q4590598"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "rank": {
+      "traces": {
+       "class": {
+        "label": "class",
+        "cred": 0.7,
+        "source": {
+         "subject": "rank",
+         "object": "class",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "117244877a41ece6",
+         "source_url": "https://www.wikidata.org/wiki/Q4120621"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "card game": {
+        "label": "card game",
+        "cred": 0.2625,
+        "conf": 0.052500000000000005,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "card game",
+        "cred_challenger": 0.2625,
+        "incumbent": "class",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "rank",
+         "object": "card game",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "4d76a658df016f82",
+         "source_url": "https://www.wikidata.org/wiki/Q25383758"
+        },
+        "incumbent_source": {
+         "subject": "rank",
+         "object": "class",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "117244877a41ece6",
+         "source_url": "https://www.wikidata.org/wiki/Q4120621"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "class",
+       "cred": 0.7,
+       "source": {
+        "subject": "rank",
+        "object": "class",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "117244877a41ece6",
+        "source_url": "https://www.wikidata.org/wiki/Q4120621"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0000": {
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "economy",
+        "cred_challenger": 0.35,
+        "incumbent": "market",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "incumbent_source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "market",
+       "cred": 0.7,
+       "source": {
+        "subject": "market",
+        "object": "market",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5cb97eed4bc9f04b",
+        "source_url": "https://www.wikidata.org/wiki/Q132510"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": true
+     },
+     "overcast": {
+      "traces": {
+       "cloud cover": {
+        "label": "cloud cover",
+        "cred": 0.7,
+        "source": {
+         "subject": "overcast",
+         "object": "cloud cover",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5bf73d24ea1b498e",
+         "source_url": "https://www.wikidata.org/wiki/Q1055865"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "cloud cover",
+       "cred": 0.7,
+       "source": {
+        "subject": "overcast",
+        "object": "cloud cover",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5bf73d24ea1b498e",
+        "source_url": "https://www.wikidata.org/wiki/Q1055865"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "shower": {
+      "traces": {
+       "industrial plant": {
+        "label": "industrial plant",
+        "cred": 0.7,
+        "source": {
+         "subject": "shower",
+         "object": "industrial plant",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "96caff622a4f9bdd",
+         "source_url": "https://www.wikidata.org/wiki/Q7863"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "party": {
+        "label": "party",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "party",
+        "cred_challenger": 0.35,
+        "incumbent": "industrial plant",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "shower",
+         "object": "party",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7cc8059aa998c057",
+         "source_url": "https://www.wikidata.org/wiki/Q116154983"
+        },
+        "incumbent_source": {
+         "subject": "shower",
+         "object": "industrial plant",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "96caff622a4f9bdd",
+         "source_url": "https://www.wikidata.org/wiki/Q7863"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "industrial plant",
+       "cred": 0.7,
+       "source": {
+        "subject": "shower",
+        "object": "industrial plant",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "96caff622a4f9bdd",
+        "source_url": "https://www.wikidata.org/wiki/Q7863"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0006": {
+     "gale": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "source": {
+         "subject": "gale",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "59bff798545e9357",
+         "source_url": "https://www.wikidata.org/wiki/Q2144546"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "wind speed": {
+        "label": "wind speed",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "wind speed",
+        "cred_challenger": 0.35,
+        "incumbent": "wind",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "gale",
+         "object": "wind speed",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7f0880e89bfc14c0",
+         "source_url": "https://www.wikidata.org/wiki/Q3745520"
+        },
+        "incumbent_source": {
+         "subject": "gale",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "59bff798545e9357",
+         "source_url": "https://www.wikidata.org/wiki/Q2144546"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "wind",
+       "cred": 0.7,
+       "source": {
+        "subject": "gale",
+        "object": "wind",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "59bff798545e9357",
+        "source_url": "https://www.wikidata.org/wiki/Q2144546"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "economy",
+        "cred_challenger": 0.35,
+        "incumbent": "market",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "incumbent_source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "market",
+       "cred": 0.7,
+       "source": {
+        "subject": "market",
+        "object": "market",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5cb97eed4bc9f04b",
+        "source_url": "https://www.wikidata.org/wiki/Q132510"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": true
+     },
+     "monsoon": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "source": {
+         "subject": "monsoon",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "a9e348763622e716",
+         "source_url": "https://www.wikidata.org/wiki/Q42967"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "wind",
+       "cred": 0.7,
+       "source": {
+        "subject": "monsoon",
+        "object": "wind",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "a9e348763622e716",
+        "source_url": "https://www.wikidata.org/wiki/Q42967"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    }
+   },
+   "reader_call_totals": {
+    "records_scanned": 141,
+    "trust_calls": 141,
+    "scorer_calls": 20,
+    "records_admitted": 125,
+    "production_calls": 20,
+    "hook_calls": 0
+   },
+   "decision_calls": 8
+  },
+  "SHAM": {
+   "rows": [
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "blizzard",
+     "options": [
+      "intersection",
+      "snow storm",
+      "natural phenomenon",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_rejected": 8,
+      "m2_scanned": 4,
+      "records_admitted": 4,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "guild",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "party",
+      "association"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 9,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 17,
+      "m1_scanned": 8,
+      "trust_calls": 17,
+      "records_rejected": 8,
+      "m2_scanned": 9,
+      "records_admitted": 9,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "blizzard",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_rejected": 8,
+      "m2_scanned": 4,
+      "records_admitted": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "party",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_rejected": 8,
+      "m2_scanned": 1,
+      "records_admitted": 1,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "party",
+      "snow storm",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_rejected": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "hydrometeor"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "rank",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "class",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 12,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m2_scanned": 12,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "intersection",
+      "party",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "hydrometeor",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "overcast",
+     "options": [
+      "cloud cover",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_rejected": 8,
+      "m2_scanned": 1,
+      "records_admitted": 1,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "party",
+      "intersection",
+      "market",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_rejected": 8,
+      "m2_scanned": 4,
+      "records_admitted": 4,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "overcast",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "process",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_rejected": 8,
+      "m2_scanned": 1,
+      "records_admitted": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "shower",
+     "options": [
+      "natural phenomenon",
+      "industrial plant",
+      "intersection",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 7,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 15,
+      "m1_scanned": 8,
+      "trust_calls": 15,
+      "records_rejected": 8,
+      "m2_scanned": 7,
+      "records_admitted": 7,
+      "veto_hits": 2
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "cloud cover",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_rejected": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "gale",
+     "options": [
+      "wind",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "natural phenomenon",
+      "party",
+      "intersection",
+      "market"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 4,
+      "m2_scanned": 4,
+      "trust_calls": 4,
+      "records_admitted": 4,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "gale",
+     "options": [
+      "party",
+      "process",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "monsoon",
+     "options": [
+      "party",
+      "natural phenomenon",
+      "intersection",
+      "economy"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "wind"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    }
+   ],
+   "simulation": {
+    "tra_k_0020": {
+     "blizzard": {
+      "traces": {
+       "snow storm": {
+        "label": "snow storm",
+        "cred": 0.7,
+        "source": {
+         "subject": "blizzard",
+         "object": "snow storm",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "dbe739db168e66b5",
+         "source_url": "https://www.wikidata.org/wiki/Q205418"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "Wikimedia disambiguation page": {
+        "label": "Wikimedia disambiguation page",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "Wikimedia disambiguation page",
+        "cred_challenger": 0.35,
+        "incumbent": "snow storm",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "blizzard",
+         "object": "Wikimedia disambiguation page",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d695c1db9d7c6c8c",
+         "source_url": "https://www.wikidata.org/wiki/Q258298"
+        },
+        "incumbent_source": {
+         "subject": "blizzard",
+         "object": "snow storm",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "dbe739db168e66b5",
+         "source_url": "https://www.wikidata.org/wiki/Q205418"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "snow storm",
+       "cred": 0.7,
+       "source": {
+        "subject": "blizzard",
+        "object": "snow storm",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "dbe739db168e66b5",
+        "source_url": "https://www.wikidata.org/wiki/Q205418"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "guild": {
+      "traces": {
+       "association": {
+        "label": "association",
+        "cred": 0.7,
+        "source": {
+         "subject": "guild",
+         "object": "association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "17fce53aa143f6ec",
+         "source_url": "https://www.wikidata.org/wiki/Q939871"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "student association": {
+        "label": "student association",
+        "cred": 0.2625,
+        "conf": 0.052500000000000005,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "student association",
+        "cred_challenger": 0.2625,
+        "incumbent": "association",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "guild",
+         "object": "student association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "00d94d1272ec64f5",
+         "source_url": "https://www.wikidata.org/wiki/Q11871480"
+        },
+        "incumbent_source": {
+         "subject": "guild",
+         "object": "association",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "17fce53aa143f6ec",
+         "source_url": "https://www.wikidata.org/wiki/Q939871"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "association",
+       "cred": 0.7,
+       "source": {
+        "subject": "guild",
+        "object": "association",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "17fce53aa143f6ec",
+        "source_url": "https://www.wikidata.org/wiki/Q939871"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0008": {
+     "frost": {
+      "traces": {
+       "hydrometeor": {
+        "label": "hydrometeor",
+        "cred": 0.7,
+        "source": {
+         "subject": "frost",
+         "object": "hydrometeor",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "f099308715c5aa9b",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "phenomenon": {
+        "label": "phenomenon",
+        "cred": 0.7,
+        "conf": 0.13999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "phenomenon",
+        "cred_challenger": 0.7,
+        "incumbent": "hydrometeor",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "frost",
+         "object": "phenomenon",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "6a2cd73ef3bdcace",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        },
+        "incumbent_source": {
+         "subject": "frost",
+         "object": "hydrometeor",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "f099308715c5aa9b",
+         "source_url": "https://www.wikidata.org/wiki/Q4590598"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "hydrometeor",
+       "cred": 0.7,
+       "source": {
+        "subject": "frost",
+        "object": "hydrometeor",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "f099308715c5aa9b",
+        "source_url": "https://www.wikidata.org/wiki/Q4590598"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "rank": {
+      "traces": {
+       "class": {
+        "label": "class",
+        "cred": 0.7,
+        "source": {
+         "subject": "rank",
+         "object": "class",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "117244877a41ece6",
+         "source_url": "https://www.wikidata.org/wiki/Q4120621"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "card game": {
+        "label": "card game",
+        "cred": 0.2625,
+        "conf": 0.052500000000000005,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "card game",
+        "cred_challenger": 0.2625,
+        "incumbent": "class",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "rank",
+         "object": "card game",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "type_description",
+         "source_id": "4d76a658df016f82",
+         "source_url": "https://www.wikidata.org/wiki/Q25383758"
+        },
+        "incumbent_source": {
+         "subject": "rank",
+         "object": "class",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "117244877a41ece6",
+         "source_url": "https://www.wikidata.org/wiki/Q4120621"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "class",
+       "cred": 0.7,
+       "source": {
+        "subject": "rank",
+        "object": "class",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "117244877a41ece6",
+        "source_url": "https://www.wikidata.org/wiki/Q4120621"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {
+       "atmospheric condition": {
+        "label": "atmospheric condition",
+        "cred": 0.7,
+        "source": {
+         "subject": "thaw",
+         "object": "atmospheric condition",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "d9b838e2c46cf254",
+         "source_url": "https://www.wikidata.org/wiki/Q1368357"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "atmospheric condition",
+       "cred": 0.7,
+       "source": {
+        "subject": "thaw",
+        "object": "atmospheric condition",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "d9b838e2c46cf254",
+        "source_url": "https://www.wikidata.org/wiki/Q1368357"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0000": {
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "economy",
+        "cred_challenger": 0.35,
+        "incumbent": "market",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "incumbent_source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "market",
+       "cred": 0.7,
+       "source": {
+        "subject": "market",
+        "object": "market",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5cb97eed4bc9f04b",
+        "source_url": "https://www.wikidata.org/wiki/Q132510"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": true
+     },
+     "overcast": {
+      "traces": {
+       "cloud cover": {
+        "label": "cloud cover",
+        "cred": 0.7,
+        "source": {
+         "subject": "overcast",
+         "object": "cloud cover",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5bf73d24ea1b498e",
+         "source_url": "https://www.wikidata.org/wiki/Q1055865"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "cloud cover",
+       "cred": 0.7,
+       "source": {
+        "subject": "overcast",
+        "object": "cloud cover",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5bf73d24ea1b498e",
+        "source_url": "https://www.wikidata.org/wiki/Q1055865"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "shower": {
+      "traces": {
+       "industrial plant": {
+        "label": "industrial plant",
+        "cred": 0.7,
+        "source": {
+         "subject": "shower",
+         "object": "industrial plant",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "96caff622a4f9bdd",
+         "source_url": "https://www.wikidata.org/wiki/Q7863"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "party": {
+        "label": "party",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "party",
+        "cred_challenger": 0.35,
+        "incumbent": "industrial plant",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "shower",
+         "object": "party",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7cc8059aa998c057",
+         "source_url": "https://www.wikidata.org/wiki/Q116154983"
+        },
+        "incumbent_source": {
+         "subject": "shower",
+         "object": "industrial plant",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "96caff622a4f9bdd",
+         "source_url": "https://www.wikidata.org/wiki/Q7863"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "industrial plant",
+       "cred": 0.7,
+       "source": {
+        "subject": "shower",
+        "object": "industrial plant",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "96caff622a4f9bdd",
+        "source_url": "https://www.wikidata.org/wiki/Q7863"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0006": {
+     "gale": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "source": {
+         "subject": "gale",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "59bff798545e9357",
+         "source_url": "https://www.wikidata.org/wiki/Q2144546"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "wind speed": {
+        "label": "wind speed",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "wind speed",
+        "cred_challenger": 0.35,
+        "incumbent": "wind",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "gale",
+         "object": "wind speed",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "7f0880e89bfc14c0",
+         "source_url": "https://www.wikidata.org/wiki/Q3745520"
+        },
+        "incumbent_source": {
+         "subject": "gale",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "59bff798545e9357",
+         "source_url": "https://www.wikidata.org/wiki/Q2144546"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "wind",
+       "cred": 0.7,
+       "source": {
+        "subject": "gale",
+        "object": "wind",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "59bff798545e9357",
+        "source_url": "https://www.wikidata.org/wiki/Q2144546"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     },
+     "market": {
+      "traces": {
+       "market": {
+        "label": "market",
+        "cred": 0.7,
+        "source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       },
+       "economy": {
+        "label": "economy",
+        "cred": 0.35,
+        "conf": 0.06999999999999999,
+        "kind": "separate_alternative"
+       }
+      },
+      "conflicts": [
+       {
+        "challenger": "economy",
+        "cred_challenger": 0.35,
+        "incumbent": "market",
+        "cred_incumbent": 0.7,
+        "action": "SEPARATE",
+        "reason": "incumbent_source_not_inferior",
+        "challenger_source": {
+         "subject": "market",
+         "object": "economy",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "alternate",
+         "text_evidence_kind": "item_description",
+         "source_id": "d8ad09e4758a1813",
+         "source_url": "https://www.wikidata.org/wiki/Q37654"
+        },
+        "incumbent_source": {
+         "subject": "market",
+         "object": "market",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "5cb97eed4bc9f04b",
+         "source_url": "https://www.wikidata.org/wiki/Q132510"
+        }
+       }
+      ],
+      "counters": {
+       "events": 2,
+       "self_loop_decisions": 2,
+       "slot_writes": 1,
+       "arbitrate_calls": 1,
+       "separations": 1
+      },
+      "incumbent": {
+       "label": "market",
+       "cred": 0.7,
+       "source": {
+        "subject": "market",
+        "object": "market",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "5cb97eed4bc9f04b",
+        "source_url": "https://www.wikidata.org/wiki/Q132510"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": true
+     },
+     "monsoon": {
+      "traces": {
+       "wind": {
+        "label": "wind",
+        "cred": 0.7,
+        "source": {
+         "subject": "monsoon",
+         "object": "wind",
+         "predicate": "is_a",
+         "license": "CC0-1.0",
+         "sense": "primary",
+         "text_evidence_kind": "item_description",
+         "source_id": "a9e348763622e716",
+         "source_url": "https://www.wikidata.org/wiki/Q42967"
+        },
+        "conf": 0.85,
+        "kind": "slot"
+       }
+      },
+      "conflicts": [],
+      "counters": {
+       "events": 1,
+       "self_loop_decisions": 1,
+       "slot_writes": 1
+      },
+      "incumbent": {
+       "label": "wind",
+       "cred": 0.7,
+       "source": {
+        "subject": "monsoon",
+        "object": "wind",
+        "predicate": "is_a",
+        "license": "CC0-1.0",
+        "sense": "primary",
+        "text_evidence_kind": "item_description",
+        "source_id": "a9e348763622e716",
+        "source_url": "https://www.wikidata.org/wiki/Q42967"
+       },
+       "conf": 0.85,
+       "kind": "slot"
+      },
+      "self_loop_rule_fired": false
+     }
+    }
+   },
+   "reader_call_totals": {
+    "records_scanned": 141,
+    "trust_calls": 141,
+    "scorer_calls": 20,
+    "records_admitted": 61,
+    "production_calls": 20,
+    "hook_calls": 0
+   },
+   "decision_calls": 8
+  },
+  "K0": {
+   "rows": [
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "blizzard",
+     "options": [
+      "intersection",
+      "snow storm",
+      "natural phenomenon",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "snow storm": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "guild",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "party",
+      "association"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "association": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 9,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 17,
+      "m1_scanned": 8,
+      "trust_calls": 17,
+      "records_admitted": 17,
+      "m2_scanned": 9
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "blizzard",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "party",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_rejected": 8,
+      "m2_scanned": 1,
+      "records_admitted": 1,
+      "veto_hits": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0020",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "party",
+      "snow storm",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "near",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "hydrometeor"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "hydrometeor": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "far",
+     "subject": "rank",
+     "options": [
+      "intersection",
+      "natural phenomenon",
+      "class",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "class": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 12,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m2_scanned": 12,
+      "trust_calls": 12,
+      "records_admitted": 12
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "foil",
+     "subject": "frost",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "process"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "negative",
+     "subject": "thaw",
+     "options": [
+      "atmospheric condition",
+      "intersection",
+      "party",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "atmospheric condition": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0008",
+     "pool": "primary",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "hydrometeor",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "overcast",
+     "options": [
+      "cloud cover",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "cloud cover": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "party",
+      "intersection",
+      "market",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "market": 0.0
+     },
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 12,
+      "m1_scanned": 8,
+      "trust_calls": 12,
+      "records_admitted": 12,
+      "m2_scanned": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "overcast",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "process",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 9,
+      "m1_scanned": 8,
+      "trust_calls": 9,
+      "records_admitted": 9,
+      "m2_scanned": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "shower",
+     "options": [
+      "natural phenomenon",
+      "industrial plant",
+      "intersection",
+      "party"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 7,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 15,
+      "m1_scanned": 8,
+      "trust_calls": 15,
+      "records_rejected": 8,
+      "m2_scanned": 7,
+      "records_admitted": 7,
+      "veto_hits": 2
+     }
+    },
+    {
+     "item_id": "tra_k_0000",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "intersection",
+      "party",
+      "cloud cover",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 8,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 8,
+      "m1_scanned": 8,
+      "trust_calls": 8,
+      "records_admitted": 8
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "near",
+     "subject": "gale",
+     "options": [
+      "wind",
+      "party",
+      "natural phenomenon",
+      "intersection"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "wind": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "far",
+     "subject": "market",
+     "options": [
+      "natural phenomenon",
+      "party",
+      "intersection",
+      "market"
+     ],
+     "pick": null,
+     "reason": "no_trusted_label_above_floor",
+     "scores": {
+      "market": 0.0
+     },
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 4,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 4,
+      "m2_scanned": 4,
+      "trust_calls": 4,
+      "records_admitted": 4
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "foil",
+     "subject": "gale",
+     "options": [
+      "party",
+      "process",
+      "intersection",
+      "natural phenomenon"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 3,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 3,
+      "m2_scanned": 3,
+      "trust_calls": 3,
+      "records_admitted": 3
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "negative",
+     "subject": "monsoon",
+     "options": [
+      "party",
+      "natural phenomenon",
+      "intersection",
+      "economy"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 1,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1,
+      "records_scanned": 1,
+      "m2_scanned": 1,
+      "trust_calls": 1,
+      "records_admitted": 1
+     }
+    },
+    {
+     "item_id": "tra_k_0006",
+     "pool": "sealed",
+     "condition": "unrelated",
+     "subject": "zzq_unrelated_wumpus",
+     "options": [
+      "natural phenomenon",
+      "intersection",
+      "party",
+      "wind"
+     ],
+     "pick": null,
+     "reason": "no_admitted_subject_evidence",
+     "scores": {},
+     "counters": {
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "flag_on": 1,
+      "production_calls": 1,
+      "scorer_calls": 1
+     }
+    }
+   ],
+   "simulation": {
+    "tra_k_0020": {
+     "blizzard": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "guild": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0008": {
+     "frost": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "rank": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "thaw": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0000": {
+     "market": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "overcast": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "shower": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     }
+    },
+    "tra_k_0006": {
+     "gale": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "market": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     },
+     "monsoon": {
+      "traces": {},
+      "conflicts": [],
+      "counters": {},
+      "incumbent": null,
+      "self_loop_rule_fired": false
+     }
+    }
+   },
+   "reader_call_totals": {
+    "records_scanned": 141,
+    "trust_calls": 141,
+    "scorer_calls": 20,
+    "records_admitted": 125,
+    "production_calls": 20,
+    "hook_calls": 0
+   },
+   "decision_calls": 0
+  }
+ },
+ "module_equivalence": {
+  "checked": 8,
+  "mismatches": [],
+  "ok": true
+ },
+ "oracle_non_deployable": [
+  {
+   "item_id": "tra_k_0020",
+   "pool": "primary",
+   "condition": "near",
+   "subject": "blizzard",
+   "injected_label": "snow storm",
+   "pick": "snow storm",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  },
+  {
+   "item_id": "tra_k_0020",
+   "pool": "primary",
+   "condition": "far",
+   "subject": "guild",
+   "injected_label": "association",
+   "pick": "association",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  },
+  {
+   "item_id": "tra_k_0008",
+   "pool": "primary",
+   "condition": "near",
+   "subject": "frost",
+   "injected_label": "hydrometeor",
+   "pick": "hydrometeor",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  },
+  {
+   "item_id": "tra_k_0008",
+   "pool": "primary",
+   "condition": "far",
+   "subject": "rank",
+   "injected_label": "class",
+   "pick": "class",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  },
+  {
+   "item_id": "tra_k_0000",
+   "pool": "sealed",
+   "condition": "near",
+   "subject": "overcast",
+   "injected_label": "cloud cover",
+   "pick": "cloud cover",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  },
+  {
+   "item_id": "tra_k_0000",
+   "pool": "sealed",
+   "condition": "far",
+   "subject": "market",
+   "injected_label": "market",
+   "pick": "market",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  },
+  {
+   "item_id": "tra_k_0006",
+   "pool": "sealed",
+   "condition": "near",
+   "subject": "gale",
+   "injected_label": "wind",
+   "pick": "wind",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  },
+  {
+   "item_id": "tra_k_0006",
+   "pool": "sealed",
+   "condition": "far",
+   "subject": "market",
+   "injected_label": "market",
+   "pick": "market",
+   "reason": "admitted_graded_probe_winner",
+   "deployable": false
+  }
+ ],
+ "endpoints": {
+  "primary": {
+   "BASELINE": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.5,
+    "unrelated": 0.0
+   },
+   "BASELINE2": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.5,
+    "unrelated": 0.0
+   },
+   "ARBITRATION": {
+    "near": 1.0,
+    "far": 1.0,
+    "foil": 0.0,
+    "negative": 0.5,
+    "unrelated": 0.0
+   },
+   "SHAM": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   },
+   "K0": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   }
+  },
+  "sealed": {
+   "BASELINE": {
+    "near": 0.5,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   },
+   "BASELINE2": {
+    "near": 0.5,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   },
+   "ARBITRATION": {
+    "near": 1.0,
+    "far": 1.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   },
+   "SHAM": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   },
+   "K0": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   }
+  },
+  "None": {
+   "BASELINE": {
+    "near": 0.25,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.25,
+    "unrelated": 0.0
+   },
+   "BASELINE2": {
+    "near": 0.25,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.25,
+    "unrelated": 0.0
+   },
+   "ARBITRATION": {
+    "near": 1.0,
+    "far": 1.0,
+    "foil": 0.0,
+    "negative": 0.25,
+    "unrelated": 0.0
+   },
+   "SHAM": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   },
+   "K0": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": 0.0
+   }
+  }
+ },
+ "falsifiers": {
+  "A1_instrument": true,
+  "A2_repeat_identical": true,
+  "A3_sham_no_pick_and_matched_calls": true,
+  "A4_oracle_4of4": true,
+  "A5_mechanism_fired": true,
+  "A9_self_loop_both_items": true,
+  "A6_far_gain_both_pools": true,
+  "A7_no_regression": true,
+  "A8_k0_null_and_pins": true
+ },
+ "mechanism_evidence": {
+  "baseline_demotions": [
+   {
+    "item_id": "tra_k_0020",
+    "subject": "blizzard",
+    "victim": "snow storm",
+    "baseline_victim_conf": 0.425,
+    "challenger": "Wikimedia disambiguation page",
+    "cred_challenger": 0.35,
+    "cred_incumbent": 0.7
+   },
+   {
+    "item_id": "tra_k_0020",
+    "subject": "guild",
+    "victim": "association",
+    "baseline_victim_conf": 0.425,
+    "challenger": "student association",
+    "cred_challenger": 0.2625,
+    "cred_incumbent": 0.7
+   },
+   {
+    "item_id": "tra_k_0008",
+    "subject": "frost",
+    "victim": "hydrometeor",
+    "baseline_victim_conf": 0.425,
+    "challenger": "phenomenon",
+    "cred_challenger": 0.7,
+    "cred_incumbent": 0.7
+   },
+   {
+    "item_id": "tra_k_0008",
+    "subject": "rank",
+    "victim": "class",
+    "baseline_victim_conf": 0.425,
+    "challenger": "card game",
+    "cred_challenger": 0.2625,
+    "cred_incumbent": 0.7
+   },
+   {
+    "item_id": "tra_k_0000",
+    "subject": "shower",
+    "victim": "industrial plant",
+    "baseline_victim_conf": 0.425,
+    "challenger": "party",
+    "cred_challenger": 0.35,
+    "cred_incumbent": 0.7
+   },
+   {
+    "item_id": "tra_k_0006",
+    "subject": "gale",
+    "victim": "wind",
+    "baseline_victim_conf": 0.425,
+    "challenger": "wind speed",
+    "cred_challenger": 0.35,
+    "cred_incumbent": 0.7
+   }
+  ],
+  "arbitration_restorations": [
+   {
+    "item_id": "tra_k_0020",
+    "subject": "blizzard",
+    "label": "snow storm",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0020",
+    "subject": "guild",
+    "label": "association",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0020",
+    "subject": "thaw",
+    "label": "atmospheric condition",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0008",
+    "subject": "frost",
+    "label": "hydrometeor",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0008",
+    "subject": "rank",
+    "label": "class",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0008",
+    "subject": "thaw",
+    "label": "atmospheric condition",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0000",
+    "subject": "market",
+    "label": "market",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0000",
+    "subject": "overcast",
+    "label": "cloud cover",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0000",
+    "subject": "shower",
+    "label": "industrial plant",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0006",
+    "subject": "gale",
+    "label": "wind",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0006",
+    "subject": "market",
+    "label": "market",
+    "conf": 0.85
+   },
+   {
+    "item_id": "tra_k_0006",
+    "subject": "monsoon",
+    "label": "wind",
+    "conf": 0.85
+   }
+  ]
+ },
+ "verdict": "CLEARED \u2014 implement default-off module"
+}
