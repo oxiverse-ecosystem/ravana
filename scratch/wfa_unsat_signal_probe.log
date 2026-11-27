@@ -1,0 +1,1444 @@
+C:\Users\Likhith\Documents\projects\ravana_wfa_unsat\ravana\src\ravana\chat\user_model.py:2327: SyntaxWarning: "\s" is an invalid escape sequence. Such sequences will not work in the future. Did you mean "\\s"? A raw string is also an option.
+  (r'\bmy\s+(...)\s+is\s+...') captures 'partner's name' as one attr
+[
+  {
+    "id": "g28",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "Frost creates in much the same manner as dew creates.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/24a56e2f68e4",
+            "url": "wfa-internal://credible/24a56e2f68e4",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.528622
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/24a56e2f68e4",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/24a56e2f68e4",
+            "url": "wfa-internal://credible/24a56e2f68e4",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.5634909
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/24a56e2f68e4",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/24a56e2f68e4",
+            "url": "wfa-internal://credible/24a56e2f68e4",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.568451
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/24a56e2f68e4",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/24a56e2f68e4",
+            "url": "wfa-internal://credible/24a56e2f68e4",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.572037
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/24a56e2f68e4",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g17",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "When areas of the sea swell out, the tide climbs.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/de0e00e7481e",
+            "url": "wfa-internal://credible/de0e00e7481e",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.576749
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/de0e00e7481e",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/de0e00e7481e",
+            "url": "wfa-internal://credible/de0e00e7481e",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.579738
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/de0e00e7481e",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/de0e00e7481e",
+            "url": "wfa-internal://credible/de0e00e7481e",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.5854237
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/de0e00e7481e",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/de0e00e7481e",
+            "url": "wfa-internal://credible/de0e00e7481e",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.5891027
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/de0e00e7481e",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g09",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "Diffusion happens when a material travels from an zone of high density to an zone of low density.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/6daa07b50ec1",
+            "url": "wfa-internal://credible/6daa07b50ec1",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.5944266
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/6daa07b50ec1",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/6daa07b50ec1",
+            "url": "wfa-internal://credible/6daa07b50ec1",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.5982218
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/6daa07b50ec1",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/6daa07b50ec1",
+            "url": "wfa-internal://credible/6daa07b50ec1",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6029296
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/6daa07b50ec1",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/6daa07b50ec1",
+            "url": "wfa-internal://credible/6daa07b50ec1",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6071327
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/6daa07b50ec1",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "gg029",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "It is typically made of durable materials that can withstand high warmth and stress.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/277ab1985aca",
+            "url": "wfa-internal://credible/277ab1985aca",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.609948
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/277ab1985aca",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/277ab1985aca",
+            "url": "wfa-internal://credible/277ab1985aca",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.614044
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/277ab1985aca",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/277ab1985aca",
+            "url": "wfa-internal://credible/277ab1985aca",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.617307
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/277ab1985aca",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/277ab1985aca",
+            "url": "wfa-internal://credible/277ab1985aca",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6209285
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/277ab1985aca",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g45",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "The degree at which liquid boils relies on stress.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/866543059c11",
+            "url": "wfa-internal://credible/866543059c11",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.624169
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/866543059c11",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/866543059c11",
+            "url": "wfa-internal://credible/866543059c11",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.627067
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/866543059c11",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/866543059c11",
+            "url": "wfa-internal://credible/866543059c11",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6295602
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/866543059c11",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/866543059c11",
+            "url": "wfa-internal://credible/866543059c11",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6322556
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/866543059c11",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g50",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "Diffusion Diffusion is the movement of particles from an zone of high density of the particles to an zone with a smaller …",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/207745c7a959",
+            "url": "wfa-internal://credible/207745c7a959",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6351697
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/207745c7a959",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/207745c7a959",
+            "url": "wfa-internal://credible/207745c7a959",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6376243
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/207745c7a959",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/207745c7a959",
+            "url": "wfa-internal://credible/207745c7a959",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6418219
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/207745c7a959",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/207745c7a959",
+            "url": "wfa-internal://credible/207745c7a959",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6453536
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/207745c7a959",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g11",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "daytime and nighttime happen because Earth rotates on its axle.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/c6d285c4a8f9",
+            "url": "wfa-internal://credible/c6d285c4a8f9",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.649353
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/c6d285c4a8f9",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/c6d285c4a8f9",
+            "url": "wfa-internal://credible/c6d285c4a8f9",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6534965
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/c6d285c4a8f9",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/c6d285c4a8f9",
+            "url": "wfa-internal://credible/c6d285c4a8f9",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6573281
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/c6d285c4a8f9",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/c6d285c4a8f9",
+            "url": "wfa-internal://credible/c6d285c4a8f9",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.661444
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/c6d285c4a8f9",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g25",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "This gap in stress produces the rising buoyancy push.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/300a2ada9053",
+            "url": "wfa-internal://credible/300a2ada9053",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6653929
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/300a2ada9053",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/300a2ada9053",
+            "url": "wfa-internal://credible/300a2ada9053",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6694028
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/300a2ada9053",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/300a2ada9053",
+            "url": "wfa-internal://credible/300a2ada9053",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6722639
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/300a2ada9053",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/300a2ada9053",
+            "url": "wfa-internal://credible/300a2ada9053",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.67536
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/300a2ada9053",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "gg033",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "That is, an object in space resists changes in its condition of movement.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/464e2033f6d0",
+            "url": "wfa-internal://credible/464e2033f6d0",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6792018
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/464e2033f6d0",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/464e2033f6d0",
+            "url": "wfa-internal://credible/464e2033f6d0",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6848624
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/464e2033f6d0",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/464e2033f6d0",
+            "url": "wfa-internal://credible/464e2033f6d0",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6893518
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/464e2033f6d0",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/464e2033f6d0",
+            "url": "wfa-internal://credible/464e2033f6d0",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.692774
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/464e2033f6d0",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g37",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "Friction happens between all types of substance—liquids, vapours, and solids.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/555f1b5fccd5",
+            "url": "wfa-internal://credible/555f1b5fccd5",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6957378
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/555f1b5fccd5",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/555f1b5fccd5",
+            "url": "wfa-internal://credible/555f1b5fccd5",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.6981366
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/555f1b5fccd5",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/555f1b5fccd5",
+            "url": "wfa-internal://credible/555f1b5fccd5",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7022076
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/555f1b5fccd5",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/555f1b5fccd5",
+            "url": "wfa-internal://credible/555f1b5fccd5",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.70632
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/555f1b5fccd5",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "gg015",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "Find Heated Snow liquefaction Mats ice thaw at Lowe's today.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/fb86197425b8",
+            "url": "wfa-internal://credible/fb86197425b8",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7102
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/fb86197425b8",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/fb86197425b8",
+            "url": "wfa-internal://credible/fb86197425b8",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7141385
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/fb86197425b8",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/fb86197425b8",
+            "url": "wfa-internal://credible/fb86197425b8",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7182412
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/fb86197425b8",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/fb86197425b8",
+            "url": "wfa-internal://credible/fb86197425b8",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7223127
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/fb86197425b8",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  },
+  {
+    "id": "g14",
+    "kind": "gap",
+    "pool": "primary",
+    "claim": "In the first stages of healing, the basic binding tissue of the skin collagen expands into the wound zone.",
+    "arms": {
+      "inclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/0c0f7856caeb",
+            "url": "wfa-internal://credible/0c0f7856caeb",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7254214
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/0c0f7856caeb",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "exclusion": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/0c0f7856caeb",
+            "url": "wfa-internal://credible/0c0f7856caeb",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7281191
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/0c0f7856caeb",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      },
+      "invalidation": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/0c0f7856caeb",
+            "url": "wfa-internal://credible/0c0f7856caeb",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "discredited",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7307637
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "discredited",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/0c0f7856caeb",
+          "edge_kind": "curated",
+          "source_status": "discredited",
+          "trust_class": "discredited",
+          "credibility_token": null
+        }
+      },
+      "forced_choice": {
+        "n_edges": 1,
+        "rows": [
+          {
+            "claim_token_match": true,
+            "source": "wfa-internal://credible/0c0f7856caeb",
+            "url": "wfa-internal://credible/0c0f7856caeb",
+            "edge_kind": "curated",
+            "source_type": "seed",
+            "source_status": "",
+            "relation_type": "semantic",
+            "confidence": 0.9,
+            "timestamp": 1795780249.7333734
+          }
+        ],
+        "ctx_rel": 0.9,
+        "ctx_familiarity": 0.9,
+        "trust": "credible",
+        "audit": {
+          "context_source": "engine_graph_provenance",
+          "n_matching_edges": 1,
+          "origin": "wfa-internal://credible/0c0f7856caeb",
+          "edge_kind": "curated",
+          "source_status": "",
+          "trust_class": "credible",
+          "credibility_token": "credible"
+        }
+      }
+    }
+  }
+]
