@@ -1,0 +1,54 @@
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+baseline digest 3e53f1d6c8b34b98f7f905c5
+  [GloVe] Loaded 400001 projected vectors from cache (100D -> 64D)
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+  [PMI] Corpus not found at C:\Users\Likhith\Documents\projects\ravana_wfa_perf\data\corpora\teen_seeds.txt, using internal fallback
+  [PMI] Seeded 57 concepts, 522 connections (56 PMI-wired, 460 GloVe-wired), 313 reclassified
+  [Domain] Bootstrapped 3 domain concepts: oxiverse, intentforge, ravana
+  [CommonFacts] Seeded 15 authored core facts (offline)
+  [Physics] Seeded 27 causal edges (offline world-skeleton)
+  [Teen] Knows 119 words, ready to learn!
+memo hits 5 digests 1 all_equal_to_baseline True
+GLOVE_MEMO_EQUIVALENCE=PASS
