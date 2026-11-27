@@ -1,0 +1,113 @@
+{
+  "purpose": "Machine-readable verification ledger for the M3 graded-probe reader design. Verified by web_search against publisher/index records on 2026-11-27; full-text claims are not asserted where only abstracts/index records were available.",
+  "sources": [
+    {
+      "id": "encoding_specificity",
+      "authors": ["Tulving, E.", "Thomson, D. M."],
+      "year": 1973,
+      "title": "Encoding specificity and retrieval processes in episodic memory",
+      "journal": "Psychological Review",
+      "volume": 80, "issue": 5, "pages": "352-373",
+      "doi": "10.1037/h0020071",
+      "mapping": "Use the source-native label that was encoded at write time as the retrieval cue; a redundant post-hoc stamp is not the encoded trace.",
+      "strength": "S",
+      "verification": "APA PsycNet record + PhilPapers + Loterre thesaurus quotation of p.369; DOI consistent across records."
+    },
+    {
+      "id": "transfer_appropriate_processing",
+      "authors": ["Morris, C. D.", "Bransford, J. D.", "Franks, J. J."],
+      "year": 1977,
+      "title": "Levels of processing versus transfer appropriate processing",
+      "journal": "Journal of Verbal Learning and Verbal Behavior",
+      "volume": 16, "issue": 5, "pages": "519-533",
+      "doi": "10.1016/S0022-5371(77)80016-9",
+      "mapping": "The forced-choice surface must overlap the encoding operations; read the encoded label rather than a parallel stamp.",
+      "strength": "S",
+      "verification": "APA PsycNet record + Semantic Scholar + OpenAlex; DOI consistent."
+    },
+    {
+      "id": "schema_cue_before_encoding",
+      "authors": ["Bransford, J. D.", "Johnson, M. K."],
+      "year": 1972,
+      "title": "Contextual prerequisites for understanding: Some investigations of comprehension and recall",
+      "journal": "Journal of Verbal Learning and Verbal Behavior",
+      "volume": 11, "issue": 6, "pages": "717-726",
+      "doi": "10.1016/S0022-5371(72)80006-9",
+      "mapping": "A schema supplied before encoding changes what can later be recalled: schema acts as a retrieval cue, not only an encoding aid.",
+      "strength": "S",
+      "verification": "APA PsycNet record + full paper PDF (Yale memory lab) + Springer review quoting the finding."
+    },
+    {
+      "id": "schema_triggered_retrieval",
+      "authors": ["Anderson, R. C.", "Pichert, J. W."],
+      "year": 1978,
+      "title": "Recall of previously unrecallable information following a shift in perspective",
+      "journal": "Journal of Verbal Learning and Verbal Behavior",
+      "volume": 17, "issue": 1, "pages": "1-12",
+      "doi": null,
+      "mapping": "A schema activated at recall alone changes what is retrieved; M2 subject-side evidence is a legitimate read cue independent of encoding.",
+      "strength": "S",
+      "verification": "ERIC record ED142974 + paper PDF (Illinois). No DOI was confirmed in this session; cited without one rather than guessed."
+    },
+    {
+      "id": "one_trial_schema_assimilation",
+      "authors": ["Tse, D.", "Langston, R. F.", "Kakeyama, M.", "Bethus, I.", "Spooner, P. A.", "Wood, E. R.", "Witter, M. P.", "Morris, R. G. M."],
+      "year": 2007,
+      "title": "Schemas and memory consolidation",
+      "journal": "Science",
+      "volume": 316, "issue": 5821, "pages": "76-82",
+      "doi": "10.1126/science.1135935",
+      "mapping": "One-trial assimilation requires a pre-existing schema: M2 is a separate necessary condition, not a restatement of M1.",
+      "strength": "S",
+      "verification": "Science publisher page + CiNii + PubMed commentary (PMC2271071)."
+    },
+    {
+      "id": "negation_accessibility",
+      "authors": ["MacMillan, F. T.", "Peer, L.", "Garnham, A."],
+      "year": 2001,
+      "title": "Negation and its impact on the accessibility of text information",
+      "journal": "Memory & Cognition",
+      "volume": 29, "issue": 7, "pages": "960-967",
+      "doi": "10.3758/BF03195758",
+      "mapping": "Explicit negation reduces accessibility of the negated concept; an admitted negated (subject,label) fact vetoes that label.",
+      "strength": "S",
+      "verification": "PubMed record 11820755 (abstract, not full text)."
+    },
+    {
+      "id": "negation_boundary",
+      "authors": ["Giora, R."],
+      "year": 2008,
+      "title": "'A good Arab is not a dead Arab': On the accessibility of negated concepts",
+      "journal": "In Kecskes & Horn (Eds.), Explorations in Pragmatics",
+      "pages": "129-162",
+      "doi": "10.1515/9783110198843.2.129",
+      "mapping": "Negated concepts are not unconditionally suppressed; therefore the veto is scoped to an explicitly negated, provenance-admitted (subject,label), never a global word ban.",
+      "strength": "E-boundary",
+      "verification": "DOI listed in Cambridge Core reference list and in Giora's own PDF; index-level, not full text."
+    },
+    {
+      "id": "source_monitoring_guard",
+      "authors": ["Johnson, M. K.", "Hashtroudi, S.", "Lindsay, D. S."],
+      "year": 1993,
+      "title": "Source monitoring",
+      "journal": "Psychological Bulletin",
+      "volume": 114, "issue": 1, "pages": "3-28",
+      "doi": "10.1037/0033-2909.114.1.3",
+      "mapping": "Trust is evaluated from provenance, never from confidence/familiarity; untrusted records cannot admit or veto.",
+      "strength": "S",
+      "verification": "PubMed 8346328 + APA PsycNet + OpenAlex."
+    },
+    {
+      "id": "production_commitment",
+      "authors": ["Levelt, W. J. M.", "Roelofs, A.", "Meyer, A. S."],
+      "year": 1999,
+      "title": "A theory of lexical access in speech production",
+      "journal": "Behavioral and Brain Sciences",
+      "volume": 22, "issue": 1, "pages": "1-38",
+      "doi": "10.1017/S0140525X99001776",
+      "mapping": "Commit to the proposition before form encoding: structural deferral returns an already-admitted production pick untouched.",
+      "strength": "S",
+      "verification": "Cambridge Core publisher record + APA PsycNet. NOTE: earlier RAVANA docs quoted pages 1-63; corrected here to 1-38."
+    }
+  ]
+}
