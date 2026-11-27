@@ -1,0 +1,26 @@
+invest(rsi): root-cause F7 flat result as M2 label-space mismatch
+
+Boot-free four-way diagnostic over the six recorded RSI arm reports and the
+full deterministic item bank:
+
+- M3 hook is reachable on every query turn (384 hook/scorer calls, 0 errors),
+  admits 1,360 provenance-trusted records and emits 0 picks.
+- M1 staging cannot fire on RSI: no channel_evidence and no "X is a Y" teaching
+  surface, so m1_act_calls = 0, staged_m1 = 0 in every arm.
+- M2 snapshot supplies type labels; RSI forced-choice surfaces display relation
+  target objects. 473/480 bank rows have no admitted label in the option set;
+  the 4 executed items are 16/16 with reason no_admitted_subject_evidence.
+- Negation/status admission is clean (0 vetoes, 0 rejections); the grader sees
+  no hook emission, so this is not an articulation defect.
+
+A NON-DEPLOYABLE oracle relabel makes the unmodified reader emit a pick,
+locating the gap at the deployable label vocabulary, not the mechanism. No gate,
+threshold, item, prompt, scorer or production file was changed. No fix is
+justified: RSI deliberately holds out the query subject and target, so a
+subject->relation-target evidence channel does not exist in engine-owned data.
+
+Brain basis (already in the reader's design doc): Tulving & Thomson (1973)
+Psych Review 80(5):352-373, doi:10.1037/h0020071; Morris, Bransford & Franks
+(1977) JVLVB 16(5):519-533, doi:10.1016/S0022-5371(77)80016-9; Johnson,
+Hashtroudi & Lindsay (1993) Psychol Bull 114(1):3-28,
+doi:10.1037/0033-2909.114.1.3.

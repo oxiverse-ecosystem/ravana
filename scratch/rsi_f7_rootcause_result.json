@@ -1,0 +1,851 @@
+{
+  "arm_reachability": {
+    "M1": {
+      "emitted_picks": 0,
+      "endpoints_primary": {
+        "far": 0.0,
+        "foil": 0.0,
+        "near": 0.0,
+        "negative": 0.0
+      },
+      "engine_response_unparsed": 339,
+      "flag_off": 384,
+      "flag_on": 0,
+      "hook_calls": 384,
+      "hook_errors": 0,
+      "last_error": null,
+      "m1_act_calls": 0,
+      "m1_act_writes": 0,
+      "picks": 0,
+      "production_calls": 0,
+      "production_pick_defers": 0,
+      "query_turns": 384,
+      "reachability": "UNREACHABLE_WIRING",
+      "records_admitted": 0,
+      "records_rejected": 0,
+      "records_scanned": 0,
+      "scorer_calls": 0,
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "status": "OK",
+      "veto_hits": 0
+    },
+    "M1+M2": {
+      "emitted_picks": 0,
+      "endpoints_primary": {
+        "far": 0.0,
+        "foil": 0.0,
+        "near": 0.0,
+        "negative": 0.0
+      },
+      "engine_response_unparsed": 339,
+      "flag_off": 384,
+      "flag_on": 0,
+      "hook_calls": 384,
+      "hook_errors": 0,
+      "last_error": null,
+      "m1_act_calls": 0,
+      "m1_act_writes": 0,
+      "picks": 0,
+      "production_calls": 0,
+      "production_pick_defers": 0,
+      "query_turns": 384,
+      "reachability": "UNREACHABLE_WIRING",
+      "records_admitted": 0,
+      "records_rejected": 0,
+      "records_scanned": 0,
+      "scorer_calls": 0,
+      "staged_m1": 0,
+      "staged_m2": 1360,
+      "status": "OK",
+      "veto_hits": 0
+    },
+    "M1+M2+M3": {
+      "emitted_picks": 0,
+      "endpoints_primary": {
+        "far": 0.0,
+        "foil": 0.0,
+        "near": 0.0,
+        "negative": 0.0
+      },
+      "engine_response_unparsed": 339,
+      "flag_off": 0,
+      "flag_on": 384,
+      "hook_calls": 384,
+      "hook_errors": 0,
+      "last_error": null,
+      "m1_act_calls": 0,
+      "m1_act_writes": 0,
+      "picks": 0,
+      "production_calls": 384,
+      "production_pick_defers": 0,
+      "query_turns": 384,
+      "reachability": "READER_DEFERS",
+      "records_admitted": 1360,
+      "records_rejected": 0,
+      "records_scanned": 1360,
+      "scorer_calls": 384,
+      "staged_m1": 0,
+      "staged_m2": 1360,
+      "status": "OK",
+      "veto_hits": 0
+    },
+    "OFF": {
+      "emitted_picks": 0,
+      "endpoints_primary": {
+        "far": 0.0,
+        "foil": 0.0,
+        "near": 0.0,
+        "negative": 0.0
+      },
+      "engine_response_unparsed": 339,
+      "flag_off": 384,
+      "flag_on": 0,
+      "hook_calls": 384,
+      "hook_errors": 0,
+      "last_error": null,
+      "m1_act_calls": 0,
+      "m1_act_writes": 0,
+      "picks": 0,
+      "production_calls": 0,
+      "production_pick_defers": 0,
+      "query_turns": 384,
+      "reachability": "UNREACHABLE_WIRING",
+      "records_admitted": 0,
+      "records_rejected": 0,
+      "records_scanned": 0,
+      "scorer_calls": 0,
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "status": "OK",
+      "veto_hits": 0
+    },
+    "OFF2": {
+      "emitted_picks": 0,
+      "endpoints_primary": {
+        "far": 0.0,
+        "foil": 0.0,
+        "near": 0.0,
+        "negative": 0.0
+      },
+      "engine_response_unparsed": 339,
+      "flag_off": 384,
+      "flag_on": 0,
+      "hook_calls": 384,
+      "hook_errors": 0,
+      "last_error": null,
+      "m1_act_calls": 0,
+      "m1_act_writes": 0,
+      "picks": 0,
+      "production_calls": 0,
+      "production_pick_defers": 0,
+      "query_turns": 384,
+      "reachability": "UNREACHABLE_WIRING",
+      "records_admitted": 0,
+      "records_rejected": 0,
+      "records_scanned": 0,
+      "scorer_calls": 0,
+      "staged_m1": 0,
+      "staged_m2": 0,
+      "status": "OK",
+      "veto_hits": 0
+    },
+    "SHAM": {
+      "emitted_picks": 0,
+      "endpoints_primary": {
+        "far": 0.0,
+        "foil": 0.0,
+        "near": 0.0,
+        "negative": 0.0
+      },
+      "engine_response_unparsed": 339,
+      "flag_off": 0,
+      "flag_on": 384,
+      "hook_calls": 384,
+      "hook_errors": 0,
+      "last_error": null,
+      "m1_act_calls": 0,
+      "m1_act_writes": 0,
+      "picks": 0,
+      "production_calls": 384,
+      "production_pick_defers": 0,
+      "query_turns": 384,
+      "reachability": "READER_DEFERS",
+      "records_admitted": 1360,
+      "records_rejected": 0,
+      "records_scanned": 1360,
+      "scorer_calls": 384,
+      "staged_m1": 0,
+      "staged_m2": 1360,
+      "status": "OK",
+      "veto_hits": 0
+    }
+  },
+  "boot": false,
+  "candidate_label_census": {
+    "first_misses": [
+      [
+        "rsi_000",
+        "near",
+        "thaw"
+      ],
+      [
+        "rsi_000",
+        "far",
+        "role"
+      ],
+      [
+        "rsi_000",
+        "foil",
+        "hail"
+      ],
+      [
+        "rsi_000",
+        "negative",
+        "squall"
+      ],
+      [
+        "rsi_001",
+        "near",
+        "thunder"
+      ],
+      [
+        "rsi_001",
+        "far",
+        "custom"
+      ],
+      [
+        "rsi_001",
+        "foil",
+        "rainbow"
+      ],
+      [
+        "rsi_001",
+        "negative",
+        "gale"
+      ]
+    ],
+    "rows": 480,
+    "rows_with_label_in_options": 7,
+    "rows_with_subject_evidence": 468,
+    "rows_without_label_in_options": 473
+  },
+  "gate_threshold_item_prompt_scorer_changed": false,
+  "m1_precondition_audit": [
+    {
+      "can_stage_m1": false,
+      "claim_re_matches": [
+        false,
+        false
+      ],
+      "has_channel_evidence": false,
+      "item_id": "rsi_000",
+      "sample_surfaces": [
+        "gale causes rainbow.",
+        "Considering the examples above, what is true of thaw? Options: sunset, typhoon, mist, hail. Answer briefly."
+      ]
+    },
+    {
+      "can_stage_m1": false,
+      "claim_re_matches": [
+        false,
+        false
+      ],
+      "has_channel_evidence": false,
+      "item_id": "rsi_001",
+      "sample_surfaces": [
+        "shower is part of mist.",
+        "Considering the examples above, what is true of thunder? Options: chill, gale, tempest, dew. Answer briefly."
+      ]
+    },
+    {
+      "can_stage_m1": false,
+      "claim_re_matches": [
+        false,
+        false
+      ],
+      "has_channel_evidence": false,
+      "item_id": "rsi_002",
+      "sample_surfaces": [
+        "breeze comes before hail.",
+        "Considering the examples above, what is true of cloud? Options: climate, glow, typhoon, frost. Answer briefly."
+      ]
+    },
+    {
+      "can_stage_m1": false,
+      "claim_re_matches": [
+        false,
+        false
+      ],
+      "has_channel_evidence": false,
+      "item_id": "rsi_005",
+      "sample_surfaces": [
+        "frost resembles tempest.",
+        "Considering the examples above, what is true of drizzle? Options: chill, typhoon, blizzard, cloud. Answer briefly."
+      ]
+    }
+  ],
+  "network": false,
+  "oracle_relabel_control": {
+    "NON_DEPLOYABLE": true,
+    "applicable": true,
+    "injected_label": "sunset",
+    "pick": "sunset",
+    "reason": "admitted_graded_probe_winner",
+    "scores": {
+      "sunset": 0.9
+    }
+  },
+  "production_files_changed": 0,
+  "replay_category_counts": {
+    "READER_DEFERS": 16
+  },
+  "replay_reader_reasons": {
+    "no_admitted_subject_evidence": 16
+  },
+  "replayed_queries": [
+    {
+      "admitted_records": 1,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "near",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 1,
+        "records_admitted": 1,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "sunset",
+        "typhoon",
+        "mist",
+        "hail"
+      ],
+      "item_id": "rsi_000",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "thaw",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "thaw",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "atmospheric condition"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 14,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "far",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 14,
+        "records_admitted": 14,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "council",
+        "ceremony",
+        "team",
+        "election"
+      ],
+      "item_id": "rsi_000",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "role",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "role",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "BFO class",
+        "functional complex",
+        "general role",
+        "group of fictional characters",
+        "knowledge organization system concept",
+        "property",
+        "proto-patient",
+        "realizable entity",
+        "role",
+        "role within an organization",
+        "role-related entity",
+        "secondary predicate",
+        "type of object",
+        "type of quality"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 4,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "foil",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 4,
+        "records_admitted": 4,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "gale",
+        "mist",
+        "thunder",
+        "squall"
+      ],
+      "item_id": "rsi_000",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "hail",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "hail",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "concept",
+        "precipitation",
+        "property",
+        "type of meteorological phenomenon"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 2,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "negative",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 2,
+        "records_admitted": 2,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "thunder",
+        "sunset",
+        "typhoon",
+        "thaw"
+      ],
+      "item_id": "rsi_000",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "squall",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "squall",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "extreme weather event",
+        "wind"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 4,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "near",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 4,
+        "records_admitted": 4,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "chill",
+        "gale",
+        "tempest",
+        "dew"
+      ],
+      "item_id": "rsi_001",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "thunder",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "thunder",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "meteorological phenomenon",
+        "natural phenomenon",
+        "natural sound",
+        "type of meteorological phenomenon"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 2,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "far",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 2,
+        "records_admitted": 2,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "contract",
+        "law",
+        "habit",
+        "ceremony"
+      ],
+      "item_id": "rsi_001",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "custom",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "custom",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "convention",
+        "proto-patient"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 5,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "foil",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 5,
+        "records_admitted": 5,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "shower",
+        "gale",
+        "frost",
+        "tempest"
+      ],
+      "item_id": "rsi_001",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "rainbow",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "rainbow",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "Wikimedia permanent duplicate item",
+        "air",
+        "color term",
+        "phenomenon",
+        "photometeor"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 3,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "negative",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 3,
+        "records_admitted": 3,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "hail",
+        "chill",
+        "dew",
+        "frost"
+      ],
+      "item_id": "rsi_001",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "gale",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "gale",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "gene",
+        "wind",
+        "wind speed"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 5,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "near",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 5,
+        "records_admitted": 5,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "climate",
+        "glow",
+        "typhoon",
+        "frost"
+      ],
+      "item_id": "rsi_002",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "cloud",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "cloud",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "air",
+        "mosque",
+        "sound",
+        "type of meteorological phenomenon",
+        "weather"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 3,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "far",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 3,
+        "records_admitted": 3,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "ceremony",
+        "law",
+        "rank",
+        "role"
+      ],
+      "item_id": "rsi_002",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "election",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "election",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "Wikimedia disambiguation page",
+        "religious belief",
+        "selection"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 1,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "foil",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 1,
+        "records_admitted": 1,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "breeze",
+        "climate",
+        "storm",
+        "frost"
+      ],
+      "item_id": "rsi_002",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "glow",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "glow",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "human"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 5,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "negative",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 5,
+        "records_admitted": 5,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "climate",
+        "tempest",
+        "glow",
+        "frost"
+      ],
+      "item_id": "rsi_002",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "storm",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "storm",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "cue dramatic category",
+        "environmental system process",
+        "painting",
+        "type of meteorological phenomenon",
+        "wind"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 2,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "near",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 2,
+        "records_admitted": 2,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "chill",
+        "typhoon",
+        "blizzard",
+        "cloud"
+      ],
+      "item_id": "rsi_005",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "drizzle",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "drizzle",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "precipitation",
+        "weather"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 4,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "far",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 4,
+        "records_admitted": 4,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "vote",
+        "council",
+        "election",
+        "guild"
+      ],
+      "item_id": "rsi_005",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "market",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "market",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "economy",
+        "market",
+        "recurring event",
+        "video game feature"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 3,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "foil",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 3,
+        "records_admitted": 3,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "frost",
+        "dew",
+        "blizzard",
+        "hail"
+      ],
+      "item_id": "rsi_005",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "typhoon",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "typhoon",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "JMA typhoon wind scale category",
+        "JTWC typhoon wind scale category",
+        "Northwest Pacific tropical cyclone"
+      ],
+      "vetoed": []
+    },
+    {
+      "admitted_records": 2,
+      "candidate_label_coverage": false,
+      "category": "READER_DEFERS",
+      "condition": "negative",
+      "counter_delta": {
+        "m1_scanned": 0,
+        "m2_scanned": 2,
+        "records_admitted": 2,
+        "records_rejected": 0,
+        "veto_hits": 0
+      },
+      "displayed_options": [
+        "blizzard",
+        "cloud",
+        "dew",
+        "typhoon"
+      ],
+      "item_id": "rsi_005",
+      "labels_matching_displayed_options": [],
+      "pick": null,
+      "raw_subject": "breeze",
+      "reader_reason": "no_admitted_subject_evidence",
+      "resolved_subject": "breeze",
+      "scores": {},
+      "snapshot_rejections": [],
+      "snapshot_type_labels": [
+        "meteorological phenomenon",
+        "wind"
+      ],
+      "vetoed": []
+    }
+  ],
+  "schema": "rsi-f7-rootcause-diagnostic-v1",
+  "verdict": "M3 hook reachable; M1 staging impossible on RSI; M2 type labels admitted but disjoint from the forced-choice object vocabulary -> reader defers with no_admitted_subject_evidence.",
+  "writes": false
+}
