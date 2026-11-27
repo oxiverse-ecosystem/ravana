@@ -1,0 +1,409 @@
+{
+ "schema": "m123-combined-arm-v1",
+ "stage": "rsi",
+ "arm": "M1+M2+M3",
+ "tag": "m123",
+ "status": "OK",
+ "scored": true,
+ "falsifiers_local": [],
+ "config": {
+  "arm_flags": {
+   "RAVANA_DURABLE_PROVENANCE": "1",
+   "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+   "RAVANA_M3_GRADED_PROBE": "1"
+  },
+  "env_flags": {
+   "RAVANA_DURABLE_PROVENANCE": "1",
+   "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+   "RAVANA_M3_GRADED_PROBE": "1"
+  },
+  "base": "C:/Users/Likhith/Documents/projects/ravana_m123_run/scratch/m123_data",
+  "arm_dir": "C:/Users/Likhith/Documents/projects/ravana_m123_run/scratch/m123_data\\rsi_m123",
+  "max_per_pool": 0,
+  "items": [
+   "rsi_000",
+   "rsi_001",
+   "rsi_002",
+   "rsi_005"
+  ],
+  "item_count": 4,
+  "bank_count": 120,
+  "pythonhashseed": "0"
+ },
+ "ast_anti_leakage": {
+  "ok": true,
+  "problems": [],
+  "scanned": [
+   {
+    "function": "graded_probe_pick",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "read_graded_probe",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "_admit_m1",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "wrong_tag_trust",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "_fact_from",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "stage_m1_act",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "stage_arm_evidence",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "reader_pick",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "label_from_claim",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "view_confidence",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "permuted_subject",
+    "module": "__main__",
+    "hits": []
+   }
+  ],
+  "banned_tokens": [
+   "answer_key",
+   "answer_key_leak",
+   "counterexample_target",
+   "forbidden_channel_subjects",
+   "gold",
+   "item_gold",
+   "oracle",
+   "q_gold",
+   "type_sets",
+   "typed_queries",
+   "world_model"
+  ]
+ },
+ "preflight_result": "C:\\Users\\Likhith\\Documents\\projects\\ravana_m123_run\\scratch\\m123_preflight_result.json",
+ "harness": {
+  "summary": {
+   "primary": {
+    "by_k": {
+     "1": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0,
+      "permuted": 0.0
+     },
+     "2": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0,
+      "permuted": 0.0
+     },
+     "4": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0,
+      "permuted": 0.0
+     },
+     "8": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0,
+      "permuted": 0.0
+     }
+    },
+    "near_n": 8,
+    "near": 0.0,
+    "far_n": 8,
+    "far": 0.0,
+    "foil_n": 8,
+    "foil": 0.0,
+    "negative_n": 8,
+    "negative": 0.0,
+    "permuted_n": 16,
+    "permuted": 0.0,
+    "monotonic_max_drop": 0.0,
+    "monotonic_by_condition": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0
+    },
+    "growth_headroom": 0.0,
+    "graded_max_drop": 0.0,
+    "chance": 0.5,
+    "far_minus_chance": -0.5,
+    "negative_reject": 0.0,
+    "counterexample_reject": 0.0,
+    "relation_coverage": 1.0,
+    "exact_exact": 0.0,
+    "permuted_exact": 0.0,
+    "foil_foil_reject": 0.0
+   },
+   "sealed": {
+    "by_k": {
+     "1": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0,
+      "permuted": 0.25
+     },
+     "2": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.5,
+      "negative": 0.0,
+      "permuted": 0.0
+     },
+     "4": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.5,
+      "negative": 0.5,
+      "permuted": 0.25
+     },
+     "8": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.5,
+      "negative": 0.5,
+      "permuted": 0.0
+     }
+    },
+    "near_n": 8,
+    "near": 0.0,
+    "far_n": 8,
+    "far": 0.0,
+    "foil_n": 8,
+    "foil": 0.375,
+    "negative_n": 8,
+    "negative": 0.25,
+    "permuted_n": 16,
+    "permuted": 0.125,
+    "monotonic_max_drop": 0.0,
+    "monotonic_by_condition": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0
+    },
+    "growth_headroom": 0.0,
+    "graded_max_drop": 0.0,
+    "chance": 0.0,
+    "far_minus_chance": 0.0,
+    "negative_reject": 0.25,
+    "counterexample_reject": 0.0,
+    "relation_coverage": 1.0,
+    "exact_exact": 0.0,
+    "permuted_exact": 0.125,
+    "foil_foil_reject": 0.375
+   },
+   "engine_observation_missing": 0,
+   "engine_response_unparsed": 0
+  },
+  "controls": [
+   {
+    "id": "C1 positive structural near(k=8)>=0.90",
+    "name": "C1 positive structural near(k=8)>=0.90",
+    "ok": true
+   },
+   {
+    "id": "C2 foil: structural rejects>=0.90 and naive<=0.10",
+    "name": "C2 foil: structural rejects>=0.90 and naive<=0.10",
+    "ok": true
+   },
+   {
+    "id": "C3 permutation: naive gap>=0.15 and structural gap<=0.10",
+    "name": "C3 permutation: naive gap>=0.15 and structural gap<=0.10",
+    "ok": true
+   },
+   {
+    "id": "C4 chance<=0.35 and far-chance>=0.20",
+    "name": "C4 chance<=0.35 and far-chance>=0.20",
+    "ok": true
+   },
+   {
+    "id": "C5 negative: structural reject>=0.85, counterexample<=0.20",
+    "name": "C5 negative: structural reject>=0.85, counterexample<=0.20",
+    "ok": true
+   },
+   {
+    "id": "C6 monotonic learning curve (max adjacent drop<=0.05)",
+    "name": "C6 monotonic learning curve (max adjacent drop<=0.05)",
+    "ok": true
+   },
+   {
+    "id": "C7 graded difficulty near>=far>=foil (max drop<=0.15)",
+    "name": "C7 graded difficulty near>=far>=foil (max drop<=0.15)",
+    "ok": true
+   },
+   {
+    "id": "C8 relation coverage>=0.95 + grader fixed vectors",
+    "name": "C8 relation coverage>=0.95 + grader fixed vectors",
+    "ok": true
+   }
+  ],
+  "decision_rules": {},
+  "harness_pass": null,
+  "saturation": {
+   "status": "FLAG",
+   "detail": "1 front(s) non-informative: rsi_near=0"
+  },
+  "mutation_control": {
+   "moved": null,
+   "not_applicable": true
+  }
+ },
+ "endpoints": {
+  "primary": {
+   "near": 0.0,
+   "far": 0.0,
+   "foil": 0.0,
+   "negative": 0.0,
+   "chance": 0.5,
+   "negative_reject": 0.0,
+   "counterexample_reject": 0.0,
+   "growth_headroom": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 0.0,
+   "relation_coverage": 1.0,
+   "_n": {
+    "near": 8,
+    "far": 8,
+    "foil": 8,
+    "negative": 8
+   }
+  },
+  "sealed": {
+   "near": 0.0,
+   "far": 0.0,
+   "foil": 0.375,
+   "negative": 0.25,
+   "chance": 0.0,
+   "negative_reject": 0.25,
+   "counterexample_reject": 0.0,
+   "growth_headroom": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 0.0,
+   "relation_coverage": 1.0,
+   "_n": {
+    "near": 8,
+    "far": 8,
+    "foil": 8,
+    "negative": 8
+   }
+  }
+ },
+ "counters": {
+  "turns": 1824,
+  "query_turns": 384,
+  "explicit_option_prompts": 384,
+  "staged_m1": 0,
+  "staged_m2": 1360,
+  "hook_calls": 384,
+  "flag_on": 384,
+  "production_calls": 384,
+  "scorer_calls": 384,
+  "records_scanned": 1360,
+  "m2_scanned": 1360,
+  "trust_calls": 1360,
+  "records_admitted": 1360,
+  "m1_decisions": {},
+  "boot": 1,
+  "process_turn": 1824,
+  "api_error": null,
+  "engine_response_unparsed": 339,
+  "installed_engines": 1
+ },
+ "guard": {
+  "preflight_ok": true,
+  "sha_pins_match": true,
+  "delayed_option_audit": {
+   "ok": true,
+   "not_applicable": true
+  },
+  "controls_ok": true,
+  "failed_controls": [],
+  "c11_anti_fake_ok": null,
+  "backend_error": null,
+  "mutation_control": {
+   "moved": null,
+   "not_applicable": true
+  },
+  "g6_status": "FLAG",
+  "g6_detail": "1 front(s) non-informative: rsi_near=0",
+  "store_prefix_identical": false,
+  "negation_control": {
+   "negated_surface_vetoes": true,
+   "wrong_tag_arm": false,
+   "reject_condition_probe": {
+    "applicable": false,
+    "rows": 0,
+    "picks": 0,
+    "by_condition": {},
+    "examples": []
+   },
+   "admitted_on_wrong_subject": false
+  }
+ },
+ "store": {
+  "start": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "9afe4fb241d61e6ecb5de25b4ae042eccd15402628a715d43cb901c567d2d6e1",
+   "ravana_weights.db": "bcdd4e3e928bc56a4a28c9abf788d286e3c443c3b9b6283d2d78544149709b43",
+   "ravana_weights.pkl": "964f1c8b3db3df9910ae942c26098bf32e5e329d8e57aa9db6cdeb568ee74046",
+   "ravana_weights.pkl.corrupt-20261119": "936a572810a04126da54d2d8890e81d892c89804c81b90d262bd51c8d09d2372",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "end": {
+   "junk_classifier.json": "a463e9600c4bf48ae2edf6373c29500311a40efbba7d16cf80676e449b0f6138",
+   "junk_labels.jsonl": "83daaf335eec37b7252bc6d8e2f55e92646e9fd805a773a1f795f52aa70d138a",
+   "ravana_weights.db": "a769dbb393a4e6aa172f898bd9c386e8e62f62e89f682ee99fb97ab5ef312774",
+   "ravana_weights.pkl": "964f1c8b3db3df9910ae942c26098bf32e5e329d8e57aa9db6cdeb568ee74046",
+   "ravana_weights.pkl.corrupt-20261119": "936a572810a04126da54d2d8890e81d892c89804c81b90d262bd51c8d09d2372",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "changed": {
+   "junk_classifier.json": [
+    "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+    "a463e9600c4bf48ae2edf6373c29500311a40efbba7d16cf80676e449b0f6138"
+   ],
+   "junk_labels.jsonl": [
+    "9afe4fb241d61e6ecb5de25b4ae042eccd15402628a715d43cb901c567d2d6e1",
+    "83daaf335eec37b7252bc6d8e2f55e92646e9fd805a773a1f795f52aa70d138a"
+   ],
+   "ravana_weights.db": [
+    "bcdd4e3e928bc56a4a28c9abf788d286e3c443c3b9b6283d2d78544149709b43",
+    "a769dbb393a4e6aa172f898bd9c386e8e62f62e89f682ee99fb97ab5ef312774"
+   ]
+  }
+ },
+ "elapsed_s": 962.0
+}

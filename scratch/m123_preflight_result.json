@@ -1,0 +1,364 @@
+{
+ "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_m123_run",
+ "parent": "C:/Users/Likhith/Documents/projects/ravana",
+ "engine_booted": false,
+ "production_files_edited": 0,
+ "thresholds_or_items_changed": 0,
+ "arms": [
+  "OFF",
+  "OFF2",
+  "M1",
+  "M1+M2",
+  "M1+M2+M3",
+  "SHAM"
+ ],
+ "tags": {
+  "OFF": "off1",
+  "OFF2": "off2",
+  "M1": "m1",
+  "M1+M2": "m12",
+  "M1+M2+M3": "m123",
+  "SHAM": "sham"
+ },
+ "arm_flags": {
+  "OFF": {},
+  "OFF2": {},
+  "M1": {
+   "RAVANA_DURABLE_PROVENANCE": "1"
+  },
+  "M1+M2": {
+   "RAVANA_DURABLE_PROVENANCE": "1",
+   "RAVANA_SUBJECT_TYPE_EVIDENCE": "1"
+  },
+  "M1+M2+M3": {
+   "RAVANA_DURABLE_PROVENANCE": "1",
+   "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+   "RAVANA_M3_GRADED_PROBE": "1"
+  },
+  "SHAM": {
+   "RAVANA_DURABLE_PROVENANCE": "1",
+   "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+   "RAVANA_M3_GRADED_PROBE": "1"
+  }
+ },
+ "clear_flags": [
+  "RAVANA_TRA_SLOTS",
+  "RAVANA_TRA_K_SLOTS",
+  "RAVANA_SOURCE_EVAL",
+  "RAVANA_PRIOR_ACT_TRACE",
+  "RAVANA_LEXICAL_SUPERORDINATE"
+ ],
+ "channel": {
+  "path": "C:/Users/Likhith/Documents/projects/ravana/scratch/trak_channel_from_substrate.json",
+  "external": 400,
+  "error": null
+ },
+ "sha_pins": {
+  "scripts/measure_tra_k.py": {
+   "worktree": "03eb992163256a64d67d4a6d23eef9b275ca9f596c7c1bce492e42cd812a17a3",
+   "parent": "03eb992163256a64d67d4a6d23eef9b275ca9f596c7c1bce492e42cd812a17a3",
+   "match": true
+  },
+  "scripts/measure_learn5_rsi.py": {
+   "worktree": "c46daf09df71e916fa2adf3c9cf74605cad543518ec6f359ed3ce0278c3c0950",
+   "parent": "c46daf09df71e916fa2adf3c9cf74605cad543518ec6f359ed3ce0278c3c0950",
+   "match": true
+  },
+  "scripts/measure_tra.py": {
+   "worktree": "42540be3409f556d0c9bd405f62883f6ca45f3e227501e3964644fdc913e84c0",
+   "parent": "42540be3409f556d0c9bd405f62883f6ca45f3e227501e3964644fdc913e84c0",
+   "match": true
+  },
+  "scripts/front_gates.py": {
+   "worktree": "e3e371301e65d49dbc2df7550388066744ec50548b6184d0b3ae86cefb3e3e1d",
+   "parent": "e3e371301e65d49dbc2df7550388066744ec50548b6184d0b3ae86cefb3e3e1d",
+   "match": true
+  },
+  "scripts/tra_k_items.py": {
+   "worktree": "55a681826f5ede52bb05ab1cfcb0158eba2e67f18a7dc978588f8b1f8317a77a",
+   "parent": "55a681826f5ede52bb05ab1cfcb0158eba2e67f18a7dc978588f8b1f8317a77a",
+   "match": true
+  },
+  "data/subject_type_evidence/snapshot.json": {
+   "worktree": "4a058ab53df7443207f6031e858e4ebd60dcbe5b9036fcca50a996a59a76ec22",
+   "parent": "4a058ab53df7443207f6031e858e4ebd60dcbe5b9036fcca50a996a59a76ec22",
+   "match": true
+  },
+  "scratch/trak_channel_from_substrate.json": {
+   "worktree": "a2cb1317a2c666588982850f6720de7ab92832acbcf5ea93fb70acc6e6763a46",
+   "parent": "a2cb1317a2c666588982850f6720de7ab92832acbcf5ea93fb70acc6e6763a46",
+   "match": true
+  },
+  "scratch/m3_graded_probe.py": {
+   "worktree": "e5bc2aceec54245066d425660c738dfd07719f094285f19446b7c22cdf8abadb",
+   "parent": "e5bc2aceec54245066d425660c738dfd07719f094285f19446b7c22cdf8abadb",
+   "match": true
+  },
+  "ravana/src/ravana/chat/durable_provenance.py": {
+   "worktree": "876a0f2b9184b0841d6c567e9a1ba9d0ff221e463a7dde0569dca06c530e23b8",
+   "parent": "876a0f2b9184b0841d6c567e9a1ba9d0ff221e463a7dde0569dca06c530e23b8",
+   "match": true
+  },
+  "ravana/src/ravana/chat/source_evaluation.py": {
+   "worktree": "b7aca4c6891ca8ebb97b80d6aed7ba0bbd92d164733fdaca7f2d4e2447d0f5ba",
+   "parent": "b7aca4c6891ca8ebb97b80d6aed7ba0bbd92d164733fdaca7f2d4e2447d0f5ba",
+   "match": true
+  },
+  "ravana/src/ravana/chat/schema_induction.py": {
+   "worktree": "61780d61cebdea59a99fbb5200198dd214f965cc85c56992b5bbf3b68e6f0ad7",
+   "parent": "61780d61cebdea59a99fbb5200198dd214f965cc85c56992b5bbf3b68e6f0ad7",
+   "match": true
+  },
+  "ravana/src/ravana/learn/subject_type_evidence.py": {
+   "worktree": "0996dbd59929a3ecfd40938f0bb7786dca2da0527db9d33b6fac6ed7f7df55c1",
+   "parent": "0996dbd59929a3ecfd40938f0bb7786dca2da0527db9d33b6fac6ed7f7df55c1",
+   "match": true
+  },
+  "docs/investigations/M123_COMBINED_PREREG.md": {
+   "worktree": "84513f659d707ba4308867238fb9bf390d0833bffa7da1da9be11fdb20ea3536",
+   "parent": "84513f659d707ba4308867238fb9bf390d0833bffa7da1da9be11fdb20ea3536",
+   "match": true
+  }
+ },
+ "store_hashes": {
+  "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+  "junk_labels.jsonl": "9afe4fb241d61e6ecb5de25b4ae042eccd15402628a715d43cb901c567d2d6e1",
+  "ravana_weights.db": "bcdd4e3e928bc56a4a28c9abf788d286e3c443c3b9b6283d2d78544149709b43",
+  "ravana_weights.pkl": "964f1c8b3db3df9910ae942c26098bf32e5e329d8e57aa9db6cdeb568ee74046",
+  "ravana_weights.pkl.corrupt-20261119": "936a572810a04126da54d2d8890e81d892c89804c81b90d262bd51c8d09d2372",
+  "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+ },
+ "ast_anti_leakage": {
+  "ok": true,
+  "problems": [],
+  "scanned": [
+   {
+    "function": "graded_probe_pick",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "read_graded_probe",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "_admit_m1",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "wrong_tag_trust",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "_fact_from",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "stage_m1_act",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "stage_arm_evidence",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "reader_pick",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "label_from_claim",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "view_confidence",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "permuted_subject",
+    "module": "__main__",
+    "hits": []
+   }
+  ],
+  "banned_tokens": [
+   "answer_key",
+   "answer_key_leak",
+   "counterexample_target",
+   "forbidden_channel_subjects",
+   "gold",
+   "item_gold",
+   "oracle",
+   "q_gold",
+   "type_sets",
+   "typed_queries",
+   "world_model"
+  ]
+ },
+ "gold_mutation": {
+  "ok": true,
+  "base": [
+   "blizzard",
+   "snow storm",
+   "abc123",
+   "ENDORSE"
+  ],
+  "mutated": [
+   "blizzard",
+   "snow storm",
+   "abc123",
+   "ENDORSE"
+  ]
+ },
+ "delayed_option_audit": {
+  "ok": true,
+  "validate_errors": 0,
+  "channel_overlap_ok": true,
+  "channel_overlap_totals": {
+   "overlap_type_sets": 4411,
+   "overlap_world_model": 0,
+   "facts": 5600,
+   "answer_key_leak": 0,
+   "oracle_domain_tag_leak": 0,
+   "provenance_missing": 0
+  },
+  "bad_option_rows": 0,
+  "examples": [],
+  "channel_label_count": 238
+ },
+ "audit_mutation_control": {
+  "planted": [
+   "glow",
+   "mist",
+   "hail",
+   "gale"
+  ],
+  "detected": true,
+  "expected_options": [
+   "intersection",
+   "snow storm",
+   "natural phenomenon",
+   "party"
+  ]
+ },
+ "self_test": {
+  "ok": true,
+  "passed": 21,
+  "total": 21,
+  "checks": [
+   {
+    "name": "ast_anti_leakage",
+    "ok": true,
+    "detail": "[]"
+   },
+   {
+    "name": "arm_flags_default_off",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "all_six_arms_declared",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "gold_mutation_invariant",
+    "ok": true,
+    "detail": "{'ok': True, 'base': ['blizzard', 'snow storm', 'abc123', 'ENDORSE'], 'mutated': ['blizzard', 'snow storm', 'abc123', 'ENDORSE']}"
+   },
+   {
+    "name": "flag_off_inert",
+    "ok": true,
+    "detail": "{'flag_off': 1, 'flag_on': 0, 'production_calls': 0, 'scorer_calls': 0, 'trust_calls': 0, 'records_scanned': 0, 'm1_scanned': 0, 'm2_scanned': 0, 'records_admitted': 0, 'records_rejected': 0, 'veto_hits': 0, 'deferred_to_production': 0, 'picks': 0, 'errors': 0}"
+   },
+   {
+    "name": "read_picks_exact_option",
+    "ok": true,
+    "detail": "admitted_graded_probe_winner"
+   },
+   {
+    "name": "sham_admits_nothing",
+    "ok": true,
+    "detail": "no_admitted_subject_evidence"
+   },
+   {
+    "name": "read_sham_counters_matched",
+    "ok": true,
+    "detail": "{'production_calls': (1, 1), 'scorer_calls': (1, 1), 'trust_calls': (1, 1), 'records_scanned': (1, 1), 'm1_scanned': (1, 1), 'm2_scanned': (0, 0)}"
+   },
+   {
+    "name": "reader_arm_picks_and_matches_sham",
+    "ok": true,
+    "detail": "{'read': 'snow storm', 'sham': None, 'errors': 0}"
+   },
+   {
+    "name": "negation_veto",
+    "ok": true,
+    "detail": "all_candidates_negation_vetoed"
+   },
+   {
+    "name": "graph_view_confidence_shape",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "subject_independence",
+    "ok": true,
+    "detail": "no_admitted_subject_evidence"
+   },
+   {
+    "name": "m1_durable_roundtrip",
+    "ok": true,
+    "detail": "R_EXPLICIT_CREDIBLE_SOURCE"
+   },
+   {
+    "name": "m1_key_answer_independent",
+    "ok": true,
+    "detail": "claim key is a plain claim digest"
+   },
+   {
+    "name": "m2_subject_specific",
+    "ok": true,
+    "detail": "4"
+   },
+   {
+    "name": "m2_oov_empty",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "g6_status_recorded",
+    "ok": true,
+    "detail": "FLAG"
+   },
+   {
+    "name": "full_bank_valid",
+    "ok": true,
+    "detail": "{'errors': 0, 'overlap': {'overlap_type_sets': 4411, 'overlap_world_model': 0, 'facts': 5600, 'answer_key_leak': 0, 'oracle_domain_tag_leak': 0, 'provenance_missing': 0}}"
+   },
+   {
+    "name": "delayed_option_audit",
+    "ok": true,
+    "detail": "[]"
+   },
+   {
+    "name": "audit_mutation_detects",
+    "ok": true,
+    "detail": "{'planted': ['glow', 'mist', 'hail', 'gale'], 'detected': True, 'expected_options': ['intersection', 'snow storm', 'natural phenomenon', 'party']}"
+   },
+   {
+    "name": "channel_snapshot_loaded",
+    "ok": true,
+    "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
+   }
+  ]
+ },
+ "ok": true
+}
