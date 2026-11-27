@@ -1,0 +1,22 @@
+module SHAs identical to main: True
+AST anti-leakage: True []
+cases 800 graded 125 primary 70 bank_errors 0
+TEXT  all: {'n': 125, 'emit': 13, 'correct': 10, 'precision': 0.7692, 'coverage': 0.104}  primary: {'n': 70, 'emit': 4, 'correct': 3, 'precision': 0.75, 'coverage': 0.0571}
+DEMO  all: {'n': 125, 'emit': 21, 'correct': 15, 'precision': 0.7143, 'coverage': 0.168}  primary: {'n': 70, 'emit': 14, 'correct': 8, 'precision': 0.5714, 'coverage': 0.2}
+controls: {"ast_anti_leakage": {"ok": true, "problems": []}, "bank_validate_errors": 0, "disjoint_option_emits": 0, "empty_subject_text_emits": 0, "gold_key_permutation": {"accuracy_after": 0.0769, "accuracy_before": 0.7692, "all_keys_changed": true, "n": 125, "pick_rows_identical": true}, "negated_teaching_emits": 0, "subject_text_permutation": {"emits": 13, "picks_changed": 12, "rate": 0.9231, "required": ">= 0.80"}}
+G6: PASS no front in the saturated band
+hand-check rows:
+  tra_k_0017 blizzard text= severe snowstorm characterized by strong sustained winds and low visibility  lasting for a cues= ['extreme weather event', 'wind'] opts= ['rainbow', 'tempest', 'monsoon', 'thunder'] pick= monsoon key= thunder WRONG
+  tra_k_0034 brain text= organ that serves as the center of the nervous system in all vertebrate and most invertebr cues= ['accessory digestive gland', 'anatomical structure class type', 'animal organ', 'animal product'] opts= ['plasma', 'vessel', 'cartilage', 'esophagus'] pick= esophagus key= esophagus OK
+  tra_k_0120 vine text= plant with a growth habit of trailing or scandent  that is  climbing  stems or runners cues= ['plant life form'] opts= ['moss', 'seed', 'tree', 'fern'] pick= tree key= tree OK
+  tra_k_0127 leaf text= main organ of photosynthesis and transpiration in higher plants  usually consisting of a f cues= ['plant structure'] opts= ['stem', 'herb', 'seed', 'root'] pick= seed key= seed OK
+  tra_k_0130 tree text= perennial woody plant cues= ['plant life form'] opts= ['shrub', 'petal', 'blossom', 'foliage'] pick= shrub key= shrub OK
+  tra_k_0133 bark text= plant tissue outside the vascular cambium or the xylem  in older trees may be divided into cues= ['developmental stage of plant', 'food plant', 'plant life form'] opts= ['tree', 'leaf', 'root', 'fern'] pick= tree key= leaf WRONG
+  tra_k_0138 branch text= part of a tree  a shoot axis that develops from an axillary bud meristem or from equal div cues= ['plant stem', 'plant structure', 'raw material'] opts= ['leaf', 'stem', 'fern', 'vine'] pick= leaf key= leaf OK
+  tra_k_0169 heart text= inner organ for the circulation of blood cues= ['anatomical structure class type', 'animal organ', 'animal product', 'class of anatomical entity'] opts= ['cartilage', 'esophagus', 'diaphragm', 'marrow'] pick= esophagus key= esophagus OK
+  tra_k_0182 bone text= rigid organ that constitutes part of the endoskeleton of vertebrates cues= ['animal organ', 'animal product', 'class of anatomical entity', 'organ type'] opts= ['marrow', 'plasma', 'reflex', 'tendon'] pick= tendon key= tendon OK
+  tra_k_0267 leaf text= main organ of photosynthesis and transpiration in higher plants  usually consisting of a f cues= ['plant structure'] opts= ['shrub', 'pollen', 'branch', 'sapling'] pick= branch key= branch OK
+  tra_k_0271 leaf text= main organ of photosynthesis and transpiration in higher plants  usually consisting of a f cues= ['plant structure'] opts= ['foliage', 'vine', 'sapling', 'blossom'] pick= foliage key= foliage OK
+  tra_k_0280 bark text= plant tissue outside the vascular cambium or the xylem  in older trees may be divided into cues= ['developmental stage of plant', 'food plant', 'plant life form'] opts= ['stem', 'moss', 'leaf', 'tree'] pick= tree key= leaf WRONG
+VERDICT: NEGATIVE / NO-GO
+results: C:\Users\Likhith\Documents\projects\ravana_xsrc_transfer\scratch\cross_source_fast_mapping_results.json
