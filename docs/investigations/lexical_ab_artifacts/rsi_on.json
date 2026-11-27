@@ -1,0 +1,8191 @@
+{
+ "bench": "rsi",
+ "rows": 384,
+ "items": [
+  "rsi_000",
+  "rsi_001",
+  "rsi_002",
+  "rsi_005"
+ ],
+ "store_hashes": {
+  "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+  "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+  "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+  "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+  "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+  "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+ },
+ "api_calls": {
+  "boot": 1,
+  "intake": 0,
+  "save": 0,
+  "cold_reload": 0,
+  "process_turn": 1824
+ },
+ "boot_count": 1,
+ "engine_graded": true,
+ "unparsed": 313,
+ "api_error": null,
+ "seconds": 1478.6,
+ "summary": {
+  "primary": {
+   "by_k": {
+    "1": {
+     "near": 0.0,
+     "far": 0.5,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "2": {
+     "near": 0.0,
+     "far": 0.5,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "4": {
+     "near": 0.0,
+     "far": 0.5,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "8": {
+     "near": 0.0,
+     "far": 0.5,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    }
+   },
+   "near": 0.0,
+   "far": 0.5,
+   "foil": 0.0,
+   "negative": 0.0,
+   "neg_n": 8,
+   "foil_n": 8,
+   "chance": 0.5,
+   "negative_reject": 0.0,
+   "counterexample_reject": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 0.5,
+   "growth": 0.0
+  },
+  "sealed": {
+   "by_k": {
+    "1": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.25
+    },
+    "2": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.5,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "4": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.5,
+     "negative": 0.0,
+     "permuted": 0.25
+    },
+    "8": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.5,
+     "negative": 0.0,
+     "permuted": 0.0
+    }
+   },
+   "near": 0.0,
+   "far": 0.0,
+   "foil": 0.375,
+   "negative": 0.0,
+   "neg_n": 8,
+   "foil_n": 8,
+   "chance": 0.0,
+   "negative_reject": 0.0,
+   "counterexample_reject": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 0.0,
+   "growth": 0.0
+  }
+ },
+ "reachability": {
+  "calls": 1824,
+  "emits": 48,
+  "forced_choice_turns": 384
+ },
+ "audit": [
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true thaw",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": null,
+    "typhoon": null,
+    "mist": null,
+    "hail": null
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thaw?",
+   "opts": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "mist": 0.0625,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of role?",
+   "opts": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "subject": "role",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "council": 0.1,
+    "ceremony": 0.3333333333333333,
+    "team": 0.1111111111111111,
+    "election": 0.16666666666666666
+   },
+   "recomputed_choice": "ceremony",
+   "recomputed_reason": "emit",
+   "emitted_pick": "ceremony"
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of hail?",
+   "opts": [
+    "gale",
+    "mist",
+    "thunder",
+    "squall"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "gale": 0.0625,
+    "mist": 0.0625,
+    "thunder": 0.08333333333333333,
+    "squall": 0.0625
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of squall?",
+   "opts": [
+    "thunder",
+    "sunset",
+    "typhoon",
+    "thaw"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "thunder": 0.08333333333333333,
+    "sunset": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "thaw": 0.08333333333333333
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of thunder?",
+   "opts": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "subject": "thunder",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "gale": 0.0625,
+    "tempest": 0.08333333333333333,
+    "dew": 0.06666666666666667
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of custom?",
+   "opts": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "subject": "custom",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "contract": 0.14285714285714285,
+    "law": 0.14285714285714285,
+    "habit": 0.5,
+    "ceremony": 0.25
+   },
+   "recomputed_choice": "habit",
+   "recomputed_reason": "emit",
+   "emitted_pick": "habit"
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of rainbow?",
+   "opts": [
+    "shower",
+    "gale",
+    "frost",
+    "tempest"
+   ],
+   "subject": "rainbow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "shower": 0.07692307692307693,
+    "gale": 0.058823529411764705,
+    "frost": 0.07142857142857142,
+    "tempest": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of gale?",
+   "opts": [
+    "hail",
+    "chill",
+    "dew",
+    "frost"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "hail": 0.1,
+    "chill": 0.09090909090909091,
+    "dew": 0.06666666666666667,
+    "frost": 0.07692307692307693
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of cloud?",
+   "opts": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "subject": "cloud",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.2,
+    "glow": 0.16666666666666666,
+    "typhoon": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of election?",
+   "opts": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "ceremony": 0.09090909090909091,
+    "law": 0.1111111111111111,
+    "rank": 0.1,
+    "role": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of glow?",
+   "opts": [
+    "breeze",
+    "climate",
+    "storm",
+    "frost"
+   ],
+   "subject": "glow",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "breeze": 0.09090909090909091,
+    "climate": 0.2,
+    "storm": 0.16666666666666666,
+    "frost": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of storm?",
+   "opts": [
+    "climate",
+    "tempest",
+    "glow",
+    "frost"
+   ],
+   "subject": "storm",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "climate": 0.16666666666666666,
+    "tempest": 1.0,
+    "glow": 0.16666666666666666,
+    "frost": 0.2
+   },
+   "recomputed_choice": "tempest",
+   "recomputed_reason": "emit",
+   "emitted_pick": "tempest"
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "market",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.2,
+    "council": 0.125,
+    "election": 0.16666666666666666,
+    "guild": 0.14285714285714285
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of drizzle?",
+   "opts": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "chill": 0.09090909090909091,
+    "typhoon": 0.058823529411764705,
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of market?",
+   "opts": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "vote": 0.1,
+    "council": 0.09090909090909091,
+    "election": 0.1,
+    "guild": 0.09090909090909091
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of typhoon?",
+   "opts": [
+    "frost",
+    "dew",
+    "blizzard",
+    "hail"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "frost": 0.07692307692307693,
+    "dew": 0.06666666666666667,
+    "blizzard": 0.09090909090909091,
+    "hail": 0.1
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  },
+  {
+   "q": "Considering the examples above, what is true of breeze?",
+   "opts": [
+    "blizzard",
+    "cloud",
+    "dew",
+    "typhoon"
+   ],
+   "subject": "true",
+   "pairs_n": 170,
+   "theta": 0.26666666666666666,
+   "scores": {
+    "blizzard": 0.09090909090909091,
+    "cloud": 0.125,
+    "dew": 0.06666666666666667,
+    "typhoon": 0.058823529411764705
+   },
+   "recomputed_choice": null,
+   "recomputed_reason": "below_criterion",
+   "emitted_pick": null
+  }
+ ]
+}

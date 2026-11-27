@@ -1,0 +1,106 @@
+{
+ "off": {
+  "normal_forced_choice_staged_subject": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "shipped_query_no_subject_staged": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "negated_teaching_subject": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "unrelated_subject": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "oov_options": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "permuted_options": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "non_forced_choice": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "single_option": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "already_bare_candidate": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "car_articulation": "you mentioned: \"gale causes rainbow.\"",
+  "chatter": "i don't have a good joke right now \u2014 ask me again once i've learned more!"
+ },
+ "on": {
+  "normal_forced_choice_staged_subject": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "shipped_query_no_subject_staged": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "negated_teaching_subject": {
+   "pick": "breeze",
+   "calls": 1,
+   "emits": 1
+  },
+  "unrelated_subject": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "oov_options": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "permuted_options": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "non_forced_choice": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "single_option": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "already_bare_candidate": {
+   "pick": null,
+   "calls": 1,
+   "emits": 0
+  },
+  "car_articulation": "you mentioned: \"gale causes rainbow.\"",
+  "chatter": "i don't have a good joke right now \u2014 ask me again once i've learned more!"
+ },
+ "byte_identity": {
+  "car_articulation": true,
+  "chatter": true
+ },
+ "permuted_picks_equal": true,
+ "gold_key_permuted_structural": true
+}

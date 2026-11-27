@@ -1,0 +1,126 @@
+{
+ "bench": "rsi",
+ "rows": 384,
+ "items": [
+  "rsi_000",
+  "rsi_001",
+  "rsi_002",
+  "rsi_005"
+ ],
+ "store_hashes": {
+  "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+  "junk_labels.jsonl": "c00b5e2cb37a08fe32bbe3102107909c584cd5c9a080d61a1a55f104dd957869",
+  "ravana_weights.db": "48057b894bf3c9d9bdd83d816a6d946a6037d4161946ec5923111baf7ed86e18",
+  "ravana_weights.pkl": "181f1c6a824ed62cb361bc1b94f69fa78a33b8bd7e7a596ee561e6c97ed0f80f",
+  "ravana_weights.pkl.corrupt-20261119": "649459a9aac1eef4eb2b221deb6da77bc2f85835ab06c4f05b14ef4526a90919",
+  "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+ },
+ "api_calls": {
+  "boot": 1,
+  "intake": 0,
+  "save": 0,
+  "cold_reload": 0,
+  "process_turn": 1824
+ },
+ "boot_count": 1,
+ "engine_graded": true,
+ "unparsed": 339,
+ "api_error": null,
+ "seconds": 1220.8,
+ "summary": {
+  "primary": {
+   "by_k": {
+    "1": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "2": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "4": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "8": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.0
+    }
+   },
+   "near": 0.0,
+   "far": 0.0,
+   "foil": 0.0,
+   "negative": 0.0,
+   "neg_n": 8,
+   "foil_n": 8,
+   "chance": 0.5,
+   "negative_reject": 0.0,
+   "counterexample_reject": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 0.0,
+   "growth": 0.0
+  },
+  "sealed": {
+   "by_k": {
+    "1": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.0,
+     "negative": 0.0,
+     "permuted": 0.25
+    },
+    "2": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.5,
+     "negative": 0.0,
+     "permuted": 0.0
+    },
+    "4": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.5,
+     "negative": 0.5,
+     "permuted": 0.25
+    },
+    "8": {
+     "near": 0.0,
+     "far": 0.0,
+     "foil": 0.5,
+     "negative": 0.5,
+     "permuted": 0.0
+    }
+   },
+   "near": 0.0,
+   "far": 0.0,
+   "foil": 0.375,
+   "negative": 0.25,
+   "neg_n": 8,
+   "foil_n": 8,
+   "chance": 0.0,
+   "negative_reject": 0.25,
+   "counterexample_reject": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 0.0,
+   "growth": 0.0
+  }
+ },
+ "reachability": {
+  "calls": 0,
+  "emits": 0,
+  "forced_choice_turns": 0
+ },
+ "audit": []
+}
