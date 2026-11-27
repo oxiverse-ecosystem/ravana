@@ -64,13 +64,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 from typing import Dict, FrozenSet, Mapping, Optional, Tuple
 
 __all__ = [
     "TrustClass", "Decision", "SourceStatus", "ClaimContext", "SourceDecision",
     "EXPLICIT_CREDIBILITY_TOKENS", "DECISION_TOKENS",
     "evaluate_source", "integration_hook", "context_from_wfa_item",
-    "decision_token",
+    "decision_token", "claim_act_key",
 ]
 
 
@@ -109,6 +110,18 @@ DECISION_TOKENS: Dict[Decision, str] = {
     Decision.WITHDRAW: "W",
     Decision.UNKNOWN: "?",
 }
+
+
+def claim_act_key(claim: str) -> str:
+    """Stable key for recollecting *this engine's own act* on a claim.
+
+    Pure and text-only: no item id, expected answer, source label or world
+    model is consulted.  It is the same short sha1 claim anchor used by the
+    WFA provenance write, so an act recorded under one turn can be found at a
+    later turn of the same claim.  Identical claim texts share a key -- which
+    is correct for a claim-level "did I endorse this before?" judgment.
+    """
+    return "wfa_" + hashlib.sha1((claim or "").encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass(frozen=True)

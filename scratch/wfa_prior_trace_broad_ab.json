@@ -1,0 +1,2456 @@
+{
+  "baseline": {
+    "arm": "off",
+    "elapsed_s": 193.1,
+    "rates": {
+      "primary": {
+        "n": 65,
+        "correct": 0.9231,
+        "withdraw": 0.9231
+      },
+      "sealed": {
+        "n": 67,
+        "correct": 0.6269,
+        "withdraw": 0.6269
+      }
+    },
+    "failures": [
+      "g13",
+      "g61",
+      "g60",
+      "gg041",
+      "g46",
+      "gg039",
+      "gg032",
+      "g64",
+      "g62",
+      "g57",
+      "gg012",
+      "gg054",
+      "g48",
+      "g63",
+      "gg019",
+      "g51",
+      "g59",
+      "gg067",
+      "gg013",
+      "gg065",
+      "gg035",
+      "gg064",
+      "g58",
+      "g06",
+      "gg042",
+      "g42",
+      "gg038",
+      "gg024",
+      "gg005",
+      "gg022"
+    ],
+    "rows": [
+      {
+        "id": "g28",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "bd0d2e2e4a4bfdc85e14022bb58e150647c538a15e0e56596502d0454920b071"
+      },
+      {
+        "id": "g17",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "ad76ab862a8c5160dc882980777fb85458f34753140937a18444636c6f36de35"
+      },
+      {
+        "id": "g09",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "afff62e52e62e58d7ee73790b63eac438cbf834023092ac142c05910f9bf7fad"
+      },
+      {
+        "id": "gg029",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "a596ea508a60765ab68da53f534da226477158997c70d5d6d2ff0b1e2e260647"
+      },
+      {
+        "id": "g45",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d53c7f2718d0d9ae525fdcc916a9efd31bd272c877f386c4bd5db48f6358d7f1"
+      },
+      {
+        "id": "g50",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "61f18b604eb55a7b3259d2605ea6c0635c62b8c026c66a5f12d8afa1054ae048"
+      },
+      {
+        "id": "g11",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "ce10d06d95413ca2fa52fcb7e756f0c6b6fe74526d23d25b799a943ffa157748"
+      },
+      {
+        "id": "g25",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "eabf2c68359676055b1e6f1904da89236774bb389e6cf0e12fd215cf419fc90b"
+      },
+      {
+        "id": "gg033",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "30dca58f1fa46940776c41d3ec10693f481f431fa40f673b12d68f4d51fd862c"
+      },
+      {
+        "id": "g37",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "404c23870e1c158eb5d124133a9ea9d65f424ab6a8a263d887408ba12b5ab536"
+      },
+      {
+        "id": "gg015",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "ca77dbad4d427f8dbbf8e0a188450d75409b60cf89e37d664f66f3c75961440f"
+      },
+      {
+        "id": "g14",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e00514ae577645fe3728d671e8b1f7deb85652bff1c04b0a6b5a0e20d5314a05"
+      },
+      {
+        "id": "g32",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9aaffc4d16f09bee7b6d0d1ed330e7a2bee19152d1e4aa354acb374d9c4c509d"
+      },
+      {
+        "id": "gg025",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "cdf26efee204212c0c88931dec7117c7e480ac0f218f7f8dd63c811f448caaa2"
+      },
+      {
+        "id": "gg003",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d28128b9319f2ae02e1f893c9f383a17aeb6de688315ce701362ab125c8ad4d8"
+      },
+      {
+        "id": "g29",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "dfff737d6b451545d20594d1f3ffbab1bb561f0d74bab0059af3e2dfaca787de"
+      },
+      {
+        "id": "g31",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "10b980483a8100ecae21c874c2eda783f5789fe2f67ea3740c015dbeff5a14c5"
+      },
+      {
+        "id": "gg049",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "1f405fefac930ded9a07473542dbeaaba233730065ac0a0c1acb1a8c6e92da01"
+      },
+      {
+        "id": "gg055",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "553470b89580393361a1b76d54e458c558cae032a67fe3169deb278a18282511"
+      },
+      {
+        "id": "gg044",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "42ac560edc20a325db8de331bcc6bef32d8c408510b762f5d2bea2c4466085bf"
+      },
+      {
+        "id": "g36",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d253cc377f9180018e510ef2131c9601c0c53b88bf9339b1a7c3bd7da9bb6f82"
+      },
+      {
+        "id": "gg063",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9ebb605b39b0490bdc71fd37121efc8b11cb28a418e6e72043591018fffe565a"
+      },
+      {
+        "id": "gg068",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "16f42976c3b223f3433c7afea54a084593b1534cc9113e3e829947d82f64c93d"
+      },
+      {
+        "id": "g01",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "e4d7e4cb7f0d5d0bbe40ce50a3e26eca400f63e7d83895f1390d03bb5103a526"
+      },
+      {
+        "id": "gg018",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "6427f29852264906eed6db5d5f78137ffe133b1e8a1e414411e64d36b1787cce"
+      },
+      {
+        "id": "g41",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "8ae9afd9d6cf5ec4919cab8e7a20a58ded7ea59273e6df277e66824f185dbe7c"
+      },
+      {
+        "id": "g22",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "dd929b296738ba1ec03ca880f34a15d13ec227cc953aa396b8b069a233615c73"
+      },
+      {
+        "id": "g24",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "310fb074b10a5613c89199a3abda5fd837740477e63089a3b98339f113a877bc"
+      },
+      {
+        "id": "gg048",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "60560769dc1ce01e2329113da7ec21b6d0a78781fecdf4a6ac547d8d31d3ea7a"
+      },
+      {
+        "id": "g12",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "328859c21e848921086db9a18fd5161b3abb90660dc7ad2884a5cf51c911be61"
+      },
+      {
+        "id": "g13",
+        "pool": "primary",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "b954e85ac6945fbedd3a65e4bc88eb07ab4e535d0155ddf4a7dfc4d3c99e36b4"
+      },
+      {
+        "id": "gg030",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d5e4f3e79915f3296bb76dfbbe33609ef8463d1b238a43b93cfc67aa16d2a4c5"
+      },
+      {
+        "id": "g23",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9b208152bdaae39a83b00aad9367715cca49ed9dcc6bd99bef7869c5236617e6"
+      },
+      {
+        "id": "gg043",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5583ca354c8b1a1e0c14e12a8e2f4300d0dd6a491b654afc7f41f463668a9868"
+      },
+      {
+        "id": "g56",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "c4dd28dfd5a82a6894b2fa092079740d99a2beddc41cc02dd1e148cea794f460"
+      },
+      {
+        "id": "g61",
+        "pool": "primary",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "1cc1434c8924731d224601a369900331dec3c8bad2ec708fb52f0d186c8d0b67"
+      },
+      {
+        "id": "g19",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9fb36566f1927159b90c3bb2514ad1ce565906b16a19dc68458b31782e61cae7"
+      },
+      {
+        "id": "gg023",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "3e6274ec86d97c3aaa1dc7f4d594fefa2c1d18f40f6b5aa87364d9517d6aba05"
+      },
+      {
+        "id": "gg047",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "a22587b0fb0a5a9084a03cb86340dd847a76e258867653a435e6c3c04e6285c0"
+      },
+      {
+        "id": "g03",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "67701e5ea842f4de1220224b47e28efb099edbaca416c7c0c89371573ca18980"
+      },
+      {
+        "id": "gg036",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e6353a69da0b99d1e012dc4d32eb56cfedaf3d2a5abeaaf1b20f8697fb7fd2d5"
+      },
+      {
+        "id": "gg040",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "efcc21186473fd7cc9d567be2f16caecdc7db3b1873079014e3ab4529b41a82c"
+      },
+      {
+        "id": "g60",
+        "pool": "primary",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "ccfa2b11549f6d7ec28823bdb7d8a02076b1f0f748a461eccb9ae0b1f38382ea"
+      },
+      {
+        "id": "gg014",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "33a5b362f91bc45f6bab3b1ba8f97475537770b15d6e7c95799f1d8579a4f949"
+      },
+      {
+        "id": "gg016",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d8bcd3dfa0db50ef7ec43b05f30b2da815680489c9cd3a852dcdfe3080cda5d5"
+      },
+      {
+        "id": "g49",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "1a53e1732c23e36e6fcdd4210ec14459094be6eba540dc5dbd6a730672fb1ab4"
+      },
+      {
+        "id": "gg007",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "88ad3b7d561230e370755bf5cc987b3c0edc388cfec9d2923fd3368c967cec11"
+      },
+      {
+        "id": "gg056",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "ec70a2e9727fa5eb445f677e855ab5250a8eacea6f293c3a24dff37195b2512a"
+      },
+      {
+        "id": "gg004",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "f1bddb5b049e5f6872633adb27e7dd12d2fd9916a81fbf8fad8e3ea2afd887ab"
+      },
+      {
+        "id": "g18",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "acc402289cf782e1c6e533d1b7d111428affdb2a585dd22d0bd69354b3df0916"
+      },
+      {
+        "id": "g54",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "fd94280bf585cdfcea382680bb38dde1aebad7ae937059795c4bd4b2ceb1c259"
+      },
+      {
+        "id": "g44",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9aa9409fd869cbde92a1b8b62f81df53f057a245f4f0881f22545da443c6eee8"
+      },
+      {
+        "id": "g21",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "7ff3528a277f9d39967105a22dbb742f620bfbcd547b5c996c9609c628bcb0ce"
+      },
+      {
+        "id": "gg011",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "fe5060edde2061fb558211df12ea89a46853e9327b3257af38d0b9b1074ce80d"
+      },
+      {
+        "id": "gg041",
+        "pool": "primary",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "beddc817b9fca9e562a8a8a21098b2096e153f780234d29d2a9ab6292aee6f80"
+      },
+      {
+        "id": "gg059",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "f5b5ff8b6264904be733db30b689253f4cffbb450204b4ba3f096f134e6240b8"
+      },
+      {
+        "id": "gg066",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "3afed108c654fd37fc96bac72c88d2c8f72624df6b1935439b7248e75b005560"
+      },
+      {
+        "id": "g55",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "81f5f56cbff02a2f2a2973b4d8a90772d7da8bb745e903eb8e5cf2fbc13ada0c"
+      },
+      {
+        "id": "gg021",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d26cdbb726266558e8061fb4a54eb702d237b04537d0de578c6465a394ea721a"
+      },
+      {
+        "id": "gg037",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "2a55852a4bd7f1bbb36813f8bfdea53472e95f3033751b161975e272a827af42"
+      },
+      {
+        "id": "g46",
+        "pool": "primary",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "52206a145d375640374582ab7fbd123709e34cadfe52b1112b9457074471bfc5"
+      },
+      {
+        "id": "gg017",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "17ea035ba9640676be5d3da662848138d91b8a4687de291188cc0079e4d76fcf"
+      },
+      {
+        "id": "gg050",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "398f4a0a9a4c3daa18d1b427e92422b92e50b1c1aa7ad9b3d3ed1a41515703ff"
+      },
+      {
+        "id": "gg057",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "febb535b206c4f5afbca2700a92297e70ff6e60c673399d65b3ebd20f08b1efa"
+      },
+      {
+        "id": "gg006",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e34cd51c18c3d9699267ef9f910f9098e27ebf80f891ec7542e1731d7935d86f"
+      },
+      {
+        "id": "g40",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "afc352194b7d2cdf2f204bb567b28f3a0386a93055dc01b543b49d76a6b44b29"
+      },
+      {
+        "id": "gg039",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "b4dcf51e63e18d829a31fc7d792acfd14f550bafd02e9684d77736dbd1bf5ef1"
+      },
+      {
+        "id": "gg032",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "ee15b8a5f71ab9791d1baa0496825d6a6b08e3a168088382b24c2bf1fa95ae8c"
+      },
+      {
+        "id": "gg051",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "7f0e2a2d9e2807b14c6a31b27e2ee00e5ab3cf717e713aa788d1cfd3ac77f126"
+      },
+      {
+        "id": "g05",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "b24931267bae835b1a9234d6756e7d7ac1e003c453168584b8c67b714d2fceac"
+      },
+      {
+        "id": "g30",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e2a7f7012826525641df1f27a8b9ba876337fd81640c04dcf7e6b1923fa99114"
+      },
+      {
+        "id": "g26",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "5eb9606b2783ff12a99c70320273afb25a3168998a441d4d0c9ad7924fe1780a"
+      },
+      {
+        "id": "g64",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "533d99c0a5f252f47eb2ef035bf998a216f0c47e413102763eac976f1b4ddbf4"
+      },
+      {
+        "id": "gg062",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5ad159604fc8ed910bf8bb75e409101560ddb40144e1b82261f79a0ada7fcbb1"
+      },
+      {
+        "id": "g62",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "1a0931113da691397cf198802a90965cccc6a00d1697487c7985e077d143bac7"
+      },
+      {
+        "id": "gg045",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9644559cfc820d4c475912eae9d73cac0dbb923412eb2eeb9eb1ee36ef476bdb"
+      },
+      {
+        "id": "g57",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "5ce6465be5270d77830ae47fdd4d48b6f61cf4bad91589cab5ac875d4a2a86f5"
+      },
+      {
+        "id": "gg060",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "3aef5c36d5384e780ebd0e58e24c97ea38331d75a0550d0b0cc94d8953c5f30e"
+      },
+      {
+        "id": "gg012",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "708703194257a227c1add31677dedca5db15a49e9760ad93048ea689281f0dae"
+      },
+      {
+        "id": "g43",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "45d7e0003010d8c7d7e7b291b90bd73555591d06a80d3008b9dae33ccbdfb137"
+      },
+      {
+        "id": "gg008",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "79dd6232887905adf2a09fafd30f31568e88163cf968e67efad1cc132fafce62"
+      },
+      {
+        "id": "g53",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "57dad5a455158703ce75b9356885dbfd16b308479561ca5c76e13c2020d606e9"
+      },
+      {
+        "id": "g08",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "bec1beb9a2314719cd2236a60c2732d8d2bc959aa839aa3f512fe6d97eaf9a23"
+      },
+      {
+        "id": "gg002",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "c1d77bad3fe35dbc2bfc34a3ab30741cd6289fa412f5dfe4f1d084c127b9cafc"
+      },
+      {
+        "id": "g07",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "8f8e6dd4036fefeea0e968cec5a3b89c3aec4919a0a61bacd638f911283a5213"
+      },
+      {
+        "id": "gg054",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "cea74c928328b65edc8d5d193f615a392fbff476f237bf936fa0ed3a78e612dc"
+      },
+      {
+        "id": "gg052",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "f43568a5811faf087e6e487100dea925c5a7c3d5baf3d1b01e40a84fe35caf22"
+      },
+      {
+        "id": "g34",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "ff64572f53f43f02bb46401ed2f233e7fa8ae2ddbff0d83faa08943188c68b96"
+      },
+      {
+        "id": "g48",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "4c5005bffd03fbc374d22d9290b8a730557fd1f285025fd7c9d70923111a2f27"
+      },
+      {
+        "id": "gg010",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "91b4ed3f4e7cd7da9cb160c1e8b643811f014070e91494259827bce3e0fe93f6"
+      },
+      {
+        "id": "gg026",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "7ef4d721bb40006938279bf6f7a5b9ae17db73bdf31b152adcde723dfa23e56a"
+      },
+      {
+        "id": "gg046",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5045eb50affc33ce004859db87dbc0826aa7a43a1674ad968a0f10125d23ef87"
+      },
+      {
+        "id": "g63",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "57c61695f553c33decd9f5ee90b7c2c92ccd59a58696e0fc531667d4c02b3399"
+      },
+      {
+        "id": "gg019",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 4,
+        "fingerprint": "dc5fb9d7c5a9d4aacb338720f48fe0b295bde206b9105f5801ea5e93ef582cdf"
+      },
+      {
+        "id": "g51",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "0f37d71d9de97bdab51752ccad8a6e353976fa63c0fa78db5dc20290fa4403da"
+      },
+      {
+        "id": "gg028",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "2147a26c0499be43a693b208f22d718b1049387e1c96838a687003ecb8b0daa5"
+      },
+      {
+        "id": "gg058",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "54e38b9b4bd19afec0bd7c4a717b8a52a87903b297b97c387cd9408dc877b26e"
+      },
+      {
+        "id": "gg053",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e958d4230d57b836ad736d74a9c2f6d3a8a5d9dfc1c1d4f07157856711b6133d"
+      },
+      {
+        "id": "gg009",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "da7e4b1ac1c5f0701418de719b5af00c622cbdfe65a9260db277af064457f32d"
+      },
+      {
+        "id": "g52",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d95decb5ed60448313f594d95be914781a4f726625d6f6a358ee45f31634c2ab"
+      },
+      {
+        "id": "g33",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "b8d98cebacd1841b8178940aff62b480a1d1e19121a1498a4545cd0174a5f7da"
+      },
+      {
+        "id": "g59",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "b191a01d6fd03c153543ff35491d4a8df7a8b8872e38e770bff40e82717a171b"
+      },
+      {
+        "id": "g35",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9ed8a4926ef4aac2b5c4e7883973940f49c4fc4cbf7f0bd8f3475eff7e47c934"
+      },
+      {
+        "id": "gg031",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "db4226048dca3e369e28bf0e3ee6061c00daa955575702700438550f7638cdd9"
+      },
+      {
+        "id": "gg027",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "975e526faddf95ea0a947cc07650933f624528e472faa916db412960f3d8998e"
+      },
+      {
+        "id": "g38",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "eeaf0cb38e2c01fe8e342e7ac15850bdc57787cb055bcd5fd6a2ad086dc8835c"
+      },
+      {
+        "id": "gg067",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "f023ef89f1e24293f4cccf07a4904541d766d78c13298641bcbf4a1b4223faa0"
+      },
+      {
+        "id": "gg013",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "19dcac91d44ac3cdb6ff12c5b6410df77560637bc833f44007145d3d53fcd8b3"
+      },
+      {
+        "id": "g16",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "777685d9912b931f65f462ae2cd9b3041864e6575bcd0e1398f5b2a5fb4e6efc"
+      },
+      {
+        "id": "gg065",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 4,
+        "fingerprint": "591c2208deed7a73fdd6b15b8076e6c9ab71afc4bfe1f163d2585de3416238cd"
+      },
+      {
+        "id": "gg035",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "c629c79d78d719bc993ff2dc2218cd974232c56756a22bde37db04c2397742cf"
+      },
+      {
+        "id": "g15",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "873cfbb374d20fff8c8c27add84be44a676592c527535605092f378e97108edd"
+      },
+      {
+        "id": "gg064",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "e5ba292a412432d3bfb6bbeaf7dc3a97e8fe717b232ea60137d7adeeaf938905"
+      },
+      {
+        "id": "g58",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "e9c8ee8261a11db0c19c36d489817cab9216ac5b3f8bc6d2a9a281edf28a154c"
+      },
+      {
+        "id": "g06",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "c41fc50356e3eff0b2ebdb27c5825afa131df2a3f3e4d01eecd6da9bce7a23a2"
+      },
+      {
+        "id": "g02",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d5917c205bbbb31dcfde76c63d26a5c1a8e14ec98bdaed6f809913ceaaa2630e"
+      },
+      {
+        "id": "gg034",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "59b2252ff8d0e58b6a6a5b182c70e94ac0ec1d9e20e71f0f3cec2c772bc55732"
+      },
+      {
+        "id": "g27",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "48bcd1432a680fb59d605b8778673c82344aa1e271e1377c45af739a86dc3dd4"
+      },
+      {
+        "id": "gg042",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "a81725979c0150637d29bc2326032049ba6024bdb874748a32e71eaea0c21d12"
+      },
+      {
+        "id": "g47",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d166f92646c2650890a98c42f039358ff1f340b8a48de8c020517c963dd9cb41"
+      },
+      {
+        "id": "g42",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "8fd763c42c6c792a69edf5f30043f571629f427c0e1aaf13d58a460262f3c0da"
+      },
+      {
+        "id": "g20",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9fa1b9aacdadca2fce19f5e9f700740b4b7b52123a4b327823a2680f325c15e6"
+      },
+      {
+        "id": "gg020",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "af10792c66b8de9c5a6e9dd62aaef3ec1cd3f21091abbbc0ada31a0dbbc64c84"
+      },
+      {
+        "id": "gg038",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 4,
+        "fingerprint": "5c3fdee1e5b94e1c6f8fcb0e4b6d4d1a60c32988c9d4fea66e65db38e30779a7"
+      },
+      {
+        "id": "gg001",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "aa52e370a1c704ff985ffc78b1c3f02516968915337d08a3d410c49f823a4171"
+      },
+      {
+        "id": "gg024",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "b5fc38814cf11f5a4f9c64ebd2082b195c0c99e46eb8dec66884490fd3570ff7"
+      },
+      {
+        "id": "g10",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "6dd35c491398baf0cd927c863cdad3ad787a887ca19a8305cf5676b5045bc433"
+      },
+      {
+        "id": "gg005",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "6a087257329d7ccdf548e3d1719a28e6ca34e3deb24f78f95f51b2c581cd9f9b"
+      },
+      {
+        "id": "g39",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "0898f19c2045fd4ef5441a5c7a434617eca27d746c702a3c120c57ba22388faa"
+      },
+      {
+        "id": "g04",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5782f72ecd657faac571d6317178e83a60a258105a97a4ee88289739624705ab"
+      },
+      {
+        "id": "gg022",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 3,
+        "fingerprint": "03d1f43930c698601dc6361308664a03eaef89b32645d6d053ec9c51add9b587"
+      },
+      {
+        "id": "gg061",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "23149b783f0edf5d6a0372705eb749a42e753fc4d791f08fdecf463a60e59a59"
+      }
+    ],
+    "substitutions": 0
+  },
+  "trace_on": {
+    "arm": "on",
+    "elapsed_s": 189.6,
+    "rates": {
+      "primary": {
+        "n": 65,
+        "correct": 1.0,
+        "withdraw": 1.0
+      },
+      "sealed": {
+        "n": 67,
+        "correct": 0.9851,
+        "withdraw": 0.9851
+      }
+    },
+    "failures": [
+      "g26"
+    ],
+    "rows": [
+      {
+        "id": "g28",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "bd0d2e2e4a4bfdc85e14022bb58e150647c538a15e0e56596502d0454920b071"
+      },
+      {
+        "id": "g17",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "ad76ab862a8c5160dc882980777fb85458f34753140937a18444636c6f36de35"
+      },
+      {
+        "id": "g09",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "afff62e52e62e58d7ee73790b63eac438cbf834023092ac142c05910f9bf7fad"
+      },
+      {
+        "id": "gg029",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "a596ea508a60765ab68da53f534da226477158997c70d5d6d2ff0b1e2e260647"
+      },
+      {
+        "id": "g45",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "aff41736c8bf8c8c859a3f2875b705abc3192224d5e10388dc7cbafbc25e6d38"
+      },
+      {
+        "id": "g50",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "61f18b604eb55a7b3259d2605ea6c0635c62b8c026c66a5f12d8afa1054ae048"
+      },
+      {
+        "id": "g11",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "ce10d06d95413ca2fa52fcb7e756f0c6b6fe74526d23d25b799a943ffa157748"
+      },
+      {
+        "id": "g25",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "e85a3880f8ad2e0f20dd19e00d2f295e8018d7ef8491e5539570ef88739504d0"
+      },
+      {
+        "id": "gg033",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "30dca58f1fa46940776c41d3ec10693f481f431fa40f673b12d68f4d51fd862c"
+      },
+      {
+        "id": "g37",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "404c23870e1c158eb5d124133a9ea9d65f424ab6a8a263d887408ba12b5ab536"
+      },
+      {
+        "id": "gg015",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "ca77dbad4d427f8dbbf8e0a188450d75409b60cf89e37d664f66f3c75961440f"
+      },
+      {
+        "id": "g14",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e00514ae577645fe3728d671e8b1f7deb85652bff1c04b0a6b5a0e20d5314a05"
+      },
+      {
+        "id": "g32",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9aaffc4d16f09bee7b6d0d1ed330e7a2bee19152d1e4aa354acb374d9c4c509d"
+      },
+      {
+        "id": "gg025",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "cdf26efee204212c0c88931dec7117c7e480ac0f218f7f8dd63c811f448caaa2"
+      },
+      {
+        "id": "gg003",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d28128b9319f2ae02e1f893c9f383a17aeb6de688315ce701362ab125c8ad4d8"
+      },
+      {
+        "id": "g29",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "dfff737d6b451545d20594d1f3ffbab1bb561f0d74bab0059af3e2dfaca787de"
+      },
+      {
+        "id": "g31",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "10b980483a8100ecae21c874c2eda783f5789fe2f67ea3740c015dbeff5a14c5"
+      },
+      {
+        "id": "gg049",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "1f405fefac930ded9a07473542dbeaaba233730065ac0a0c1acb1a8c6e92da01"
+      },
+      {
+        "id": "gg055",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "553470b89580393361a1b76d54e458c558cae032a67fe3169deb278a18282511"
+      },
+      {
+        "id": "gg044",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "947d5633b16f056cf3c1f6a49b1e4a5fbfeb70b5f23771a4d5eb30f6fc602e61"
+      },
+      {
+        "id": "g36",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d253cc377f9180018e510ef2131c9601c0c53b88bf9339b1a7c3bd7da9bb6f82"
+      },
+      {
+        "id": "gg063",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9ebb605b39b0490bdc71fd37121efc8b11cb28a418e6e72043591018fffe565a"
+      },
+      {
+        "id": "gg068",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "16f42976c3b223f3433c7afea54a084593b1534cc9113e3e829947d82f64c93d"
+      },
+      {
+        "id": "g01",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "e4d7e4cb7f0d5d0bbe40ce50a3e26eca400f63e7d83895f1390d03bb5103a526"
+      },
+      {
+        "id": "gg018",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "6427f29852264906eed6db5d5f78137ffe133b1e8a1e414411e64d36b1787cce"
+      },
+      {
+        "id": "g41",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "8ae9afd9d6cf5ec4919cab8e7a20a58ded7ea59273e6df277e66824f185dbe7c"
+      },
+      {
+        "id": "g22",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "dd929b296738ba1ec03ca880f34a15d13ec227cc953aa396b8b069a233615c73"
+      },
+      {
+        "id": "g24",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "310fb074b10a5613c89199a3abda5fd837740477e63089a3b98339f113a877bc"
+      },
+      {
+        "id": "gg048",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "60560769dc1ce01e2329113da7ec21b6d0a78781fecdf4a6ac547d8d31d3ea7a"
+      },
+      {
+        "id": "g12",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "328859c21e848921086db9a18fd5161b3abb90660dc7ad2884a5cf51c911be61"
+      },
+      {
+        "id": "g13",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "b954e85ac6945fbedd3a65e4bc88eb07ab4e535d0155ddf4a7dfc4d3c99e36b4"
+      },
+      {
+        "id": "gg030",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d5e4f3e79915f3296bb76dfbbe33609ef8463d1b238a43b93cfc67aa16d2a4c5"
+      },
+      {
+        "id": "g23",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9b208152bdaae39a83b00aad9367715cca49ed9dcc6bd99bef7869c5236617e6"
+      },
+      {
+        "id": "gg043",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5583ca354c8b1a1e0c14e12a8e2f4300d0dd6a491b654afc7f41f463668a9868"
+      },
+      {
+        "id": "g56",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "c4dd28dfd5a82a6894b2fa092079740d99a2beddc41cc02dd1e148cea794f460"
+      },
+      {
+        "id": "g61",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "1cc1434c8924731d224601a369900331dec3c8bad2ec708fb52f0d186c8d0b67"
+      },
+      {
+        "id": "g19",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "9fb36566f1927159b90c3bb2514ad1ce565906b16a19dc68458b31782e61cae7"
+      },
+      {
+        "id": "gg023",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "3e6274ec86d97c3aaa1dc7f4d594fefa2c1d18f40f6b5aa87364d9517d6aba05"
+      },
+      {
+        "id": "gg047",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "a22587b0fb0a5a9084a03cb86340dd847a76e258867653a435e6c3c04e6285c0"
+      },
+      {
+        "id": "g03",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "67701e5ea842f4de1220224b47e28efb099edbaca416c7c0c89371573ca18980"
+      },
+      {
+        "id": "gg036",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e6353a69da0b99d1e012dc4d32eb56cfedaf3d2a5abeaaf1b20f8697fb7fd2d5"
+      },
+      {
+        "id": "gg040",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "efcc21186473fd7cc9d567be2f16caecdc7db3b1873079014e3ab4529b41a82c"
+      },
+      {
+        "id": "g60",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "ccfa2b11549f6d7ec28823bdb7d8a02076b1f0f748a461eccb9ae0b1f38382ea"
+      },
+      {
+        "id": "gg014",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "33a5b362f91bc45f6bab3b1ba8f97475537770b15d6e7c95799f1d8579a4f949"
+      },
+      {
+        "id": "gg016",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d8bcd3dfa0db50ef7ec43b05f30b2da815680489c9cd3a852dcdfe3080cda5d5"
+      },
+      {
+        "id": "g49",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "1a53e1732c23e36e6fcdd4210ec14459094be6eba540dc5dbd6a730672fb1ab4"
+      },
+      {
+        "id": "gg007",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "88ad3b7d561230e370755bf5cc987b3c0edc388cfec9d2923fd3368c967cec11"
+      },
+      {
+        "id": "gg056",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "ec70a2e9727fa5eb445f677e855ab5250a8eacea6f293c3a24dff37195b2512a"
+      },
+      {
+        "id": "gg004",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "f1bddb5b049e5f6872633adb27e7dd12d2fd9916a81fbf8fad8e3ea2afd887ab"
+      },
+      {
+        "id": "g18",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "acc402289cf782e1c6e533d1b7d111428affdb2a585dd22d0bd69354b3df0916"
+      },
+      {
+        "id": "g54",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "fd94280bf585cdfcea382680bb38dde1aebad7ae937059795c4bd4b2ceb1c259"
+      },
+      {
+        "id": "g44",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9aa9409fd869cbde92a1b8b62f81df53f057a245f4f0881f22545da443c6eee8"
+      },
+      {
+        "id": "g21",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "7ff3528a277f9d39967105a22dbb742f620bfbcd547b5c996c9609c628bcb0ce"
+      },
+      {
+        "id": "gg011",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "fe5060edde2061fb558211df12ea89a46853e9327b3257af38d0b9b1074ce80d"
+      },
+      {
+        "id": "gg041",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "beddc817b9fca9e562a8a8a21098b2096e153f780234d29d2a9ab6292aee6f80"
+      },
+      {
+        "id": "gg059",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "f5b5ff8b6264904be733db30b689253f4cffbb450204b4ba3f096f134e6240b8"
+      },
+      {
+        "id": "gg066",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "3afed108c654fd37fc96bac72c88d2c8f72624df6b1935439b7248e75b005560"
+      },
+      {
+        "id": "g55",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "81f5f56cbff02a2f2a2973b4d8a90772d7da8bb745e903eb8e5cf2fbc13ada0c"
+      },
+      {
+        "id": "gg021",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d26cdbb726266558e8061fb4a54eb702d237b04537d0de578c6465a394ea721a"
+      },
+      {
+        "id": "gg037",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "2a55852a4bd7f1bbb36813f8bfdea53472e95f3033751b161975e272a827af42"
+      },
+      {
+        "id": "g46",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "52206a145d375640374582ab7fbd123709e34cadfe52b1112b9457074471bfc5"
+      },
+      {
+        "id": "gg017",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "17ea035ba9640676be5d3da662848138d91b8a4687de291188cc0079e4d76fcf"
+      },
+      {
+        "id": "gg050",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "398f4a0a9a4c3daa18d1b427e92422b92e50b1c1aa7ad9b3d3ed1a41515703ff"
+      },
+      {
+        "id": "gg057",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "febb535b206c4f5afbca2700a92297e70ff6e60c673399d65b3ebd20f08b1efa"
+      },
+      {
+        "id": "gg006",
+        "pool": "primary",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e34cd51c18c3d9699267ef9f910f9098e27ebf80f891ec7542e1731d7935d86f"
+      },
+      {
+        "id": "g40",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "afc352194b7d2cdf2f204bb567b28f3a0386a93055dc01b543b49d76a6b44b29"
+      },
+      {
+        "id": "gg039",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "b4dcf51e63e18d829a31fc7d792acfd14f550bafd02e9684d77736dbd1bf5ef1"
+      },
+      {
+        "id": "gg032",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "ee15b8a5f71ab9791d1baa0496825d6a6b08e3a168088382b24c2bf1fa95ae8c"
+      },
+      {
+        "id": "gg051",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "7f0e2a2d9e2807b14c6a31b27e2ee00e5ab3cf717e713aa788d1cfd3ac77f126"
+      },
+      {
+        "id": "g05",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "b24931267bae835b1a9234d6756e7d7ac1e003c453168584b8c67b714d2fceac"
+      },
+      {
+        "id": "g30",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e2a7f7012826525641df1f27a8b9ba876337fd81640c04dcf7e6b1923fa99114"
+      },
+      {
+        "id": "g26",
+        "pool": "sealed",
+        "correct": false,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "invalidated": 2,
+        "fingerprint": "eeb34d6aaefb02e591964dd2a2b1421e5875f70f84a0a9d9d32271ea27a4b374"
+      },
+      {
+        "id": "g64",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "533d99c0a5f252f47eb2ef035bf998a216f0c47e413102763eac976f1b4ddbf4"
+      },
+      {
+        "id": "gg062",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5ad159604fc8ed910bf8bb75e409101560ddb40144e1b82261f79a0ada7fcbb1"
+      },
+      {
+        "id": "g62",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "1a0931113da691397cf198802a90965cccc6a00d1697487c7985e077d143bac7"
+      },
+      {
+        "id": "gg045",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9644559cfc820d4c475912eae9d73cac0dbb923412eb2eeb9eb1ee36ef476bdb"
+      },
+      {
+        "id": "g57",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5ce6465be5270d77830ae47fdd4d48b6f61cf4bad91589cab5ac875d4a2a86f5"
+      },
+      {
+        "id": "gg060",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "3aef5c36d5384e780ebd0e58e24c97ea38331d75a0550d0b0cc94d8953c5f30e"
+      },
+      {
+        "id": "gg012",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "708703194257a227c1add31677dedca5db15a49e9760ad93048ea689281f0dae"
+      },
+      {
+        "id": "g43",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "45d7e0003010d8c7d7e7b291b90bd73555591d06a80d3008b9dae33ccbdfb137"
+      },
+      {
+        "id": "gg008",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "79dd6232887905adf2a09fafd30f31568e88163cf968e67efad1cc132fafce62"
+      },
+      {
+        "id": "g53",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "57dad5a455158703ce75b9356885dbfd16b308479561ca5c76e13c2020d606e9"
+      },
+      {
+        "id": "g08",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "bec1beb9a2314719cd2236a60c2732d8d2bc959aa839aa3f512fe6d97eaf9a23"
+      },
+      {
+        "id": "gg002",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "c1d77bad3fe35dbc2bfc34a3ab30741cd6289fa412f5dfe4f1d084c127b9cafc"
+      },
+      {
+        "id": "g07",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "8f8e6dd4036fefeea0e968cec5a3b89c3aec4919a0a61bacd638f911283a5213"
+      },
+      {
+        "id": "gg054",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "cea74c928328b65edc8d5d193f615a392fbff476f237bf936fa0ed3a78e612dc"
+      },
+      {
+        "id": "gg052",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "f43568a5811faf087e6e487100dea925c5a7c3d5baf3d1b01e40a84fe35caf22"
+      },
+      {
+        "id": "g34",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "ff64572f53f43f02bb46401ed2f233e7fa8ae2ddbff0d83faa08943188c68b96"
+      },
+      {
+        "id": "g48",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "4c5005bffd03fbc374d22d9290b8a730557fd1f285025fd7c9d70923111a2f27"
+      },
+      {
+        "id": "gg010",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "91b4ed3f4e7cd7da9cb160c1e8b643811f014070e91494259827bce3e0fe93f6"
+      },
+      {
+        "id": "gg026",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "7ef4d721bb40006938279bf6f7a5b9ae17db73bdf31b152adcde723dfa23e56a"
+      },
+      {
+        "id": "gg046",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5045eb50affc33ce004859db87dbc0826aa7a43a1674ad968a0f10125d23ef87"
+      },
+      {
+        "id": "g63",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "57c61695f553c33decd9f5ee90b7c2c92ccd59a58696e0fc531667d4c02b3399"
+      },
+      {
+        "id": "gg019",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 4,
+        "fingerprint": "dc5fb9d7c5a9d4aacb338720f48fe0b295bde206b9105f5801ea5e93ef582cdf"
+      },
+      {
+        "id": "g51",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "0f37d71d9de97bdab51752ccad8a6e353976fa63c0fa78db5dc20290fa4403da"
+      },
+      {
+        "id": "gg028",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "2147a26c0499be43a693b208f22d718b1049387e1c96838a687003ecb8b0daa5"
+      },
+      {
+        "id": "gg058",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "54e38b9b4bd19afec0bd7c4a717b8a52a87903b297b97c387cd9408dc877b26e"
+      },
+      {
+        "id": "gg053",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "e958d4230d57b836ad736d74a9c2f6d3a8a5d9dfc1c1d4f07157856711b6133d"
+      },
+      {
+        "id": "gg009",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "da7e4b1ac1c5f0701418de719b5af00c622cbdfe65a9260db277af064457f32d"
+      },
+      {
+        "id": "g52",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d95decb5ed60448313f594d95be914781a4f726625d6f6a358ee45f31634c2ab"
+      },
+      {
+        "id": "g33",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "b8d98cebacd1841b8178940aff62b480a1d1e19121a1498a4545cd0174a5f7da"
+      },
+      {
+        "id": "g59",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "b191a01d6fd03c153543ff35491d4a8df7a8b8872e38e770bff40e82717a171b"
+      },
+      {
+        "id": "g35",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9ed8a4926ef4aac2b5c4e7883973940f49c4fc4cbf7f0bd8f3475eff7e47c934"
+      },
+      {
+        "id": "gg031",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "db4226048dca3e369e28bf0e3ee6061c00daa955575702700438550f7638cdd9"
+      },
+      {
+        "id": "gg027",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "975e526faddf95ea0a947cc07650933f624528e472faa916db412960f3d8998e"
+      },
+      {
+        "id": "g38",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "eeaf0cb38e2c01fe8e342e7ac15850bdc57787cb055bcd5fd6a2ad086dc8835c"
+      },
+      {
+        "id": "gg067",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "f023ef89f1e24293f4cccf07a4904541d766d78c13298641bcbf4a1b4223faa0"
+      },
+      {
+        "id": "gg013",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "19dcac91d44ac3cdb6ff12c5b6410df77560637bc833f44007145d3d53fcd8b3"
+      },
+      {
+        "id": "g16",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "777685d9912b931f65f462ae2cd9b3041864e6575bcd0e1398f5b2a5fb4e6efc"
+      },
+      {
+        "id": "gg065",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 4,
+        "fingerprint": "591c2208deed7a73fdd6b15b8076e6c9ab71afc4bfe1f163d2585de3416238cd"
+      },
+      {
+        "id": "gg035",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "c629c79d78d719bc993ff2dc2218cd974232c56756a22bde37db04c2397742cf"
+      },
+      {
+        "id": "g15",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "873cfbb374d20fff8c8c27add84be44a676592c527535605092f378e97108edd"
+      },
+      {
+        "id": "gg064",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "e5ba292a412432d3bfb6bbeaf7dc3a97e8fe717b232ea60137d7adeeaf938905"
+      },
+      {
+        "id": "g58",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "e9c8ee8261a11db0c19c36d489817cab9216ac5b3f8bc6d2a9a281edf28a154c"
+      },
+      {
+        "id": "g06",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "c41fc50356e3eff0b2ebdb27c5825afa131df2a3f3e4d01eecd6da9bce7a23a2"
+      },
+      {
+        "id": "g02",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "d5917c205bbbb31dcfde76c63d26a5c1a8e14ec98bdaed6f809913ceaaa2630e"
+      },
+      {
+        "id": "gg034",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "59b2252ff8d0e58b6a6a5b182c70e94ac0ec1d9e20e71f0f3cec2c772bc55732"
+      },
+      {
+        "id": "g27",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "48bcd1432a680fb59d605b8778673c82344aa1e271e1377c45af739a86dc3dd4"
+      },
+      {
+        "id": "gg042",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "a81725979c0150637d29bc2326032049ba6024bdb874748a32e71eaea0c21d12"
+      },
+      {
+        "id": "g47",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "d166f92646c2650890a98c42f039358ff1f340b8a48de8c020517c963dd9cb41"
+      },
+      {
+        "id": "g42",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "8fd763c42c6c792a69edf5f30043f571629f427c0e1aaf13d58a460262f3c0da"
+      },
+      {
+        "id": "g20",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "9fa1b9aacdadca2fce19f5e9f700740b4b7b52123a4b327823a2680f325c15e6"
+      },
+      {
+        "id": "gg020",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "af10792c66b8de9c5a6e9dd62aaef3ec1cd3f21091abbbc0ada31a0dbbc64c84"
+      },
+      {
+        "id": "gg038",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 4,
+        "fingerprint": "5c3fdee1e5b94e1c6f8fcb0e4b6d4d1a60c32988c9d4fea66e65db38e30779a7"
+      },
+      {
+        "id": "gg001",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "aa52e370a1c704ff985ffc78b1c3f02516968915337d08a3d410c49f823a4171"
+      },
+      {
+        "id": "gg024",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "b5fc38814cf11f5a4f9c64ebd2082b195c0c99e46eb8dec66884490fd3570ff7"
+      },
+      {
+        "id": "g10",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 1,
+        "fingerprint": "6dd35c491398baf0cd927c863cdad3ad787a887ca19a8305cf5676b5045bc433"
+      },
+      {
+        "id": "gg005",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "6a087257329d7ccdf548e3d1719a28e6ca34e3deb24f78f95f51b2c581cd9f9b"
+      },
+      {
+        "id": "g39",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "0898f19c2045fd4ef5441a5c7a434617eca27d746c702a3c120c57ba22388faa"
+      },
+      {
+        "id": "g04",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "5782f72ecd657faac571d6317178e83a60a258105a97a4ee88289739624705ab"
+      },
+      {
+        "id": "gg022",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 3,
+        "fingerprint": "03d1f43930c698601dc6361308664a03eaef89b32645d6d053ec9c51add9b587"
+      },
+      {
+        "id": "gg061",
+        "pool": "sealed",
+        "correct": true,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "invalidated": 2,
+        "fingerprint": "23149b783f0edf5d6a0372705eb749a42e753fc4d791f08fdecf463a60e59a59"
+      }
+    ],
+    "substitutions": 60
+  },
+  "controls": {
+    "flag_off_is_unmodified_production": true,
+    "same_store_and_bank_order": true,
+    "substitutions_only_on": true
+  }
+}
