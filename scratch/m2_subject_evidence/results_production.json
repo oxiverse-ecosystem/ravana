@@ -1,0 +1,285 @@
+{
+  "G1_ast_problems": [],
+  "G1_pass": true,
+  "G2_byte_identical": true,
+  "G2_off_nonempty": 0,
+  "G2_pass": true,
+  "G3_absent_evidence": 0,
+  "G3_compared": 40,
+  "G3_distinct": 40,
+  "G3_distinct_rate": 1.0,
+  "G3_pass": true,
+  "G3_perm_changed": 40,
+  "G3_perm_rate": 1.0,
+  "G3_perm_total": 40,
+  "G4_detail": [
+    {
+      "admitted_for_type": 0,
+      "case": "neg_not",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "negated"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "neg_never",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "negated"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "neg_isnt",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "negated"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "neg_no",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "negated"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "neg_cannot",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "negated"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "neg_classified",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "negated"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "low_credibility",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "low_credibility"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "unlicensed",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "unlicensed"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "empty_text",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "empty_assertion"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "wrong_subject",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "wrong_subject"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "bad_relation",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "bad_relation"
+      ]
+    },
+    {
+      "admitted_for_type": 0,
+      "case": "contradicted",
+      "expected": 0,
+      "pass": true,
+      "reasons": [
+        "contradicted",
+        "negated"
+      ]
+    },
+    {
+      "admitted_for_type": 1,
+      "case": "pos_cc0",
+      "expected": 1,
+      "pass": true,
+      "reasons": []
+    },
+    {
+      "admitted_for_type": 1,
+      "case": "pos_wordnet",
+      "expected": 1,
+      "pass": true,
+      "reasons": []
+    }
+  ],
+  "G4_pass": true,
+  "G5_covered": 40,
+  "G5_pass": true,
+  "G5_rate": 1.0,
+  "G6_admitted": 266,
+  "G6_pass": true,
+  "G6_provenance_ok": 266,
+  "G7_candidate_permutation_noop": true,
+  "G7_pass": true,
+  "G8_pass": "not_applicable_structural",
+  "G8_structural": [
+    "extra",
+    "floor",
+    "snapshot",
+    "subject"
+  ],
+  "GATES": {
+    "G1": true,
+    "G2": true,
+    "G3": true,
+    "G4": true,
+    "G5": true,
+    "G6": true,
+    "G7": true
+  },
+  "IMPLEMENT_DECISION": "IMPLEMENT",
+  "handcheck": [
+    {
+      "assertion_text": "hail — instance of (P31) → concept (Q151885)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q1594739",
+      "subject": "hail",
+      "type_name": "concept"
+    },
+    {
+      "assertion_text": "arc — subclass of (P279) → curve (Q161973)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q147572",
+      "subject": "arc",
+      "type_name": "curve"
+    },
+    {
+      "assertion_text": "cone — subclass of (P279) → faceted volume (Q66539746)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q66563361",
+      "subject": "cone",
+      "type_name": "faceted volume"
+    },
+    {
+      "assertion_text": "plane — subclass of (P279) → belief (Q34394)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q247700",
+      "subject": "plane",
+      "type_name": "belief"
+    },
+    {
+      "assertion_text": "council — subclass of (P279) → administrative territorial entity below municipality in Spain (Q10854310)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q19948005",
+      "subject": "council",
+      "type_name": "administrative territorial entity below municipality in Spain"
+    },
+    {
+      "assertion_text": "game — subclass of (P279) → animal (Q729)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q223930",
+      "subject": "game",
+      "type_name": "animal"
+    },
+    {
+      "assertion_text": "tissue — subclass of (P279) → anatomical structure (Q4936952)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q40397",
+      "subject": "tissue",
+      "type_name": "anatomical structure"
+    },
+    {
+      "assertion_text": "blossom — subclass of (P279) → flower (Q506)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q2047589",
+      "subject": "blossom",
+      "type_name": "flower"
+    },
+    {
+      "assertion_text": "chord — subclass of (P279) → beam (Q3705329)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q56296613",
+      "subject": "chord",
+      "type_name": "beam"
+    },
+    {
+      "assertion_text": "pulley — subclass of (P279) → pulley (Q48378)",
+      "license": "CC0-1.0",
+      "source_url": "https://www.wikidata.org/wiki/Q107196771",
+      "subject": "pulley",
+      "type_name": "pulley"
+    }
+  ],
+  "sample": [
+    "hail",
+    "arc",
+    "cone",
+    "plane",
+    "council",
+    "game",
+    "tissue",
+    "blossom",
+    "chord",
+    "pulley",
+    "rotor",
+    "sprocket",
+    "fern",
+    "radius",
+    "palm",
+    "seed",
+    "coil",
+    "tempest",
+    "shrub",
+    "circuit",
+    "line",
+    "society",
+    "leaf",
+    "pivot",
+    "pollen",
+    "guild",
+    "frost",
+    "treaty",
+    "piston",
+    "liver",
+    "angle",
+    "rainbow",
+    "tendon",
+    "circle",
+    "herb",
+    "drizzle",
+    "grain",
+    "charter",
+    "typhoon",
+    "overcast"
+  ],
+  "sample_n": 40,
+  "schema": "m2-subject-evidence-results-v1",
+  "snapshot_facts": 980,
+  "snapshot_facts_sha256": "17b91e1a6afae3da8978ad76d19e0ee8a6c92d2563e38a22e7a9f5c43ae57b3a",
+  "snapshot_subjects": 140
+}

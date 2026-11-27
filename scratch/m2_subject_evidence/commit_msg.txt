@@ -1,0 +1,45 @@
+feat(m2): default-off non-leaking subject-side type evidence channel
+
+New pure module `ravana.learn.subject_type_evidence` produces type evidence for
+the ACTUAL query subject from an independent licensed external snapshot and
+admits an assertion only when it is sourced, licensed, above the credibility
+floor, non-negated and not contradicted. Default-OFF via
+RAVANA_SUBJECT_TYPE_EVIDENCE; unwired. No engine, store, network, benchmark,
+gate, threshold, item, prompt or scoring change. Only new files.
+
+Source/licence: Wikidata SPARQL structured data + item descriptions, CC0-1.0
+(https://www.wikidata.org/wiki/Wikidata:Licensing). Frozen snapshot: 980 facts,
+140 subjects, facts_sha256=17b91e1a6afae3da8978ad76d19e0ee8a6c92d2563e38a22e7a9f5c43ae57b3a.
+Optional WordNet 3.0 cross-check source (Princeton WordNet License 3.0).
+
+Pre-registered gates (doc written before any number was read): G1 AST anti-leak
+PASS; G2 default-off PASS; G3 subject specificity 1.000 distinct / 1.000
+permutation / 0 out-of-vocab PASS; G4 negation+contradiction+credibility 14/14
+PASS; G5 coverage 40/40 PASS; G6 provenance 100% PASS; G7 candidate-permutation
+no-op PASS; G8 structurally N/A. Results byte-identical across
+PYTHONHASHSEED=0/1 and between the scratch and production modules. pytest 20/20
+for the new module, 32/32 with two unrelated test modules in one process.
+
+Instrument defect found and fixed before the valid run: unstated credibility
+was capped to 0.0, making every record look low-credibility; non-positive
+declarations now inherit the licence ceiling. Pre-registered floor unchanged.
+
+Independence: 0/229 emitted type names overlap item-bank type_sets values;
+12/229 coincidental overlap with candidate/gold English vocabulary, no
+item-bank field is a channel input. Source polysemy remains a documented
+limitation; no answer key was used to filter it.
+
+Brain grounding (extrapolation into RAVANA primitives, not brain code):
+- Carey & Bartlett (1978); Carey (2010) Lang Learn Dev 6(3):184-205,
+  doi:10.1080/15475441.2010.484379, PMCID PMC3101498 (type comes from the
+  subject's own contrastive input).
+- Xu & Tenenbaum (2007) Psychol Rev 114(2):245-272,
+  doi:10.1037/0033-295X.114.2.245 (structured hypothesis space).
+- Tse et al. (2007) Science 316(5821):76-82, doi:10.1126/science.1135935
+  (one-trial assimilation needs an existing schema).
+- Johnson, Hashtroudi & Lindsay (1993) Psychol Bull 114(1):3-28,
+  doi:10.1037/0033-2909.114.1.3 (schemas propose; sourced evidence admits).
+
+Not a TRA/RSI benchmark fix and no endpoint is claimed; the prior cross-source
+fast-mapping NO-GO (+0.055) and the negated-teaching hook failure are neither
+re-run nor overwritten.
