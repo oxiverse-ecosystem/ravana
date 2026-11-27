@@ -1,0 +1,37 @@
+{
+  "arm": "OFF",
+  "harness_exit": 1,
+  "elapsed_s": 6.9,
+  "delayed_option_audit": {
+    "ok": true,
+    "delayed_rows": 20,
+    "bad_rows": 0,
+    "examples": [],
+    "channel_label_count": 238
+  },
+  "commit": "5f3be87",
+  "summary": {
+    "primary": {
+      "near": 0.8,
+      "far": 0.8,
+      "immediate": 1.0,
+      "delayed": 1.0,
+      "delayed_retention": 1.0,
+      "growth": 1.0,
+      "foil_reject": 1.0,
+      "negative_reject": 1.0
+    },
+    "sealed": {
+      "near": 0.8,
+      "far": 0.8,
+      "immediate": 1.0,
+      "delayed": 1.0,
+      "delayed_retention": 1.0,
+      "growth": 1.0,
+      "foil_reject": 1.0,
+      "negative_reject": 1.0
+    }
+  },
+  "api_calls": {},
+  "instrument_controls_ok": null
+}
