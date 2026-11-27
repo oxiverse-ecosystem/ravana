@@ -1288,8 +1288,12 @@ def main(argv=None):
             by_k = {k: [it for it in items
                         if it["pool"] == pool and it["k"] == k]
                     for k in K_LEVELS}
-            for idx in range(max_per_pool):
+            if by_k.get(8):
+                keep.append(by_k[8].pop(0))
+            for idx in range(max_per_pool - 1):
                 k = K_LEVELS[idx % len(K_LEVELS)]
+                if k == 8 and not by_k.get(8):
+                    continue
                 if by_k[k]:
                     keep.append(by_k[k].pop(0))
         items = keep

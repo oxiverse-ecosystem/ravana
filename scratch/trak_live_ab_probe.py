@@ -103,8 +103,15 @@ def _focused(items, n):
     for pool in ("primary", "sealed"):
         by_k = {k: [it for it in items if it["pool"] == pool and it["k"] == k]
                 for k in mtk.K_LEVELS}
+        # The harness's mutation_control unconditionally selects a primary
+        # k=8 item. A tiny focused subset must include k=8 in both pools or
+        # the sweep crashes before scoring.
+        if by_k.get(8):
+            keep.append(by_k[8].pop(0))
         for idx in range(n):
             k = mtk.K_LEVELS[idx % len(mtk.K_LEVELS)]
+            if k == 8 and not by_k.get(8):
+                continue
             if by_k[k]:
                 keep.append(by_k[k].pop(0))
     return keep
