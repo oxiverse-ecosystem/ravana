@@ -1,0 +1,276 @@
+{
+  "all_controls_ok": true,
+  "arms": {
+    "off": {
+      "n": 12,
+      "substitutions": 0,
+      "withdraw": 0,
+      "withdraw_rate": 0.0
+    },
+    "on": {
+      "n": 12,
+      "substitutions": 12,
+      "withdraw": 12,
+      "withdraw_rate": 1.0
+    }
+  },
+  "boot_free": true,
+  "controls": {
+    "anchor_matches_existing": true,
+    "evaluator_unchanged": true,
+    "flag_off_equals_explicit_zero": true,
+    "item_answer_key_invariant": true,
+    "key_isolation": true,
+    "no_false_withdrawal": true
+  },
+  "instrument": "M1 boot-free durable-provenance A/B",
+  "manifest_hash": "9f7467ad80261b470818b092e1cbdb0279658538a4dfe36a5b94bd78f8200082",
+  "positive_effect": 12,
+  "primary_endpoint": "WITHDRAW on invalidated turn after cold reload",
+  "rows": {
+    "off": [
+      {
+        "claim": "Daytime happens because Earth rotates.",
+        "claim_key": "wfa_d5fa2814197b",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "Rain follows a drop in pressure.",
+        "claim_key": "wfa_553cc4f207ad",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "The mirrors cause a glow.",
+        "claim_key": "wfa_78a218f656b6",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "Cooling produces condensation.",
+        "claim_key": "wfa_2f0c567ee5b6",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "A gale can precede a rainbow.",
+        "claim_key": "wfa_24bfe2632c14",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "Thaw is a kind of melt.",
+        "claim_key": "wfa_78d012f8652b",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "Salt dissolves in water.",
+        "claim_key": "wfa_2e67bccd5736",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "A seed grows into a tree.",
+        "claim_key": "wfa_d7315984132a",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "The moon causes tides.",
+        "claim_key": "wfa_6a8d8fdf11fa",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "Wood floats on water.",
+        "claim_key": "wfa_5a62ddf511cd",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "Iron rusts in rain.",
+        "claim_key": "wfa_b2c82c4db031",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      },
+      {
+        "claim": "A shadow follows an object.",
+        "claim_key": "wfa_261db045cbdc",
+        "cold_decision": "ABSTAIN",
+        "cold_out": "N",
+        "cold_rule": "R_INVALIDATION_NO_PRIOR",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": false,
+        "withdrawn": false
+      }
+    ],
+    "on": [
+      {
+        "claim": "Daytime happens because Earth rotates.",
+        "claim_key": "wfa_d5fa2814197b",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "Rain follows a drop in pressure.",
+        "claim_key": "wfa_553cc4f207ad",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "The mirrors cause a glow.",
+        "claim_key": "wfa_78a218f656b6",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "Cooling produces condensation.",
+        "claim_key": "wfa_2f0c567ee5b6",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "A gale can precede a rainbow.",
+        "claim_key": "wfa_24bfe2632c14",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "Thaw is a kind of melt.",
+        "claim_key": "wfa_78d012f8652b",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "Salt dissolves in water.",
+        "claim_key": "wfa_2e67bccd5736",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "A seed grows into a tree.",
+        "claim_key": "wfa_d7315984132a",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "The moon causes tides.",
+        "claim_key": "wfa_6a8d8fdf11fa",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "Wood floats on water.",
+        "claim_key": "wfa_5a62ddf511cd",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "Iron rusts in rain.",
+        "claim_key": "wfa_b2c82c4db031",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      },
+      {
+        "claim": "A shadow follows an object.",
+        "claim_key": "wfa_261db045cbdc",
+        "cold_decision": "WITHDRAW",
+        "cold_out": "W",
+        "cold_rule": "R_SOURCE_INVALIDATED",
+        "first_decision": "ENDORSE",
+        "sidecar_exists": true,
+        "withdrawn": true
+      }
+    ]
+  }
+}

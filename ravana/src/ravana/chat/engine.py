@@ -8148,9 +8148,40 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         invalidated turn of the same claim, so a withdrawal can refer to a
         prior commitment instead of a single global decision slot. The flag is
         OFF by default; with it unset this method is byte-identical to before.
+
+        With ``RAVANA_DURABLE_PROVENANCE=1`` the gate additionally uses the
+        unified identity-keyed durable-provenance substrate (M1): a prior act
+        written on an earlier turn -- or restored from the sidecar after a cold
+        reload -- is re-staged into the ClaimContext BEFORE the same unchanged
+        evaluator runs. It records the emitted act, provenance and negation
+        status under the claim anchor after the decision. This feeds the gate;
+        it changes no rule, threshold, item or scoring field.
         """
         from .source_evaluation import Decision
         key = None
+        # M1 unified durable-provenance substrate (default OFF). Re-stage a
+        # persisted prior act into the SAME staged context before the existing
+        # gate. All of this is inside the flag check, so flag-off is inert.
+        durable = os.environ.get("RAVANA_DURABLE_PROVENANCE", "0") == "1"
+        _dp_store = None
+        _dp_claim = ""
+        _dp_staged = None
+        if durable:
+            try:
+                from . import durable_provenance as _dp
+                _dp_store = _dp.store_for_engine(self)
+                _dp_store.load()
+                _sc = getattr(ctx, "source_context", None) if ctx is not None else None
+                if _sc is not None:
+                    _dp_claim, _dp_staged = _sc
+                    if _dp_store.ledger.apply_to_context(
+                            _dp.claim_key(_dp_claim), _dp_claim, _dp_staged, ctx):
+                        try:
+                            _dp_claim, _dp_staged = ctx.source_context
+                        except Exception:
+                            pass
+            except Exception:
+                _dp_store = None
         if os.environ.get("RAVANA_PRIOR_ACT_TRACE", "0") == "1":
             try:
                 sc = getattr(ctx, "source_context", None) if ctx is not None else None
@@ -8179,6 +8210,24 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         if key is not None and decision.decision is Decision.ENDORSE:
             try:
                 self._source_act_trace[key] = Decision.ENDORSE
+            except Exception:
+                pass
+        # M1: persist the engine's OWN emitted act, the staged provenance and
+        # negation status under the same claim anchor. Flag-gated; failures
+        # never alter the decision or the emitted token.
+        if durable and _dp_store is not None and _dp_staged is not None:
+            try:
+                from . import durable_provenance as _dp
+                _neg = bool(getattr(_dp_staged, "invalidated", False))
+                _src = getattr(_dp_staged, "source", None)
+                _tc = getattr(_src, "trust_class", None)
+                if "discredited" in str(getattr(_tc, "value", _tc) or "").lower():
+                    _neg = True
+                _dp.record_decision(
+                    _dp_store, _dp.claim_key(_dp_claim), decision.decision,
+                    claim=_dp_claim,
+                    subject=getattr(self, "_last_subject", "") or "",
+                    source=_src, negated=_neg)
             except Exception:
                 pass
         if decision.decision != Decision.ENDORSE:
