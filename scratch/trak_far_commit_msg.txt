@@ -1,0 +1,31 @@
+invest(trak): root-cause M123 far-zero as stored type confidence collapse
+
+Boot-free diagnosis of TRA-K k=8 far = 0/0 after the combined M123 gain.
+No engine boot, no production file, gate, threshold, item, prompt, gold key
+or scorer change.
+
+Verdict: FAR_TRANSFER_BLOCKED_BY_STORED_TYPE_EVIDENCE. All four replayed far
+rows reach the unmodified M3 reader and defer with
+no_trusted_label_above_floor: gold-label confidence 0.0 or 0.00093 vs the
+unchanged CONGRUENCE_FLOOR=0.20. Near k=8 rows on the same saved stores pick
+with 0.6114 / 1.0. Subject-side coverage (400/400), gold-in-options
+(400/400) and far-subject presence are clean; the non-deployable oracle arm
+proves the reader fires 4/4 when only gold confidence is raised.
+
+Direct cause in saved edges: guild->association is_a conf 0.00093 with
+metadata superseded_by='student association' (planted low-credibility
+conflict at 1.0, revisions=8); market->market is a skipped self-loop so only
+market->economy (misleading) is stored at 1.0. intake._revise halves an is_a
+slot incumbent on each revision; chain_walker skips sid==oid.
+
+Brain basis / citations verified this task: Barnett & Ceci 2002
+(10.1037/0033-2909.128.4.612); Gick & Holyoak 1983
+(10.1016/0010-0285(83)90002-6); Gentner 1983
+(10.1207/s15516709cog0702_3); Vendetti, Wu & Holyoak 2014
+(10.1177/0956797613518079); Tse et al. 2007 (10.1126/science.1135935);
+Nader et al. 2000 (10.1038/35021052); Tulving & Thomson 1973
+(10.1037/h0020071); Johnson et al. 1993 (10.1037/0033-2909.114.1.3).
+
+Delivers a pre-registered, NOT-EXECUTED far A/B with isolated stores,
+repeated OFF baseline, SHAM, repair arms, non-deployable oracle and 10
+falsifiers; no gate change. Command and F4 fork are in the doc.
