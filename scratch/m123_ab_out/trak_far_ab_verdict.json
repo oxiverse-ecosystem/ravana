@@ -1,0 +1,784 @@
+{
+ "schema": "trak-far-ab-verdict-v1",
+ "deployable": false,
+ "capability_claim": false,
+ "scored": false,
+ "halted_at": "F4",
+ "verdict": "SUPERSESSION NOT SUFFICIENT",
+ "falsifiers": [
+  {
+   "id": "F1",
+   "name": "pins + boot-free preflight + AST anti-leakage",
+   "ok": true,
+   "detail": {
+    "preflight_ok": true,
+    "self_test": [
+     27,
+     27
+    ],
+    "ast_problems": [],
+    "pin_mismatches": [],
+    "rootcause_reproduced": true
+   },
+   "action": "INSTRUMENT INVALID — no score",
+   "authoritative": true
+  },
+  {
+   "id": "F2",
+   "name": "OFF == OFF2 on every endpoint",
+   "ok": true,
+   "detail": {
+    "endpoint_diffs": {},
+    "errors": [
+     null,
+     null
+    ],
+    "off_replayed": [
+     "tra_k_0020",
+     "tra_k_0008",
+     "tra_k_0000",
+     "tra_k_0006"
+    ]
+   },
+   "action": "store-carryover; invalidate all deltas",
+   "authoritative": true
+  },
+  {
+   "id": "F3",
+   "name": "SHAM emits no reader pick; hook/scorer/trust counters match M123",
+   "ok": true,
+   "detail": {
+    "emitted_picks": 0,
+    "reject_probe": {
+     "rows": 12,
+     "picks": 0,
+     "by_condition": {
+      "foil": 0,
+      "negative": 0,
+      "unrelated": 0
+     }
+    },
+    "counter_diffs": {},
+    "records_admitted_info": [
+     489,
+     1081
+    ],
+    "scored": true
+   },
+   "action": "control leak; discard contrast",
+   "authoritative": true
+  },
+  {
+   "id": "F4",
+   "name": "far REPAIR-M123 >= +0.10 on BOTH pools (oracle 4/4)",
+   "ok": false,
+   "detail": {
+    "far_M123": {
+     "primary": 0.0,
+     "sealed": 0.0
+    },
+    "far_REPAIR": {
+     "primary": 0.0,
+     "sealed": 0.0
+    },
+    "far_delta": {
+     "primary": 0.0,
+     "sealed": 0.0
+    },
+    "oracle_picks": [
+     "market",
+     "market",
+     "class",
+     "association"
+    ],
+    "oracle_deployable": false,
+    "oracle_source": "fresh M123 arm stores"
+   },
+   "action": "supersession not sufficient",
+   "authoritative": true
+  },
+  {
+   "id": "F5",
+   "name": "near drop <=0.05; reject-condition reader picks == 0",
+   "ok": true,
+   "detail": {
+    "near_drops": {
+     "primary": 0.0,
+     "sealed": 0.0
+    },
+    "reject_probe_picks": {
+     "OFF": {},
+     "OFF2": {},
+     "M123": {
+      "foil": 0,
+      "negative": 0,
+      "unrelated": 0
+     },
+     "REPAIR": {
+      "foil": 0,
+      "negative": 0,
+      "unrelated": 0
+     },
+     "REPAIR_SELFLOOP": {
+      "foil": 0,
+      "negative": 0,
+      "unrelated": 0
+     },
+     "SHAM": {
+      "foil": 0,
+      "negative": 0,
+      "unrelated": 0
+     }
+    },
+    "reject_probe_rows": {
+     "OFF": 0,
+     "OFF2": 0,
+     "M123": 12,
+     "REPAIR": 12,
+     "REPAIR_SELFLOOP": 12,
+     "SHAM": 12
+    },
+    "diagnostic_engine_match_rates": {
+     "OFF": {
+      "foil": 0.0,
+      "negative": 0.5,
+      "unrelated": 0.0
+     },
+     "OFF2": {
+      "foil": 0.0,
+      "negative": 0.5,
+      "unrelated": 0.0
+     },
+     "M123": {
+      "foil": 0.0,
+      "negative": 0.5,
+      "unrelated": 0.0
+     },
+     "REPAIR": {
+      "foil": 0.0,
+      "negative": 0.5,
+      "unrelated": 0.0
+     },
+     "REPAIR_SELFLOOP": {
+      "foil": 0.0,
+      "negative": 0.5,
+      "unrelated": 0.0
+     },
+     "SHAM": {
+      "foil": 0.0,
+      "negative": 0.5,
+      "unrelated": 0.0
+     }
+    }
+   },
+   "action": "regression or gate leak; revert arm",
+   "authoritative": true
+  },
+  {
+   "id": "F6",
+   "name": "REPAIR does not move foil/negative/unrelated",
+   "ok": true,
+   "detail": {
+    "control_pick_deltas": {
+     "foil": 0,
+     "negative": 0,
+     "unrelated": 0
+    }
+   },
+   "action": "answer-side leak through manipulation; discard",
+   "authoritative": true
+  },
+  {
+   "id": "F7",
+   "name": "k=0 far rows unchanged in every arm",
+   "ok": true,
+   "detail": {
+    "far_k0_query_pick_rate": {
+     "OFF": 0.0,
+     "OFF2": 0.0,
+     "M123": 0.0,
+     "REPAIR": 0.0,
+     "REPAIR_SELFLOOP": 0.0,
+     "SHAM": 0.0
+    }
+   },
+   "action": "null-control failure; arm changed exposure",
+   "authoritative": true
+  },
+  {
+   "id": "F8",
+   "name": "no uncaveated G6 saturation",
+   "ok": true,
+   "detail": {
+    "far": [
+     0.0,
+     0.0
+    ],
+    "g6_status": "FLAG",
+    "mutation_moved": true
+   },
+   "action": "mechanism evidence only; no capability claim",
+   "authoritative": true
+  },
+  {
+   "id": "F9",
+   "name": "self-loop ceiling characterised, not repaired",
+   "ok": true,
+   "detail": {
+    "selfloop_ids": [
+     "tra_k_0000",
+     "tra_k_0006"
+    ],
+    "selfloop_REPAIR": 0.0,
+    "selfloop_REPAIR_SELFLOOP": 0.0,
+    "nonselfloop_REPAIR": 0.0,
+    "nonselfloop_REPAIR_SELFLOOP": 0.0,
+    "note": "self-loop is a bank/writer ceiling; no option-generator change"
+   },
+   "action": "report only",
+   "authoritative": true
+  },
+  {
+   "id": "F10",
+   "name": "no production file / pin changed",
+   "ok": true,
+   "detail": {
+    "production_or_pin_diff": [],
+    "pinned": [
+     "scripts/measure_tra_k.py",
+     "scripts/measure_learn5_rsi.py",
+     "scripts/measure_tra.py",
+     "scripts/front_gates.py",
+     "scripts/tra_k_items.py",
+     "data/subject_type_evidence/snapshot.json",
+     "scratch/trak_channel_from_substrate.json",
+     "scratch/m3_graded_probe.py",
+     "ravana/src/ravana/chat/durable_provenance.py",
+     "ravana/src/ravana/chat/source_evaluation.py",
+     "ravana/src/ravana/chat/schema_induction.py",
+     "ravana/src/ravana/learn/subject_type_evidence.py",
+     "docs/investigations/M123_COMBINED_PREREG.md"
+    ]
+   },
+   "action": "abort; result cannot license a mechanism claim",
+   "authoritative": true
+  }
+ ],
+ "endpoints_by_arm": {
+  "OFF": {
+   "primary": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.0,
+    "immediate": 0.0,
+    "delayed": 0.0,
+    "delayed_retention": null,
+    "growth": 0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.0,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 0.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   },
+   "sealed": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.0,
+    "delayed": 0.0,
+    "delayed_retention": null,
+    "growth": 0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   }
+  },
+  "OFF2": {
+   "primary": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.0,
+    "immediate": 0.0,
+    "delayed": 0.0,
+    "delayed_retention": null,
+    "growth": 0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.0,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 0.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   },
+   "sealed": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.0,
+    "delayed": 0.0,
+    "delayed_retention": null,
+    "growth": 0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   }
+  },
+  "M123": {
+   "primary": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "growth": 0.5,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   },
+   "sealed": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "growth": 0.5,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   }
+  },
+  "REPAIR": {
+   "primary": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "growth": 0.5,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   },
+   "sealed": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "growth": 0.5,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   }
+  },
+  "REPAIR_SELFLOOP": {
+   "primary": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "growth": 0.5,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   },
+   "sealed": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "growth": 0.5,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   }
+  },
+  "SHAM": {
+   "primary": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.0,
+    "immediate": 0.0,
+    "delayed": 0.0,
+    "delayed_retention": null,
+    "growth": 0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.0,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 0.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   },
+   "sealed": {
+    "far": 0.0,
+    "far_minus_chance": -0.25,
+    "near": 0.5,
+    "immediate": 0.0,
+    "delayed": 0.0,
+    "delayed_retention": null,
+    "growth": 0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "unrelated": null,
+    "transfer": 0.5,
+    "chance": 0.25,
+    "foil_reject": 0.0,
+    "negative_reject": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "control_max_delta": 0.5,
+    "_n": {
+     "far_n": 2,
+     "near_n": 2,
+     "foil_n": 2,
+     "negative_n": 2
+    }
+   }
+  }
+ },
+ "row_endpoints_by_arm": {
+  "OFF": {
+   "far": 0.0,
+   "near": 0.25,
+   "foil": 0.0,
+   "negative": 0.5,
+   "unrelated": 0.0,
+   "far_immediate": 0.0,
+   "far_delayed": 0.0,
+   "far_k0_query": 0.0
+  },
+  "OFF2": {
+   "far": 0.0,
+   "near": 0.25,
+   "foil": 0.0,
+   "negative": 0.5,
+   "unrelated": 0.0,
+   "far_immediate": 0.0,
+   "far_delayed": 0.0,
+   "far_k0_query": 0.0
+  },
+  "M123": {
+   "far": 0.0,
+   "near": 0.5,
+   "foil": 0.0,
+   "negative": 0.5,
+   "unrelated": 0.0,
+   "far_immediate": 0.0,
+   "far_delayed": 0.0,
+   "far_k0_query": 0.0
+  },
+  "REPAIR": {
+   "far": 0.0,
+   "near": 0.5,
+   "foil": 0.0,
+   "negative": 0.5,
+   "unrelated": 0.0,
+   "far_immediate": 0.0,
+   "far_delayed": 0.0,
+   "far_k0_query": 0.0
+  },
+  "REPAIR_SELFLOOP": {
+   "far": 0.0,
+   "near": 0.5,
+   "foil": 0.0,
+   "negative": 0.5,
+   "unrelated": 0.0,
+   "far_immediate": 0.0,
+   "far_delayed": 0.0,
+   "far_k0_query": 0.0
+  },
+  "SHAM": {
+   "far": 0.0,
+   "near": 0.25,
+   "foil": 0.0,
+   "negative": 0.5,
+   "unrelated": 0.0,
+   "far_immediate": 0.0,
+   "far_delayed": 0.0,
+   "far_k0_query": 0.0
+  }
+ },
+ "counters_by_arm": {
+  "OFF": {
+   "turns": 1520,
+   "query_turns": 160,
+   "hook_calls": 160,
+   "scorer_calls": null,
+   "trust_calls": null,
+   "process_turn": 1520,
+   "records_admitted": null
+  },
+  "OFF2": {
+   "turns": 1520,
+   "query_turns": 160,
+   "hook_calls": 160,
+   "scorer_calls": null,
+   "trust_calls": null,
+   "process_turn": 1520,
+   "records_admitted": null
+  },
+  "M123": {
+   "turns": 1520,
+   "query_turns": 160,
+   "hook_calls": 160,
+   "scorer_calls": 160,
+   "trust_calls": 1113,
+   "process_turn": 1520,
+   "records_admitted": 1081
+  },
+  "REPAIR": {
+   "turns": 1520,
+   "query_turns": 160,
+   "hook_calls": 160,
+   "scorer_calls": 160,
+   "trust_calls": 1113,
+   "process_turn": 1520,
+   "records_admitted": 1081
+  },
+  "REPAIR_SELFLOOP": {
+   "turns": 1528,
+   "query_turns": 160,
+   "hook_calls": 160,
+   "scorer_calls": 160,
+   "trust_calls": 1113,
+   "process_turn": 1528,
+   "records_admitted": 1081
+  },
+  "SHAM": {
+   "turns": 1520,
+   "query_turns": 160,
+   "hook_calls": 160,
+   "scorer_calls": 160,
+   "trust_calls": 1113,
+   "process_turn": 1520,
+   "records_admitted": 489
+  }
+ },
+ "arm_status": {
+  "OFF": {
+   "status": "OK",
+   "scored": true,
+   "elapsed_s": 892.0,
+   "items": [
+    "tra_k_0020",
+    "tra_k_0008",
+    "tra_k_0000",
+    "tra_k_0006"
+   ],
+   "falsifiers_local": []
+  },
+  "OFF2": {
+   "status": "OK",
+   "scored": true,
+   "elapsed_s": 849.1,
+   "items": [
+    "tra_k_0020",
+    "tra_k_0008",
+    "tra_k_0000",
+    "tra_k_0006"
+   ],
+   "falsifiers_local": []
+  },
+  "M123": {
+   "status": "OK",
+   "scored": true,
+   "elapsed_s": 854.2,
+   "items": [
+    "tra_k_0020",
+    "tra_k_0008",
+    "tra_k_0000",
+    "tra_k_0006"
+   ],
+   "falsifiers_local": []
+  },
+  "REPAIR": {
+   "status": "OK",
+   "scored": true,
+   "elapsed_s": 848.1,
+   "items": [
+    "tra_k_0020",
+    "tra_k_0008",
+    "tra_k_0000",
+    "tra_k_0006"
+   ],
+   "falsifiers_local": []
+  },
+  "REPAIR_SELFLOOP": {
+   "status": "OK",
+   "scored": true,
+   "elapsed_s": 863.1,
+   "items": [
+    "tra_k_0020",
+    "tra_k_0008",
+    "tra_k_0000",
+    "tra_k_0006"
+   ],
+   "falsifiers_local": []
+  },
+  "SHAM": {
+   "status": "OK",
+   "scored": true,
+   "elapsed_s": 839.5,
+   "items": [
+    "tra_k_0020",
+    "tra_k_0008",
+    "tra_k_0000",
+    "tra_k_0006"
+   ],
+   "falsifiers_local": []
+  }
+ },
+ "oracle": {
+  "deployable": false,
+  "picks": [
+   "market",
+   "market",
+   "class",
+   "association"
+  ],
+  "source": "fresh M123 arm stores"
+ },
+ "notes": "n=2/pool mechanism probe, not a full-bank verdict. ORACLE is answer-side injected and NON-DEPLOYABLE; it proves reachability only. Later falsifier rows after halted_at are audit-only and cannot override the authoritative halt."
+}

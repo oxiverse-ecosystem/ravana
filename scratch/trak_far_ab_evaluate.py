@@ -77,14 +77,20 @@ def row_rate(rows_, **match):
 
 
 def row_endpoint_table(rows_):
-    """Pick rates on row-level endpoints the summary does not expose."""
+    """Engine-level match-with-candidate rates on the DEPLOYABLE channel arm.
+
+    These are diagnostic answer-structure rates, NOT reader picks: OFF arms
+    (reader disabled) show the same negative/foil rates, so F3/F5/F6 use the
+    runner's own emitted_picks counter and reject_condition_probe instead.
+    """
+    dep = [r for r in rows_ if r.get("arm") == "channel"]
     out = {}
     for cond in ("far", "near", "foil", "negative", "unrelated"):
-        out[cond], _ = row_rate(rows_, condition=cond, phase="query")
-    out["far_immediate"], _ = row_rate(rows_, condition="far", phase="immediate")
-    out["far_delayed"], _ = row_rate(rows_, condition="far", phase="delayed")
+        out[cond], _ = row_rate(dep, condition=cond, phase="query")
+    out["far_immediate"], _ = row_rate(dep, condition="far", phase="immediate")
+    out["far_delayed"], _ = row_rate(dep, condition="far", phase="delayed")
     out["far_k0_query"], _ = row_rate(
-        [r for r in rows_ if r.get("k") == 0], condition="far", phase="query")
+        [r for r in dep if r.get("k") == 0], condition="far", phase="query")
     return out
 
 
@@ -142,16 +148,23 @@ def main():
 
     # F3 -- wrong-tag control leak (DISCARD).
     sham = reports["SHAM"]
-    sham_pick_rows = [{"item": r.get("id"), "condition": r.get("condition"),
-                       "phase": r.get("phase")}
-                      for r in rrows["SHAM"] if is_pick(r)]
+    # F3 names exactly hook/scorer/trust counters. records_admitted is NOT
+    # one of them: wrong_tag_trust is expected to admit fewer records.
+    compute_keys = ("hook_calls", "scorer_calls", "trust_calls")
     sham_emitted = (cnts["SHAM"].get("emitted_picks") or 0)
+    sham_probe = sham["guard"]["negation_control"]["reject_condition_probe"]
     cd = {k: [cnts["SHAM"].get(k), cnts["M123"].get(k)]
-          for k in COUNTER_KEYS if cnts["SHAM"].get(k) != cnts["M123"].get(k)}
-    add("F3", "SHAM emits no pick and matches M123 compute",
-        not sham_pick_rows and not sham_emitted and not cd,
-        {"pick_rows": sham_pick_rows[:8], "emitted_picks": sham_emitted,
-         "counter_diffs": cd, "scored": sham.get("scored")},
+          for k in compute_keys if cnts["SHAM"].get(k) != cnts["M123"].get(k)}
+    f3_ok = (sham_emitted == 0 and sham_probe.get("picks", 0) == 0 and not cd)
+    add("F3", "SHAM emits no reader pick; hook/scorer/trust counters match M123",
+        f3_ok,
+        {"emitted_picks": sham_emitted,
+         "reject_probe": {k: sham_probe.get(k) for k in
+                          ("rows", "picks", "by_condition")},
+         "counter_diffs": cd,
+         "records_admitted_info": [cnts["SHAM"].get("records_admitted"),
+                                   cnts["M123"].get("records_admitted")],
+         "scored": sham.get("scored")},
         "control leak; discard contrast")
 
     # F4 -- decisive fork: does removing supersession move far at all?
@@ -180,20 +193,25 @@ def main():
         a = eps["M123"][pool].get("near")
         b = eps["REPAIR"][pool].get("near")
         near_drops[pool] = None if a is None or b is None else round(a - b, 4)
-    reject_picks = {a: {k: reps[a].get(k) for k in
-                        ("foil", "negative", "unrelated")} for a in ARMS}
+    probes = {a: reports[a]["guard"]["negation_control"]["reject_condition_probe"]
+              for a in ARMS}
+    reject_picks = {a: probes[a].get("by_condition", {}) for a in ARMS}
+    m3_arms = ("M123", "REPAIR", "REPAIR_SELFLOOP", "SHAM")
     f5_ok = (all(v is not None and v <= 0.05 for v in near_drops.values())
-             and all((v or 0) == 0 for arm in reject_picks.values()
-                     for v in arm.values()))
-    add("F5", "near drop <=0.05; foil/negative/unrelated picks == 0", f5_ok,
-        {"near_drops": near_drops, "reject_arm_picks": reject_picks},
+             and all(probes[a].get("picks", 0) == 0 for a in ARMS)
+             and all(probes[a].get("rows", 0) > 0 for a in m3_arms))
+    add("F5", "near drop <=0.05; reject-condition reader picks == 0", f5_ok,
+        {"near_drops": near_drops, "reject_probe_picks": reject_picks,
+         "reject_probe_rows": {a: probes[a].get("rows") for a in ARMS},
+         "diagnostic_engine_match_rates": {a: {k: reps[a].get(k) for k in
+             ("foil", "negative", "unrelated")} for a in ARMS}},
         "regression or gate leak; revert arm")
 
     # F6 -- answer-side leak through the manipulation.
     ctrl_delta = {}
     for k in ("foil", "negative", "unrelated"):
-        ctrl_delta[k] = round((reps["REPAIR"].get(k) or 0)
-                              - (reps["M123"].get(k) or 0), 4)
+        ctrl_delta[k] = (probes["REPAIR"].get("by_condition", {}).get(k, 0)
+                         - probes["M123"].get("by_condition", {}).get(k, 0))
     f6_ok = all(v == 0 for v in ctrl_delta.values())
     add("F6", "REPAIR does not move foil/negative/unrelated", f6_ok,
         {"control_pick_deltas": ctrl_delta},

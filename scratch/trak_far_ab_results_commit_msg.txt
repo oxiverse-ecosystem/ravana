@@ -1,0 +1,31 @@
+experiment(trak): execute far-repair A/B — F4 halt, no capability claim
+
+Executed the pre-registered A/B of docs/investigations/TRA_K_FAR_ROOTCAUSE.md §5
+in worktree ravana_trak_far_ab (branch experiment/trak-far-repair-ab).
+Six arms, fresh isolated store per arm, TRAK_MAX_PER_POOL=2, PYTHONHASHSEED=0,
+1800 s cap per arm; all rc=0 and all reports scored=true.
+
+Endpoints (primary|sealed far): OFF 0.000|0.000, OFF2 0.000|0.000,
+M123 0.000|0.000, REPAIR 0.000|0.000, REPAIR_SELFLOOP 0.000|0.000,
+SHAM 0.000|0.000. Near/retention/growth: M123/REPAIR families 0.500/1.000/0.5.
+
+F1-F10 evaluated in order: F1 F2 F3 PASS, F4 FAIL (far REPAIR-M123 = +0.000
+on both pools while the non-deployable oracle reaches 4/4), F5-F10 PASS.
+Authoritative halt F4: SUPERSESSION NOT SUFFICIENT. No capability claim.
+
+Controls: OFF==OFF2 byte-identical; SHAM emitted_picks=0 with hook/scorer/trust
+counters matched (160/160/1113) and 0/12 reject-probe picks; k=0 far rows
+0.000 in every arm; REPAIR compute matched M123 exactly (1520 turns, 160
+query turns, 160 hook/scorer calls, 28 emitted picks); 13 pins match and the
+production diff is empty before and after the sweep.
+
+Boot-free census of the REPAIR arm's saved stores shows guild's correct
+`association` label still demoted (0.0037) under `student association`
+(0.9872): the unchanged earlier near-condition teaching plants the conflict
+before the far query, so a far-only text repair cannot remove it. Missing
+input is the positive subject→type assertion surviving all teaching
+conditions (plus the self-loop write), not the congruence floor.
+
+Includes: full per-arm reports and row audit trails, boot-free root-cause
+replays on saved M123/REPAIR stores, the pre-registered F1-F10 evaluator and
+verdict JSON, compact arm logs, and docs/investigations/TRA_K_FAR_REPAIR_AB.md.

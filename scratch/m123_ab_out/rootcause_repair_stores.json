@@ -1,0 +1,1703 @@
+{
+  "channel": {
+    "path": "C:/Users/Likhith/Documents/projects/ravana/scratch/trak_channel_from_substrate.json",
+    "external": 400,
+    "error": null
+  },
+  "item_ids": [
+    "tra_k_0020",
+    "tra_k_0008",
+    "tra_k_0000",
+    "tra_k_0006"
+  ],
+  "rows": [
+    {
+      "item_id": "tra_k_0000",
+      "pool": "sealed",
+      "k": 8,
+      "condition": "near",
+      "subject": "overcast",
+      "options": [
+        "cloud cover",
+        "party",
+        "natural phenomenon",
+        "intersection"
+      ],
+      "display_gold": "cloud cover",
+      "pick": "cloud cover",
+      "reason": "admitted_graded_probe_winner",
+      "scores": {
+        "cloud cover": 0.6114
+      },
+      "vetoed": [],
+      "admitted_n": 9,
+      "staged": {
+        "snapshot_labels": [
+          "cloud cover"
+        ],
+        "snapshot_sources": [
+          "wikidata"
+        ],
+        "m1_labels": [
+          "weather",
+          "party",
+          "economy",
+          "faceted volume",
+          "cloud cover",
+          "market",
+          "industrial plant",
+          "weather"
+        ],
+        "m2_labels": [
+          "cloud cover"
+        ],
+        "m1_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.6113842495297346,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m2_conf": [
+          0.6113842495297346
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 1
+      }
+    },
+    {
+      "item_id": "tra_k_0000",
+      "pool": "sealed",
+      "k": 8,
+      "condition": "far",
+      "subject": "market",
+      "options": [
+        "party",
+        "intersection",
+        "market",
+        "natural phenomenon"
+      ],
+      "display_gold": "market",
+      "pick": null,
+      "reason": "no_trusted_label_above_floor",
+      "scores": {
+        "market": 0.0
+      },
+      "vetoed": [],
+      "admitted_n": 12,
+      "staged": {
+        "snapshot_labels": [
+          "economy",
+          "market",
+          "recurring event",
+          "video game feature"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [
+          "weather",
+          "party",
+          "economy",
+          "faceted volume",
+          "cloud cover",
+          "market",
+          "industrial plant",
+          "weather"
+        ],
+        "m2_labels": [
+          "economy",
+          "market",
+          "recurring event",
+          "video game feature"
+        ],
+        "m1_conf": [
+          0.0,
+          0.0,
+          0.9689345696994686,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m2_conf": [
+          0.9689345696994686,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 4
+      }
+    },
+    {
+      "item_id": "tra_k_0000",
+      "pool": "sealed",
+      "k": 8,
+      "condition": "foil",
+      "subject": "overcast",
+      "options": [
+        "natural phenomenon",
+        "intersection",
+        "process",
+        "party"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_admitted_subject_evidence",
+      "scores": {},
+      "vetoed": [],
+      "admitted_n": 9,
+      "staged": {
+        "snapshot_labels": [
+          "cloud cover"
+        ],
+        "snapshot_sources": [
+          "wikidata"
+        ],
+        "m1_labels": [
+          "weather",
+          "party",
+          "economy",
+          "faceted volume",
+          "cloud cover",
+          "market",
+          "industrial plant",
+          "weather"
+        ],
+        "m2_labels": [
+          "cloud cover"
+        ],
+        "m1_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.6113842495297346,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m2_conf": [
+          0.6113842495297346
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 1
+      }
+    },
+    {
+      "item_id": "tra_k_0000",
+      "pool": "sealed",
+      "k": 8,
+      "condition": "negative",
+      "subject": "shower",
+      "options": [
+        "natural phenomenon",
+        "industrial plant",
+        "intersection",
+        "party"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_admitted_subject_evidence",
+      "scores": {},
+      "vetoed": [
+        "industrial plant",
+        "party"
+      ],
+      "admitted_n": 7,
+      "staged": {
+        "snapshot_labels": [
+          "cause",
+          "fall of precipitation",
+          "industrial plant",
+          "juggling pattern",
+          "party",
+          "plumbing fixture",
+          "proto-agent"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [
+          "weather",
+          "party",
+          "economy",
+          "faceted volume",
+          "cloud cover",
+          "market",
+          "industrial plant",
+          "weather"
+        ],
+        "m2_labels": [
+          "cause",
+          "fall of precipitation",
+          "industrial plant",
+          "juggling pattern",
+          "party",
+          "plumbing fixture",
+          "proto-agent"
+        ],
+        "m1_conf": [
+          0.0,
+          1.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0009331695996267252,
+          0.0
+        ],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0009331695996267252,
+          0.0,
+          1.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 7
+      }
+    },
+    {
+      "item_id": "tra_k_0006",
+      "pool": "sealed",
+      "k": 0,
+      "condition": "near",
+      "subject": "gale",
+      "options": [
+        "wind",
+        "party",
+        "natural phenomenon",
+        "intersection"
+      ],
+      "display_gold": "wind",
+      "pick": null,
+      "reason": "no_trusted_label_above_floor",
+      "scores": {
+        "wind": 0.0
+      },
+      "vetoed": [],
+      "admitted_n": 3,
+      "staged": {
+        "snapshot_labels": [
+          "gene",
+          "wind",
+          "wind speed"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "gene",
+          "wind",
+          "wind speed"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 3
+      }
+    },
+    {
+      "item_id": "tra_k_0006",
+      "pool": "sealed",
+      "k": 0,
+      "condition": "far",
+      "subject": "market",
+      "options": [
+        "natural phenomenon",
+        "party",
+        "intersection",
+        "market"
+      ],
+      "display_gold": "market",
+      "pick": null,
+      "reason": "no_trusted_label_above_floor",
+      "scores": {
+        "market": 0.0
+      },
+      "vetoed": [],
+      "admitted_n": 4,
+      "staged": {
+        "snapshot_labels": [
+          "economy",
+          "market",
+          "recurring event",
+          "video game feature"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "economy",
+          "market",
+          "recurring event",
+          "video game feature"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 4
+      }
+    },
+    {
+      "item_id": "tra_k_0006",
+      "pool": "sealed",
+      "k": 0,
+      "condition": "foil",
+      "subject": "gale",
+      "options": [
+        "party",
+        "process",
+        "intersection",
+        "natural phenomenon"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_admitted_subject_evidence",
+      "scores": {},
+      "vetoed": [],
+      "admitted_n": 3,
+      "staged": {
+        "snapshot_labels": [
+          "gene",
+          "wind",
+          "wind speed"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "gene",
+          "wind",
+          "wind speed"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 3
+      }
+    },
+    {
+      "item_id": "tra_k_0006",
+      "pool": "sealed",
+      "k": 0,
+      "condition": "negative",
+      "subject": "monsoon",
+      "options": [
+        "party",
+        "natural phenomenon",
+        "intersection",
+        "economy"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_admitted_subject_evidence",
+      "scores": {},
+      "vetoed": [],
+      "admitted_n": 1,
+      "staged": {
+        "snapshot_labels": [
+          "wind"
+        ],
+        "snapshot_sources": [
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "wind"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 1
+      }
+    },
+    {
+      "item_id": "tra_k_0008",
+      "pool": "primary",
+      "k": 0,
+      "condition": "near",
+      "subject": "frost",
+      "options": [
+        "natural phenomenon",
+        "intersection",
+        "party",
+        "hydrometeor"
+      ],
+      "display_gold": "hydrometeor",
+      "pick": null,
+      "reason": "no_trusted_label_above_floor",
+      "scores": {
+        "hydrometeor": 0.0
+      },
+      "vetoed": [],
+      "admitted_n": 3,
+      "staged": {
+        "snapshot_labels": [
+          "hydrometeor",
+          "ice",
+          "phenomenon"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "hydrometeor",
+          "ice",
+          "phenomenon"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 3
+      }
+    },
+    {
+      "item_id": "tra_k_0008",
+      "pool": "primary",
+      "k": 0,
+      "condition": "far",
+      "subject": "rank",
+      "options": [
+        "intersection",
+        "natural phenomenon",
+        "class",
+        "party"
+      ],
+      "display_gold": "class",
+      "pick": null,
+      "reason": "no_trusted_label_above_floor",
+      "scores": {
+        "class": 0.0
+      },
+      "vetoed": [],
+      "admitted_n": 12,
+      "staged": {
+        "snapshot_labels": [
+          "card game",
+          "card game term",
+          "class",
+          "integer-valued function",
+          "invariant",
+          "mathematical concept",
+          "name",
+          "position",
+          "programming language",
+          "rank",
+          "subadditive function",
+          "tactical formation"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "card game",
+          "card game term",
+          "class",
+          "integer-valued function",
+          "invariant",
+          "mathematical concept",
+          "name",
+          "position",
+          "programming language",
+          "rank",
+          "subadditive function",
+          "tactical formation"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 12
+      }
+    },
+    {
+      "item_id": "tra_k_0008",
+      "pool": "primary",
+      "k": 0,
+      "condition": "foil",
+      "subject": "frost",
+      "options": [
+        "natural phenomenon",
+        "intersection",
+        "party",
+        "process"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_admitted_subject_evidence",
+      "scores": {},
+      "vetoed": [],
+      "admitted_n": 3,
+      "staged": {
+        "snapshot_labels": [
+          "hydrometeor",
+          "ice",
+          "phenomenon"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "hydrometeor",
+          "ice",
+          "phenomenon"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 3
+      }
+    },
+    {
+      "item_id": "tra_k_0008",
+      "pool": "primary",
+      "k": 0,
+      "condition": "negative",
+      "subject": "thaw",
+      "options": [
+        "atmospheric condition",
+        "intersection",
+        "party",
+        "natural phenomenon"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_trusted_label_above_floor",
+      "scores": {
+        "atmospheric condition": 0.0
+      },
+      "vetoed": [],
+      "admitted_n": 1,
+      "staged": {
+        "snapshot_labels": [
+          "atmospheric condition"
+        ],
+        "snapshot_sources": [
+          "wikidata"
+        ],
+        "m1_labels": [],
+        "m2_labels": [
+          "atmospheric condition"
+        ],
+        "m1_conf": [],
+        "m2_conf": [
+          0.0
+        ]
+      },
+      "counters": {
+        "staged_m1": 0,
+        "staged_m2": 1
+      }
+    },
+    {
+      "item_id": "tra_k_0020",
+      "pool": "primary",
+      "k": 8,
+      "condition": "near",
+      "subject": "blizzard",
+      "options": [
+        "intersection",
+        "snow storm",
+        "natural phenomenon",
+        "party"
+      ],
+      "display_gold": "snow storm",
+      "pick": "snow storm",
+      "reason": "admitted_graded_probe_winner",
+      "scores": {
+        "snow storm": 0.9998
+      },
+      "vetoed": [],
+      "admitted_n": 12,
+      "staged": {
+        "snapshot_labels": [
+          "Wikimedia disambiguation page",
+          "album",
+          "meteorological phenomenon",
+          "snow storm"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [
+          "association",
+          "student association",
+          "atmospheric condition",
+          "faceted volume",
+          "snow storm",
+          "Wikimedia disambiguation page",
+          "wind",
+          "weather"
+        ],
+        "m2_labels": [
+          "Wikimedia disambiguation page",
+          "album",
+          "meteorological phenomenon",
+          "snow storm"
+        ],
+        "m1_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.9998311870244728,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.9998311870244728
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 4
+      }
+    },
+    {
+      "item_id": "tra_k_0020",
+      "pool": "primary",
+      "k": 8,
+      "condition": "far",
+      "subject": "guild",
+      "options": [
+        "intersection",
+        "natural phenomenon",
+        "party",
+        "association"
+      ],
+      "display_gold": "association",
+      "pick": null,
+      "reason": "no_trusted_label_above_floor",
+      "scores": {
+        "association": 0.0037
+      },
+      "vetoed": [],
+      "admitted_n": 17,
+      "staged": {
+        "snapshot_labels": [
+          "advocacy group",
+          "association",
+          "ecological community",
+          "first-order class",
+          "guild",
+          "korporation",
+          "occupational group",
+          "professional association",
+          "student association"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [
+          "association",
+          "student association",
+          "atmospheric condition",
+          "faceted volume",
+          "snow storm",
+          "Wikimedia disambiguation page",
+          "wind",
+          "weather"
+        ],
+        "m2_labels": [
+          "advocacy group",
+          "association",
+          "ecological community",
+          "first-order class",
+          "guild",
+          "korporation",
+          "occupational group",
+          "professional association",
+          "student association"
+        ],
+        "m1_conf": [
+          0.0037312760695440523,
+          0.9871945452081412,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m2_conf": [
+          0.0,
+          0.0037312760695440523,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.9871945452081412
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 9
+      }
+    },
+    {
+      "item_id": "tra_k_0020",
+      "pool": "primary",
+      "k": 8,
+      "condition": "foil",
+      "subject": "blizzard",
+      "options": [
+        "natural phenomenon",
+        "intersection",
+        "party",
+        "process"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_admitted_subject_evidence",
+      "scores": {},
+      "vetoed": [],
+      "admitted_n": 12,
+      "staged": {
+        "snapshot_labels": [
+          "Wikimedia disambiguation page",
+          "album",
+          "meteorological phenomenon",
+          "snow storm"
+        ],
+        "snapshot_sources": [
+          "wikidata",
+          "wikidata",
+          "wikidata",
+          "wikidata"
+        ],
+        "m1_labels": [
+          "association",
+          "student association",
+          "atmospheric condition",
+          "faceted volume",
+          "snow storm",
+          "Wikimedia disambiguation page",
+          "wind",
+          "weather"
+        ],
+        "m2_labels": [
+          "Wikimedia disambiguation page",
+          "album",
+          "meteorological phenomenon",
+          "snow storm"
+        ],
+        "m1_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.9998311870244728,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m2_conf": [
+          0.0,
+          0.0,
+          0.0,
+          0.9998311870244728
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 4
+      }
+    },
+    {
+      "item_id": "tra_k_0020",
+      "pool": "primary",
+      "k": 8,
+      "condition": "negative",
+      "subject": "thaw",
+      "options": [
+        "atmospheric condition",
+        "party",
+        "intersection",
+        "natural phenomenon"
+      ],
+      "display_gold": null,
+      "pick": null,
+      "reason": "no_admitted_subject_evidence",
+      "scores": {},
+      "vetoed": [
+        "atmospheric condition"
+      ],
+      "admitted_n": 1,
+      "staged": {
+        "snapshot_labels": [
+          "atmospheric condition"
+        ],
+        "snapshot_sources": [
+          "wikidata"
+        ],
+        "m1_labels": [
+          "association",
+          "student association",
+          "atmospheric condition",
+          "faceted volume",
+          "snow storm",
+          "Wikimedia disambiguation page",
+          "wind",
+          "weather"
+        ],
+        "m2_labels": [
+          "atmospheric condition"
+        ],
+        "m1_conf": [
+          0.0,
+          0.0,
+          0.5959231226369792,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m2_conf": [
+          0.5959231226369792
+        ]
+      },
+      "counters": {
+        "staged_m1": 8,
+        "staged_m2": 1
+      }
+    }
+  ],
+  "bank_census": {
+    "counts": {
+      "near_rows": 400,
+      "near_with_subject_evidence": 400,
+      "near_with_label_in_options": 400,
+      "near_gold_in_options": 400,
+      "near_gold_in_subject_labels": 400,
+      "near_positive_selfloop": 11,
+      "near_label_count_sum": 2665,
+      "near_positive_label_in_options": 400,
+      "near_with_misleading_fact": 363,
+      "far_rows": 400,
+      "far_with_subject_evidence": 400,
+      "far_with_label_in_options": 400,
+      "far_gold_in_options": 400,
+      "far_gold_in_subject_labels": 400,
+      "far_positive_selfloop": 15,
+      "far_label_count_sum": 2726,
+      "far_positive_label_in_options": 400,
+      "far_with_misleading_fact": 364,
+      "far_misleading_label_in_options": 12,
+      "near_misleading_label_in_options": 13
+    },
+    "examples": {}
+  },
+  "edge_census": [
+    {
+      "item_id": "tra_k_0000",
+      "condition": "near",
+      "subject": "overcast",
+      "views": [
+        {
+          "relation": "is_a",
+          "label": "cloud cover",
+          "target": "cloud cover",
+          "confidence": 0.6113842495297346,
+          "edge_kind": "curated",
+          "edge_source": "conversation",
+          "source_type": "user"
+        },
+        {
+          "relation": "episodic",
+          "label": "",
+          "target": "cloud",
+          "confidence": 0.6,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "examples",
+          "confidence": 0.4967136807896405,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        }
+      ]
+    },
+    {
+      "item_id": "tra_k_0000",
+      "condition": "far",
+      "subject": "market",
+      "views": [
+        {
+          "relation": "is_a",
+          "label": "economy",
+          "target": "economy",
+          "confidence": 0.9689345696994686,
+          "edge_kind": "curated",
+          "edge_source": "conversation",
+          "source_type": "user"
+        },
+        {
+          "relation": "episodic",
+          "label": "",
+          "target": "natural",
+          "confidence": 0.597077314429017,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "inferred",
+          "label": "",
+          "target": "natural due changes",
+          "confidence": 0.24270187796520332,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        }
+      ]
+    },
+    {
+      "item_id": "tra_k_0006",
+      "condition": "near",
+      "subject": "gale",
+      "views": []
+    },
+    {
+      "item_id": "tra_k_0006",
+      "condition": "far",
+      "subject": "market",
+      "views": []
+    },
+    {
+      "item_id": "tra_k_0008",
+      "condition": "near",
+      "subject": "frost",
+      "views": [
+        {
+          "relation": "causal",
+          "label": "",
+          "target": "rains rain",
+          "confidence": 0.8455109754740103,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "rains",
+          "confidence": 0.7999007932289948,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "earthquakes rain",
+          "confidence": 0.7999006823516847,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "rain",
+          "confidence": 0.7999029971161862,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "earthquakes rains",
+          "confidence": 0.7999005650313274,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "wind",
+          "confidence": 0.7998997023204004,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "causes",
+          "confidence": 0.8,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "wood",
+          "confidence": 0.7998975597092343,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "causal",
+          "label": "",
+          "target": "cause",
+          "confidence": 0.7999027461549616,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "is_a",
+          "label": "",
+          "target": "water vapor water",
+          "confidence": 0.7858886490340352,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "ice",
+          "confidence": 0.7995708510678795,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "inferred",
+          "label": "",
+          "target": "covered",
+          "confidence": 0.8450546983244843,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "dew",
+          "confidence": 0.7496877321520211,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "causal",
+          "label": "",
+          "target": "thunder earthquakes rain",
+          "confidence": 0.844947120236754,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "temporal",
+          "label": "",
+          "target": "fog rain",
+          "confidence": 0.8495179656483713,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "pressure",
+          "confidence": 0.84842406667561,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "droplets",
+          "confidence": 0.64769053067618,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "analogical",
+          "label": "",
+          "target": "occur",
+          "confidence": 0.8477853080697783,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "best",
+          "confidence": 0.5,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "phenomenon",
+          "confidence": 0.5,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "options",
+          "confidence": 0.498463715249073,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "examples",
+          "confidence": 0.5,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "semantic",
+          "label": "",
+          "target": "answer",
+          "confidence": 0.5,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        }
+      ]
+    },
+    {
+      "item_id": "tra_k_0008",
+      "condition": "far",
+      "subject": "rank",
+      "views": []
+    },
+    {
+      "item_id": "tra_k_0020",
+      "condition": "near",
+      "subject": "blizzard",
+      "views": [
+        {
+          "relation": "is_a",
+          "label": "snow storm",
+          "target": "snow storm",
+          "confidence": 0.9998311870244728,
+          "edge_kind": "curated",
+          "edge_source": "conversation",
+          "source_type": "user"
+        },
+        {
+          "relation": "inferred",
+          "label": "",
+          "target": "natural due changes",
+          "confidence": 0.9999563139105824,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        }
+      ]
+    },
+    {
+      "item_id": "tra_k_0020",
+      "condition": "far",
+      "subject": "guild",
+      "views": [
+        {
+          "relation": "is_a",
+          "label": "association",
+          "target": "association",
+          "confidence": 0.0037312760695440523,
+          "edge_kind": "curated",
+          "edge_source": "conversation",
+          "source_type": "user"
+        },
+        {
+          "relation": "is_a",
+          "label": "student association",
+          "target": "student association",
+          "confidence": 0.9871945452081412,
+          "edge_kind": "curated",
+          "edge_source": "conversation",
+          "source_type": "user"
+        },
+        {
+          "relation": "episodic",
+          "label": "",
+          "target": "student",
+          "confidence": 0.7796308179874193,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "episodic",
+          "label": "",
+          "target": "far right",
+          "confidence": 0.49609876126223507,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        },
+        {
+          "relation": "inferred",
+          "label": "",
+          "target": "examples",
+          "confidence": 0.16619296592192417,
+          "edge_kind": "unknown",
+          "edge_source": "",
+          "source_type": ""
+        }
+      ]
+    }
+  ],
+  "oracle_reachability": [
+    {
+      "item_id": "tra_k_0000",
+      "subject": "market",
+      "gold": "market",
+      "pick": "market",
+      "reason": "admitted_graded_probe_winner",
+      "scores": {
+        "market": 1.0
+      },
+      "deployable": false
+    },
+    {
+      "item_id": "tra_k_0006",
+      "subject": "market",
+      "gold": "market",
+      "pick": "market",
+      "reason": "admitted_graded_probe_winner",
+      "scores": {
+        "market": 1.0
+      },
+      "deployable": false
+    },
+    {
+      "item_id": "tra_k_0008",
+      "subject": "rank",
+      "gold": "class",
+      "pick": "class",
+      "reason": "admitted_graded_probe_winner",
+      "scores": {
+        "class": 1.0
+      },
+      "deployable": false
+    },
+    {
+      "item_id": "tra_k_0020",
+      "subject": "guild",
+      "gold": "association",
+      "pick": "association",
+      "reason": "admitted_graded_probe_winner",
+      "scores": {
+        "association": 1.0
+      },
+      "deployable": false
+    }
+  ],
+  "fact_census": [
+    {
+      "item_id": "tra_k_0000",
+      "near": {
+        "subject": "overcast",
+        "options": [
+          "cloud cover",
+          "party",
+          "natural phenomenon",
+          "intersection"
+        ],
+        "facts": [
+          {
+            "subject": "overcast",
+            "object": "cloud cover",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q1055865",
+            "source_url": "https://www.wikidata.org/wiki/Q1055865",
+            "text_evidence": "meteorological condition"
+          }
+        ]
+      },
+      "far": {
+        "subject": "market",
+        "options": [
+          "party",
+          "intersection",
+          "market",
+          "natural phenomenon"
+        ],
+        "facts": [
+          {
+            "subject": "market",
+            "object": "market",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q132510",
+            "source_url": "https://www.wikidata.org/wiki/Q132510",
+            "text_evidence": "regular gathering of people for the purchase and sale of goods"
+          },
+          {
+            "subject": "market",
+            "object": "economy",
+            "predicate": "is_a",
+            "evidence_role": "misleading",
+            "sense": "alternate",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q37654",
+            "source_url": "https://www.wikidata.org/wiki/Q37654",
+            "text_evidence": "mechanisms whereby supply and demand confront each other and deals are made, involving places, processes and institutions in which exchanges occur (for physical venues, use Q132510 or Q330284)"
+          }
+        ]
+      }
+    },
+    {
+      "item_id": "tra_k_0006",
+      "near": {
+        "subject": "gale",
+        "options": [
+          "wind",
+          "party",
+          "natural phenomenon",
+          "intersection"
+        ],
+        "facts": [
+          {
+            "subject": "gale",
+            "object": "wind",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q2144546",
+            "source_url": "https://www.wikidata.org/wiki/Q2144546",
+            "text_evidence": "sustained winds between 50 and 87 km/h"
+          },
+          {
+            "subject": "gale",
+            "object": "wind speed",
+            "predicate": "is_a",
+            "evidence_role": "misleading",
+            "sense": "alternate",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q3745520",
+            "source_url": "https://www.wikidata.org/wiki/Q3745520",
+            "text_evidence": "force 8 in Beaufort scale"
+          }
+        ]
+      },
+      "far": {
+        "subject": "market",
+        "options": [
+          "natural phenomenon",
+          "party",
+          "intersection",
+          "market"
+        ],
+        "facts": [
+          {
+            "subject": "market",
+            "object": "market",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q132510",
+            "source_url": "https://www.wikidata.org/wiki/Q132510",
+            "text_evidence": "regular gathering of people for the purchase and sale of goods"
+          },
+          {
+            "subject": "market",
+            "object": "economy",
+            "predicate": "is_a",
+            "evidence_role": "misleading",
+            "sense": "alternate",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q37654",
+            "source_url": "https://www.wikidata.org/wiki/Q37654",
+            "text_evidence": "mechanisms whereby supply and demand confront each other and deals are made, involving places, processes and institutions in which exchanges occur (for physical venues, use Q132510 or Q330284)"
+          }
+        ]
+      }
+    },
+    {
+      "item_id": "tra_k_0008",
+      "near": {
+        "subject": "frost",
+        "options": [
+          "natural phenomenon",
+          "intersection",
+          "party",
+          "hydrometeor"
+        ],
+        "facts": [
+          {
+            "subject": "frost",
+            "object": "hydrometeor",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q4590598",
+            "source_url": "https://www.wikidata.org/wiki/Q4590598",
+            "text_evidence": "coating or deposit of ice that may form in humid air in cold conditions, usually overnight"
+          },
+          {
+            "subject": "frost",
+            "object": "phenomenon",
+            "predicate": "is_a",
+            "evidence_role": "misleading",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q4590598",
+            "source_url": "https://www.wikidata.org/wiki/Q4590598",
+            "text_evidence": "coating or deposit of ice that may form in humid air in cold conditions, usually overnight"
+          }
+        ]
+      },
+      "far": {
+        "subject": "rank",
+        "options": [
+          "intersection",
+          "natural phenomenon",
+          "class",
+          "party"
+        ],
+        "facts": [
+          {
+            "subject": "rank",
+            "object": "class",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q4120621",
+            "source_url": "https://www.wikidata.org/wiki/Q4120621",
+            "text_evidence": "level in a hierarchy"
+          },
+          {
+            "subject": "rank",
+            "object": "card game",
+            "predicate": "is_a",
+            "evidence_role": "misleading",
+            "sense": "alternate",
+            "text_evidence_kind": "type_description",
+            "source": "https://www.wikidata.org/wiki/Q25383758",
+            "source_url": "https://www.wikidata.org/wiki/Q25383758",
+            "text_evidence": "game using playing cards as the primary device"
+          }
+        ]
+      }
+    },
+    {
+      "item_id": "tra_k_0020",
+      "near": {
+        "subject": "blizzard",
+        "options": [
+          "intersection",
+          "snow storm",
+          "natural phenomenon",
+          "party"
+        ],
+        "facts": [
+          {
+            "subject": "blizzard",
+            "object": "snow storm",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q205418",
+            "source_url": "https://www.wikidata.org/wiki/Q205418",
+            "text_evidence": "severe snowstorm characterized by strong sustained winds and low visibility, lasting for a prolonged period of time—typically at least three or four hours"
+          },
+          {
+            "subject": "blizzard",
+            "object": "Wikimedia disambiguation page",
+            "predicate": "is_a",
+            "evidence_role": "misleading",
+            "sense": "alternate",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q258298",
+            "source_url": "https://www.wikidata.org/wiki/Q258298",
+            "text_evidence": "Wikimedia disambiguation page"
+          }
+        ]
+      },
+      "far": {
+        "subject": "guild",
+        "options": [
+          "intersection",
+          "natural phenomenon",
+          "party",
+          "association"
+        ],
+        "facts": [
+          {
+            "subject": "guild",
+            "object": "association",
+            "predicate": "is_a",
+            "evidence_role": "subject_type",
+            "sense": "primary",
+            "text_evidence_kind": "item_description",
+            "source": "https://www.wikidata.org/wiki/Q939871",
+            "source_url": "https://www.wikidata.org/wiki/Q939871",
+            "text_evidence": "association of artisans or merchants"
+          },
+          {
+            "subject": "guild",
+            "object": "student association",
+            "predicate": "is_a",
+            "evidence_role": "misleading",
+            "sense": "alternate",
+            "text_evidence_kind": "type_description",
+            "source": "https://www.wikidata.org/wiki/Q11871480",
+            "source_url": "https://www.wikidata.org/wiki/Q11871480",
+            "text_evidence": "student organization"
+          }
+        ]
+      }
+    }
+  ]
+}
