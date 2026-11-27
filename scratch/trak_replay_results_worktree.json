@@ -1,0 +1,5338 @@
+{
+  "probe": "trak_replay_consolidation",
+  "static": true,
+  "engine_boot": false,
+  "source_root": "C:/Users/Likhith/Documents/projects/ravana",
+  "channel": "C:/Users/Likhith/Documents/projects/ravana\\scratch\\trak_channel_from_substrate.json",
+  "channel_external_items": 400,
+  "channel_overlap_answer_key_leak": null,
+  "channel_overlap_ok": true,
+  "instrument_controls": {
+    "trusted_pick": "effect",
+    "untrusted_pick": null,
+    "disjoint_pick": null,
+    "other_subject_pick": null,
+    "ok": true
+  },
+  "stores_censused": 40,
+  "production_constants": {
+    "trusted_kinds": [
+      "curated",
+      "curriculum",
+      "definition",
+      "web_fact"
+    ],
+    "trusted_source": "conversation",
+    "floor": 0.2,
+    "margin": 0.1
+  },
+  "arms": {
+    "OFF": {
+      "deployable": true,
+      "by_pool": {
+        "primary": {
+          "near": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "far": {
+            "n": 20,
+            "correct": 5,
+            "rate": 0.25
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 13,
+            "rate": 0.65
+          }
+        },
+        "sealed": {
+          "near": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "far": {
+            "n": 20,
+            "correct": 7,
+            "rate": 0.35
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 15,
+            "rate": 0.75
+          }
+        }
+      }
+    },
+    "R1": {
+      "deployable": true,
+      "by_pool": {
+        "primary": {
+          "near": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "far": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 13,
+            "rate": 0.65
+          }
+        },
+        "sealed": {
+          "near": {
+            "n": 20,
+            "correct": 7,
+            "rate": 0.35
+          },
+          "far": {
+            "n": 20,
+            "correct": 8,
+            "rate": 0.4
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 15,
+            "rate": 0.75
+          }
+        }
+      }
+    },
+    "R1_CONF": {
+      "deployable": true,
+      "by_pool": {
+        "primary": {
+          "near": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "far": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 13,
+            "rate": 0.65
+          }
+        },
+        "sealed": {
+          "near": {
+            "n": 20,
+            "correct": 7,
+            "rate": 0.35
+          },
+          "far": {
+            "n": 20,
+            "correct": 8,
+            "rate": 0.4
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 15,
+            "rate": 0.75
+          }
+        }
+      }
+    },
+    "R1_WRONG": {
+      "deployable": true,
+      "by_pool": {
+        "primary": {
+          "near": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "far": {
+            "n": 20,
+            "correct": 5,
+            "rate": 0.25
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 13,
+            "rate": 0.65
+          }
+        },
+        "sealed": {
+          "near": {
+            "n": 20,
+            "correct": 6,
+            "rate": 0.3
+          },
+          "far": {
+            "n": 20,
+            "correct": 7,
+            "rate": 0.35
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 15,
+            "rate": 0.75
+          }
+        }
+      }
+    },
+    "R2": {
+      "deployable": true,
+      "by_pool": {
+        "primary": {
+          "near": {
+            "n": 20,
+            "correct": 9,
+            "rate": 0.45
+          },
+          "far": {
+            "n": 20,
+            "correct": 9,
+            "rate": 0.45
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 13,
+            "rate": 0.65
+          }
+        },
+        "sealed": {
+          "near": {
+            "n": 20,
+            "correct": 11,
+            "rate": 0.55
+          },
+          "far": {
+            "n": 20,
+            "correct": 13,
+            "rate": 0.65
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 15,
+            "rate": 0.75
+          }
+        }
+      }
+    },
+    "ORACLE": {
+      "deployable": false,
+      "by_pool": {
+        "primary": {
+          "near": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "far": {
+            "n": 20,
+            "correct": 20,
+            "rate": 1.0
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 13,
+            "rate": 0.65
+          }
+        },
+        "sealed": {
+          "near": {
+            "n": 20,
+            "correct": 20,
+            "rate": 1.0
+          },
+          "far": {
+            "n": 20,
+            "correct": 20,
+            "rate": 1.0
+          },
+          "foil": {
+            "n": 20,
+            "correct": 19,
+            "rate": 0.95
+          },
+          "negative": {
+            "n": 20,
+            "correct": 15,
+            "rate": 0.75
+          }
+        }
+      }
+    }
+  },
+  "per_item": [
+    {
+      "item_id": "tra_k_0000",
+      "pool": "sealed",
+      "k": 8,
+      "stored_typed_edges": 20,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.3206,
+          0.445,
+          0.5383
+        ],
+        "far": [
+          0.3206,
+          0.445,
+          0.5383
+        ],
+        "foil": [
+          0.3206,
+          0.445,
+          0.5383
+        ],
+        "negative": [
+          0.3275,
+          0.4457,
+          0.5342
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0001",
+      "pool": "sealed",
+      "k": 4,
+      "stored_typed_edges": 12,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 4
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.406,
+          0.4863,
+          0.5466
+        ],
+        "far": [
+          0.406,
+          0.4863,
+          0.5466
+        ],
+        "foil": [
+          0.406,
+          0.4863,
+          0.5466
+        ],
+        "negative": [
+          0.3499,
+          0.4374,
+          0.5031
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0002",
+      "pool": "sealed",
+      "k": 4,
+      "stored_typed_edges": 17,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 6
+          },
+          "r2": {
+            "intact": 6
+          },
+          "wrong": {
+            "intact": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.508,
+          0.6083,
+          0.6835
+        ],
+        "far": [
+          0.508,
+          0.6083,
+          0.6835
+        ],
+        "foil": [
+          0.508,
+          0.6083,
+          0.6835
+        ],
+        "negative": [
+          0.5336,
+          0.6252,
+          0.6939
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0003",
+      "pool": "primary",
+      "k": 4,
+      "stored_typed_edges": 16,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5379,
+          0.6307,
+          0.7003
+        ],
+        "far": [
+          0.5379,
+          0.6307,
+          0.7003
+        ],
+        "foil": [
+          0.5379,
+          0.6307,
+          0.7003
+        ],
+        "negative": [
+          0.5102,
+          0.6076,
+          0.6807
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0004",
+      "pool": "primary",
+      "k": 2,
+      "stored_typed_edges": 12,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.595,
+          0.6508,
+          0.6926
+        ],
+        "far": [
+          0.595,
+          0.6508,
+          0.6926
+        ],
+        "foil": [
+          0.595,
+          0.6508,
+          0.6926
+        ],
+        "negative": [
+          0.5659,
+          0.6244,
+          0.6683
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0005",
+      "pool": "sealed",
+      "k": 8,
+      "stored_typed_edges": 20,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 6
+          },
+          "r2": {
+            "intact": 6
+          },
+          "wrong": {
+            "intact": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.3262,
+          0.4492,
+          0.5415
+        ],
+        "far": [
+          0.3262,
+          0.4492,
+          0.5415
+        ],
+        "foil": [
+          0.3262,
+          0.4492,
+          0.5415
+        ],
+        "negative": [
+          0.3588,
+          0.4941,
+          0.5956
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0006",
+      "pool": "sealed",
+      "k": 0,
+      "stored_typed_edges": 7,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 5,
+            "restored": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 4,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 4,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 4,
+            "restored": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.6857,
+          0.6961,
+          0.7039
+        ],
+        "far": [
+          0.6857,
+          0.6961,
+          0.7039
+        ],
+        "foil": [
+          0.6857,
+          0.6961,
+          0.7039
+        ],
+        "negative": [
+          0.7542,
+          0.7657,
+          0.7743
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0007",
+      "pool": "primary",
+      "k": 4,
+      "stored_typed_edges": 14,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.426,
+          0.5013,
+          0.5578
+        ],
+        "far": [
+          0.426,
+          0.5013,
+          0.5578
+        ],
+        "foil": [
+          0.426,
+          0.5013,
+          0.5578
+        ],
+        "negative": [
+          0.4289,
+          0.4967,
+          0.5475
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0008",
+      "pool": "primary",
+      "k": 0,
+      "stored_typed_edges": 7,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 5
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 5
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 5
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.6205,
+          0.6245,
+          0.6275
+        ],
+        "far": [
+          0.6205,
+          0.6245,
+          0.6275
+        ],
+        "foil": [
+          0.6205,
+          0.6245,
+          0.6275
+        ],
+        "negative": [
+          0.6826,
+          0.687,
+          0.6902
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0009",
+      "pool": "sealed",
+      "k": 4,
+      "stored_typed_edges": 15,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 6
+          },
+          "r2": {
+            "intact": 6
+          },
+          "wrong": {
+            "intact": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5303,
+          0.6023,
+          0.6563
+        ],
+        "far": [
+          0.5303,
+          0.6023,
+          0.6563
+        ],
+        "foil": [
+          0.5303,
+          0.6023,
+          0.6563
+        ],
+        "negative": [
+          0.5834,
+          0.6625,
+          0.7219
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0010",
+      "pool": "sealed",
+      "k": 1,
+      "stored_typed_edges": 10,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          },
+          "r2": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          },
+          "wrong": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          },
+          "r2": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          },
+          "wrong": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          },
+          "r2": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          },
+          "wrong": {
+            "intact": 4,
+            "restored": 1,
+            "absent_no_stored_trace": 3
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5577,
+          0.5776,
+          0.5925
+        ],
+        "far": [
+          0.5577,
+          0.5776,
+          0.5925
+        ],
+        "foil": [
+          0.5577,
+          0.5776,
+          0.5925
+        ],
+        "negative": [
+          0.587,
+          0.5902,
+          0.5927
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0011",
+      "pool": "primary",
+      "k": 4,
+      "stored_typed_edges": 16,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5117,
+          0.5883,
+          0.6458
+        ],
+        "far": [
+          0.5117,
+          0.5883,
+          0.6458
+        ],
+        "foil": [
+          0.5117,
+          0.5883,
+          0.6458
+        ],
+        "negative": [
+          0.4744,
+          0.5558,
+          0.6169
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0012",
+      "pool": "sealed",
+      "k": 4,
+      "stored_typed_edges": 15,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5577,
+          0.6228,
+          0.6716
+        ],
+        "far": [
+          0.5577,
+          0.6228,
+          0.6716
+        ],
+        "foil": [
+          0.5577,
+          0.6228,
+          0.6716
+        ],
+        "negative": [
+          0.5735,
+          0.6301,
+          0.6726
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0013",
+      "pool": "primary",
+      "k": 2,
+      "stored_typed_edges": 13,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.7062,
+          0.7569,
+          0.795
+        ],
+        "far": [
+          0.7062,
+          0.7569,
+          0.795
+        ],
+        "foil": [
+          0.7062,
+          0.7569,
+          0.795
+        ],
+        "negative": [
+          0.7517,
+          0.7888,
+          0.8166
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0014",
+      "pool": "primary",
+      "k": 0,
+      "stored_typed_edges": 7,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 5
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 4
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.6353,
+          0.6356,
+          0.6358
+        ],
+        "far": [
+          0.6353,
+          0.6356,
+          0.6358
+        ],
+        "foil": [
+          0.6353,
+          0.6356,
+          0.6358
+        ],
+        "negative": [
+          0.6989,
+          0.6991,
+          0.6994
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0015",
+      "pool": "sealed",
+      "k": 1,
+      "stored_typed_edges": 15,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 6
+          },
+          "r2": {
+            "intact": 6
+          },
+          "wrong": {
+            "intact": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.7095,
+          0.7821,
+          0.8366
+        ],
+        "far": [
+          0.7095,
+          0.7821,
+          0.8366
+        ],
+        "foil": [
+          0.7095,
+          0.7821,
+          0.8366
+        ],
+        "negative": [
+          0.7554,
+          0.8165,
+          0.8624
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0016",
+      "pool": "sealed",
+      "k": 0,
+      "stored_typed_edges": 8,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 6
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 2,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 2,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 2,
+            "absent_no_stored_trace": 4
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.7273,
+          0.7273,
+          0.7273
+        ],
+        "far": [
+          0.7273,
+          0.7273,
+          0.7273
+        ],
+        "foil": [
+          0.7273,
+          0.7273,
+          0.7273
+        ],
+        "negative": [
+          0.8,
+          0.8,
+          0.8
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0017",
+      "pool": "sealed",
+      "k": 0,
+      "stored_typed_edges": 7,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          },
+          "r2": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          },
+          "wrong": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          },
+          "r2": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          },
+          "wrong": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          },
+          "r2": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          },
+          "wrong": {
+            "absent_no_stored_trace": 6,
+            "intact": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 5,
+            "intact": 2
+          },
+          "r2": {
+            "absent_no_stored_trace": 5,
+            "intact": 2
+          },
+          "wrong": {
+            "absent_no_stored_trace": 5,
+            "intact": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5945,
+          0.605,
+          0.6128
+        ],
+        "far": [
+          0.5945,
+          0.605,
+          0.6128
+        ],
+        "foil": [
+          0.5945,
+          0.605,
+          0.6128
+        ],
+        "negative": [
+          0.654,
+          0.6655,
+          0.6741
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0018",
+      "pool": "primary",
+      "k": 1,
+      "stored_typed_edges": 12,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5797,
+          0.6166,
+          0.6443
+        ],
+        "far": [
+          0.5797,
+          0.6166,
+          0.6443
+        ],
+        "foil": [
+          0.5797,
+          0.6166,
+          0.6443
+        ],
+        "negative": [
+          0.61,
+          0.6325,
+          0.6494
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0019",
+      "pool": "sealed",
+      "k": 1,
+      "stored_typed_edges": 13,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 8
+          },
+          "r2": {
+            "intact": 8
+          },
+          "wrong": {
+            "intact": 8
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 6
+          },
+          "r2": {
+            "intact": 6
+          },
+          "wrong": {
+            "intact": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.4745,
+          0.5377,
+          0.5851
+        ],
+        "far": [
+          0.4745,
+          0.5377,
+          0.5851
+        ],
+        "foil": [
+          0.4745,
+          0.5377,
+          0.5851
+        ],
+        "negative": [
+          0.4968,
+          0.5476,
+          0.5857
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0020",
+      "pool": "primary",
+      "k": 8,
+      "stored_typed_edges": 17,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 2,
+            "restored": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.418,
+          0.5408,
+          0.6328
+        ],
+        "far": [
+          0.418,
+          0.5408,
+          0.6328
+        ],
+        "foil": [
+          0.418,
+          0.5408,
+          0.6328
+        ],
+        "negative": [
+          0.3964,
+          0.5223,
+          0.6167
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0021",
+      "pool": "primary",
+      "k": 8,
+      "stored_typed_edges": 17,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2926,
+          0.4013,
+          0.4828
+        ],
+        "far": [
+          0.2926,
+          0.4013,
+          0.4828
+        ],
+        "foil": [
+          0.2926,
+          0.4013,
+          0.4828
+        ],
+        "negative": [
+          0.3219,
+          0.4414,
+          0.531
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0024",
+      "pool": "sealed",
+      "k": 2,
+      "stored_typed_edges": 8,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2048,
+          0.2217,
+          0.2345
+        ],
+        "far": [
+          0.2048,
+          0.2217,
+          0.2345
+        ],
+        "foil": [
+          0.2048,
+          0.2217,
+          0.2345
+        ],
+        "negative": [
+          0.2,
+          0.2,
+          0.2
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0025",
+      "pool": "sealed",
+      "k": 1,
+      "stored_typed_edges": 7,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 4
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          },
+          "r2": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          },
+          "wrong": {
+            "intact": 3,
+            "absent_no_stored_trace": 3
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2046,
+          0.2216,
+          0.2344
+        ],
+        "far": [
+          0.2046,
+          0.2216,
+          0.2344
+        ],
+        "foil": [
+          0.2046,
+          0.2216,
+          0.2344
+        ],
+        "negative": [
+          0.2251,
+          0.2438,
+          0.2579
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0026",
+      "pool": "primary",
+      "k": 8,
+      "stored_typed_edges": 16,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2017,
+          0.2649,
+          0.3123
+        ],
+        "far": [
+          0.2017,
+          0.2649,
+          0.3123
+        ],
+        "foil": [
+          0.2017,
+          0.2649,
+          0.3123
+        ],
+        "negative": [
+          0.1965,
+          0.2474,
+          0.2856
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0028",
+      "pool": "primary",
+      "k": 0,
+      "stored_typed_edges": 2,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 7,
+            "intact": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 5,
+            "intact": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 5,
+            "intact": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 5,
+            "intact": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.1818,
+          0.1818,
+          0.1818
+        ],
+        "far": [
+          0.1818,
+          0.1818,
+          0.1818
+        ],
+        "foil": [
+          0.1818,
+          0.1818,
+          0.1818
+        ],
+        "negative": [
+          0.2,
+          0.2,
+          0.2
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0029",
+      "pool": "primary",
+      "k": 2,
+      "stored_typed_edges": 8,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.1047,
+          0.1467,
+          0.1782
+        ],
+        "far": [
+          0.1047,
+          0.1467,
+          0.1782
+        ],
+        "foil": [
+          0.1047,
+          0.1467,
+          0.1782
+        ],
+        "negative": [
+          0.1151,
+          0.1614,
+          0.196
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0030",
+      "pool": "primary",
+      "k": 8,
+      "stored_typed_edges": 13,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 2
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 2
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2049,
+          0.2219,
+          0.2346
+        ],
+        "far": [
+          0.2049,
+          0.2219,
+          0.2346
+        ],
+        "foil": [
+          0.2049,
+          0.2219,
+          0.2346
+        ],
+        "negative": [
+          0.2,
+          0.2,
+          0.2
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0032",
+      "pool": "sealed",
+      "k": 2,
+      "stored_typed_edges": 9,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 4,
+            "restored": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 2,
+            "restored": 1
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 2,
+            "restored": 1
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 2,
+            "restored": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.4168,
+          0.4456,
+          0.4671
+        ],
+        "far": [
+          0.4168,
+          0.4456,
+          0.4671
+        ],
+        "foil": [
+          0.4168,
+          0.4456,
+          0.4671
+        ],
+        "negative": [
+          0.4297,
+          0.4436,
+          0.4539
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0034",
+      "pool": "sealed",
+      "k": 0,
+      "stored_typed_edges": 1,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 8
+          },
+          "r2": {
+            "absent_no_stored_trace": 8
+          },
+          "wrong": {
+            "absent_no_stored_trace": 8
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 8
+          },
+          "r2": {
+            "absent_no_stored_trace": 8
+          },
+          "wrong": {
+            "absent_no_stored_trace": 8
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 8
+          },
+          "r2": {
+            "absent_no_stored_trace": 8
+          },
+          "wrong": {
+            "absent_no_stored_trace": 8
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.0909,
+          0.0909,
+          0.0909
+        ],
+        "far": [
+          0.0909,
+          0.0909,
+          0.0909
+        ],
+        "foil": [
+          0.0909,
+          0.0909,
+          0.0909
+        ],
+        "negative": [
+          0.1,
+          0.1,
+          0.1
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0035",
+      "pool": "primary",
+      "k": 2,
+      "stored_typed_edges": 8,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 5
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2955,
+          0.3126,
+          0.3253
+        ],
+        "far": [
+          0.2955,
+          0.3126,
+          0.3253
+        ],
+        "foil": [
+          0.2955,
+          0.3126,
+          0.3253
+        ],
+        "negative": [
+          0.2251,
+          0.2438,
+          0.2579
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0036",
+      "pool": "sealed",
+      "k": 2,
+      "stored_typed_edges": 10,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 6
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 2,
+            "intact": 4
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.3201,
+          0.3537,
+          0.3789
+        ],
+        "far": [
+          0.3201,
+          0.3537,
+          0.3789
+        ],
+        "foil": [
+          0.3201,
+          0.3537,
+          0.3789
+        ],
+        "negative": [
+          0.327,
+          0.3452,
+          0.3589
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0037",
+      "pool": "primary",
+      "k": 4,
+      "stored_typed_edges": 10,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2877,
+          0.3067,
+          0.3209
+        ],
+        "far": [
+          0.2877,
+          0.3067,
+          0.3209
+        ],
+        "foil": [
+          0.2877,
+          0.3067,
+          0.3209
+        ],
+        "negative": [
+          0.2361,
+          0.2521,
+          0.264
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0041",
+      "pool": "primary",
+      "k": 0,
+      "stored_typed_edges": 1,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 8
+          },
+          "r2": {
+            "absent_no_stored_trace": 8
+          },
+          "wrong": {
+            "absent_no_stored_trace": 8
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 8
+          },
+          "r2": {
+            "absent_no_stored_trace": 8
+          },
+          "wrong": {
+            "absent_no_stored_trace": 8
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 8
+          },
+          "r2": {
+            "absent_no_stored_trace": 8
+          },
+          "wrong": {
+            "absent_no_stored_trace": 8
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 6
+          },
+          "r2": {
+            "absent_no_stored_trace": 6
+          },
+          "wrong": {
+            "absent_no_stored_trace": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.0909,
+          0.0909,
+          0.0909
+        ],
+        "far": [
+          0.0909,
+          0.0909,
+          0.0909
+        ],
+        "foil": [
+          0.0909,
+          0.0909,
+          0.0909
+        ],
+        "negative": [
+          0.1,
+          0.1,
+          0.1
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0044",
+      "pool": "sealed",
+      "k": 2,
+      "stored_typed_edges": 9,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "far": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "foil": {
+          "r1": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "r2": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          },
+          "wrong": {
+            "absent_no_stored_trace": 4,
+            "intact": 4
+          }
+        },
+        "negative": {
+          "r1": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          },
+          "r2": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          },
+          "wrong": {
+            "absent_no_stored_trace": 3,
+            "intact": 3
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.3758,
+          0.3955,
+          0.4103
+        ],
+        "far": [
+          0.3758,
+          0.3955,
+          0.4103
+        ],
+        "foil": [
+          0.3758,
+          0.3955,
+          0.4103
+        ],
+        "negative": [
+          0.335,
+          0.3512,
+          0.3634
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0054",
+      "pool": "sealed",
+      "k": 8,
+      "stored_typed_edges": 20,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 6
+          },
+          "r2": {
+            "intact": 6
+          },
+          "wrong": {
+            "intact": 6
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2644,
+          0.4028,
+          0.5067
+        ],
+        "far": [
+          0.2644,
+          0.4028,
+          0.5067
+        ],
+        "foil": [
+          0.2644,
+          0.4028,
+          0.5067
+        ],
+        "negative": [
+          0.2908,
+          0.4431,
+          0.5573
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0056",
+      "pool": "sealed",
+      "k": 8,
+      "stored_typed_edges": 21,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.2717,
+          0.431,
+          0.5505
+        ],
+        "far": [
+          0.2717,
+          0.431,
+          0.5505
+        ],
+        "foil": [
+          0.2717,
+          0.431,
+          0.5505
+        ],
+        "negative": [
+          0.2737,
+          0.4303,
+          0.5477
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0064",
+      "pool": "primary",
+      "k": 1,
+      "stored_typed_edges": 13,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 7,
+            "absent_no_stored_trace": 1
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "r2": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          },
+          "wrong": {
+            "intact": 5,
+            "absent_no_stored_trace": 1
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.6112,
+          0.6629,
+          0.7017
+        ],
+        "far": [
+          0.6112,
+          0.6629,
+          0.7017
+        ],
+        "foil": [
+          0.6112,
+          0.6629,
+          0.7017
+        ],
+        "negative": [
+          0.6472,
+          0.6854,
+          0.7141
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0069",
+      "pool": "primary",
+      "k": 1,
+      "stored_typed_edges": 12,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 6,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 4,
+            "absent_no_stored_trace": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.682,
+          0.716,
+          0.7416
+        ],
+        "far": [
+          0.682,
+          0.716,
+          0.7416
+        ],
+        "foil": [
+          0.682,
+          0.716,
+          0.7416
+        ],
+        "negative": [
+          0.7251,
+          0.7438,
+          0.7579
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    },
+    {
+      "item_id": "tra_k_0076",
+      "pool": "primary",
+      "k": 1,
+      "stored_typed_edges": 10,
+      "replay_counts_by_condition": {
+        "near": {
+          "r1": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "far": {
+          "r1": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "foil": {
+          "r1": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 5,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          }
+        },
+        "negative": {
+          "r1": {
+            "intact": 3,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "r2": {
+            "intact": 3,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          },
+          "wrong": {
+            "intact": 3,
+            "restored": 1,
+            "absent_no_stored_trace": 2
+          }
+        }
+      },
+      "reactivation_mean_confidence": {
+        "near": [
+          0.5534,
+          0.5969,
+          0.6295
+        ],
+        "far": [
+          0.5534,
+          0.5969,
+          0.6295
+        ],
+        "foil": [
+          0.5534,
+          0.5969,
+          0.6295
+        ],
+        "negative": [
+          0.5836,
+          0.6127,
+          0.6345
+        ]
+      },
+      "probes": {
+        "near": {
+          "OFF": "trusted_typed_slot_strict_winner",
+          "R1": "trusted_typed_slot_strict_winner",
+          "R1_CONF": "trusted_typed_slot_strict_winner",
+          "R1_WRONG": "trusted_typed_slot_strict_winner",
+          "R2": "trusted_typed_slot_strict_winner"
+        },
+        "far": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "foil": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        },
+        "negative": {
+          "OFF": "no_trusted_typed_slot_above_floor",
+          "R1": "no_trusted_typed_slot_above_floor",
+          "R1_CONF": "no_trusted_typed_slot_above_floor",
+          "R1_WRONG": "no_trusted_typed_slot_above_floor",
+          "R2": "no_trusted_typed_slot_above_floor"
+        }
+      }
+    }
+  ],
+  "anti_tautology": {
+    "checked": true,
+    "gold_mutation_leaves_replay_state_unchanged": true,
+    "replay_counts": {
+      "intact": 7,
+      "absent_no_stored_trace": 1
+    }
+  },
+  "recorded_delayed_k8_cold_reload": {
+    "OFF": {
+      "correct": 0,
+      "abstain": 16,
+      "n": 16,
+      "items": [
+        {
+          "id": "tra_k_0020",
+          "condition": "near",
+          "subject": "sleet",
+          "gold": "hail",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0020",
+          "condition": "far",
+          "subject": "guild",
+          "gold": "society",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0021",
+          "condition": "near",
+          "subject": "rainbow",
+          "gold": "breeze",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0021",
+          "condition": "far",
+          "subject": "habit",
+          "gold": "law",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0026",
+          "condition": "near",
+          "subject": "cartilage",
+          "gold": "palm",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0026",
+          "condition": "far",
+          "subject": "tangent",
+          "gold": "plane",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0030",
+          "condition": "near",
+          "subject": "marrow",
+          "gold": "esophagus",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0030",
+          "condition": "far",
+          "subject": "ellipse",
+          "gold": "square",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0000",
+          "condition": "near",
+          "subject": "overcast",
+          "gold": "sunset",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0000",
+          "condition": "far",
+          "subject": "market",
+          "gold": "custom",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0005",
+          "condition": "near",
+          "subject": "climate",
+          "gold": "breeze",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0005",
+          "condition": "far",
+          "subject": "ritual",
+          "gold": "charter",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0054",
+          "condition": "near",
+          "subject": "motor",
+          "gold": "coil",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0054",
+          "condition": "far",
+          "subject": "trunk",
+          "gold": "bud",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0056",
+          "condition": "near",
+          "subject": "shaft",
+          "gold": "pulley",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0056",
+          "condition": "far",
+          "subject": "stem",
+          "gold": "moss",
+          "pick": null
+        }
+      ],
+      "rate": 0.0
+    },
+    "R1": {
+      "correct": 0,
+      "abstain": 16,
+      "n": 16,
+      "items": [
+        {
+          "id": "tra_k_0020",
+          "condition": "near",
+          "subject": "sleet",
+          "gold": "hail",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0020",
+          "condition": "far",
+          "subject": "guild",
+          "gold": "society",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0021",
+          "condition": "near",
+          "subject": "rainbow",
+          "gold": "breeze",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0021",
+          "condition": "far",
+          "subject": "habit",
+          "gold": "law",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0026",
+          "condition": "near",
+          "subject": "cartilage",
+          "gold": "palm",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0026",
+          "condition": "far",
+          "subject": "tangent",
+          "gold": "plane",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0030",
+          "condition": "near",
+          "subject": "marrow",
+          "gold": "esophagus",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0030",
+          "condition": "far",
+          "subject": "ellipse",
+          "gold": "square",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0000",
+          "condition": "near",
+          "subject": "overcast",
+          "gold": "sunset",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0000",
+          "condition": "far",
+          "subject": "market",
+          "gold": "custom",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0005",
+          "condition": "near",
+          "subject": "climate",
+          "gold": "breeze",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0005",
+          "condition": "far",
+          "subject": "ritual",
+          "gold": "charter",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0054",
+          "condition": "near",
+          "subject": "motor",
+          "gold": "coil",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0054",
+          "condition": "far",
+          "subject": "trunk",
+          "gold": "bud",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0056",
+          "condition": "near",
+          "subject": "shaft",
+          "gold": "pulley",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0056",
+          "condition": "far",
+          "subject": "stem",
+          "gold": "moss",
+          "pick": null
+        }
+      ],
+      "rate": 0.0
+    },
+    "R2": {
+      "correct": 0,
+      "abstain": 16,
+      "n": 16,
+      "items": [
+        {
+          "id": "tra_k_0020",
+          "condition": "near",
+          "subject": "sleet",
+          "gold": "hail",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0020",
+          "condition": "far",
+          "subject": "guild",
+          "gold": "society",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0021",
+          "condition": "near",
+          "subject": "rainbow",
+          "gold": "breeze",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0021",
+          "condition": "far",
+          "subject": "habit",
+          "gold": "law",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0026",
+          "condition": "near",
+          "subject": "cartilage",
+          "gold": "palm",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0026",
+          "condition": "far",
+          "subject": "tangent",
+          "gold": "plane",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0030",
+          "condition": "near",
+          "subject": "marrow",
+          "gold": "esophagus",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0030",
+          "condition": "far",
+          "subject": "ellipse",
+          "gold": "square",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0000",
+          "condition": "near",
+          "subject": "overcast",
+          "gold": "sunset",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0000",
+          "condition": "far",
+          "subject": "market",
+          "gold": "custom",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0005",
+          "condition": "near",
+          "subject": "climate",
+          "gold": "breeze",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0005",
+          "condition": "far",
+          "subject": "ritual",
+          "gold": "charter",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0054",
+          "condition": "near",
+          "subject": "motor",
+          "gold": "coil",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0054",
+          "condition": "far",
+          "subject": "trunk",
+          "gold": "bud",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0056",
+          "condition": "near",
+          "subject": "shaft",
+          "gold": "pulley",
+          "pick": null
+        },
+        {
+          "id": "tra_k_0056",
+          "condition": "far",
+          "subject": "stem",
+          "gold": "moss",
+          "pick": null
+        }
+      ],
+      "rate": 0.0
+    }
+  },
+  "recorded_delayed_scope_valid_for_typed_read": false,
+  "recorded_delayed_scope_invalid_reason": "The focused live run (commit 0829813) predates the typed-option-space fix; its recorded delayed options are TRA domain words while the persisted typed slots carry source-native Wikidata labels. A typed-slot reader cannot score that option vocabulary, so 0/16 in every arm is an instrument mismatch, NOT a replay result. Do not cite it as retention.",
+  "stored_typed_edges_summary": {
+    "items": 40,
+    "total_stored_typed_edges": 468,
+    "restored_traces": 5,
+    "no_stored_trace": 122
+  },
+  "verdict": {
+    "instrument_ok": true,
+    "replay_has_substrate": true,
+    "note": "static mechanism probe only: no engine boot, no emission. An OFF==R1 tie with restored_traces>0 locates the gap downstream of storage; a flat oracle locates an input deficit."
+  }
+}
