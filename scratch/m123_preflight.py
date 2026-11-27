@@ -44,10 +44,19 @@ from ravana.chat.source_evaluation import (          # noqa: E402
     ClaimContext, Decision, SourceStatus, TrustClass, evaluate_source)
 from ravana.learn import subject_type_evidence as ste  # noqa: E402
 
-ARMS = ("OFF", "OFF2", "M1", "M1+M2", "M1+M2+M3", "SHAM")
+ARMS = ("OFF", "OFF2", "M1", "M1+M2", "M1+M2+M3",
+        "REPAIR", "REPAIR_SELFLOOP", "SHAM")
 TAGS = {"OFF": "off1", "OFF2": "off2", "M1": "m1",
-        "M1+M2": "m12", "M1+M2+M3": "m123", "SHAM": "sham"}
+        "M1+M2": "m12", "M1+M2+M3": "m123",
+        "REPAIR": "repair", "REPAIR_SELFLOOP": "repair_self", "SHAM": "sham"}
 STAGES = ("trak", "rsi", "tra")
+
+# Scratch-only far-repair arm keys.  REPAIR_SELFLOOP is a strict superset of
+# REPAIR; neither touches production, gates, thresholds, items, prompts, the
+# gold key or the scorer.  M3_ARMS are the arms for which the shipped M3 reader
+# is enabled (SHAM uses wrong_tag_trust and admits nothing).
+REPAIR_ARMS = frozenset(("REPAIR", "REPAIR_SELFLOOP"))
+M3_ARMS = frozenset(("M1+M2+M3", "SHAM")) | REPAIR_ARMS
 RESULT_PATH = os.path.join(HERE, "m123_preflight_result.json")
 
 # Literal env contract: default-OFF production flags, set only per arm.
@@ -63,6 +72,12 @@ ARM_FLAGS = {
     "SHAM": {"RAVANA_DURABLE_PROVENANCE": "1",
              "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
              "RAVANA_M3_GRADED_PROBE": "1"},
+    "REPAIR": {"RAVANA_DURABLE_PROVENANCE": "1",
+               "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+               "RAVANA_M3_GRADED_PROBE": "1"},
+    "REPAIR_SELFLOOP": {"RAVANA_DURABLE_PROVENANCE": "1",
+                        "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+                        "RAVANA_M3_GRADED_PROBE": "1"},
 }
 CLEAR_FLAGS = ("RAVANA_TRA_SLOTS", "RAVANA_TRA_K_SLOTS", "RAVANA_SOURCE_EVAL",
                "RAVANA_PRIOR_ACT_TRACE", "RAVANA_LEXICAL_SUPERORDINATE")
@@ -122,6 +137,72 @@ def view_confidence(views, subject, label):
 def permuted_subject(subject):
     """Fixed unrelated subject used by the compute-matched wrong-tag arm."""
     return "zeppelin" if str(subject or "").strip().casefold() != "zeppelin" else "blizzard"
+
+
+def _neutral_like(surface):
+    """A neutral, claim-free turn with EXACTLY the input's whitespace-token count.
+
+    No subject, label, provenance or answer-side token is carried over.  Keeping
+    the token count identical is what makes the arm compute-matched: the same
+    number of process_turn calls and the same teaching-turn structure as M123.
+    """
+    toks = [str(t) for t in str(surface or "").split()]
+    n = len(toks) or len(("things", "happen", "for", "many", "reasons"))
+    base = ("things", "happen", "for", "many", "reasons")
+    out = list(base) + ["also"] * (n - len(base)) if n >= len(base) else list(base[:n])
+    return " ".join(out) + ("." if not out[-1].endswith(".") else "")
+
+
+def repair_far_surfaces(item, condition, surfaces, arm, counters=None):
+    """Scratch-only far-repair manipulation (the ONLY behavioural difference).
+
+    REPAIR: in the FAR P2c teaching only, replace the planted `misleading`
+    channel assertion about the far query subject with a length-matched neutral
+    turn.  The positive subject assertion, all near/foil/negative teaching,
+    M1/M2/M3 code, gates, thresholds, prompts and the scorer are unchanged.
+
+    REPAIR_SELFLOOP: REPAIR plus ONE post-conflict re-affirmation of the SAME
+    admitted positive subject fact, only on self-loop items (object == subject)
+    at k>=1, so k=0 stays a null control.  A re-affirmation is the identical
+    source-native assertion already admitted from the channel; no answer-side
+    field is read.  ``counters`` records that the manipulation actually fired.
+    """
+    result = list(surfaces or ())
+    if str(arm) not in REPAIR_ARMS or str(condition) != "far" or item is None:
+        return result
+    far_subject = str(mtk.query_for(item, "far").get("subject", "")).strip().casefold()
+    misleading = set()
+    for fact in ti.ordered_channel_facts(item):
+        if str(fact.get("evidence_role", "")) != ti.MISLEADING_ROLE:
+            continue
+        if str(fact.get("subject", "")).strip().casefold() != far_subject:
+            continue
+        text = ti.channel_assertion(fact)
+        if text:
+            misleading.add(text)
+    replaced = 0
+    out = []
+    for surface in result:
+        text = str(surface)
+        if text in misleading:
+            out.append(_neutral_like(text))
+            replaced += 1
+        else:
+            out.append(text)
+    reaffirmed = 0
+    if str(arm) == "REPAIR_SELFLOOP" and int(item.get("k", 0) or 0) >= 1:
+        positive = ti.admitted_subject_fact(item, far_subject, ti.SUBJECT_TYPE_ROLE)
+        if positive and str(positive.get("object", "")).strip().casefold() == far_subject:
+            assertion = ti.channel_assertion(positive)
+            if assertion:
+                out.append(assertion)
+                reaffirmed = 1
+    if counters is not None:
+        counters["repair_misleading_replaced"] = \
+            counters.get("repair_misleading_replaced", 0) + replaced
+        counters["repair_selffloop_reaffirmed"] = \
+            counters.get("repair_selffloop_reaffirmed", 0) + reaffirmed
+    return out
 
 
 def stage_m1_act(store, surface, subject, label, fact, arm, counters):
@@ -238,7 +319,7 @@ def stage_arm_evidence(subject, options, *, ledger_records, graph_views,
 
 def reader_pick(subject, options, bundle, arm, counters):
     """M3 decision surface; OFF arms do zero work, SHAM matches M1+M2+M3."""
-    enabled = str(arm) in ("M1+M2+M3", "SHAM")
+    enabled = str(arm) in M3_ARMS
     counters["hook_calls"] = counters.get("hook_calls", 0) + 1
     trust = m3.wrong_tag_trust if str(arm) == "SHAM" else None
     kwargs = {} if trust is None else {"trust": trust}
@@ -276,7 +357,8 @@ def ast_anti_leakage():
                                  "_admit_m1", "wrong_tag_trust", "_fact_from")]
     targets += [(sys.modules[__name__], n) for n in (
         "stage_m1_act", "stage_arm_evidence", "reader_pick",
-        "label_from_claim", "view_confidence", "permuted_subject")]
+        "label_from_claim", "view_confidence", "permuted_subject",
+        "_neutral_like", "repair_far_surfaces")]
     problems, scanned = [], []
     for module, name in targets:
         fn = getattr(module, name, None)
@@ -438,8 +520,9 @@ def boot_free_self_test():
     add("ast_anti_leakage", ast["ok"], ast["problems"])
     add("arm_flags_default_off", all(
         not os.environ.get("RAVANA_DURABLE_PROVENANCE") for _ in (0,)))
-    add("all_six_arms_declared", len(ARMS) == 6 and set(TAGS.values()) ==
-        {"off1", "off2", "m1", "m12", "m123", "sham"})
+    add("all_arms_declared", len(ARMS) == 8 and set(TAGS.values()) ==
+        {"off1", "off2", "m1", "m12", "m123", "repair", "repair_self", "sham"},
+        json.dumps({"arms": list(ARMS), "tags": TAGS}))
 
     fingerprint = gold_mutation_fingerprint()
     add("gold_mutation_invariant", fingerprint["ok"], fingerprint)
@@ -484,6 +567,16 @@ def boot_free_self_test():
         dread == "snow storm" and dsham is None and cr2["errors"] == 0
         and all(cr2[k] == cs2[k] for k in call_keys),
         {"read": dread, "sham": dsham, "errors": cr2["errors"]})
+    cre, crs = m3.new_counters(), m3.new_counters()
+    dre = reader_pick("blizzard", ["snow storm", "process"], bundle,
+                      "REPAIR", cre)
+    drs = reader_pick("blizzard", ["snow storm", "process"], bundle,
+                      "REPAIR_SELFLOOP", crs)
+    add("repair_arms_m3_enabled",
+        dre == "snow storm" and drs == "snow storm"
+        and all(cre[k] == cr2[k] and crs[k] == cr2[k] for k in call_keys),
+        json.dumps({"repair": dre, "selfloop": drs,
+                    "counters": {k: (cr2[k], cre[k], crs[k]) for k in call_keys}}))
 
     neg = dict(good, record_id="r2", negated=True)
     dn = m3.read_graded_probe("blizzard", ["snow storm", "process"],
@@ -542,6 +635,50 @@ def boot_free_self_test():
         sat.status)
 
     items, info = load_bank()
+    # Far-repair manipulation probes on the real frozen bank (boot-free).
+    by_id = {it["item_id"]: it for it in items}
+    guild = by_id["tra_k_0020"]      # primary k=8, far=guild, non-self-loop
+    market = by_id["tra_k_0000"]     # sealed k=8, far=market, self-loop
+    g_base = mtk.teaching_surfaces(guild, guild["k"], "far", mtk.CHANNEL_ARM)
+    cg, cg2 = collections.Counter(), collections.Counter()
+    g_rep = repair_far_surfaces(guild, "far", g_base, "REPAIR", cg)
+    g_rep2 = repair_far_surfaces(guild, "far", g_base, "REPAIR_SELFLOOP", cg2)
+    add("repair_replaces_only_far_misleading",
+        cg["repair_misleading_replaced"] >= 1
+        and cg2["repair_misleading_replaced"] == cg["repair_misleading_replaced"]
+        and cg2["repair_selffloop_reaffirmed"] == 0
+        and len(g_rep) == len(g_base) and len(g_rep2) == len(g_base),
+        json.dumps({"replaced": cg["repair_misleading_replaced"],
+                    "turns": (len(g_base), len(g_rep), len(g_rep2))}))
+    add("repair_length_matched",
+        [len(str(x).split()) for x in g_rep] ==
+        [len(str(x).split()) for x in g_base],
+        json.dumps({"base": [len(str(x).split()) for x in g_base],
+                    "repair": [len(str(x).split()) for x in g_rep]}))
+    g_near = mtk.teaching_surfaces(guild, guild["k"], "near", mtk.CHANNEL_ARM)
+    g_k0 = mtk.teaching_surfaces(guild, 0, "far", mtk.CHANNEL_ARM)
+    add("repair_leaves_near_and_k0_untouched",
+        repair_far_surfaces(guild, "near", g_near, "REPAIR", None) == g_near
+        and repair_far_surfaces(guild, "far", g_k0, "REPAIR", None) == g_k0
+        and repair_far_surfaces(guild, "far", g_k0, "REPAIR_SELFLOOP", None) == g_k0,
+        json.dumps({"near": len(g_near), "k0": len(g_k0)}))
+    m_base = mtk.teaching_surfaces(market, market["k"], "far", mtk.CHANNEL_ARM)
+    cm, cm2 = collections.Counter(), collections.Counter()
+    m_rep = repair_far_surfaces(market, "far", m_base, "REPAIR", cm)
+    m_self = repair_far_surfaces(market, "far", m_base, "REPAIR_SELFLOOP", cm2)
+    add("repair_selffloop_reaffirms_once",
+        cm["repair_selffloop_reaffirmed"] == 0
+        and cm2["repair_selffloop_reaffirmed"] == 1
+        and len(m_self) == len(m_rep) + 1,
+        json.dumps({"repair": cm["repair_misleading_replaced"],
+                    "selfloop": cm2["repair_misleading_replaced"],
+                    "turns": (len(m_base), len(m_rep), len(m_self))}))
+    add("repair_misleading_absent_from_output",
+        all(str(x).strip() != "guild is a student association."
+            for x in g_rep)
+        and any(str(x).strip() == "guild is a student association."
+                for x in g_base),
+        json.dumps({"base_tail": g_base[-2:], "repair_tail": g_rep[-2:]}))
     audit = delayed_option_audit(items)
     add("full_bank_valid", not audit["validate_errors"] and audit["channel_overlap_ok"],
         {"errors": audit["validate_errors"], "overlap": audit["channel_overlap_totals"]})

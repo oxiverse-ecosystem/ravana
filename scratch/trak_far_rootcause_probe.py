@@ -37,8 +37,8 @@ from ravana.chat.schema_induction import typed_slot_views_from_graph
 from ravana.learn import subject_type_evidence as ste
 
 ARM = "M1+M2+M3"
-STORE = os.path.join(RUN, "scratch", "m123_data", "trak_m123")
-REPORT = os.path.join(PARENT, "scratch", "m123_out", "trak_m123.json")
+STORE = os.environ.get("TRAK_FAR_STORE", os.path.join(RUN, "scratch", "m123_data", "trak_m123"))
+REPORT = os.environ.get("TRAK_FAR_REPORT", os.path.join(PARENT, "scratch", "m123_out", "trak_m123.json"))
 NEGATED_CLAIM_RE = re.compile(
     r"\b([A-Za-z][A-Za-z\-]*)\s+(?:is|are|was|were)\s+not\s+(?:a|an)\s+"
     r"([A-Za-z][A-Za-z \-]*?)\s*[.!?]", re.IGNORECASE)

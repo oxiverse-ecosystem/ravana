@@ -171,7 +171,7 @@ def make_backend(stage, arm, arm_dir, counters):
                     else:
                         surface = str(raw_input or "")
                         m = pf.CLAIM_RE.search(surface)
-                        if m and arm in ("M1", "M1+M2", "M1+M2+M3", "SHAM"):
+                        if m and (arm in ("M1", "M1+M2") or arm in pf.M3_ARMS):
                             label = pf.label_from_claim(surface)
                             fact = next((f for f in self.m123_ctx.get("facts", [])
                                          if str(f.get("subject", "")).strip().casefold()
@@ -201,8 +201,17 @@ def make_backend(stage, arm, arm_dir, counters):
 
         def teach(self, *args, **kwargs):
             item = args[0] if args else kwargs.get("item")
-            surfaces = args[4] if len(args) > 4 else kwargs.get("surfaces")
+            raw_surfaces = args[4] if len(args) > 4 else kwargs.get("surfaces")
             condition = args[2] if len(args) > 2 else kwargs.get("condition")
+            # Scratch-only, arm-keyed far repair: the SAME list length and the
+            # SAME per-turn token count as the shipped teaching surfaces, with
+            # only the far misleading channel assertion neutralised.
+            surfaces = pf.repair_far_surfaces(
+                item, condition, raw_surfaces, arm, counters)
+            if len(args) > 4:
+                args = args[:4] + (surfaces,) + args[5:]
+            elif "surfaces" in kwargs:
+                kwargs["surfaces"] = surfaces
             if item is not None:
                 self.m123_ctx["facts"] = allowed_facts(item)
             self.m123_ctx["surfaces"] = list(surfaces or [])
@@ -248,7 +257,7 @@ def offline_reject_probe(items, arm, arm_dir):
     stored graph/ledger and the independent subject channel.
     """
     import pickle
-    out = {"applicable": arm in ("M1+M2+M3", "SHAM"),
+    out = {"applicable": arm in pf.M3_ARMS,
            "rows": 0, "picks": 0, "by_condition": {}, "examples": []}
     if not out["applicable"]:
         return out
@@ -464,7 +473,7 @@ def run_stage(args, preflight):
         "store_prefix_identical": all(
             start_hashes[k] == end_hashes[k] for k in start_hashes),
         "negation_control": {
-            "negated_surface_vetoes": arm in ("M1", "M1+M2", "M1+M2+M3", "SHAM"),
+            "negated_surface_vetoes": arm in ("M1", "M1+M2") or arm in pf.M3_ARMS,
             "wrong_tag_arm": arm == "SHAM",
             "reject_condition_probe": reject_probe,
             "admitted_on_wrong_subject": counters.get("staged_m1", 0) > 0
@@ -516,6 +525,13 @@ def run_stage(args, preflight):
         "elapsed_s": elapsed,
     }
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    # Full per-row audit trail (scratch-only): needed for row-level far
+    # immediate/delayed endpoints and falsifiers F5-F9. No score is computed
+    # from these rows by the runner; summarize() remains authoritative.
+    rows_path = os.path.abspath(args.out) + ".rows.json"
+    with open(rows_path, "w", encoding="utf-8") as fh:
+        json.dump(rows, fh, indent=1, ensure_ascii=False, default=str)
+    report["rows_path"] = rows_path
     with open(args.out, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=1, ensure_ascii=False, default=str)
     print("CONFIG", json.dumps({"stage": stage, "arm": arm, "tag": tag,
@@ -529,6 +545,8 @@ def run_stage(args, preflight):
                                     "turns", "query_turns", "emitted_picks",
                                     "hook_calls", "scorer_calls", "m1_act_writes",
                                     "staged_m1", "staged_m2", "process_turn",
+                                    "repair_misleading_replaced",
+                                    "repair_selffloop_reaffirmed",
                                     "api_error")},
                                 "controls_failed": guard["failed_controls"],
                                 "g6": sat.status,

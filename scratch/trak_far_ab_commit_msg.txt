@@ -1,0 +1,29 @@
+experiment(trak): pre-register far-repair A/B runner (scratch-only)
+
+Implements the falsifiable A/B designed in docs/investigations/TRA_K_FAR_ROOTCAUSE.md §5.
+
+Arms: OFF, OFF2, M123, REPAIR, REPAIR_SELFLOOP, SHAM (plus boot-free
+NON-DEPLOYABLE oracle). Each arm uses the shipped m123_combined_runner.py
+--stage trak, one process, PYTHONHASHSEED=0, and a FRESH isolated store copy
+via seed_data_dir(). No gate, threshold, item, prompt, gold key or scorer is
+changed; the 13 pinned production/channel files re-hash identically.
+
+REPAIR replaces only the planted misleading channel assertion about the far
+query subject in FAR P2c teaching with a length-matched, claim-free neutral
+turn (identical turn count and per-turn token count => compute matched).
+REPAIR_SELFLOOP adds one re-affirmation of the same admitted positive subject
+fact on self-loop items at k>=1 only; k=0 remains a null control. Both arms
+are scratch-only, AST anti-leakage scanned, and covered by the boot-free
+self-test (27/27 checks pass, 13/13 pins match).
+
+Adds: arm-key extension in m123_preflight.py, application in the runner's
+teach(), a full per-row audit dump, a boot-free F1-F10 evaluator that halts
+at the first failing falsifier, and env overrides for the oracle replay so
+it can read the fresh M123 arm's saved stores.
+
+No capability claim is made; ORACLE is answer-side injected and explicitly
+non-deployable. Brain-grounding: Barnett & Ceci (2002) far transfer;
+Gick & Holyoak (1983) and Gentner (1983) schema/relation transfer;
+Tse et al. (2007) schema-consistent assimilation; Nader et al. (2000)
+reconsolidation supersession; Tulving & Thomson (1973) encoding specificity;
+Johnson et al. (1993) source monitoring.
