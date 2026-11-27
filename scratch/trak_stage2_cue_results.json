@@ -1,0 +1,252 @@
+{
+  "summary": {
+    "n_paired_delayed_items": 12,
+    "p3_pick_eq_gold": 12,
+    "p6_pick_eq_gold_with_subject": 12,
+    "p6_pick_eq_gold_no_subject": 12,
+    "p6_canonical_cue_pick_eq_gold": 12,
+    "live_correct": 0
+  },
+  "rows": [
+    {
+      "id": "tra_k_0000",
+      "condition": "far",
+      "subject": "market",
+      "gold": "market",
+      "options": [
+        "party",
+        "intersection",
+        "market",
+        "natural phenomenon"
+      ],
+      "p3_pick": "market",
+      "p6_pick_with_subject": "market",
+      "p6_pick_no_subject": "market",
+      "p6_canonical_cue_pick": "market",
+      "scorer_pick": "market",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "honestly, best is a bit outside what i know right now what made you wonder about that.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0000",
+      "condition": "near",
+      "subject": "overcast",
+      "gold": "cloud cover",
+      "options": [
+        "cloud cover",
+        "party",
+        "natural phenomenon",
+        "intersection"
+      ],
+      "p3_pick": "cloud cover",
+      "p6_pick_with_subject": "cloud cover",
+      "p6_pick_no_subject": "cloud cover",
+      "p6_canonical_cue_pick": "cloud cover",
+      "scorer_pick": "cloud cover",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "i don't really have a solid grasp on best so far i'd love to hear your take first.",
+      "live_verdict": "reject"
+    },
+    {
+      "id": "tra_k_0006",
+      "condition": "far",
+      "subject": "market",
+      "gold": "market",
+      "options": [
+        "natural phenomenon",
+        "party",
+        "intersection",
+        "market"
+      ],
+      "p3_pick": "market",
+      "p6_pick_with_subject": "market",
+      "p6_pick_no_subject": "market",
+      "p6_canonical_cue_pick": "market",
+      "scorer_pick": "market",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "This partly ultimately contributes to a cat. On the other hand, perhaps this is tied to a star.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0006",
+      "condition": "near",
+      "subject": "gale",
+      "gold": "wind",
+      "options": [
+        "wind",
+        "party",
+        "natural phenomenon",
+        "intersection"
+      ],
+      "p3_pick": "wind",
+      "p6_pick_with_subject": "wind",
+      "p6_pick_no_subject": "wind",
+      "p6_canonical_cue_pick": "wind",
+      "scorer_pick": "wind",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "It sort of ultimately contributes to a cat. On the other hand, perhaps it subtly is tied to a star.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0008",
+      "condition": "far",
+      "subject": "rank",
+      "gold": "class",
+      "options": [
+        "intersection",
+        "natural phenomenon",
+        "class",
+        "party"
+      ],
+      "p3_pick": "class",
+      "p6_pick_with_subject": "class",
+      "p6_pick_no_subject": "class",
+      "p6_canonical_cue_pick": "class",
+      "scorer_pick": "class",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "This partly ultimately contributes to a sky. On the other hand, perhaps this is tied with a friend.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0008",
+      "condition": "near",
+      "subject": "frost",
+      "gold": "hydrometeor",
+      "options": [
+        "natural phenomenon",
+        "intersection",
+        "party",
+        "hydrometeor"
+      ],
+      "p3_pick": "hydrometeor",
+      "p6_pick_with_subject": "hydrometeor",
+      "p6_pick_no_subject": "hydrometeor",
+      "p6_canonical_cue_pick": "hydrometeor",
+      "scorer_pick": "hydrometeor",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "It sort of ultimately contributes to a sky. On the other hand, perhaps it subtly is tied with a friend.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0010",
+      "condition": "far",
+      "subject": "rank",
+      "gold": "class",
+      "options": [
+        "class",
+        "party",
+        "intersection",
+        "natural phenomenon"
+      ],
+      "p3_pick": "class",
+      "p6_pick_with_subject": "class",
+      "p6_pick_no_subject": "class",
+      "p6_canonical_cue_pick": "class",
+      "scorer_pick": "class",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "Perhaps it is akin to a phenomenon.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0010",
+      "condition": "near",
+      "subject": "squall",
+      "gold": "extreme weather event",
+      "options": [
+        "party",
+        "extreme weather event",
+        "natural phenomenon",
+        "intersection"
+      ],
+      "p3_pick": "extreme weather event",
+      "p6_pick_with_subject": "extreme weather event",
+      "p6_pick_no_subject": "extreme weather event",
+      "p6_canonical_cue_pick": "extreme weather event",
+      "scorer_pick": "extreme weather event",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "Perhaps best is akin to a squall.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0018",
+      "condition": "far",
+      "subject": "reward",
+      "gold": "Wikimedia article covering multiple topics",
+      "options": [
+        "intersection",
+        "Wikimedia article covering multiple topics",
+        "party",
+        "natural phenomenon"
+      ],
+      "p3_pick": "Wikimedia article covering multiple topics",
+      "p6_pick_with_subject": "Wikimedia article covering multiple topics",
+      "p6_pick_no_subject": "Wikimedia article covering multiple topics",
+      "p6_canonical_cue_pick": "Wikimedia article covering multiple topics",
+      "scorer_pick": "Wikimedia article covering multiple topics",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "i don't really have a solid grasp on best so far what's your sense of it.",
+      "live_verdict": "reject"
+    },
+    {
+      "id": "tra_k_0018",
+      "condition": "near",
+      "subject": "squall",
+      "gold": "extreme weather event",
+      "options": [
+        "party",
+        "extreme weather event",
+        "intersection",
+        "natural phenomenon"
+      ],
+      "p3_pick": "extreme weather event",
+      "p6_pick_with_subject": "extreme weather event",
+      "p6_pick_no_subject": "extreme weather event",
+      "p6_canonical_cue_pick": "extreme weather event",
+      "scorer_pick": "extreme weather event",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "hmm, i'm not totally sure about best yet, and that's okay what do you think about it.",
+      "live_verdict": "reject"
+    },
+    {
+      "id": "tra_k_0020",
+      "condition": "far",
+      "subject": "guild",
+      "gold": "association",
+      "options": [
+        "intersection",
+        "natural phenomenon",
+        "party",
+        "association"
+      ],
+      "p3_pick": "association",
+      "p6_pick_with_subject": "association",
+      "p6_pick_no_subject": "association",
+      "p6_canonical_cue_pick": "association",
+      "scorer_pick": "association",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "It seems to me that guild is linked to an association.",
+      "live_verdict": "no_answer"
+    },
+    {
+      "id": "tra_k_0020",
+      "condition": "near",
+      "subject": "blizzard",
+      "gold": "snow storm",
+      "options": [
+        "intersection",
+        "snow storm",
+        "natural phenomenon",
+        "party"
+      ],
+      "p3_pick": "snow storm",
+      "p6_pick_with_subject": "snow storm",
+      "p6_pick_no_subject": "snow storm",
+      "p6_canonical_cue_pick": "snow storm",
+      "scorer_pick": "snow storm",
+      "scorer_reason": "trusted_typed_slot_strict_winner",
+      "live_response": "honestly, best is a bit outside what i know right now what's your sense of it.",
+      "live_verdict": "no_answer"
+    }
+  ]
+}
