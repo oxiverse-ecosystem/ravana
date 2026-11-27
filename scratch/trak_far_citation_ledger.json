@@ -1,0 +1,62 @@
+{
+  "topic": "TRA-K far transfer: semantic distance, far transfer, schema-plus-retrieval",
+  "verified": "web search, 2026-11-28",
+  "items": [
+    {
+      "id": "barnett_ceci_2002",
+      "citation": "Barnett, S. M. & Ceci, S. J. (2002). When and where do we apply what we learn? A taxonomy for far transfer. Psychological Bulletin, 128(4), 612-637.",
+      "doi": "10.1037/0033-2909.128.4.612",
+      "url": "https://psycnet.apa.org/record/2002-01514-006",
+      "claim": "Far transfer varies along content and context dimensions; domain distance alone is not a sufficient predictor."
+    },
+    {
+      "id": "gick_holyoak_1983",
+      "citation": "Gick, M. L. & Holyoak, K. J. (1983). Schema induction and analogical transfer. Cognitive Psychology, 15, 1-38.",
+      "doi": "10.1016/0010-0285(83)90002-6",
+      "url": "https://gwern.net/doc/psychology/1983-gick.pdf",
+      "claim": "Transfer between semantically disparate domains depends on an abstracted schema providing retrieval cues; schema quality predicts transfer."
+    },
+    {
+      "id": "gentner_1983",
+      "citation": "Gentner, D. (1983). Structure-mapping: A theoretical framework for analogy. Cognitive Science, 7(2), 155-170.",
+      "doi": "10.1207/s15516709cog0702_3",
+      "url": "https://onlinelibrary.wiley.com/doi/10.1207/s15516709cog0702_3",
+      "claim": "Analogical mapping is relational, not attribute-based; a plausible surface overlap is not sufficient evidence for a transferred relation."
+    },
+    {
+      "id": "vendetti_et_al_2014",
+      "citation": "Vendetti, M. S., Wu, A. & Holyoak, K. J. (2014). Far-Out Thinking: Generating solutions to distant analogies promotes relational thinking. Psychological Science, 25(4), 928-933.",
+      "doi": "10.1177/0956797613518079",
+      "url": "https://escholarship.org/uc/item/9k96d6hk",
+      "claim": "Generating solutions to semantically distant analogies, not near analogies, promoted relational transfer to an unrelated task."
+    },
+    {
+      "id": "tse_et_al_2007",
+      "citation": "Tse, D. et al. (2007). Schemas and memory consolidation. Science, 316, 76-82.",
+      "doi": "10.1126/science.1135935",
+      "url": "https://www.science.org/doi/10.1126/science.1135935",
+      "claim": "One-trial assimilation requires a previously established, consistent schema; inconsistent associations fail to assimilate rapidly."
+    },
+    {
+      "id": "nader_et_al_2000",
+      "citation": "Nader, K., Schafe, G. E. & Le Doux, J. E. (2000). Fear memories require protein synthesis in the amygdala for reconsolidation after retrieval. Nature, 406, 722-726.",
+      "doi": "10.1038/35021052",
+      "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3145971/",
+      "claim": "Retrieval reopens a consolidated trace for update; computational analogue of supersession/demotion of an incumbent slot value."
+    },
+    {
+      "id": "tulving_thomson_1973",
+      "citation": "Tulving, E. & Thomson, D. M. (1973). Encoding specificity. Psychological Review, 80(5), 352-373.",
+      "doi": "10.1037/h0020071",
+      "url": "https://psycnet.apa.org/record/1974-25575-001",
+      "claim": "Retrieval depends on overlap with encoding operations; an overwritten or self-looped encoding leaves no effective cue."
+    },
+    {
+      "id": "johnson_et_al_1993",
+      "citation": "Johnson, M. K., Hashtroudi, S. & Lindsay, D. S. (1993). Source monitoring. Psychological Bulletin, 114(1), 3-28.",
+      "doi": "10.1037/0033-2909.114.1.3",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/8375672/",
+      "claim": "Item familiarity and source credibility dissociate; a plausible low-credibility conflict should not displace a credible source by recency alone."
+    }
+  ]
+}
