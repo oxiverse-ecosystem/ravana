@@ -72,14 +72,22 @@ WFA remains FAIL. The historical bounded-run timeouts above are retained as
 measurement evidence.
 
 
-## UPDATE 2026-11-27 (prior-act trace)
+## UPDATE 2026-11-27 (prior-act trace, earlier timeouts)
 
 The default-off prior-act trace landed as PR #556. Controlled A/B on the
 4 recorded failures and 132 discredited-arm items improved sealed
-discredited from 0.627 to 0.985 with 89 tests passing. However, two full
+discredited from 0.627 to 0.985 with 89 tests passing. Two earlier full
 harness verification runs with `RAVANA_PRIOR_ACT_TRACE=1`
-(`wfa_prior_act_full.log`, `wfa_prior_act_full2.log`) both ended in
-timeout (20 min and 60 min caps), and the summary file was stale.
-Therefore the full-harness endpoint for the flag remains UNMEASURED.
-WFA stays FAIL from the last complete full run; no capability claim is
-made for the trace until a complete harness run exists.
+(`wfa_prior_act_full.log`, `wfa_prior_act_full2.log`) timed out (20 min and
+60 min caps); their summaries were stale and were not used as evidence.
+
+## UPDATE 2026-11-27 — prior-act trace full verification
+
+A default-off `RAVANA_GLOVE_BOOT_MEMO` boot-payload cache was added. A full
+272-item run with BOTH flags (`RAVANA_PRIOR_ACT_TRACE=1`,
+`RAVANA_GLOVE_BOOT_MEMO=1`) completed on the GloVe-free store in 855.5 s
+(exit 1, WFA still FAIL). Internal-source primary/sealed discredited
+correctness is 1.000/1.000 (baseline 0.923/0.627); all 24 internal-source
+rules pass. The GloVe-present run hit its 3600 s cap (exit 124) and was
+reprofiled: per-edge HRR/FFT encoding, not GloVe boot, is the remaining
+hotspot. See `WFA_GLOVE_BOOT_MEMO.md` for endpoints, controls and artifacts.
