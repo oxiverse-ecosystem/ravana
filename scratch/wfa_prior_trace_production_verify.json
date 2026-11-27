@@ -1,0 +1,108 @@
+{
+  "unset": {
+    "arm": "unset",
+    "flag": null,
+    "rows": [
+      {
+        "id": "gg039",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "gg032",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "g64",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "g62",
+        "prior": "ABSTAIN",
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR"
+      }
+    ],
+    "n_withdraw": 3,
+    "trace_keys": []
+  },
+  "zero": {
+    "arm": "zero",
+    "flag": "0",
+    "rows": [
+      {
+        "id": "gg039",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "gg032",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "g64",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "g62",
+        "prior": "ABSTAIN",
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR"
+      }
+    ],
+    "n_withdraw": 3,
+    "trace_keys": []
+  },
+  "one": {
+    "arm": "one",
+    "flag": "1",
+    "rows": [
+      {
+        "id": "gg039",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "gg032",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "g64",
+        "prior": "ENDORSE",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      },
+      {
+        "id": "g62",
+        "prior": "WITHDRAW",
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED"
+      }
+    ],
+    "n_withdraw": 4,
+    "trace_keys": [
+      "wfa_02d5a344c7b7",
+      "wfa_2c0e0fb9c3b0",
+      "wfa_91f4a34d5cdf"
+    ]
+  },
+  "elapsed_s": 16.0,
+  "controls": {
+    "unset_equals_zero": true,
+    "no_trace_when_off": true,
+    "trace_written_when_on": true
+  }
+}

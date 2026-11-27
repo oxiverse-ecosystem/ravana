@@ -1,0 +1,133 @@
+{
+  "baseline1": {
+    "arm": "baseline1",
+    "rows": [
+      {
+        "id": "gg039",
+        "prior": "ENDORSE",
+        "invalidated": 2,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "gg032",
+        "prior": "ENDORSE",
+        "invalidated": 1,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "g64",
+        "prior": "ENDORSE",
+        "invalidated": 2,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "g62",
+        "prior": "ABSTAIN",
+        "invalidated": 2,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "correct": false
+      }
+    ],
+    "n_withdraw": 3,
+    "substitutions": 0,
+    "trace_keys": []
+  },
+  "baseline2": {
+    "arm": "baseline2",
+    "rows": [
+      {
+        "id": "gg039",
+        "prior": "ENDORSE",
+        "invalidated": 2,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "gg032",
+        "prior": "ENDORSE",
+        "invalidated": 1,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "g64",
+        "prior": "ENDORSE",
+        "invalidated": 2,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "g62",
+        "prior": "ABSTAIN",
+        "invalidated": 2,
+        "decision": "ABSTAIN",
+        "rule": "R_INVALIDATION_NO_PRIOR",
+        "correct": false
+      }
+    ],
+    "n_withdraw": 3,
+    "substitutions": 0,
+    "trace_keys": []
+  },
+  "trace_on": {
+    "arm": "trace_on",
+    "rows": [
+      {
+        "id": "gg039",
+        "prior": "ENDORSE",
+        "invalidated": 2,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "gg032",
+        "prior": "ENDORSE",
+        "invalidated": 1,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "g64",
+        "prior": "ENDORSE",
+        "invalidated": 2,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      },
+      {
+        "id": "g62",
+        "prior": "WITHDRAW",
+        "invalidated": 2,
+        "decision": "WITHDRAW",
+        "rule": "R_SOURCE_INVALIDATED",
+        "correct": true
+      }
+    ],
+    "n_withdraw": 4,
+    "substitutions": 2,
+    "trace_keys": [
+      "wfa_02d5a344c7b7",
+      "wfa_2c0e0fb9c3b0",
+      "wfa_91f4a34d5cdf"
+    ]
+  },
+  "elapsed_s": 15.1,
+  "controls": {
+    "baseline_replicates": true,
+    "flag_off_equiv_unmodified": true,
+    "store_copies_distinct": true,
+    "substitutions_only_on": true
+  }
+}

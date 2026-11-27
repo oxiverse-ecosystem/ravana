@@ -1950,6 +1950,12 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         self._pending_source_context = None   # (claim: str, ClaimContext) | None
         self._source_gate_ctx = None          # live CognitiveResponseContext for this turn
         self._last_source_evaluation = None   # last SourceDecision (audit trail)
+        # Optional claim-ID-keyed recollection of this engine's OWN prior
+        # ENDORSE act. Written only at the emission boundary, from the
+        # decision the engine itself just made; read only when a staged
+        # context reports source invalidation. Default-OFF via
+        # RAVANA_PRIOR_ACT_TRACE; inert and empty without it.
+        self._source_act_trace: dict = {}
 
         self._proper_nouns = set()
         # Concepts bootstrapped with AUTHORED typed relations (the project's own
@@ -8136,7 +8142,30 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
         The full decision and its audit reason are exposed on ``ctx`` and on
         ``self._last_source_evaluation``. Fail-open: any problem here returns
         the original response byte-for-byte.
+
+        With ``RAVANA_PRIOR_ACT_TRACE=1`` this gate additionally remembers the
+        engine's own ENDORSE act by claim-id key and recollects it at a later
+        invalidated turn of the same claim, so a withdrawal can refer to a
+        prior commitment instead of a single global decision slot. The flag is
+        OFF by default; with it unset this method is byte-identical to before.
         """
+        from .source_evaluation import Decision
+        key = None
+        if os.environ.get("RAVANA_PRIOR_ACT_TRACE", "0") == "1":
+            try:
+                sc = getattr(ctx, "source_context", None) if ctx is not None else None
+                if sc is not None:
+                    claim, staged = sc
+                    from .source_evaluation import claim_act_key
+                    key = claim_act_key(claim)
+                    if (getattr(staged, "invalidated", False)
+                            and getattr(staged, "prior_decision", None) is not Decision.ENDORSE
+                            and self._source_act_trace.get(key) is Decision.ENDORSE):
+                        from dataclasses import replace
+                        ctx.source_context = (
+                            claim, replace(staged, prior_decision=Decision.ENDORSE))
+            except Exception:
+                key = None
         decision = self._source_monitor_decision(ctx)
         if decision is None:
             return response
@@ -8147,7 +8176,11 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
             except Exception:
                 pass
         self._last_source_evaluation = decision
-        from .source_evaluation import Decision
+        if key is not None and decision.decision is Decision.ENDORSE:
+            try:
+                self._source_act_trace[key] = Decision.ENDORSE
+            except Exception:
+                pass
         if decision.decision != Decision.ENDORSE:
             return decision.token
         return response

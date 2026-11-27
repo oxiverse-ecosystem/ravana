@@ -1,0 +1,149 @@
+{
+  "claim": "daytime and nighttime happen because Earth rotates on its axle.",
+  "source_id": "wfa-internal://discredited/a5d0d77ae7b4",
+  "steps": [
+    {
+      "stage": "after_teach_only",
+      "rows": [
+        {
+          "claim_token_match": true,
+          "source": "wfa-internal://discredited/a5d0d77ae7b4",
+          "url": "wfa-internal://discredited/a5d0d77ae7b4",
+          "edge_kind": "curated",
+          "source_type": "seed",
+          "source_status": "",
+          "relation_type": "semantic",
+          "confidence": 0.9,
+          "timestamp": 1795749661.7291164,
+          "claim_label_overlap": []
+        }
+      ],
+      "audit": {
+        "context_source": "engine_graph_provenance",
+        "n_matching_edges": 1,
+        "origin": "wfa-internal://discredited/a5d0d77ae7b4",
+        "edge_kind": "curated",
+        "source_status": "",
+        "trust_class": "credible",
+        "credibility_token": "credible",
+        "fingerprint": "a7c528d56d5b27affae70096c3bf34131fee3181ce72cf87409e919de80fdbf9"
+      },
+      "decision": "ENDORSE",
+      "rule": "R_EXPLICIT_CREDIBLE_SOURCE"
+    },
+    {
+      "stage": "after_invalidate_gg039",
+      "tagged": 2,
+      "rows": [
+        {
+          "claim_token_match": true,
+          "source": "wfa-internal://discredited/a5d0d77ae7b4",
+          "url": "wfa-internal://discredited/a5d0d77ae7b4",
+          "edge_kind": "curated",
+          "source_type": "seed",
+          "source_status": "",
+          "relation_type": "semantic",
+          "confidence": 0.9,
+          "timestamp": 1795749661.7291164,
+          "claim_label_overlap": []
+        }
+      ],
+      "audit": {
+        "context_source": "engine_graph_provenance",
+        "n_matching_edges": 1,
+        "origin": "wfa-internal://discredited/a5d0d77ae7b4",
+        "edge_kind": "curated",
+        "source_status": "",
+        "trust_class": "credible",
+        "credibility_token": "credible",
+        "fingerprint": "a7c528d56d5b27affae70096c3bf34131fee3181ce72cf87409e919de80fdbf9"
+      },
+      "decision": "ENDORSE",
+      "rule": "R_EXPLICIT_CREDIBLE_SOURCE"
+    },
+    {
+      "stage": "after_invalidate_gg032",
+      "tagged": 2,
+      "rows": [
+        {
+          "claim_token_match": true,
+          "source": "wfa-internal://discredited/a5d0d77ae7b4",
+          "url": "wfa-internal://discredited/a5d0d77ae7b4",
+          "edge_kind": "curated",
+          "source_type": "seed",
+          "source_status": "discredited",
+          "relation_type": "semantic",
+          "confidence": 0.9,
+          "timestamp": 1795749661.7291164,
+          "claim_label_overlap": []
+        },
+        {
+          "claim_token_match": true,
+          "source": "wfa-internal://discredited/a5d0d77ae7b4",
+          "url": "wfa-internal://discredited/a5d0d77ae7b4",
+          "edge_kind": "curated",
+          "source_type": "seed",
+          "source_status": "discredited",
+          "relation_type": "semantic",
+          "confidence": 0.9,
+          "timestamp": 1795749664.7737787,
+          "claim_label_overlap": []
+        }
+      ],
+      "audit": {
+        "context_source": "engine_graph_provenance",
+        "n_matching_edges": 2,
+        "origin": "wfa-internal://discredited/a5d0d77ae7b4",
+        "edge_kind": "curated",
+        "source_status": "discredited",
+        "trust_class": "discredited",
+        "credibility_token": null,
+        "fingerprint": "ee15b8a5f71ab9791d1baa0496825d6a6b08e3a168088382b24c2bf1fa95ae8c"
+      },
+      "decision": "ABSTAIN",
+      "rule": "R_INVALIDATION_NO_PRIOR"
+    },
+    {
+      "stage": "after_invalidate_g64",
+      "tagged": 2,
+      "rows": [
+        {
+          "claim_token_match": true,
+          "source": "wfa-internal://discredited/a5d0d77ae7b4",
+          "url": "wfa-internal://discredited/a5d0d77ae7b4",
+          "edge_kind": "curated",
+          "source_type": "seed",
+          "source_status": "discredited",
+          "relation_type": "semantic",
+          "confidence": 0.9,
+          "timestamp": 1795749661.7291164,
+          "claim_label_overlap": []
+        },
+        {
+          "claim_token_match": true,
+          "source": "wfa-internal://discredited/a5d0d77ae7b4",
+          "url": "wfa-internal://discredited/a5d0d77ae7b4",
+          "edge_kind": "curated",
+          "source_type": "seed",
+          "source_status": "discredited",
+          "relation_type": "semantic",
+          "confidence": 0.9,
+          "timestamp": 1795749664.7737787,
+          "claim_label_overlap": []
+        }
+      ],
+      "audit": {
+        "context_source": "engine_graph_provenance",
+        "n_matching_edges": 2,
+        "origin": "wfa-internal://discredited/a5d0d77ae7b4",
+        "edge_kind": "curated",
+        "source_status": "discredited",
+        "trust_class": "discredited",
+        "credibility_token": null,
+        "fingerprint": "ee15b8a5f71ab9791d1baa0496825d6a6b08e3a168088382b24c2bf1fa95ae8c"
+      },
+      "decision": "ABSTAIN",
+      "rule": "R_INVALIDATION_NO_PRIOR"
+    }
+  ]
+}
