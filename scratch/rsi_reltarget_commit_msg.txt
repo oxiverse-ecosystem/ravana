@@ -1,0 +1,50 @@
+experiment(rsi): independent CC0 relation-target evidence channel — NO-GO
+
+Build a new, independent, licensed relation-target evidence channel for RSI
+and audit it against pre-registered criteria. Result: NO-GO for deployment.
+
+WHAT
+- Frozen CC0 Wikidata snapshot of 371 real statement-level relation assertions
+  for the 141-word RSI vocabulary (P828/P1542 cause, P361/P527 part-whole,
+  P155/P156 order, P461 opposite). Different property set from M2's P31/P279
+  type facts. Each record carries statement URI, item/value QIDs, WD rank and
+  the exact request URL. Source: Wikidata, CC0-1.0.
+- Pure default-OFF channel module (RAVANA_RSI_RELTARGET=1): (subject, relation,
+  target) records with provenance, rank-derived credibility, explicit negation
+  veto, wrong-tag SHAM, and an AST proof of answer-key independence. Imports
+  production schema_induction constants/predicate UNCHANGED.
+- Boot-free controls: permutation within the displayed option set, negation
+  veto on picking rows, candidate-order shuffle, flag-OFF equivalence.
+
+MEASURED (240 query rows)
+- C1 licence/provenance PASS; C2 real relation never is_a PASS.
+- C3 subject coverage 107/141 = 0.7589 (need >=0.80) FAIL.
+- C4 candidate-target coverage 1/240 = 0.0042 (need >=0.50) FAIL.
+- C5 AST independence PASS; permutation 240 keys changed, pick invariant,
+  permuted-key accuracy 0.0000 PASS.
+- C6 negation veto 1/1, SHAM admitted 0 PASS; C7 order invariance PASS;
+  C8 default-off PASS. Verdict NO-GO.
+
+WHY
+RSI's world_model is built from hash-selected pairs; the query "gold target"
+is reserved[1], an arbitrary same-domain word, not a real-world relation fact.
+A genuine CC0 channel therefore names a displayed candidate ~1/240 times.
+This is an information deficit in the source space, not a reader defect;
+do not author channel facts (that would be the answer key) and do not tune
+thresholds. No gate/threshold/item/prompt/scorer/production file changed.
+
+BRAIN BASIS (verified against publisher/index records)
+- Gentner (1983) Cognitive Science 7(2):155-170, doi:10.1207/s15516709cog0702_3
+  -- relations, not attributes, transfer.
+- Eichenbaum et al. (2009) Front Neurosci, doi:10.3389/neuro.01.023.2009
+  -- hippocampal relational binding is distinct from item memory.
+- Tulving & Thomson (1973) Psychol Rev 80(5):352-373, doi:10.1037/h0020071
+  -- encoding specificity: a type cue cannot retrieve a relation target.
+- Tomasello (2000) Trends Cogn Sci 4(6):209-214 -- item-based role acquisition
+  precedes abstract schemas.
+- Carey (2010) Lang Learn Dev 6(3):184-205, doi:10.1080/15475441.2010.484379
+  -- fast mapping is fragile and evidence-refined.
+- Kucker, McMurray & Samuelson (2015) Child Dev Perspect 9(2):74-78,
+  doi:10.1111/cdep.12110 -- fast mapping is gradual, not one-shot.
+- Johnson, Hashtroudi & Lindsay (1993) Psychol Bull 114(1):3-28,
+  doi:10.1037/0033-2909.114.1.3 -- source memory dissociates from item memory.
