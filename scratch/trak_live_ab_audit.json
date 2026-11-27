@@ -1,0 +1,283 @@
+{
+  "mode": "audit (no engine boot, no store write, no network)",
+  "commit": "5f3be87",
+  "channel": {
+    "path": "C:/Users/Likhith/Documents/projects/ravana\\scratch\\trak_channel_from_substrate.json",
+    "external": 400,
+    "error": null
+  },
+  "bank_families": 400,
+  "fake_subset": 10,
+  "fake_summary_primary": {
+    "near": 0.8,
+    "far": 0.8,
+    "delayed": 1.0,
+    "delayed_retention": 1.0,
+    "growth": 1.0,
+    "foil_reject": 1.0,
+    "negative_reject": 1.0
+  },
+  "current_delayed_option_audit": {
+    "ok": true,
+    "delayed_rows": 20,
+    "bad_rows": 0,
+    "examples": [],
+    "channel_label_count": 238
+  },
+  "recorded_delayed_option_audit": {
+    "rows": 240,
+    "mismatch_with_current_typed_space": 160,
+    "domain_word_rows": 88,
+    "mismatch_examples": [
+      {
+        "id": "tra_k_0008",
+        "condition": "near",
+        "shown": [
+          "drizzle",
+          "rainbow",
+          "tempest",
+          "monsoon"
+        ],
+        "current_expected": [
+          "natural phenomenon",
+          "intersection",
+          "party",
+          "hydrometeor"
+        ]
+      },
+      {
+        "id": "tra_k_0008",
+        "condition": "far",
+        "shown": [
+          "ritual",
+          "signal",
+          "custom",
+          "reward"
+        ],
+        "current_expected": [
+          "intersection",
+          "natural phenomenon",
+          "class",
+          "party"
+        ]
+      },
+      {
+        "id": "tra_k_0018",
+        "condition": "near",
+        "shown": [
+          "hail",
+          "thaw",
+          "glow",
+          "gale"
+        ],
+        "current_expected": [
+          "party",
+          "extreme weather event",
+          "intersection",
+          "natural phenomenon"
+        ]
+      },
+      {
+        "id": "tra_k_0018",
+        "condition": "far",
+        "shown": [
+          "rumor",
+          "society",
+          "habit",
+          "guild"
+        ],
+        "current_expected": [
+          "intersection",
+          "Wikimedia article covering multiple topics",
+          "party",
+          "natural phenomenon"
+        ]
+      },
+      {
+        "id": "tra_k_0004",
+        "condition": "near",
+        "shown": [
+          "cloud",
+          "storm",
+          "chill",
+          "sleet"
+        ],
+        "current_expected": [
+          "natural phenomenon",
+          "intersection",
+          "party",
+          "Northwest Pacific tropical cyclone"
+        ]
+      }
+    ],
+    "domain_examples": [
+      {
+        "id": "tra_k_0008",
+        "condition": "near",
+        "options": [
+          "drizzle",
+          "rainbow",
+          "tempest",
+          "monsoon"
+        ],
+        "gold": "monsoon"
+      },
+      {
+        "id": "tra_k_0008",
+        "condition": "far",
+        "options": [
+          "ritual",
+          "signal",
+          "custom",
+          "reward"
+        ],
+        "gold": "ritual"
+      },
+      {
+        "id": "tra_k_0018",
+        "condition": "near",
+        "options": [
+          "hail",
+          "thaw",
+          "glow",
+          "gale"
+        ],
+        "gold": "glow"
+      },
+      {
+        "id": "tra_k_0018",
+        "condition": "far",
+        "options": [
+          "rumor",
+          "society",
+          "habit",
+          "guild"
+        ],
+        "gold": "guild"
+      },
+      {
+        "id": "tra_k_0004",
+        "condition": "near",
+        "options": [
+          "cloud",
+          "storm",
+          "chill",
+          "sleet"
+        ],
+        "gold": "chill"
+      }
+    ],
+    "verdict": "INSTRUMENT INVALID for typed read"
+  },
+  "audit_mutation_control": {
+    "ok": true,
+    "planted": [
+      "drizzle",
+      "rainbow",
+      "tempest",
+      "monsoon"
+    ],
+    "detected_reasons": [
+      "options_not_current_typed_queries",
+      "non_channel_label:drizzle",
+      "non_channel_label:rainbow",
+      "non_channel_label:tempest",
+      "non_channel_label:monsoon",
+      "domain_word_option:drizzle,monsoon,rainbow,tempest",
+      "gold_not_in_options",
+      "prompt_does_not_display_options"
+    ]
+  },
+  "journal_anti_tautology": {
+    "ok": true,
+    "fingerprint": "4f022b92ca5bbdc00c0585e35e7c2aa995e38f130aa93719e0fe16eacc7ad850",
+    "mutated_fingerprint": "4f022b92ca5bbdc00c0585e35e7c2aa995e38f130aa93719e0fe16eacc7ad850"
+  },
+  "production_scorer_controls": {
+    "trusted_pick": "effect",
+    "untrusted_pick": null,
+    "disjoint_pick": null,
+    "other_subject_pick": null,
+    "ok": true
+  },
+  "overlay_self_test": {
+    "ok": true,
+    "arms": {
+      "OFF": {
+        "edge_kind": "",
+        "source": "",
+        "relation_type": "episodic",
+        "confidence": 0.19,
+        "counters": {
+          "cycles": 0,
+          "edges_scanned": 1,
+          "restamps_attempted": 1
+        }
+      },
+      "R1": {
+        "edge_kind": "curated",
+        "source": "conversation",
+        "relation_type": "is_a",
+        "confidence": 0.19,
+        "counters": {
+          "cycles": 0,
+          "edges_scanned": 1,
+          "restamps_attempted": 1,
+          "restamps_applied": 1
+        }
+      },
+      "R1_CONF": {
+        "edge_kind": "",
+        "source": "",
+        "relation_type": "episodic",
+        "confidence": 1.0,
+        "counters": {
+          "cycles": 0,
+          "edges_scanned": 1,
+          "restamps_attempted": 1,
+          "confidence_only": 1
+        }
+      },
+      "R1_WRONG": {
+        "edge_kind": "unknown",
+        "source": "system",
+        "relation_type": "is_a",
+        "confidence": 0.19,
+        "counters": {
+          "cycles": 0,
+          "edges_scanned": 1,
+          "restamps_attempted": 1,
+          "restamps_applied": 1
+        }
+      },
+      "R2": {
+        "edge_kind": "curated",
+        "source": "conversation",
+        "relation_type": "is_a",
+        "confidence": 0.6583,
+        "counters": {
+          "cycles": 3,
+          "edges_scanned": 1,
+          "restamps_attempted": 1,
+          "restamps_applied": 1,
+          "cycle_iterations": 3,
+          "boosts": 3
+        }
+      },
+      "R2_WRONG": {
+        "edge_kind": "unknown",
+        "source": "system",
+        "relation_type": "is_a",
+        "confidence": 0.19,
+        "counters": {
+          "cycles": 3,
+          "edges_scanned": 1,
+          "restamps_attempted": 1,
+          "restamps_applied": 1,
+          "cycle_iterations": 3
+        }
+      }
+    }
+  },
+  "ok": true
+}

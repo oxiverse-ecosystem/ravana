@@ -1,0 +1,37 @@
+feat(learn): add default-off lexical superordinate transfer primitive
+
+Scratch evidence (TRA-K, 125 independently graded cases) supports a NEW
+non-leaking transfer mechanism: subject-specific WordNet 3.0 noun
+superordinate evidence with a criterion calibrated only from publicly taught
+demo pairs. STRUCT 40/125 emits, 28/40 correct (0.700 precision; primary
+0.650, sealed 0.750) vs subject-independent DEMO-WN 0.385 (+0.315, prior
+cross-source NO-GO was +0.055). Subject permutation changes 38/40 picks;
+gold-key permutation leaves picks identical and drops accuracy to 0.100;
+OOV/negated/unrelated controls emit 0; AST leak scan clean; shipped G6 PASS.
+
+v1's apple/banana/chair/table "disjoint" control failed because those words
+are genuinely related in WordNet (herb->banana shares herb.n.01); only the
+control was corrected, with pre-registration, before v2. Scoring constants
+(DELTA=0.10, MARGIN=0.05, PERMUTE_OFFSET=137) were never changed after a
+result. See docs/investigations/LEXICAL_SUPERORDINATE_TRANSFER.md and
+scratch/LEXICAL_SUPERORDINATE_V2_PREREG.md.
+
+Production implementation is DEFAULT-OFF behind
+RAVANA_LEXICAL_SUPERORDINATE=1, has no engine hook, imports nltk lazily and
+fails closed without a licensed WordNet 3.0 corpus. Flag-off replays of all
+800 cases emit 0; flag-on replays reproduce all 178 scratch picks with 0
+mismatches (0.700 precision on 40 graded emits). 8 new unit tests pass, and
+32 pass when run with schema/TRA slot tests in one pytest process.
+
+Brain grounding: subject-specific type input (Carey & Bartlett 1978), a
+structured hypothesis space (Xu & Tenenbaum 2007, doi:10.1037/0033-295X.114.2.245),
+category cues in the input (Lany & Saffran 2010, doi:10.1177/0956797609358570),
+schema assimilation (Tse et al. 2007, doi:10.1126/science.1135935),
+complementary learning (McClelland et al. 1995, doi:10.1037/0033-295X.102.3.419),
+source/item dissociation (Johnson et al. 1993, doi:10.1037/0033-2909.114.1.3).
+Lexical substrate: Miller 1995, doi:10.1145/219717.219748. The WordNet
+path metric is an extrapolation, not a brain claim.
+
+No engine boot, no store write, no network, no gate/threshold/item/key change,
+no RSI/TRA gate measurement. This is NOT a benchmark PASS; enabling in the
+live engine requires a separate parent-controlled A/B.
