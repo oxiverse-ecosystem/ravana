@@ -1,0 +1,44 @@
+{
+ "schema": "rsi-reltarget-results-v1",
+ "snapshot_bindings": 371,
+ "rows": 240,
+ "vocab_subjects": 141,
+ "subject_covered": 107,
+ "rows_with_candidate_hit": 1,
+ "rows_with_pick": 1,
+ "accuracy_original_key": 0.0042,
+ "criteria": {
+  "C1_licence_and_provenance": true,
+  "C2_real_relation_assertions": true,
+  "C3_subject_coverage": {
+   "value": 0.7589,
+   "pass": false
+  },
+  "C4_candidate_target_coverage": {
+   "value": 0.0042,
+   "pass": false
+  },
+  "C5_ast_independence": true,
+  "C5_permutation": {
+   "keys_changed": 240,
+   "pick_invariant": true,
+   "permuted_key_accuracy": 0.0,
+   "pass": true
+  },
+  "C6_negation_veto": {
+   "veto_ok": 1,
+   "sham_admitted": 0,
+   "pass": true
+  },
+  "C7_candidate_order_invariance": {
+   "ok": 1,
+   "n": 1,
+   "pass": true
+  },
+  "C8_default_off": {
+   "off_is_none": true,
+   "pass": true
+  }
+ },
+ "verdict": "NO-GO"
+}

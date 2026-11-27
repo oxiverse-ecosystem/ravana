@@ -1,0 +1,7490 @@
+{
+ "schema": "rsi-reltarget-results-v1",
+ "snapshot_bindings": 371,
+ "rows": 240,
+ "vocab_subjects": 141,
+ "subject_covered": 107,
+ "rows_with_candidate_hit": 1,
+ "rows_with_pick": 1,
+ "accuracy_original_key": 0.0042,
+ "criteria": {
+  "C1_licence_and_provenance": true,
+  "C2_real_relation_assertions": true,
+  "C3_subject_coverage": {
+   "value": 0.7589,
+   "pass": false
+  },
+  "C4_candidate_target_coverage": {
+   "value": 0.0042,
+   "pass": false
+  },
+  "C5_ast_independence": true,
+  "C5_permutation": {
+   "keys_changed": 240,
+   "pick_invariant": true,
+   "permuted_key_accuracy": 0.0,
+   "pass": true
+  },
+  "C6_negation_veto": {
+   "veto_ok": 1,
+   "sham_admitted": 0,
+   "pass": true
+  },
+  "C7_candidate_order_invariance": {
+   "ok": 1,
+   "n": 1,
+   "pass": true
+  },
+  "C8_default_off": {
+   "off_is_none": true,
+   "pass": true
+  }
+ },
+ "verdict": "NO-GO",
+ "per_row": [
+  {
+   "item_id": "rsi_000",
+   "condition": "exact",
+   "subject": "thaw",
+   "relation": "CAUSE",
+   "options": [
+    "sunset",
+    "typhoon",
+    "mist",
+    "hail"
+   ],
+   "gold_for_grader_only": "mist",
+   "decision": {
+    "subject": "thaw",
+    "relation": "CAUSE",
+    "options": [
+     "sunset",
+     "typhoon",
+     "mist",
+     "hail"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_000",
+   "condition": "far",
+   "subject": "role",
+   "relation": "CAUSE",
+   "options": [
+    "council",
+    "ceremony",
+    "team",
+    "election"
+   ],
+   "gold_for_grader_only": "ceremony",
+   "decision": {
+    "subject": "role",
+    "relation": "CAUSE",
+    "options": [
+     "council",
+     "ceremony",
+     "team",
+     "election"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_001",
+   "condition": "exact",
+   "subject": "thunder",
+   "relation": "PART_OF",
+   "options": [
+    "chill",
+    "gale",
+    "tempest",
+    "dew"
+   ],
+   "gold_for_grader_only": "tempest",
+   "decision": {
+    "subject": "thunder",
+    "relation": "PART_OF",
+    "options": [
+     "chill",
+     "gale",
+     "tempest",
+     "dew"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_001",
+   "condition": "far",
+   "subject": "custom",
+   "relation": "PART_OF",
+   "options": [
+    "contract",
+    "law",
+    "habit",
+    "ceremony"
+   ],
+   "gold_for_grader_only": "contract",
+   "decision": {
+    "subject": "custom",
+    "relation": "PART_OF",
+    "options": [
+     "contract",
+     "law",
+     "habit",
+     "ceremony"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_002",
+   "condition": "exact",
+   "subject": "cloud",
+   "relation": "PRECEDES",
+   "options": [
+    "climate",
+    "glow",
+    "typhoon",
+    "frost"
+   ],
+   "gold_for_grader_only": "typhoon",
+   "decision": {
+    "subject": "cloud",
+    "relation": "PRECEDES",
+    "options": [
+     "climate",
+     "glow",
+     "typhoon",
+     "frost"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_002",
+   "condition": "far",
+   "subject": "election",
+   "relation": "PRECEDES",
+   "options": [
+    "ceremony",
+    "law",
+    "rank",
+    "role"
+   ],
+   "gold_for_grader_only": "ceremony",
+   "decision": {
+    "subject": "election",
+    "relation": "PRECEDES",
+    "options": [
+     "ceremony",
+     "law",
+     "rank",
+     "role"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_003",
+   "condition": "exact",
+   "subject": "thaw",
+   "relation": "SUPPORTS",
+   "options": [
+    "rainbow",
+    "hail",
+    "thunder",
+    "chill"
+   ],
+   "gold_for_grader_only": "rainbow",
+   "decision": {
+    "subject": "thaw",
+    "relation": "SUPPORTS",
+    "options": [
+     "rainbow",
+     "hail",
+     "thunder",
+     "chill"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_003",
+   "condition": "far",
+   "subject": "election",
+   "relation": "SUPPORTS",
+   "options": [
+    "vote",
+    "custom",
+    "guild",
+    "ceremony"
+   ],
+   "gold_for_grader_only": "custom",
+   "decision": {
+    "subject": "election",
+    "relation": "SUPPORTS",
+    "options": [
+     "vote",
+     "custom",
+     "guild",
+     "ceremony"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_004",
+   "condition": "exact",
+   "subject": "chill",
+   "relation": "OPPOSITE",
+   "options": [
+    "climate",
+    "tempest",
+    "blizzard",
+    "mist"
+   ],
+   "gold_for_grader_only": "tempest",
+   "decision": {
+    "subject": "chill",
+    "relation": "OPPOSITE",
+    "options": [
+     "climate",
+     "tempest",
+     "blizzard",
+     "mist"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_004",
+   "condition": "far",
+   "subject": "custom",
+   "relation": "OPPOSITE",
+   "options": [
+    "vote",
+    "charter",
+    "council",
+    "market"
+   ],
+   "gold_for_grader_only": "council",
+   "decision": {
+    "subject": "custom",
+    "relation": "OPPOSITE",
+    "options": [
+     "vote",
+     "charter",
+     "council",
+     "market"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_005",
+   "condition": "exact",
+   "subject": "drizzle",
+   "relation": "RESEMBLES",
+   "options": [
+    "chill",
+    "typhoon",
+    "blizzard",
+    "cloud"
+   ],
+   "gold_for_grader_only": "chill",
+   "decision": {
+    "subject": "drizzle",
+    "relation": "RESEMBLES",
+    "options": [
+     "chill",
+     "typhoon",
+     "blizzard",
+     "cloud"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_005",
+   "condition": "far",
+   "subject": "market",
+   "relation": "RESEMBLES",
+   "options": [
+    "vote",
+    "council",
+    "election",
+    "guild"
+   ],
+   "gold_for_grader_only": "guild",
+   "decision": {
+    "subject": "market",
+    "relation": "RESEMBLES",
+    "options": [
+     "vote",
+     "council",
+     "election",
+     "guild"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_006",
+   "condition": "exact",
+   "subject": "palm",
+   "relation": "CAUSE",
+   "options": [
+    "diaphragm",
+    "nerve",
+    "brain",
+    "plasma"
+   ],
+   "gold_for_grader_only": "nerve",
+   "decision": {
+    "subject": "palm",
+    "relation": "CAUSE",
+    "options": [
+     "diaphragm",
+     "nerve",
+     "brain",
+     "plasma"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_006",
+   "condition": "far",
+   "subject": "segment",
+   "relation": "CAUSE",
+   "options": [
+    "prism",
+    "slope",
+    "chord",
+    "arc"
+   ],
+   "gold_for_grader_only": "chord",
+   "decision": {
+    "subject": "segment",
+    "relation": "CAUSE",
+    "options": [
+     "prism",
+     "slope",
+     "chord",
+     "arc"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_007",
+   "condition": "exact",
+   "subject": "vein",
+   "relation": "PART_OF",
+   "options": [
+    "liver",
+    "vessel",
+    "esophagus",
+    "plasma"
+   ],
+   "gold_for_grader_only": "plasma",
+   "decision": {
+    "subject": "vein",
+    "relation": "PART_OF",
+    "options": [
+     "liver",
+     "vessel",
+     "esophagus",
+     "plasma"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_007",
+   "condition": "far",
+   "subject": "slope",
+   "relation": "PART_OF",
+   "options": [
+    "quadrant",
+    "segment",
+    "triangle",
+    "ellipse"
+   ],
+   "gold_for_grader_only": "quadrant",
+   "decision": {
+    "subject": "slope",
+    "relation": "PART_OF",
+    "options": [
+     "quadrant",
+     "segment",
+     "triangle",
+     "ellipse"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_008",
+   "condition": "exact",
+   "subject": "bone",
+   "relation": "PRECEDES",
+   "options": [
+    "vessel",
+    "vein",
+    "brain",
+    "gland"
+   ],
+   "gold_for_grader_only": "brain",
+   "decision": {
+    "subject": "bone",
+    "relation": "PRECEDES",
+    "options": [
+     "vessel",
+     "vein",
+     "brain",
+     "gland"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_008",
+   "condition": "far",
+   "subject": "radius",
+   "relation": "PRECEDES",
+   "options": [
+    "prism",
+    "diameter",
+    "circle",
+    "lattice"
+   ],
+   "gold_for_grader_only": "diameter",
+   "decision": {
+    "subject": "radius",
+    "relation": "PRECEDES",
+    "options": [
+     "prism",
+     "diameter",
+     "circle",
+     "lattice"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_009",
+   "condition": "exact",
+   "subject": "vessel",
+   "relation": "SUPPORTS",
+   "options": [
+    "liver",
+    "joint",
+    "heart",
+    "artery"
+   ],
+   "gold_for_grader_only": "joint",
+   "decision": {
+    "subject": "vessel",
+    "relation": "SUPPORTS",
+    "options": [
+     "liver",
+     "joint",
+     "heart",
+     "artery"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_009",
+   "condition": "far",
+   "subject": "sphere",
+   "relation": "SUPPORTS",
+   "options": [
+    "segment",
+    "tangent",
+    "point",
+    "curve"
+   ],
+   "gold_for_grader_only": "segment",
+   "decision": {
+    "subject": "sphere",
+    "relation": "SUPPORTS",
+    "options": [
+     "segment",
+     "tangent",
+     "point",
+     "curve"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_010",
+   "condition": "exact",
+   "subject": "muscle",
+   "relation": "OPPOSITE",
+   "options": [
+    "liver",
+    "tissue",
+    "skin",
+    "gland"
+   ],
+   "gold_for_grader_only": "liver",
+   "decision": {
+    "subject": "muscle",
+    "relation": "OPPOSITE",
+    "options": [
+     "liver",
+     "tissue",
+     "skin",
+     "gland"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_010",
+   "condition": "far",
+   "subject": "curve",
+   "relation": "OPPOSITE",
+   "options": [
+    "line",
+    "arc",
+    "cube",
+    "polygon"
+   ],
+   "gold_for_grader_only": "arc",
+   "decision": {
+    "subject": "curve",
+    "relation": "OPPOSITE",
+    "options": [
+     "line",
+     "arc",
+     "cube",
+     "polygon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_011",
+   "condition": "exact",
+   "subject": "palm",
+   "relation": "RESEMBLES",
+   "options": [
+    "brain",
+    "tendon",
+    "artery",
+    "cartilage"
+   ],
+   "gold_for_grader_only": "brain",
+   "decision": {
+    "subject": "palm",
+    "relation": "RESEMBLES",
+    "options": [
+     "brain",
+     "tendon",
+     "artery",
+     "cartilage"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_011",
+   "condition": "far",
+   "subject": "square",
+   "relation": "RESEMBLES",
+   "options": [
+    "cube",
+    "line",
+    "plane",
+    "quadrant"
+   ],
+   "gold_for_grader_only": "plane",
+   "decision": {
+    "subject": "square",
+    "relation": "RESEMBLES",
+    "options": [
+     "cube",
+     "line",
+     "plane",
+     "quadrant"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_012",
+   "condition": "exact",
+   "subject": "belt",
+   "relation": "CAUSE",
+   "options": [
+    "lever",
+    "gasket",
+    "circuit",
+    "pulley"
+   ],
+   "gold_for_grader_only": "pulley",
+   "decision": {
+    "subject": "belt",
+    "relation": "CAUSE",
+    "options": [
+     "lever",
+     "gasket",
+     "circuit",
+     "pulley"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_012",
+   "condition": "far",
+   "subject": "tree",
+   "relation": "CAUSE",
+   "options": [
+    "root",
+    "moss",
+    "bud",
+    "vine"
+   ],
+   "gold_for_grader_only": "bud",
+   "decision": {
+    "subject": "tree",
+    "relation": "CAUSE",
+    "options": [
+     "root",
+     "moss",
+     "bud",
+     "vine"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_013",
+   "condition": "exact",
+   "subject": "switch",
+   "relation": "PART_OF",
+   "options": [
+    "lever",
+    "clutch",
+    "gasket",
+    "fuse"
+   ],
+   "gold_for_grader_only": "fuse",
+   "decision": {
+    "subject": "switch",
+    "relation": "PART_OF",
+    "options": [
+     "lever",
+     "clutch",
+     "gasket",
+     "fuse"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_013",
+   "condition": "far",
+   "subject": "fruit",
+   "relation": "PART_OF",
+   "options": [
+    "bud",
+    "moss",
+    "fern",
+    "bark"
+   ],
+   "gold_for_grader_only": "fern",
+   "decision": {
+    "subject": "fruit",
+    "relation": "PART_OF",
+    "options": [
+     "bud",
+     "moss",
+     "fern",
+     "bark"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_014",
+   "condition": "exact",
+   "subject": "cam",
+   "relation": "PRECEDES",
+   "options": [
+    "clutch",
+    "axle",
+    "valley",
+    "circuit"
+   ],
+   "gold_for_grader_only": "axle",
+   "decision": {
+    "subject": "cam",
+    "relation": "PRECEDES",
+    "options": [
+     "clutch",
+     "axle",
+     "valley",
+     "circuit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_014",
+   "condition": "far",
+   "subject": "leaf",
+   "relation": "PRECEDES",
+   "options": [
+    "sapling",
+    "petal",
+    "fruit",
+    "branch"
+   ],
+   "gold_for_grader_only": "sapling",
+   "decision": {
+    "subject": "leaf",
+    "relation": "PRECEDES",
+    "options": [
+     "sapling",
+     "petal",
+     "fruit",
+     "branch"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_015",
+   "condition": "exact",
+   "subject": "piston",
+   "relation": "SUPPORTS",
+   "options": [
+    "switch",
+    "gasket",
+    "rotor",
+    "clutch"
+   ],
+   "gold_for_grader_only": "gasket",
+   "decision": {
+    "subject": "piston",
+    "relation": "SUPPORTS",
+    "options": [
+     "switch",
+     "gasket",
+     "rotor",
+     "clutch"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_015",
+   "condition": "far",
+   "subject": "fruit",
+   "relation": "SUPPORTS",
+   "options": [
+    "grain",
+    "shrub",
+    "leaf",
+    "thorn"
+   ],
+   "gold_for_grader_only": "thorn",
+   "decision": {
+    "subject": "fruit",
+    "relation": "SUPPORTS",
+    "options": [
+     "grain",
+     "shrub",
+     "leaf",
+     "thorn"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_016",
+   "condition": "exact",
+   "subject": "motor",
+   "relation": "OPPOSITE",
+   "options": [
+    "belt",
+    "valve",
+    "lever",
+    "wheel"
+   ],
+   "gold_for_grader_only": "lever",
+   "decision": {
+    "subject": "motor",
+    "relation": "OPPOSITE",
+    "options": [
+     "belt",
+     "valve",
+     "lever",
+     "wheel"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_016",
+   "condition": "far",
+   "subject": "shrub",
+   "relation": "OPPOSITE",
+   "options": [
+    "fern",
+    "pollen",
+    "thorn",
+    "moss"
+   ],
+   "gold_for_grader_only": "fern",
+   "decision": {
+    "subject": "shrub",
+    "relation": "OPPOSITE",
+    "options": [
+     "fern",
+     "pollen",
+     "thorn",
+     "moss"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_017",
+   "condition": "exact",
+   "subject": "gasket",
+   "relation": "RESEMBLES",
+   "options": [
+    "motor",
+    "pivot",
+    "fuse",
+    "belt"
+   ],
+   "gold_for_grader_only": "fuse",
+   "decision": {
+    "subject": "gasket",
+    "relation": "RESEMBLES",
+    "options": [
+     "motor",
+     "pivot",
+     "fuse",
+     "belt"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_017",
+   "condition": "far",
+   "subject": "tree",
+   "relation": "RESEMBLES",
+   "options": [
+    "seed",
+    "seedling",
+    "moss",
+    "petal"
+   ],
+   "gold_for_grader_only": "seedling",
+   "decision": {
+    "subject": "tree",
+    "relation": "RESEMBLES",
+    "options": [
+     "seed",
+     "seedling",
+     "moss",
+     "petal"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_018",
+   "condition": "exact",
+   "subject": "market",
+   "relation": "CAUSE",
+   "options": [
+    "council",
+    "team",
+    "guild",
+    "habit"
+   ],
+   "gold_for_grader_only": "council",
+   "decision": {
+    "subject": "market",
+    "relation": "CAUSE",
+    "options": [
+     "council",
+     "team",
+     "guild",
+     "habit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_018",
+   "condition": "far",
+   "subject": "sunset",
+   "relation": "CAUSE",
+   "options": [
+    "frost",
+    "overcast",
+    "glow",
+    "squall"
+   ],
+   "gold_for_grader_only": "glow",
+   "decision": {
+    "subject": "sunset",
+    "relation": "CAUSE",
+    "options": [
+     "frost",
+     "overcast",
+     "glow",
+     "squall"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_019",
+   "condition": "exact",
+   "subject": "signal",
+   "relation": "PART_OF",
+   "options": [
+    "team",
+    "role",
+    "market",
+    "custom"
+   ],
+   "gold_for_grader_only": "role",
+   "decision": {
+    "subject": "signal",
+    "relation": "PART_OF",
+    "options": [
+     "team",
+     "role",
+     "market",
+     "custom"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_019",
+   "condition": "far",
+   "subject": "sleet",
+   "relation": "PART_OF",
+   "options": [
+    "cloud",
+    "dew",
+    "overcast",
+    "tempest"
+   ],
+   "gold_for_grader_only": "overcast",
+   "decision": {
+    "subject": "sleet",
+    "relation": "PART_OF",
+    "options": [
+     "cloud",
+     "dew",
+     "overcast",
+     "tempest"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_020",
+   "condition": "exact",
+   "subject": "rumor",
+   "relation": "PRECEDES",
+   "options": [
+    "vote",
+    "habit",
+    "contract",
+    "treaty"
+   ],
+   "gold_for_grader_only": "vote",
+   "decision": {
+    "subject": "rumor",
+    "relation": "PRECEDES",
+    "options": [
+     "vote",
+     "habit",
+     "contract",
+     "treaty"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_020",
+   "condition": "far",
+   "subject": "shower",
+   "relation": "PRECEDES",
+   "options": [
+    "rainbow",
+    "thunder",
+    "monsoon",
+    "glow"
+   ],
+   "gold_for_grader_only": "thunder",
+   "decision": {
+    "subject": "shower",
+    "relation": "PRECEDES",
+    "options": [
+     "rainbow",
+     "thunder",
+     "monsoon",
+     "glow"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_021",
+   "condition": "exact",
+   "subject": "contract",
+   "relation": "SUPPORTS",
+   "options": [
+    "vote",
+    "game",
+    "treaty",
+    "tradition"
+   ],
+   "gold_for_grader_only": "game",
+   "decision": {
+    "subject": "contract",
+    "relation": "SUPPORTS",
+    "options": [
+     "vote",
+     "game",
+     "treaty",
+     "tradition"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_021",
+   "condition": "far",
+   "subject": "rainbow",
+   "relation": "SUPPORTS",
+   "options": [
+    "storm",
+    "overcast",
+    "chill",
+    "thunder"
+   ],
+   "gold_for_grader_only": "chill",
+   "decision": {
+    "subject": "rainbow",
+    "relation": "SUPPORTS",
+    "options": [
+     "storm",
+     "overcast",
+     "chill",
+     "thunder"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_022",
+   "condition": "exact",
+   "subject": "law",
+   "relation": "OPPOSITE",
+   "options": [
+    "signal",
+    "reward",
+    "vote",
+    "ceremony"
+   ],
+   "gold_for_grader_only": "vote",
+   "decision": {
+    "subject": "law",
+    "relation": "OPPOSITE",
+    "options": [
+     "signal",
+     "reward",
+     "vote",
+     "ceremony"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_022",
+   "condition": "far",
+   "subject": "tempest",
+   "relation": "OPPOSITE",
+   "options": [
+    "mist",
+    "drizzle",
+    "thaw",
+    "blizzard"
+   ],
+   "gold_for_grader_only": "mist",
+   "decision": {
+    "subject": "tempest",
+    "relation": "OPPOSITE",
+    "options": [
+     "mist",
+     "drizzle",
+     "thaw",
+     "blizzard"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_023",
+   "condition": "exact",
+   "subject": "rank",
+   "relation": "RESEMBLES",
+   "options": [
+    "habit",
+    "election",
+    "council",
+    "rumor"
+   ],
+   "gold_for_grader_only": "election",
+   "decision": {
+    "subject": "rank",
+    "relation": "RESEMBLES",
+    "options": [
+     "habit",
+     "election",
+     "council",
+     "rumor"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_023",
+   "condition": "far",
+   "subject": "climate",
+   "relation": "RESEMBLES",
+   "options": [
+    "typhoon",
+    "gale",
+    "tempest",
+    "shower"
+   ],
+   "gold_for_grader_only": "tempest",
+   "decision": {
+    "subject": "climate",
+    "relation": "RESEMBLES",
+    "options": [
+     "typhoon",
+     "gale",
+     "tempest",
+     "shower"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_024",
+   "condition": "exact",
+   "subject": "cube",
+   "relation": "CAUSE",
+   "options": [
+    "polygon",
+    "radius",
+    "axis",
+    "chord"
+   ],
+   "gold_for_grader_only": "polygon",
+   "decision": {
+    "subject": "cube",
+    "relation": "CAUSE",
+    "options": [
+     "polygon",
+     "radius",
+     "axis",
+     "chord"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_024",
+   "condition": "far",
+   "subject": "cartilage",
+   "relation": "CAUSE",
+   "options": [
+    "artery",
+    "palm",
+    "nerve",
+    "joint"
+   ],
+   "gold_for_grader_only": "joint",
+   "decision": {
+    "subject": "cartilage",
+    "relation": "CAUSE",
+    "options": [
+     "artery",
+     "palm",
+     "nerve",
+     "joint"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_025",
+   "condition": "exact",
+   "subject": "sphere",
+   "relation": "PART_OF",
+   "options": [
+    "prism",
+    "circle",
+    "point",
+    "triangle"
+   ],
+   "gold_for_grader_only": "point",
+   "decision": {
+    "subject": "sphere",
+    "relation": "PART_OF",
+    "options": [
+     "prism",
+     "circle",
+     "point",
+     "triangle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_025",
+   "condition": "far",
+   "subject": "diaphragm",
+   "relation": "PART_OF",
+   "options": [
+    "liver",
+    "esophagus",
+    "muscle",
+    "tendon"
+   ],
+   "gold_for_grader_only": "tendon",
+   "decision": {
+    "subject": "diaphragm",
+    "relation": "PART_OF",
+    "options": [
+     "liver",
+     "esophagus",
+     "muscle",
+     "tendon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_026",
+   "condition": "exact",
+   "subject": "radius",
+   "relation": "PRECEDES",
+   "options": [
+    "diameter",
+    "prism",
+    "sphere",
+    "ellipse"
+   ],
+   "gold_for_grader_only": "prism",
+   "decision": {
+    "subject": "radius",
+    "relation": "PRECEDES",
+    "options": [
+     "diameter",
+     "prism",
+     "sphere",
+     "ellipse"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_026",
+   "condition": "far",
+   "subject": "joint",
+   "relation": "PRECEDES",
+   "options": [
+    "skin",
+    "vein",
+    "esophagus",
+    "muscle"
+   ],
+   "gold_for_grader_only": "skin",
+   "decision": {
+    "subject": "joint",
+    "relation": "PRECEDES",
+    "options": [
+     "skin",
+     "vein",
+     "esophagus",
+     "muscle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_027",
+   "condition": "exact",
+   "subject": "slope",
+   "relation": "SUPPORTS",
+   "options": [
+    "cube",
+    "lattice",
+    "quadrant",
+    "plane"
+   ],
+   "gold_for_grader_only": "plane",
+   "decision": {
+    "subject": "slope",
+    "relation": "SUPPORTS",
+    "options": [
+     "cube",
+     "lattice",
+     "quadrant",
+     "plane"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_027",
+   "condition": "far",
+   "subject": "reflex",
+   "relation": "SUPPORTS",
+   "options": [
+    "marrow",
+    "ligament",
+    "tissue",
+    "liver"
+   ],
+   "gold_for_grader_only": "liver",
+   "decision": {
+    "subject": "reflex",
+    "relation": "SUPPORTS",
+    "options": [
+     "marrow",
+     "ligament",
+     "tissue",
+     "liver"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_028",
+   "condition": "exact",
+   "subject": "prism",
+   "relation": "OPPOSITE",
+   "options": [
+    "triangle",
+    "point",
+    "ellipse",
+    "diameter"
+   ],
+   "gold_for_grader_only": "diameter",
+   "decision": {
+    "subject": "prism",
+    "relation": "OPPOSITE",
+    "options": [
+     "triangle",
+     "point",
+     "ellipse",
+     "diameter"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_028",
+   "condition": "far",
+   "subject": "liver",
+   "relation": "OPPOSITE",
+   "options": [
+    "lung",
+    "tendon",
+    "muscle",
+    "vein"
+   ],
+   "gold_for_grader_only": "lung",
+   "decision": {
+    "subject": "liver",
+    "relation": "OPPOSITE",
+    "options": [
+     "lung",
+     "tendon",
+     "muscle",
+     "vein"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_029",
+   "condition": "exact",
+   "subject": "circle",
+   "relation": "RESEMBLES",
+   "options": [
+    "cube",
+    "line",
+    "curve",
+    "arc"
+   ],
+   "gold_for_grader_only": "arc",
+   "decision": {
+    "subject": "circle",
+    "relation": "RESEMBLES",
+    "options": [
+     "cube",
+     "line",
+     "curve",
+     "arc"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_029",
+   "condition": "far",
+   "subject": "cartilage",
+   "relation": "RESEMBLES",
+   "options": [
+    "tissue",
+    "heart",
+    "tendon",
+    "ligament"
+   ],
+   "gold_for_grader_only": "ligament",
+   "decision": {
+    "subject": "cartilage",
+    "relation": "RESEMBLES",
+    "options": [
+     "tissue",
+     "heart",
+     "tendon",
+     "ligament"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_030",
+   "condition": "exact",
+   "subject": "branch",
+   "relation": "CAUSE",
+   "options": [
+    "fern",
+    "herb",
+    "thorn",
+    "fruit"
+   ],
+   "gold_for_grader_only": "thorn",
+   "decision": {
+    "subject": "branch",
+    "relation": "CAUSE",
+    "options": [
+     "fern",
+     "herb",
+     "thorn",
+     "fruit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_030",
+   "condition": "far",
+   "subject": "lever",
+   "relation": "CAUSE",
+   "options": [
+    "coil",
+    "pivot",
+    "piston",
+    "spring"
+   ],
+   "gold_for_grader_only": "spring",
+   "decision": {
+    "subject": "lever",
+    "relation": "CAUSE",
+    "options": [
+     "coil",
+     "pivot",
+     "piston",
+     "spring"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_031",
+   "condition": "exact",
+   "subject": "root",
+   "relation": "PART_OF",
+   "options": [
+    "herb",
+    "sapling",
+    "bark",
+    "seed"
+   ],
+   "gold_for_grader_only": "bark",
+   "decision": {
+    "subject": "root",
+    "relation": "PART_OF",
+    "options": [
+     "herb",
+     "sapling",
+     "bark",
+     "seed"
+    ],
+    "scores": {
+     "bark": 0.6
+    },
+    "vetoed": [],
+    "admitted": [
+     "http://www.wikidata.org/entity/statement/Q41500-b4da6a04-4785-dc57-a15e-a22721b08341"
+    ],
+    "pick": "bark",
+    "reason": "admitted_relation_target_winner",
+    "margin": 0.6,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_031",
+   "condition": "far",
+   "subject": "switch",
+   "relation": "PART_OF",
+   "options": [
+    "fuse",
+    "valley",
+    "pulley",
+    "belt"
+   ],
+   "gold_for_grader_only": "valley",
+   "decision": {
+    "subject": "switch",
+    "relation": "PART_OF",
+    "options": [
+     "fuse",
+     "valley",
+     "pulley",
+     "belt"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_032",
+   "condition": "exact",
+   "subject": "root",
+   "relation": "PRECEDES",
+   "options": [
+    "fern",
+    "petal",
+    "shrub",
+    "blossom"
+   ],
+   "gold_for_grader_only": "shrub",
+   "decision": {
+    "subject": "root",
+    "relation": "PRECEDES",
+    "options": [
+     "fern",
+     "petal",
+     "shrub",
+     "blossom"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_032",
+   "condition": "far",
+   "subject": "rotor",
+   "relation": "PRECEDES",
+   "options": [
+    "wheel",
+    "pivot",
+    "bearing",
+    "gear"
+   ],
+   "gold_for_grader_only": "bearing",
+   "decision": {
+    "subject": "rotor",
+    "relation": "PRECEDES",
+    "options": [
+     "wheel",
+     "pivot",
+     "bearing",
+     "gear"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_033",
+   "condition": "exact",
+   "subject": "foliage",
+   "relation": "SUPPORTS",
+   "options": [
+    "leaf",
+    "grain",
+    "fruit",
+    "seed"
+   ],
+   "gold_for_grader_only": "leaf",
+   "decision": {
+    "subject": "foliage",
+    "relation": "SUPPORTS",
+    "options": [
+     "leaf",
+     "grain",
+     "fruit",
+     "seed"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_033",
+   "condition": "far",
+   "subject": "valve",
+   "relation": "SUPPORTS",
+   "options": [
+    "wheel",
+    "sprocket",
+    "coil",
+    "circuit"
+   ],
+   "gold_for_grader_only": "coil",
+   "decision": {
+    "subject": "valve",
+    "relation": "SUPPORTS",
+    "options": [
+     "wheel",
+     "sprocket",
+     "coil",
+     "circuit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_034",
+   "condition": "exact",
+   "subject": "stem",
+   "relation": "OPPOSITE",
+   "options": [
+    "herb",
+    "petal",
+    "shrub",
+    "fern"
+   ],
+   "gold_for_grader_only": "shrub",
+   "decision": {
+    "subject": "stem",
+    "relation": "OPPOSITE",
+    "options": [
+     "herb",
+     "petal",
+     "shrub",
+     "fern"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_034",
+   "condition": "far",
+   "subject": "wheel",
+   "relation": "OPPOSITE",
+   "options": [
+    "rotor",
+    "sprocket",
+    "pivot",
+    "shaft"
+   ],
+   "gold_for_grader_only": "rotor",
+   "decision": {
+    "subject": "wheel",
+    "relation": "OPPOSITE",
+    "options": [
+     "rotor",
+     "sprocket",
+     "pivot",
+     "shaft"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_035",
+   "condition": "exact",
+   "subject": "bud",
+   "relation": "RESEMBLES",
+   "options": [
+    "tree",
+    "grain",
+    "seedling",
+    "herb"
+   ],
+   "gold_for_grader_only": "grain",
+   "decision": {
+    "subject": "bud",
+    "relation": "RESEMBLES",
+    "options": [
+     "tree",
+     "grain",
+     "seedling",
+     "herb"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_035",
+   "condition": "far",
+   "subject": "rotor",
+   "relation": "RESEMBLES",
+   "options": [
+    "fuse",
+    "motor",
+    "lever",
+    "circuit"
+   ],
+   "gold_for_grader_only": "fuse",
+   "decision": {
+    "subject": "rotor",
+    "relation": "RESEMBLES",
+    "options": [
+     "fuse",
+     "motor",
+     "lever",
+     "circuit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_036",
+   "condition": "exact",
+   "subject": "rainbow",
+   "relation": "CAUSE",
+   "options": [
+    "overcast",
+    "chill",
+    "sunset",
+    "gale"
+   ],
+   "gold_for_grader_only": "sunset",
+   "decision": {
+    "subject": "rainbow",
+    "relation": "CAUSE",
+    "options": [
+     "overcast",
+     "chill",
+     "sunset",
+     "gale"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_036",
+   "condition": "far",
+   "subject": "custom",
+   "relation": "CAUSE",
+   "options": [
+    "treaty",
+    "game",
+    "guild",
+    "role"
+   ],
+   "gold_for_grader_only": "treaty",
+   "decision": {
+    "subject": "custom",
+    "relation": "CAUSE",
+    "options": [
+     "treaty",
+     "game",
+     "guild",
+     "role"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_037",
+   "condition": "exact",
+   "subject": "breeze",
+   "relation": "PART_OF",
+   "options": [
+    "dew",
+    "overcast",
+    "monsoon",
+    "mist"
+   ],
+   "gold_for_grader_only": "mist",
+   "decision": {
+    "subject": "breeze",
+    "relation": "PART_OF",
+    "options": [
+     "dew",
+     "overcast",
+     "monsoon",
+     "mist"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_037",
+   "condition": "far",
+   "subject": "law",
+   "relation": "PART_OF",
+   "options": [
+    "norm",
+    "market",
+    "role",
+    "custom"
+   ],
+   "gold_for_grader_only": "norm",
+   "decision": {
+    "subject": "law",
+    "relation": "PART_OF",
+    "options": [
+     "norm",
+     "market",
+     "role",
+     "custom"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_038",
+   "condition": "exact",
+   "subject": "thunder",
+   "relation": "PRECEDES",
+   "options": [
+    "frost",
+    "thaw",
+    "monsoon",
+    "climate"
+   ],
+   "gold_for_grader_only": "thaw",
+   "decision": {
+    "subject": "thunder",
+    "relation": "PRECEDES",
+    "options": [
+     "frost",
+     "thaw",
+     "monsoon",
+     "climate"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_038",
+   "condition": "far",
+   "subject": "role",
+   "relation": "PRECEDES",
+   "options": [
+    "council",
+    "contract",
+    "ritual",
+    "reward"
+   ],
+   "gold_for_grader_only": "ritual",
+   "decision": {
+    "subject": "role",
+    "relation": "PRECEDES",
+    "options": [
+     "council",
+     "contract",
+     "ritual",
+     "reward"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_039",
+   "condition": "exact",
+   "subject": "hail",
+   "relation": "SUPPORTS",
+   "options": [
+    "dew",
+    "overcast",
+    "blizzard",
+    "shower"
+   ],
+   "gold_for_grader_only": "overcast",
+   "decision": {
+    "subject": "hail",
+    "relation": "SUPPORTS",
+    "options": [
+     "dew",
+     "overcast",
+     "blizzard",
+     "shower"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_039",
+   "condition": "far",
+   "subject": "charter",
+   "relation": "SUPPORTS",
+   "options": [
+    "leader",
+    "rumor",
+    "game",
+    "norm"
+   ],
+   "gold_for_grader_only": "rumor",
+   "decision": {
+    "subject": "charter",
+    "relation": "SUPPORTS",
+    "options": [
+     "leader",
+     "rumor",
+     "game",
+     "norm"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_040",
+   "condition": "exact",
+   "subject": "frost",
+   "relation": "OPPOSITE",
+   "options": [
+    "sunset",
+    "monsoon",
+    "glow",
+    "drizzle"
+   ],
+   "gold_for_grader_only": "drizzle",
+   "decision": {
+    "subject": "frost",
+    "relation": "OPPOSITE",
+    "options": [
+     "sunset",
+     "monsoon",
+     "glow",
+     "drizzle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_040",
+   "condition": "far",
+   "subject": "vote",
+   "relation": "OPPOSITE",
+   "options": [
+    "rank",
+    "law",
+    "election",
+    "norm"
+   ],
+   "gold_for_grader_only": "law",
+   "decision": {
+    "subject": "vote",
+    "relation": "OPPOSITE",
+    "options": [
+     "rank",
+     "law",
+     "election",
+     "norm"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_041",
+   "condition": "exact",
+   "subject": "thaw",
+   "relation": "RESEMBLES",
+   "options": [
+    "glow",
+    "shower",
+    "sunset",
+    "tempest"
+   ],
+   "gold_for_grader_only": "sunset",
+   "decision": {
+    "subject": "thaw",
+    "relation": "RESEMBLES",
+    "options": [
+     "glow",
+     "shower",
+     "sunset",
+     "tempest"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_041",
+   "condition": "far",
+   "subject": "treaty",
+   "relation": "RESEMBLES",
+   "options": [
+    "society",
+    "signal",
+    "tradition",
+    "law"
+   ],
+   "gold_for_grader_only": "society",
+   "decision": {
+    "subject": "treaty",
+    "relation": "RESEMBLES",
+    "options": [
+     "society",
+     "signal",
+     "tradition",
+     "law"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_042",
+   "condition": "exact",
+   "subject": "joint",
+   "relation": "CAUSE",
+   "options": [
+    "vein",
+    "skin",
+    "liver",
+    "artery"
+   ],
+   "gold_for_grader_only": "vein",
+   "decision": {
+    "subject": "joint",
+    "relation": "CAUSE",
+    "options": [
+     "vein",
+     "skin",
+     "liver",
+     "artery"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_042",
+   "condition": "far",
+   "subject": "vertex",
+   "relation": "CAUSE",
+   "options": [
+    "angle",
+    "axis",
+    "radius",
+    "curve"
+   ],
+   "gold_for_grader_only": "curve",
+   "decision": {
+    "subject": "vertex",
+    "relation": "CAUSE",
+    "options": [
+     "angle",
+     "axis",
+     "radius",
+     "curve"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_043",
+   "condition": "exact",
+   "subject": "liver",
+   "relation": "PART_OF",
+   "options": [
+    "tendon",
+    "bone",
+    "esophagus",
+    "reflex"
+   ],
+   "gold_for_grader_only": "tendon",
+   "decision": {
+    "subject": "liver",
+    "relation": "PART_OF",
+    "options": [
+     "tendon",
+     "bone",
+     "esophagus",
+     "reflex"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_043",
+   "condition": "far",
+   "subject": "line",
+   "relation": "PART_OF",
+   "options": [
+    "tangent",
+    "square",
+    "lattice",
+    "triangle"
+   ],
+   "gold_for_grader_only": "triangle",
+   "decision": {
+    "subject": "line",
+    "relation": "PART_OF",
+    "options": [
+     "tangent",
+     "square",
+     "lattice",
+     "triangle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_044",
+   "condition": "exact",
+   "subject": "muscle",
+   "relation": "PRECEDES",
+   "options": [
+    "liver",
+    "vein",
+    "tissue",
+    "bone"
+   ],
+   "gold_for_grader_only": "tissue",
+   "decision": {
+    "subject": "muscle",
+    "relation": "PRECEDES",
+    "options": [
+     "liver",
+     "vein",
+     "tissue",
+     "bone"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_044",
+   "condition": "far",
+   "subject": "line",
+   "relation": "PRECEDES",
+   "options": [
+    "cube",
+    "chord",
+    "ellipse",
+    "axis"
+   ],
+   "gold_for_grader_only": "chord",
+   "decision": {
+    "subject": "line",
+    "relation": "PRECEDES",
+    "options": [
+     "cube",
+     "chord",
+     "ellipse",
+     "axis"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_045",
+   "condition": "exact",
+   "subject": "nerve",
+   "relation": "SUPPORTS",
+   "options": [
+    "muscle",
+    "skin",
+    "heart",
+    "tendon"
+   ],
+   "gold_for_grader_only": "tendon",
+   "decision": {
+    "subject": "nerve",
+    "relation": "SUPPORTS",
+    "options": [
+     "muscle",
+     "skin",
+     "heart",
+     "tendon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_045",
+   "condition": "far",
+   "subject": "line",
+   "relation": "SUPPORTS",
+   "options": [
+    "prism",
+    "plane",
+    "cube",
+    "segment"
+   ],
+   "gold_for_grader_only": "plane",
+   "decision": {
+    "subject": "line",
+    "relation": "SUPPORTS",
+    "options": [
+     "prism",
+     "plane",
+     "cube",
+     "segment"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_046",
+   "condition": "exact",
+   "subject": "esophagus",
+   "relation": "OPPOSITE",
+   "options": [
+    "nerve",
+    "vein",
+    "marrow",
+    "kidney"
+   ],
+   "gold_for_grader_only": "nerve",
+   "decision": {
+    "subject": "esophagus",
+    "relation": "OPPOSITE",
+    "options": [
+     "nerve",
+     "vein",
+     "marrow",
+     "kidney"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_046",
+   "condition": "far",
+   "subject": "radius",
+   "relation": "OPPOSITE",
+   "options": [
+    "lattice",
+    "vertex",
+    "tangent",
+    "diameter"
+   ],
+   "gold_for_grader_only": "lattice",
+   "decision": {
+    "subject": "radius",
+    "relation": "OPPOSITE",
+    "options": [
+     "lattice",
+     "vertex",
+     "tangent",
+     "diameter"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_047",
+   "condition": "exact",
+   "subject": "skin",
+   "relation": "RESEMBLES",
+   "options": [
+    "palm",
+    "liver",
+    "ligament",
+    "tendon"
+   ],
+   "gold_for_grader_only": "palm",
+   "decision": {
+    "subject": "skin",
+    "relation": "RESEMBLES",
+    "options": [
+     "palm",
+     "liver",
+     "ligament",
+     "tendon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_047",
+   "condition": "far",
+   "subject": "circle",
+   "relation": "RESEMBLES",
+   "options": [
+    "plane",
+    "prism",
+    "arc",
+    "vertex"
+   ],
+   "gold_for_grader_only": "vertex",
+   "decision": {
+    "subject": "circle",
+    "relation": "RESEMBLES",
+    "options": [
+     "plane",
+     "prism",
+     "arc",
+     "vertex"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_048",
+   "condition": "exact",
+   "subject": "bearing",
+   "relation": "CAUSE",
+   "options": [
+    "motor",
+    "widget",
+    "spring",
+    "valley"
+   ],
+   "gold_for_grader_only": "spring",
+   "decision": {
+    "subject": "bearing",
+    "relation": "CAUSE",
+    "options": [
+     "motor",
+     "widget",
+     "spring",
+     "valley"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_048",
+   "condition": "far",
+   "subject": "bud",
+   "relation": "CAUSE",
+   "options": [
+    "tree",
+    "fern",
+    "foliage",
+    "branch"
+   ],
+   "gold_for_grader_only": "fern",
+   "decision": {
+    "subject": "bud",
+    "relation": "CAUSE",
+    "options": [
+     "tree",
+     "fern",
+     "foliage",
+     "branch"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_049",
+   "condition": "exact",
+   "subject": "valley",
+   "relation": "PART_OF",
+   "options": [
+    "wheel",
+    "gasket",
+    "switch",
+    "spring"
+   ],
+   "gold_for_grader_only": "switch",
+   "decision": {
+    "subject": "valley",
+    "relation": "PART_OF",
+    "options": [
+     "wheel",
+     "gasket",
+     "switch",
+     "spring"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_049",
+   "condition": "far",
+   "subject": "cone",
+   "relation": "PART_OF",
+   "options": [
+    "pollen",
+    "branch",
+    "trunk",
+    "bark"
+   ],
+   "gold_for_grader_only": "bark",
+   "decision": {
+    "subject": "cone",
+    "relation": "PART_OF",
+    "options": [
+     "pollen",
+     "branch",
+     "trunk",
+     "bark"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_050",
+   "condition": "exact",
+   "subject": "spring",
+   "relation": "PRECEDES",
+   "options": [
+    "valve",
+    "rotor",
+    "switch",
+    "motor"
+   ],
+   "gold_for_grader_only": "valve",
+   "decision": {
+    "subject": "spring",
+    "relation": "PRECEDES",
+    "options": [
+     "valve",
+     "rotor",
+     "switch",
+     "motor"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_050",
+   "condition": "far",
+   "subject": "cone",
+   "relation": "PRECEDES",
+   "options": [
+    "seed",
+    "shrub",
+    "bark",
+    "thorn"
+   ],
+   "gold_for_grader_only": "shrub",
+   "decision": {
+    "subject": "cone",
+    "relation": "PRECEDES",
+    "options": [
+     "seed",
+     "shrub",
+     "bark",
+     "thorn"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_051",
+   "condition": "exact",
+   "subject": "rotor",
+   "relation": "SUPPORTS",
+   "options": [
+    "lever",
+    "valve",
+    "sprocket",
+    "gasket"
+   ],
+   "gold_for_grader_only": "gasket",
+   "decision": {
+    "subject": "rotor",
+    "relation": "SUPPORTS",
+    "options": [
+     "lever",
+     "valve",
+     "sprocket",
+     "gasket"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_051",
+   "condition": "far",
+   "subject": "blossom",
+   "relation": "SUPPORTS",
+   "options": [
+    "root",
+    "foliage",
+    "branch",
+    "seed"
+   ],
+   "gold_for_grader_only": "foliage",
+   "decision": {
+    "subject": "blossom",
+    "relation": "SUPPORTS",
+    "options": [
+     "root",
+     "foliage",
+     "branch",
+     "seed"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_052",
+   "condition": "exact",
+   "subject": "widget",
+   "relation": "OPPOSITE",
+   "options": [
+    "rotor",
+    "piston",
+    "lever",
+    "valve"
+   ],
+   "gold_for_grader_only": "valve",
+   "decision": {
+    "subject": "widget",
+    "relation": "OPPOSITE",
+    "options": [
+     "rotor",
+     "piston",
+     "lever",
+     "valve"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_052",
+   "condition": "far",
+   "subject": "root",
+   "relation": "OPPOSITE",
+   "options": [
+    "cone",
+    "fruit",
+    "branch",
+    "bark"
+   ],
+   "gold_for_grader_only": "branch",
+   "decision": {
+    "subject": "root",
+    "relation": "OPPOSITE",
+    "options": [
+     "cone",
+     "fruit",
+     "branch",
+     "bark"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_053",
+   "condition": "exact",
+   "subject": "valley",
+   "relation": "RESEMBLES",
+   "options": [
+    "belt",
+    "clutch",
+    "gear",
+    "spring"
+   ],
+   "gold_for_grader_only": "gear",
+   "decision": {
+    "subject": "valley",
+    "relation": "RESEMBLES",
+    "options": [
+     "belt",
+     "clutch",
+     "gear",
+     "spring"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_053",
+   "condition": "far",
+   "subject": "grain",
+   "relation": "RESEMBLES",
+   "options": [
+    "fruit",
+    "leaf",
+    "moss",
+    "vine"
+   ],
+   "gold_for_grader_only": "leaf",
+   "decision": {
+    "subject": "grain",
+    "relation": "RESEMBLES",
+    "options": [
+     "fruit",
+     "leaf",
+     "moss",
+     "vine"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_054",
+   "condition": "exact",
+   "subject": "habit",
+   "relation": "CAUSE",
+   "options": [
+    "council",
+    "custom",
+    "tradition",
+    "rumor"
+   ],
+   "gold_for_grader_only": "tradition",
+   "decision": {
+    "subject": "habit",
+    "relation": "CAUSE",
+    "options": [
+     "council",
+     "custom",
+     "tradition",
+     "rumor"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_054",
+   "condition": "far",
+   "subject": "climate",
+   "relation": "CAUSE",
+   "options": [
+    "thaw",
+    "breeze",
+    "monsoon",
+    "dew"
+   ],
+   "gold_for_grader_only": "breeze",
+   "decision": {
+    "subject": "climate",
+    "relation": "CAUSE",
+    "options": [
+     "thaw",
+     "breeze",
+     "monsoon",
+     "dew"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_055",
+   "condition": "exact",
+   "subject": "team",
+   "relation": "PART_OF",
+   "options": [
+    "norm",
+    "market",
+    "leader",
+    "ceremony"
+   ],
+   "gold_for_grader_only": "ceremony",
+   "decision": {
+    "subject": "team",
+    "relation": "PART_OF",
+    "options": [
+     "norm",
+     "market",
+     "leader",
+     "ceremony"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_055",
+   "condition": "far",
+   "subject": "mist",
+   "relation": "PART_OF",
+   "options": [
+    "typhoon",
+    "monsoon",
+    "breeze",
+    "blizzard"
+   ],
+   "gold_for_grader_only": "blizzard",
+   "decision": {
+    "subject": "mist",
+    "relation": "PART_OF",
+    "options": [
+     "typhoon",
+     "monsoon",
+     "breeze",
+     "blizzard"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_056",
+   "condition": "exact",
+   "subject": "habit",
+   "relation": "PRECEDES",
+   "options": [
+    "charter",
+    "contract",
+    "custom",
+    "tradition"
+   ],
+   "gold_for_grader_only": "custom",
+   "decision": {
+    "subject": "habit",
+    "relation": "PRECEDES",
+    "options": [
+     "charter",
+     "contract",
+     "custom",
+     "tradition"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_056",
+   "condition": "far",
+   "subject": "blizzard",
+   "relation": "PRECEDES",
+   "options": [
+    "climate",
+    "glow",
+    "mist",
+    "drizzle"
+   ],
+   "gold_for_grader_only": "climate",
+   "decision": {
+    "subject": "blizzard",
+    "relation": "PRECEDES",
+    "options": [
+     "climate",
+     "glow",
+     "mist",
+     "drizzle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_057",
+   "condition": "exact",
+   "subject": "society",
+   "relation": "SUPPORTS",
+   "options": [
+    "custom",
+    "game",
+    "law",
+    "market"
+   ],
+   "gold_for_grader_only": "market",
+   "decision": {
+    "subject": "society",
+    "relation": "SUPPORTS",
+    "options": [
+     "custom",
+     "game",
+     "law",
+     "market"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_057",
+   "condition": "far",
+   "subject": "overcast",
+   "relation": "SUPPORTS",
+   "options": [
+    "mist",
+    "climate",
+    "gale",
+    "chill"
+   ],
+   "gold_for_grader_only": "mist",
+   "decision": {
+    "subject": "overcast",
+    "relation": "SUPPORTS",
+    "options": [
+     "mist",
+     "climate",
+     "gale",
+     "chill"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_058",
+   "condition": "exact",
+   "subject": "signal",
+   "relation": "OPPOSITE",
+   "options": [
+    "norm",
+    "contract",
+    "ritual",
+    "reward"
+   ],
+   "gold_for_grader_only": "ritual",
+   "decision": {
+    "subject": "signal",
+    "relation": "OPPOSITE",
+    "options": [
+     "norm",
+     "contract",
+     "ritual",
+     "reward"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_058",
+   "condition": "far",
+   "subject": "frost",
+   "relation": "OPPOSITE",
+   "options": [
+    "glow",
+    "thaw",
+    "climate",
+    "breeze"
+   ],
+   "gold_for_grader_only": "climate",
+   "decision": {
+    "subject": "frost",
+    "relation": "OPPOSITE",
+    "options": [
+     "glow",
+     "thaw",
+     "climate",
+     "breeze"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_059",
+   "condition": "exact",
+   "subject": "tradition",
+   "relation": "RESEMBLES",
+   "options": [
+    "ritual",
+    "council",
+    "guild",
+    "role"
+   ],
+   "gold_for_grader_only": "role",
+   "decision": {
+    "subject": "tradition",
+    "relation": "RESEMBLES",
+    "options": [
+     "ritual",
+     "council",
+     "guild",
+     "role"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_059",
+   "condition": "far",
+   "subject": "gale",
+   "relation": "RESEMBLES",
+   "options": [
+    "shower",
+    "blizzard",
+    "thunder",
+    "thaw"
+   ],
+   "gold_for_grader_only": "blizzard",
+   "decision": {
+    "subject": "gale",
+    "relation": "RESEMBLES",
+    "options": [
+     "shower",
+     "blizzard",
+     "thunder",
+     "thaw"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_060",
+   "condition": "exact",
+   "subject": "quadrant",
+   "relation": "CAUSE",
+   "options": [
+    "polygon",
+    "diameter",
+    "prism",
+    "cube"
+   ],
+   "gold_for_grader_only": "diameter",
+   "decision": {
+    "subject": "quadrant",
+    "relation": "CAUSE",
+    "options": [
+     "polygon",
+     "diameter",
+     "prism",
+     "cube"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_060",
+   "condition": "far",
+   "subject": "marrow",
+   "relation": "CAUSE",
+   "options": [
+    "skin",
+    "muscle",
+    "nerve",
+    "joint"
+   ],
+   "gold_for_grader_only": "joint",
+   "decision": {
+    "subject": "marrow",
+    "relation": "CAUSE",
+    "options": [
+     "skin",
+     "muscle",
+     "nerve",
+     "joint"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_061",
+   "condition": "exact",
+   "subject": "ellipse",
+   "relation": "PART_OF",
+   "options": [
+    "cube",
+    "point",
+    "quadrant",
+    "arc"
+   ],
+   "gold_for_grader_only": "point",
+   "decision": {
+    "subject": "ellipse",
+    "relation": "PART_OF",
+    "options": [
+     "cube",
+     "point",
+     "quadrant",
+     "arc"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_061",
+   "condition": "far",
+   "subject": "bone",
+   "relation": "PART_OF",
+   "options": [
+    "brain",
+    "vessel",
+    "cartilage",
+    "plasma"
+   ],
+   "gold_for_grader_only": "vessel",
+   "decision": {
+    "subject": "bone",
+    "relation": "PART_OF",
+    "options": [
+     "brain",
+     "vessel",
+     "cartilage",
+     "plasma"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_062",
+   "condition": "exact",
+   "subject": "vertex",
+   "relation": "PRECEDES",
+   "options": [
+    "chord",
+    "segment",
+    "polygon",
+    "angle"
+   ],
+   "gold_for_grader_only": "chord",
+   "decision": {
+    "subject": "vertex",
+    "relation": "PRECEDES",
+    "options": [
+     "chord",
+     "segment",
+     "polygon",
+     "angle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_062",
+   "condition": "far",
+   "subject": "joint",
+   "relation": "PRECEDES",
+   "options": [
+    "kidney",
+    "artery",
+    "brain",
+    "vessel"
+   ],
+   "gold_for_grader_only": "artery",
+   "decision": {
+    "subject": "joint",
+    "relation": "PRECEDES",
+    "options": [
+     "kidney",
+     "artery",
+     "brain",
+     "vessel"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_063",
+   "condition": "exact",
+   "subject": "cube",
+   "relation": "SUPPORTS",
+   "options": [
+    "circle",
+    "plane",
+    "curve",
+    "angle"
+   ],
+   "gold_for_grader_only": "plane",
+   "decision": {
+    "subject": "cube",
+    "relation": "SUPPORTS",
+    "options": [
+     "circle",
+     "plane",
+     "curve",
+     "angle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_063",
+   "condition": "far",
+   "subject": "kidney",
+   "relation": "SUPPORTS",
+   "options": [
+    "artery",
+    "liver",
+    "tissue",
+    "skin"
+   ],
+   "gold_for_grader_only": "artery",
+   "decision": {
+    "subject": "kidney",
+    "relation": "SUPPORTS",
+    "options": [
+     "artery",
+     "liver",
+     "tissue",
+     "skin"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_064",
+   "condition": "exact",
+   "subject": "prism",
+   "relation": "OPPOSITE",
+   "options": [
+    "lattice",
+    "circle",
+    "cube",
+    "square"
+   ],
+   "gold_for_grader_only": "circle",
+   "decision": {
+    "subject": "prism",
+    "relation": "OPPOSITE",
+    "options": [
+     "lattice",
+     "circle",
+     "cube",
+     "square"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_064",
+   "condition": "far",
+   "subject": "liver",
+   "relation": "OPPOSITE",
+   "options": [
+    "plasma",
+    "tendon",
+    "reflex",
+    "kidney"
+   ],
+   "gold_for_grader_only": "tendon",
+   "decision": {
+    "subject": "liver",
+    "relation": "OPPOSITE",
+    "options": [
+     "plasma",
+     "tendon",
+     "reflex",
+     "kidney"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_065",
+   "condition": "exact",
+   "subject": "chord",
+   "relation": "RESEMBLES",
+   "options": [
+    "radius",
+    "line",
+    "sphere",
+    "axis"
+   ],
+   "gold_for_grader_only": "axis",
+   "decision": {
+    "subject": "chord",
+    "relation": "RESEMBLES",
+    "options": [
+     "radius",
+     "line",
+     "sphere",
+     "axis"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_065",
+   "condition": "far",
+   "subject": "palm",
+   "relation": "RESEMBLES",
+   "options": [
+    "tissue",
+    "muscle",
+    "lung",
+    "tendon"
+   ],
+   "gold_for_grader_only": "tissue",
+   "decision": {
+    "subject": "palm",
+    "relation": "RESEMBLES",
+    "options": [
+     "tissue",
+     "muscle",
+     "lung",
+     "tendon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_066",
+   "condition": "exact",
+   "subject": "thorn",
+   "relation": "CAUSE",
+   "options": [
+    "vine",
+    "leaf",
+    "blossom",
+    "stem"
+   ],
+   "gold_for_grader_only": "vine",
+   "decision": {
+    "subject": "thorn",
+    "relation": "CAUSE",
+    "options": [
+     "vine",
+     "leaf",
+     "blossom",
+     "stem"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_066",
+   "condition": "far",
+   "subject": "piston",
+   "relation": "CAUSE",
+   "options": [
+    "axle",
+    "fuse",
+    "valve",
+    "shaft"
+   ],
+   "gold_for_grader_only": "valve",
+   "decision": {
+    "subject": "piston",
+    "relation": "CAUSE",
+    "options": [
+     "axle",
+     "fuse",
+     "valve",
+     "shaft"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_067",
+   "condition": "exact",
+   "subject": "stem",
+   "relation": "PART_OF",
+   "options": [
+    "herb",
+    "seedling",
+    "moss",
+    "leaf"
+   ],
+   "gold_for_grader_only": "herb",
+   "decision": {
+    "subject": "stem",
+    "relation": "PART_OF",
+    "options": [
+     "herb",
+     "seedling",
+     "moss",
+     "leaf"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_067",
+   "condition": "far",
+   "subject": "bearing",
+   "relation": "PART_OF",
+   "options": [
+    "spring",
+    "fuse",
+    "valley",
+    "coil"
+   ],
+   "gold_for_grader_only": "fuse",
+   "decision": {
+    "subject": "bearing",
+    "relation": "PART_OF",
+    "options": [
+     "spring",
+     "fuse",
+     "valley",
+     "coil"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_068",
+   "condition": "exact",
+   "subject": "branch",
+   "relation": "PRECEDES",
+   "options": [
+    "trunk",
+    "vine",
+    "fern",
+    "thorn"
+   ],
+   "gold_for_grader_only": "vine",
+   "decision": {
+    "subject": "branch",
+    "relation": "PRECEDES",
+    "options": [
+     "trunk",
+     "vine",
+     "fern",
+     "thorn"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_068",
+   "condition": "far",
+   "subject": "gear",
+   "relation": "PRECEDES",
+   "options": [
+    "pivot",
+    "axle",
+    "fuse",
+    "lever"
+   ],
+   "gold_for_grader_only": "fuse",
+   "decision": {
+    "subject": "gear",
+    "relation": "PRECEDES",
+    "options": [
+     "pivot",
+     "axle",
+     "fuse",
+     "lever"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_069",
+   "condition": "exact",
+   "subject": "herb",
+   "relation": "SUPPORTS",
+   "options": [
+    "fern",
+    "bark",
+    "fruit",
+    "grain"
+   ],
+   "gold_for_grader_only": "grain",
+   "decision": {
+    "subject": "herb",
+    "relation": "SUPPORTS",
+    "options": [
+     "fern",
+     "bark",
+     "fruit",
+     "grain"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_069",
+   "condition": "far",
+   "subject": "sprocket",
+   "relation": "SUPPORTS",
+   "options": [
+    "gear",
+    "valve",
+    "widget",
+    "fuse"
+   ],
+   "gold_for_grader_only": "fuse",
+   "decision": {
+    "subject": "sprocket",
+    "relation": "SUPPORTS",
+    "options": [
+     "gear",
+     "valve",
+     "widget",
+     "fuse"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_070",
+   "condition": "exact",
+   "subject": "petal",
+   "relation": "OPPOSITE",
+   "options": [
+    "fruit",
+    "fern",
+    "trunk",
+    "sapling"
+   ],
+   "gold_for_grader_only": "fruit",
+   "decision": {
+    "subject": "petal",
+    "relation": "OPPOSITE",
+    "options": [
+     "fruit",
+     "fern",
+     "trunk",
+     "sapling"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_070",
+   "condition": "far",
+   "subject": "rotor",
+   "relation": "OPPOSITE",
+   "options": [
+    "cam",
+    "axle",
+    "shaft",
+    "circuit"
+   ],
+   "gold_for_grader_only": "axle",
+   "decision": {
+    "subject": "rotor",
+    "relation": "OPPOSITE",
+    "options": [
+     "cam",
+     "axle",
+     "shaft",
+     "circuit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_071",
+   "condition": "exact",
+   "subject": "stem",
+   "relation": "RESEMBLES",
+   "options": [
+    "leaf",
+    "sapling",
+    "seedling",
+    "fern"
+   ],
+   "gold_for_grader_only": "sapling",
+   "decision": {
+    "subject": "stem",
+    "relation": "RESEMBLES",
+    "options": [
+     "leaf",
+     "sapling",
+     "seedling",
+     "fern"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_071",
+   "condition": "far",
+   "subject": "gasket",
+   "relation": "RESEMBLES",
+   "options": [
+    "switch",
+    "wheel",
+    "gear",
+    "spring"
+   ],
+   "gold_for_grader_only": "spring",
+   "decision": {
+    "subject": "gasket",
+    "relation": "RESEMBLES",
+    "options": [
+     "switch",
+     "wheel",
+     "gear",
+     "spring"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_072",
+   "condition": "exact",
+   "subject": "thaw",
+   "relation": "CAUSE",
+   "options": [
+    "glow",
+    "cloud",
+    "monsoon",
+    "drizzle"
+   ],
+   "gold_for_grader_only": "monsoon",
+   "decision": {
+    "subject": "thaw",
+    "relation": "CAUSE",
+    "options": [
+     "glow",
+     "cloud",
+     "monsoon",
+     "drizzle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_072",
+   "condition": "far",
+   "subject": "treaty",
+   "relation": "CAUSE",
+   "options": [
+    "signal",
+    "ceremony",
+    "guild",
+    "rank"
+   ],
+   "gold_for_grader_only": "guild",
+   "decision": {
+    "subject": "treaty",
+    "relation": "CAUSE",
+    "options": [
+     "signal",
+     "ceremony",
+     "guild",
+     "rank"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_073",
+   "condition": "exact",
+   "subject": "rainbow",
+   "relation": "PART_OF",
+   "options": [
+    "sleet",
+    "typhoon",
+    "mist",
+    "monsoon"
+   ],
+   "gold_for_grader_only": "mist",
+   "decision": {
+    "subject": "rainbow",
+    "relation": "PART_OF",
+    "options": [
+     "sleet",
+     "typhoon",
+     "mist",
+     "monsoon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_073",
+   "condition": "far",
+   "subject": "reward",
+   "relation": "PART_OF",
+   "options": [
+    "rank",
+    "role",
+    "rumor",
+    "council"
+   ],
+   "gold_for_grader_only": "rumor",
+   "decision": {
+    "subject": "reward",
+    "relation": "PART_OF",
+    "options": [
+     "rank",
+     "role",
+     "rumor",
+     "council"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_074",
+   "condition": "exact",
+   "subject": "thaw",
+   "relation": "PRECEDES",
+   "options": [
+    "breeze",
+    "glow",
+    "overcast",
+    "thunder"
+   ],
+   "gold_for_grader_only": "glow",
+   "decision": {
+    "subject": "thaw",
+    "relation": "PRECEDES",
+    "options": [
+     "breeze",
+     "glow",
+     "overcast",
+     "thunder"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_074",
+   "condition": "far",
+   "subject": "vote",
+   "relation": "PRECEDES",
+   "options": [
+    "market",
+    "guild",
+    "election",
+    "ritual"
+   ],
+   "gold_for_grader_only": "ritual",
+   "decision": {
+    "subject": "vote",
+    "relation": "PRECEDES",
+    "options": [
+     "market",
+     "guild",
+     "election",
+     "ritual"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_075",
+   "condition": "exact",
+   "subject": "storm",
+   "relation": "SUPPORTS",
+   "options": [
+    "rainbow",
+    "breeze",
+    "sunset",
+    "cloud"
+   ],
+   "gold_for_grader_only": "cloud",
+   "decision": {
+    "subject": "storm",
+    "relation": "SUPPORTS",
+    "options": [
+     "rainbow",
+     "breeze",
+     "sunset",
+     "cloud"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_075",
+   "condition": "far",
+   "subject": "market",
+   "relation": "SUPPORTS",
+   "options": [
+    "ceremony",
+    "role",
+    "rank",
+    "contract"
+   ],
+   "gold_for_grader_only": "rank",
+   "decision": {
+    "subject": "market",
+    "relation": "SUPPORTS",
+    "options": [
+     "ceremony",
+     "role",
+     "rank",
+     "contract"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_076",
+   "condition": "exact",
+   "subject": "squall",
+   "relation": "OPPOSITE",
+   "options": [
+    "drizzle",
+    "monsoon",
+    "climate",
+    "tempest"
+   ],
+   "gold_for_grader_only": "drizzle",
+   "decision": {
+    "subject": "squall",
+    "relation": "OPPOSITE",
+    "options": [
+     "drizzle",
+     "monsoon",
+     "climate",
+     "tempest"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_076",
+   "condition": "far",
+   "subject": "rank",
+   "relation": "OPPOSITE",
+   "options": [
+    "law",
+    "council",
+    "contract",
+    "charter"
+   ],
+   "gold_for_grader_only": "charter",
+   "decision": {
+    "subject": "rank",
+    "relation": "OPPOSITE",
+    "options": [
+     "law",
+     "council",
+     "contract",
+     "charter"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_077",
+   "condition": "exact",
+   "subject": "gale",
+   "relation": "RESEMBLES",
+   "options": [
+    "storm",
+    "cloud",
+    "shower",
+    "overcast"
+   ],
+   "gold_for_grader_only": "shower",
+   "decision": {
+    "subject": "gale",
+    "relation": "RESEMBLES",
+    "options": [
+     "storm",
+     "cloud",
+     "shower",
+     "overcast"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_077",
+   "condition": "far",
+   "subject": "rumor",
+   "relation": "RESEMBLES",
+   "options": [
+    "society",
+    "custom",
+    "treaty",
+    "tradition"
+   ],
+   "gold_for_grader_only": "custom",
+   "decision": {
+    "subject": "rumor",
+    "relation": "RESEMBLES",
+    "options": [
+     "society",
+     "custom",
+     "treaty",
+     "tradition"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_078",
+   "condition": "exact",
+   "subject": "ligament",
+   "relation": "CAUSE",
+   "options": [
+    "artery",
+    "diaphragm",
+    "gland",
+    "kidney"
+   ],
+   "gold_for_grader_only": "diaphragm",
+   "decision": {
+    "subject": "ligament",
+    "relation": "CAUSE",
+    "options": [
+     "artery",
+     "diaphragm",
+     "gland",
+     "kidney"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_078",
+   "condition": "far",
+   "subject": "chord",
+   "relation": "CAUSE",
+   "options": [
+    "circle",
+    "diameter",
+    "tangent",
+    "radius"
+   ],
+   "gold_for_grader_only": "tangent",
+   "decision": {
+    "subject": "chord",
+    "relation": "CAUSE",
+    "options": [
+     "circle",
+     "diameter",
+     "tangent",
+     "radius"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_079",
+   "condition": "exact",
+   "subject": "cartilage",
+   "relation": "PART_OF",
+   "options": [
+    "bone",
+    "nerve",
+    "vessel",
+    "lung"
+   ],
+   "gold_for_grader_only": "nerve",
+   "decision": {
+    "subject": "cartilage",
+    "relation": "PART_OF",
+    "options": [
+     "bone",
+     "nerve",
+     "vessel",
+     "lung"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_079",
+   "condition": "far",
+   "subject": "curve",
+   "relation": "PART_OF",
+   "options": [
+    "arc",
+    "plane",
+    "diameter",
+    "vertex"
+   ],
+   "gold_for_grader_only": "vertex",
+   "decision": {
+    "subject": "curve",
+    "relation": "PART_OF",
+    "options": [
+     "arc",
+     "plane",
+     "diameter",
+     "vertex"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_080",
+   "condition": "exact",
+   "subject": "vein",
+   "relation": "PRECEDES",
+   "options": [
+    "tendon",
+    "esophagus",
+    "vessel",
+    "lung"
+   ],
+   "gold_for_grader_only": "vessel",
+   "decision": {
+    "subject": "vein",
+    "relation": "PRECEDES",
+    "options": [
+     "tendon",
+     "esophagus",
+     "vessel",
+     "lung"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_080",
+   "condition": "far",
+   "subject": "line",
+   "relation": "PRECEDES",
+   "options": [
+    "sphere",
+    "ellipse",
+    "radius",
+    "plane"
+   ],
+   "gold_for_grader_only": "sphere",
+   "decision": {
+    "subject": "line",
+    "relation": "PRECEDES",
+    "options": [
+     "sphere",
+     "ellipse",
+     "radius",
+     "plane"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_081",
+   "condition": "exact",
+   "subject": "palm",
+   "relation": "SUPPORTS",
+   "options": [
+    "bone",
+    "diaphragm",
+    "muscle",
+    "liver"
+   ],
+   "gold_for_grader_only": "diaphragm",
+   "decision": {
+    "subject": "palm",
+    "relation": "SUPPORTS",
+    "options": [
+     "bone",
+     "diaphragm",
+     "muscle",
+     "liver"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_081",
+   "condition": "far",
+   "subject": "axis",
+   "relation": "SUPPORTS",
+   "options": [
+    "segment",
+    "square",
+    "lattice",
+    "circle"
+   ],
+   "gold_for_grader_only": "lattice",
+   "decision": {
+    "subject": "axis",
+    "relation": "SUPPORTS",
+    "options": [
+     "segment",
+     "square",
+     "lattice",
+     "circle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_082",
+   "condition": "exact",
+   "subject": "reflex",
+   "relation": "OPPOSITE",
+   "options": [
+    "muscle",
+    "skin",
+    "cartilage",
+    "nerve"
+   ],
+   "gold_for_grader_only": "nerve",
+   "decision": {
+    "subject": "reflex",
+    "relation": "OPPOSITE",
+    "options": [
+     "muscle",
+     "skin",
+     "cartilage",
+     "nerve"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_082",
+   "condition": "far",
+   "subject": "plane",
+   "relation": "OPPOSITE",
+   "options": [
+    "prism",
+    "point",
+    "arc",
+    "line"
+   ],
+   "gold_for_grader_only": "arc",
+   "decision": {
+    "subject": "plane",
+    "relation": "OPPOSITE",
+    "options": [
+     "prism",
+     "point",
+     "arc",
+     "line"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_083",
+   "condition": "exact",
+   "subject": "tissue",
+   "relation": "RESEMBLES",
+   "options": [
+    "bone",
+    "vein",
+    "skin",
+    "brain"
+   ],
+   "gold_for_grader_only": "bone",
+   "decision": {
+    "subject": "tissue",
+    "relation": "RESEMBLES",
+    "options": [
+     "bone",
+     "vein",
+     "skin",
+     "brain"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_083",
+   "condition": "far",
+   "subject": "cube",
+   "relation": "RESEMBLES",
+   "options": [
+    "square",
+    "line",
+    "diameter",
+    "segment"
+   ],
+   "gold_for_grader_only": "square",
+   "decision": {
+    "subject": "cube",
+    "relation": "RESEMBLES",
+    "options": [
+     "square",
+     "line",
+     "diameter",
+     "segment"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_084",
+   "condition": "exact",
+   "subject": "sprocket",
+   "relation": "CAUSE",
+   "options": [
+    "gear",
+    "rotor",
+    "shaft",
+    "pulley"
+   ],
+   "gold_for_grader_only": "pulley",
+   "decision": {
+    "subject": "sprocket",
+    "relation": "CAUSE",
+    "options": [
+     "gear",
+     "rotor",
+     "shaft",
+     "pulley"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_084",
+   "condition": "far",
+   "subject": "branch",
+   "relation": "CAUSE",
+   "options": [
+    "fern",
+    "pollen",
+    "petal",
+    "thorn"
+   ],
+   "gold_for_grader_only": "thorn",
+   "decision": {
+    "subject": "branch",
+    "relation": "CAUSE",
+    "options": [
+     "fern",
+     "pollen",
+     "petal",
+     "thorn"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_085",
+   "condition": "exact",
+   "subject": "belt",
+   "relation": "PART_OF",
+   "options": [
+    "lever",
+    "spring",
+    "valley",
+    "switch"
+   ],
+   "gold_for_grader_only": "lever",
+   "decision": {
+    "subject": "belt",
+    "relation": "PART_OF",
+    "options": [
+     "lever",
+     "spring",
+     "valley",
+     "switch"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_085",
+   "condition": "far",
+   "subject": "grain",
+   "relation": "PART_OF",
+   "options": [
+    "herb",
+    "shrub",
+    "moss",
+    "tree"
+   ],
+   "gold_for_grader_only": "shrub",
+   "decision": {
+    "subject": "grain",
+    "relation": "PART_OF",
+    "options": [
+     "herb",
+     "shrub",
+     "moss",
+     "tree"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_086",
+   "condition": "exact",
+   "subject": "clutch",
+   "relation": "PRECEDES",
+   "options": [
+    "valve",
+    "coil",
+    "spring",
+    "shaft"
+   ],
+   "gold_for_grader_only": "valve",
+   "decision": {
+    "subject": "clutch",
+    "relation": "PRECEDES",
+    "options": [
+     "valve",
+     "coil",
+     "spring",
+     "shaft"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_086",
+   "condition": "far",
+   "subject": "seedling",
+   "relation": "PRECEDES",
+   "options": [
+    "fruit",
+    "thorn",
+    "seed",
+    "branch"
+   ],
+   "gold_for_grader_only": "thorn",
+   "decision": {
+    "subject": "seedling",
+    "relation": "PRECEDES",
+    "options": [
+     "fruit",
+     "thorn",
+     "seed",
+     "branch"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_087",
+   "condition": "exact",
+   "subject": "belt",
+   "relation": "SUPPORTS",
+   "options": [
+    "fuse",
+    "sprocket",
+    "motor",
+    "cam"
+   ],
+   "gold_for_grader_only": "fuse",
+   "decision": {
+    "subject": "belt",
+    "relation": "SUPPORTS",
+    "options": [
+     "fuse",
+     "sprocket",
+     "motor",
+     "cam"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_087",
+   "condition": "far",
+   "subject": "foliage",
+   "relation": "SUPPORTS",
+   "options": [
+    "trunk",
+    "fern",
+    "moss",
+    "fruit"
+   ],
+   "gold_for_grader_only": "fruit",
+   "decision": {
+    "subject": "foliage",
+    "relation": "SUPPORTS",
+    "options": [
+     "trunk",
+     "fern",
+     "moss",
+     "fruit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_088",
+   "condition": "exact",
+   "subject": "switch",
+   "relation": "OPPOSITE",
+   "options": [
+    "circuit",
+    "spring",
+    "sprocket",
+    "valve"
+   ],
+   "gold_for_grader_only": "circuit",
+   "decision": {
+    "subject": "switch",
+    "relation": "OPPOSITE",
+    "options": [
+     "circuit",
+     "spring",
+     "sprocket",
+     "valve"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_088",
+   "condition": "far",
+   "subject": "root",
+   "relation": "OPPOSITE",
+   "options": [
+    "vine",
+    "herb",
+    "blossom",
+    "moss"
+   ],
+   "gold_for_grader_only": "vine",
+   "decision": {
+    "subject": "root",
+    "relation": "OPPOSITE",
+    "options": [
+     "vine",
+     "herb",
+     "blossom",
+     "moss"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_089",
+   "condition": "exact",
+   "subject": "bearing",
+   "relation": "RESEMBLES",
+   "options": [
+    "piston",
+    "fuse",
+    "spring",
+    "rotor"
+   ],
+   "gold_for_grader_only": "rotor",
+   "decision": {
+    "subject": "bearing",
+    "relation": "RESEMBLES",
+    "options": [
+     "piston",
+     "fuse",
+     "spring",
+     "rotor"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_089",
+   "condition": "far",
+   "subject": "fruit",
+   "relation": "RESEMBLES",
+   "options": [
+    "trunk",
+    "tree",
+    "blossom",
+    "fern"
+   ],
+   "gold_for_grader_only": "blossom",
+   "decision": {
+    "subject": "fruit",
+    "relation": "RESEMBLES",
+    "options": [
+     "trunk",
+     "tree",
+     "blossom",
+     "fern"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_090",
+   "condition": "exact",
+   "subject": "tradition",
+   "relation": "CAUSE",
+   "options": [
+    "signal",
+    "reward",
+    "vote",
+    "custom"
+   ],
+   "gold_for_grader_only": "custom",
+   "decision": {
+    "subject": "tradition",
+    "relation": "CAUSE",
+    "options": [
+     "signal",
+     "reward",
+     "vote",
+     "custom"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_090",
+   "condition": "far",
+   "subject": "gale",
+   "relation": "CAUSE",
+   "options": [
+    "dew",
+    "squall",
+    "drizzle",
+    "sunset"
+   ],
+   "gold_for_grader_only": "dew",
+   "decision": {
+    "subject": "gale",
+    "relation": "CAUSE",
+    "options": [
+     "dew",
+     "squall",
+     "drizzle",
+     "sunset"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_091",
+   "condition": "exact",
+   "subject": "election",
+   "relation": "PART_OF",
+   "options": [
+    "norm",
+    "market",
+    "vote",
+    "contract"
+   ],
+   "gold_for_grader_only": "norm",
+   "decision": {
+    "subject": "election",
+    "relation": "PART_OF",
+    "options": [
+     "norm",
+     "market",
+     "vote",
+     "contract"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_091",
+   "condition": "far",
+   "subject": "storm",
+   "relation": "PART_OF",
+   "options": [
+    "frost",
+    "chill",
+    "dew",
+    "thunder"
+   ],
+   "gold_for_grader_only": "dew",
+   "decision": {
+    "subject": "storm",
+    "relation": "PART_OF",
+    "options": [
+     "frost",
+     "chill",
+     "dew",
+     "thunder"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_092",
+   "condition": "exact",
+   "subject": "norm",
+   "relation": "PRECEDES",
+   "options": [
+    "game",
+    "rank",
+    "team",
+    "contract"
+   ],
+   "gold_for_grader_only": "contract",
+   "decision": {
+    "subject": "norm",
+    "relation": "PRECEDES",
+    "options": [
+     "game",
+     "rank",
+     "team",
+     "contract"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_092",
+   "condition": "far",
+   "subject": "dew",
+   "relation": "PRECEDES",
+   "options": [
+    "overcast",
+    "squall",
+    "typhoon",
+    "blizzard"
+   ],
+   "gold_for_grader_only": "blizzard",
+   "decision": {
+    "subject": "dew",
+    "relation": "PRECEDES",
+    "options": [
+     "overcast",
+     "squall",
+     "typhoon",
+     "blizzard"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_093",
+   "condition": "exact",
+   "subject": "guild",
+   "relation": "SUPPORTS",
+   "options": [
+    "ritual",
+    "rank",
+    "law",
+    "reward"
+   ],
+   "gold_for_grader_only": "law",
+   "decision": {
+    "subject": "guild",
+    "relation": "SUPPORTS",
+    "options": [
+     "ritual",
+     "rank",
+     "law",
+     "reward"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_093",
+   "condition": "far",
+   "subject": "drizzle",
+   "relation": "SUPPORTS",
+   "options": [
+    "cloud",
+    "climate",
+    "storm",
+    "typhoon"
+   ],
+   "gold_for_grader_only": "cloud",
+   "decision": {
+    "subject": "drizzle",
+    "relation": "SUPPORTS",
+    "options": [
+     "cloud",
+     "climate",
+     "storm",
+     "typhoon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_094",
+   "condition": "exact",
+   "subject": "society",
+   "relation": "OPPOSITE",
+   "options": [
+    "vote",
+    "charter",
+    "team",
+    "leader"
+   ],
+   "gold_for_grader_only": "team",
+   "decision": {
+    "subject": "society",
+    "relation": "OPPOSITE",
+    "options": [
+     "vote",
+     "charter",
+     "team",
+     "leader"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_094",
+   "condition": "far",
+   "subject": "thaw",
+   "relation": "OPPOSITE",
+   "options": [
+    "storm",
+    "cloud",
+    "hail",
+    "shower"
+   ],
+   "gold_for_grader_only": "cloud",
+   "decision": {
+    "subject": "thaw",
+    "relation": "OPPOSITE",
+    "options": [
+     "storm",
+     "cloud",
+     "hail",
+     "shower"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_095",
+   "condition": "exact",
+   "subject": "society",
+   "relation": "RESEMBLES",
+   "options": [
+    "law",
+    "contract",
+    "signal",
+    "habit"
+   ],
+   "gold_for_grader_only": "law",
+   "decision": {
+    "subject": "society",
+    "relation": "RESEMBLES",
+    "options": [
+     "law",
+     "contract",
+     "signal",
+     "habit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_095",
+   "condition": "far",
+   "subject": "storm",
+   "relation": "RESEMBLES",
+   "options": [
+    "thunder",
+    "overcast",
+    "thaw",
+    "cloud"
+   ],
+   "gold_for_grader_only": "thaw",
+   "decision": {
+    "subject": "storm",
+    "relation": "RESEMBLES",
+    "options": [
+     "thunder",
+     "overcast",
+     "thaw",
+     "cloud"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_096",
+   "condition": "exact",
+   "subject": "lattice",
+   "relation": "CAUSE",
+   "options": [
+    "axis",
+    "square",
+    "circle",
+    "cube"
+   ],
+   "gold_for_grader_only": "square",
+   "decision": {
+    "subject": "lattice",
+    "relation": "CAUSE",
+    "options": [
+     "axis",
+     "square",
+     "circle",
+     "cube"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_096",
+   "condition": "far",
+   "subject": "tendon",
+   "relation": "CAUSE",
+   "options": [
+    "bone",
+    "ligament",
+    "palm",
+    "vessel"
+   ],
+   "gold_for_grader_only": "bone",
+   "decision": {
+    "subject": "tendon",
+    "relation": "CAUSE",
+    "options": [
+     "bone",
+     "ligament",
+     "palm",
+     "vessel"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_097",
+   "condition": "exact",
+   "subject": "tangent",
+   "relation": "PART_OF",
+   "options": [
+    "ellipse",
+    "chord",
+    "angle",
+    "circle"
+   ],
+   "gold_for_grader_only": "chord",
+   "decision": {
+    "subject": "tangent",
+    "relation": "PART_OF",
+    "options": [
+     "ellipse",
+     "chord",
+     "angle",
+     "circle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_097",
+   "condition": "far",
+   "subject": "vein",
+   "relation": "PART_OF",
+   "options": [
+    "reflex",
+    "diaphragm",
+    "joint",
+    "marrow"
+   ],
+   "gold_for_grader_only": "joint",
+   "decision": {
+    "subject": "vein",
+    "relation": "PART_OF",
+    "options": [
+     "reflex",
+     "diaphragm",
+     "joint",
+     "marrow"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_098",
+   "condition": "exact",
+   "subject": "ellipse",
+   "relation": "PRECEDES",
+   "options": [
+    "polygon",
+    "chord",
+    "radius",
+    "quadrant"
+   ],
+   "gold_for_grader_only": "polygon",
+   "decision": {
+    "subject": "ellipse",
+    "relation": "PRECEDES",
+    "options": [
+     "polygon",
+     "chord",
+     "radius",
+     "quadrant"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_098",
+   "condition": "far",
+   "subject": "kidney",
+   "relation": "PRECEDES",
+   "options": [
+    "bone",
+    "plasma",
+    "cartilage",
+    "joint"
+   ],
+   "gold_for_grader_only": "bone",
+   "decision": {
+    "subject": "kidney",
+    "relation": "PRECEDES",
+    "options": [
+     "bone",
+     "plasma",
+     "cartilage",
+     "joint"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_099",
+   "condition": "exact",
+   "subject": "plane",
+   "relation": "SUPPORTS",
+   "options": [
+    "slope",
+    "line",
+    "chord",
+    "arc"
+   ],
+   "gold_for_grader_only": "chord",
+   "decision": {
+    "subject": "plane",
+    "relation": "SUPPORTS",
+    "options": [
+     "slope",
+     "line",
+     "chord",
+     "arc"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_099",
+   "condition": "far",
+   "subject": "muscle",
+   "relation": "SUPPORTS",
+   "options": [
+    "diaphragm",
+    "skin",
+    "plasma",
+    "kidney"
+   ],
+   "gold_for_grader_only": "kidney",
+   "decision": {
+    "subject": "muscle",
+    "relation": "SUPPORTS",
+    "options": [
+     "diaphragm",
+     "skin",
+     "plasma",
+     "kidney"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_100",
+   "condition": "exact",
+   "subject": "arc",
+   "relation": "OPPOSITE",
+   "options": [
+    "chord",
+    "axis",
+    "lattice",
+    "prism"
+   ],
+   "gold_for_grader_only": "lattice",
+   "decision": {
+    "subject": "arc",
+    "relation": "OPPOSITE",
+    "options": [
+     "chord",
+     "axis",
+     "lattice",
+     "prism"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_100",
+   "condition": "far",
+   "subject": "cartilage",
+   "relation": "OPPOSITE",
+   "options": [
+    "tissue",
+    "lung",
+    "artery",
+    "vessel"
+   ],
+   "gold_for_grader_only": "tissue",
+   "decision": {
+    "subject": "cartilage",
+    "relation": "OPPOSITE",
+    "options": [
+     "tissue",
+     "lung",
+     "artery",
+     "vessel"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_101",
+   "condition": "exact",
+   "subject": "chord",
+   "relation": "RESEMBLES",
+   "options": [
+    "ellipse",
+    "axis",
+    "polygon",
+    "segment"
+   ],
+   "gold_for_grader_only": "segment",
+   "decision": {
+    "subject": "chord",
+    "relation": "RESEMBLES",
+    "options": [
+     "ellipse",
+     "axis",
+     "polygon",
+     "segment"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_101",
+   "condition": "far",
+   "subject": "muscle",
+   "relation": "RESEMBLES",
+   "options": [
+    "bone",
+    "liver",
+    "reflex",
+    "diaphragm"
+   ],
+   "gold_for_grader_only": "diaphragm",
+   "decision": {
+    "subject": "muscle",
+    "relation": "RESEMBLES",
+    "options": [
+     "bone",
+     "liver",
+     "reflex",
+     "diaphragm"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_102",
+   "condition": "exact",
+   "subject": "tree",
+   "relation": "CAUSE",
+   "options": [
+    "blossom",
+    "shrub",
+    "root",
+    "vine"
+   ],
+   "gold_for_grader_only": "shrub",
+   "decision": {
+    "subject": "tree",
+    "relation": "CAUSE",
+    "options": [
+     "blossom",
+     "shrub",
+     "root",
+     "vine"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_102",
+   "condition": "far",
+   "subject": "axle",
+   "relation": "CAUSE",
+   "options": [
+    "motor",
+    "clutch",
+    "shaft",
+    "belt"
+   ],
+   "gold_for_grader_only": "motor",
+   "decision": {
+    "subject": "axle",
+    "relation": "CAUSE",
+    "options": [
+     "motor",
+     "clutch",
+     "shaft",
+     "belt"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_103",
+   "condition": "exact",
+   "subject": "fern",
+   "relation": "PART_OF",
+   "options": [
+    "pollen",
+    "stem",
+    "vine",
+    "tree"
+   ],
+   "gold_for_grader_only": "tree",
+   "decision": {
+    "subject": "fern",
+    "relation": "PART_OF",
+    "options": [
+     "pollen",
+     "stem",
+     "vine",
+     "tree"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_103",
+   "condition": "far",
+   "subject": "fuse",
+   "relation": "PART_OF",
+   "options": [
+    "coil",
+    "bearing",
+    "valve",
+    "clutch"
+   ],
+   "gold_for_grader_only": "bearing",
+   "decision": {
+    "subject": "fuse",
+    "relation": "PART_OF",
+    "options": [
+     "coil",
+     "bearing",
+     "valve",
+     "clutch"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_104",
+   "condition": "exact",
+   "subject": "tree",
+   "relation": "PRECEDES",
+   "options": [
+    "cone",
+    "seed",
+    "pollen",
+    "thorn"
+   ],
+   "gold_for_grader_only": "seed",
+   "decision": {
+    "subject": "tree",
+    "relation": "PRECEDES",
+    "options": [
+     "cone",
+     "seed",
+     "pollen",
+     "thorn"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_104",
+   "condition": "far",
+   "subject": "circuit",
+   "relation": "PRECEDES",
+   "options": [
+    "axle",
+    "spring",
+    "clutch",
+    "valley"
+   ],
+   "gold_for_grader_only": "spring",
+   "decision": {
+    "subject": "circuit",
+    "relation": "PRECEDES",
+    "options": [
+     "axle",
+     "spring",
+     "clutch",
+     "valley"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_105",
+   "condition": "exact",
+   "subject": "bark",
+   "relation": "SUPPORTS",
+   "options": [
+    "herb",
+    "moss",
+    "bud",
+    "fern"
+   ],
+   "gold_for_grader_only": "moss",
+   "decision": {
+    "subject": "bark",
+    "relation": "SUPPORTS",
+    "options": [
+     "herb",
+     "moss",
+     "bud",
+     "fern"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_105",
+   "condition": "far",
+   "subject": "switch",
+   "relation": "SUPPORTS",
+   "options": [
+    "lever",
+    "wheel",
+    "widget",
+    "shaft"
+   ],
+   "gold_for_grader_only": "shaft",
+   "decision": {
+    "subject": "switch",
+    "relation": "SUPPORTS",
+    "options": [
+     "lever",
+     "wheel",
+     "widget",
+     "shaft"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_106",
+   "condition": "exact",
+   "subject": "branch",
+   "relation": "OPPOSITE",
+   "options": [
+    "fern",
+    "pollen",
+    "blossom",
+    "herb"
+   ],
+   "gold_for_grader_only": "pollen",
+   "decision": {
+    "subject": "branch",
+    "relation": "OPPOSITE",
+    "options": [
+     "fern",
+     "pollen",
+     "blossom",
+     "herb"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_106",
+   "condition": "far",
+   "subject": "circuit",
+   "relation": "OPPOSITE",
+   "options": [
+    "lever",
+    "pivot",
+    "sprocket",
+    "belt"
+   ],
+   "gold_for_grader_only": "lever",
+   "decision": {
+    "subject": "circuit",
+    "relation": "OPPOSITE",
+    "options": [
+     "lever",
+     "pivot",
+     "sprocket",
+     "belt"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_107",
+   "condition": "exact",
+   "subject": "branch",
+   "relation": "RESEMBLES",
+   "options": [
+    "petal",
+    "thorn",
+    "bark",
+    "pollen"
+   ],
+   "gold_for_grader_only": "petal",
+   "decision": {
+    "subject": "branch",
+    "relation": "RESEMBLES",
+    "options": [
+     "petal",
+     "thorn",
+     "bark",
+     "pollen"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_107",
+   "condition": "far",
+   "subject": "rotor",
+   "relation": "RESEMBLES",
+   "options": [
+    "motor",
+    "spring",
+    "clutch",
+    "pivot"
+   ],
+   "gold_for_grader_only": "spring",
+   "decision": {
+    "subject": "rotor",
+    "relation": "RESEMBLES",
+    "options": [
+     "motor",
+     "spring",
+     "clutch",
+     "pivot"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_108",
+   "condition": "exact",
+   "subject": "chill",
+   "relation": "CAUSE",
+   "options": [
+    "sleet",
+    "overcast",
+    "glow",
+    "drizzle"
+   ],
+   "gold_for_grader_only": "glow",
+   "decision": {
+    "subject": "chill",
+    "relation": "CAUSE",
+    "options": [
+     "sleet",
+     "overcast",
+     "glow",
+     "drizzle"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_108",
+   "condition": "far",
+   "subject": "rank",
+   "relation": "CAUSE",
+   "options": [
+    "treaty",
+    "leader",
+    "signal",
+    "vote"
+   ],
+   "gold_for_grader_only": "vote",
+   "decision": {
+    "subject": "rank",
+    "relation": "CAUSE",
+    "options": [
+     "treaty",
+     "leader",
+     "signal",
+     "vote"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_109",
+   "condition": "exact",
+   "subject": "shower",
+   "relation": "PART_OF",
+   "options": [
+    "storm",
+    "drizzle",
+    "mist",
+    "sunset"
+   ],
+   "gold_for_grader_only": "drizzle",
+   "decision": {
+    "subject": "shower",
+    "relation": "PART_OF",
+    "options": [
+     "storm",
+     "drizzle",
+     "mist",
+     "sunset"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_109",
+   "condition": "far",
+   "subject": "norm",
+   "relation": "PART_OF",
+   "options": [
+    "leader",
+    "election",
+    "law",
+    "team"
+   ],
+   "gold_for_grader_only": "leader",
+   "decision": {
+    "subject": "norm",
+    "relation": "PART_OF",
+    "options": [
+     "leader",
+     "election",
+     "law",
+     "team"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_110",
+   "condition": "exact",
+   "subject": "storm",
+   "relation": "PRECEDES",
+   "options": [
+    "breeze",
+    "shower",
+    "monsoon",
+    "cloud"
+   ],
+   "gold_for_grader_only": "monsoon",
+   "decision": {
+    "subject": "storm",
+    "relation": "PRECEDES",
+    "options": [
+     "breeze",
+     "shower",
+     "monsoon",
+     "cloud"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_110",
+   "condition": "far",
+   "subject": "signal",
+   "relation": "PRECEDES",
+   "options": [
+    "leader",
+    "rumor",
+    "reward",
+    "ceremony"
+   ],
+   "gold_for_grader_only": "leader",
+   "decision": {
+    "subject": "signal",
+    "relation": "PRECEDES",
+    "options": [
+     "leader",
+     "rumor",
+     "reward",
+     "ceremony"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_111",
+   "condition": "exact",
+   "subject": "tempest",
+   "relation": "SUPPORTS",
+   "options": [
+    "gale",
+    "frost",
+    "thunder",
+    "rainbow"
+   ],
+   "gold_for_grader_only": "frost",
+   "decision": {
+    "subject": "tempest",
+    "relation": "SUPPORTS",
+    "options": [
+     "gale",
+     "frost",
+     "thunder",
+     "rainbow"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_111",
+   "condition": "far",
+   "subject": "rank",
+   "relation": "SUPPORTS",
+   "options": [
+    "ritual",
+    "charter",
+    "signal",
+    "habit"
+   ],
+   "gold_for_grader_only": "signal",
+   "decision": {
+    "subject": "rank",
+    "relation": "SUPPORTS",
+    "options": [
+     "ritual",
+     "charter",
+     "signal",
+     "habit"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_112",
+   "condition": "exact",
+   "subject": "storm",
+   "relation": "OPPOSITE",
+   "options": [
+    "monsoon",
+    "thunder",
+    "gale",
+    "rainbow"
+   ],
+   "gold_for_grader_only": "thunder",
+   "decision": {
+    "subject": "storm",
+    "relation": "OPPOSITE",
+    "options": [
+     "monsoon",
+     "thunder",
+     "gale",
+     "rainbow"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_112",
+   "condition": "far",
+   "subject": "ritual",
+   "relation": "OPPOSITE",
+   "options": [
+    "charter",
+    "treaty",
+    "ceremony",
+    "rumor"
+   ],
+   "gold_for_grader_only": "ceremony",
+   "decision": {
+    "subject": "ritual",
+    "relation": "OPPOSITE",
+    "options": [
+     "charter",
+     "treaty",
+     "ceremony",
+     "rumor"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_113",
+   "condition": "exact",
+   "subject": "hail",
+   "relation": "RESEMBLES",
+   "options": [
+    "typhoon",
+    "sunset",
+    "chill",
+    "storm"
+   ],
+   "gold_for_grader_only": "typhoon",
+   "decision": {
+    "subject": "hail",
+    "relation": "RESEMBLES",
+    "options": [
+     "typhoon",
+     "sunset",
+     "chill",
+     "storm"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_113",
+   "condition": "far",
+   "subject": "role",
+   "relation": "RESEMBLES",
+   "options": [
+    "council",
+    "team",
+    "treaty",
+    "rumor"
+   ],
+   "gold_for_grader_only": "treaty",
+   "decision": {
+    "subject": "role",
+    "relation": "RESEMBLES",
+    "options": [
+     "council",
+     "team",
+     "treaty",
+     "rumor"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_114",
+   "condition": "exact",
+   "subject": "tendon",
+   "relation": "CAUSE",
+   "options": [
+    "bone",
+    "kidney",
+    "joint",
+    "vein"
+   ],
+   "gold_for_grader_only": "bone",
+   "decision": {
+    "subject": "tendon",
+    "relation": "CAUSE",
+    "options": [
+     "bone",
+     "kidney",
+     "joint",
+     "vein"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_114",
+   "condition": "far",
+   "subject": "diameter",
+   "relation": "CAUSE",
+   "options": [
+    "tangent",
+    "quadrant",
+    "circle",
+    "curve"
+   ],
+   "gold_for_grader_only": "circle",
+   "decision": {
+    "subject": "diameter",
+    "relation": "CAUSE",
+    "options": [
+     "tangent",
+     "quadrant",
+     "circle",
+     "curve"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_115",
+   "condition": "exact",
+   "subject": "brain",
+   "relation": "PART_OF",
+   "options": [
+    "plasma",
+    "kidney",
+    "bone",
+    "tissue"
+   ],
+   "gold_for_grader_only": "bone",
+   "decision": {
+    "subject": "brain",
+    "relation": "PART_OF",
+    "options": [
+     "plasma",
+     "kidney",
+     "bone",
+     "tissue"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_115",
+   "condition": "far",
+   "subject": "diameter",
+   "relation": "PART_OF",
+   "options": [
+    "point",
+    "ellipse",
+    "angle",
+    "polygon"
+   ],
+   "gold_for_grader_only": "polygon",
+   "decision": {
+    "subject": "diameter",
+    "relation": "PART_OF",
+    "options": [
+     "point",
+     "ellipse",
+     "angle",
+     "polygon"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_116",
+   "condition": "exact",
+   "subject": "plasma",
+   "relation": "PRECEDES",
+   "options": [
+    "joint",
+    "skin",
+    "cartilage",
+    "nerve"
+   ],
+   "gold_for_grader_only": "cartilage",
+   "decision": {
+    "subject": "plasma",
+    "relation": "PRECEDES",
+    "options": [
+     "joint",
+     "skin",
+     "cartilage",
+     "nerve"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_116",
+   "condition": "far",
+   "subject": "axis",
+   "relation": "PRECEDES",
+   "options": [
+    "vertex",
+    "ellipse",
+    "arc",
+    "plane"
+   ],
+   "gold_for_grader_only": "vertex",
+   "decision": {
+    "subject": "axis",
+    "relation": "PRECEDES",
+    "options": [
+     "vertex",
+     "ellipse",
+     "arc",
+     "plane"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_117",
+   "condition": "exact",
+   "subject": "palm",
+   "relation": "SUPPORTS",
+   "options": [
+    "vein",
+    "tendon",
+    "joint",
+    "gland"
+   ],
+   "gold_for_grader_only": "gland",
+   "decision": {
+    "subject": "palm",
+    "relation": "SUPPORTS",
+    "options": [
+     "vein",
+     "tendon",
+     "joint",
+     "gland"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_117",
+   "condition": "far",
+   "subject": "cube",
+   "relation": "SUPPORTS",
+   "options": [
+    "segment",
+    "axis",
+    "quadrant",
+    "lattice"
+   ],
+   "gold_for_grader_only": "axis",
+   "decision": {
+    "subject": "cube",
+    "relation": "SUPPORTS",
+    "options": [
+     "segment",
+     "axis",
+     "quadrant",
+     "lattice"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_118",
+   "condition": "exact",
+   "subject": "diaphragm",
+   "relation": "OPPOSITE",
+   "options": [
+    "joint",
+    "vessel",
+    "tissue",
+    "bone"
+   ],
+   "gold_for_grader_only": "vessel",
+   "decision": {
+    "subject": "diaphragm",
+    "relation": "OPPOSITE",
+    "options": [
+     "joint",
+     "vessel",
+     "tissue",
+     "bone"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_118",
+   "condition": "far",
+   "subject": "plane",
+   "relation": "OPPOSITE",
+   "options": [
+    "diameter",
+    "lattice",
+    "point",
+    "tangent"
+   ],
+   "gold_for_grader_only": "tangent",
+   "decision": {
+    "subject": "plane",
+    "relation": "OPPOSITE",
+    "options": [
+     "diameter",
+     "lattice",
+     "point",
+     "tangent"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_119",
+   "condition": "exact",
+   "subject": "artery",
+   "relation": "RESEMBLES",
+   "options": [
+    "nerve",
+    "tissue",
+    "cartilage",
+    "heart"
+   ],
+   "gold_for_grader_only": "nerve",
+   "decision": {
+    "subject": "artery",
+    "relation": "RESEMBLES",
+    "options": [
+     "nerve",
+     "tissue",
+     "cartilage",
+     "heart"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  },
+  {
+   "item_id": "rsi_119",
+   "condition": "far",
+   "subject": "chord",
+   "relation": "RESEMBLES",
+   "options": [
+    "quadrant",
+    "square",
+    "polygon",
+    "lattice"
+   ],
+   "gold_for_grader_only": "lattice",
+   "decision": {
+    "subject": "chord",
+    "relation": "RESEMBLES",
+    "options": [
+     "quadrant",
+     "square",
+     "polygon",
+     "lattice"
+    ],
+    "scores": {},
+    "vetoed": [],
+    "admitted": [],
+    "pick": null,
+    "reason": "no_admitted_subject_evidence",
+    "margin": null,
+    "congruence_floor": 0.2,
+    "strict_margin": 0.1
+   }
+  }
+ ]
+}

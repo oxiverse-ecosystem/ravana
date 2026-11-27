@@ -1,0 +1,2 @@
+fetch attempt 1/8 failed: curl: (22) The requested URL returned error: 502 
+wrote C:\Users\Likhith\Documents\projects\ravana_rsi_reltarget\scratch\rsi_reltarget_wikidata_raw.json (229156 bytes, 371 bindings)
