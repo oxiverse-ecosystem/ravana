@@ -60,3 +60,13 @@ The bounded diagnostic reached the PD header but did not complete before its
   capability claim. A future complete run must be scheduled with enough wall
   time or with a further harness-level profile; this document records the
   blocker honestly.
+
+
+## UPDATE 2026-11-27 — Phase 0 completed
+
+A complete full-bank run with the two-line regex-cache fix (no GloVe cache)
+finished in 475.9 s with unchanged scoring: primary credible/discredited/unknown
+0.985/0.923/1.000, sealed 0.955/0.627/1.000; anti-tautology PASS; overall FAIL.
+Artifact: `scratch/full_B_reonly_summary.json`. Phase 0 is no longer blocked;
+WFA remains FAIL. The historical bounded-run timeouts above are retained as
+measurement evidence.
