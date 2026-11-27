@@ -219,6 +219,25 @@ def schema_trusted_edges_from_graph(graph) -> List[EdgeView]:
     return out
 
 
+def lexical_teaching_pairs_from_graph(graph) -> List[Tuple[str, str]]:
+    """Read stored demonstrations as plain ``(source, target)`` label pairs.
+
+    Used ONLY by the default-OFF lexical-superordinate hook. This is a pure
+    read: it reuses the existing provenance predicate (via
+    ``schema_trusted_edges_from_graph`` -> ``traces_from_edges``) so an
+    untrusted edge cannot calibrate the criterion. It never reads a gold key,
+    ``type_sets``, ``world_model``, a domain tag or an item bank, and it writes
+    nothing. One provenance-trusted edge == one taught demonstration; repeated
+    identical demonstrations are already de-duplicated by ``traces_from_edges``.
+    """
+    try:
+        traces = traces_from_edges(schema_trusted_edges_from_graph(graph))
+    except Exception:
+        return []
+    return [(t.declaration.subject, t.declaration.obj) for t in (traces or ())
+            if t is not None and t.declaration.subject and t.declaration.obj]
+
+
 def schema_association_scores_from_graph(graph, keyword_index, subject,
                                          candidates, instance_pairs,
                                          glove_vector=None):
@@ -7703,6 +7722,72 @@ class ResponseGenMixin(ChainWalkerMixin):
                     _subj = _words[-1]
             _views = typed_slot_views_from_graph(getattr(self, "graph", None))
             return slot_keyed_forced_choice(_views, _subj, _opts).get("pick")
+        except Exception:
+            return None
+
+    # ── Lexical-superordinate primitive (default OFF) ──────────────────────
+    # Brain basis (full graded ledger in
+    # docs/investigations/LEXICAL_SUPERORDINATE_WIRING.md): fast mapping
+    # infers a novel word's type over a PRE-EXISTING structured lexical
+    # hypothesis space (Carey & Bartlett 1978; Xu & Tenenbaum 2007); the
+    # admission bar is calibrated from the item's own taught demonstrations
+    # (Tse et al. 2007; van Kesteren et al. 2012); a schema may only propose
+    # while subject-specific lexical evidence admits (Johnson et al. 1993;
+    # Webb et al. 2016). The pure scorer lives in
+    # ``ravana.learn.lexical_superordinate``; this method only adapts a turn
+    # and the graph to its three plain inputs. No gate, threshold, item,
+    # answer key or stored edge is changed; no state is kept between turns.
+    def _lexical_superordinate_candidate(
+            self, raw_input: str, subject: Optional[str] = None,
+            current_response: Optional[str] = None) -> Optional[str]:
+        """Emit a forced-choice candidate from the lexical-superordinate path.
+
+        Default OFF: returns ``None`` on every input unless the primitive's
+        flag is explicitly set. Defers to an earlier emission-boundary hook
+        whose decision is already a bare candidate, and to a directly taught
+        trusted edge. Every uncertain path fails closed (returns ``None``).
+        """
+        from ..learn import lexical_superordinate as lx
+        if not lx.enabled():
+            return None
+        try:
+            q, opts = parse_forced_choice(raw_input)
+            if len(opts) < 2 or not q:
+                return None
+            # Earlier hooks (trusted edge, typed slot, schema) emit a BARE
+            # candidate. Structural deferral: no option wording is scored.
+            canon = {str(o).strip().lower() for o in opts}
+            if (current_response is not None
+                    and str(current_response).strip().lower() in canon):
+                return None
+            subj = subject if (subject and
+                               str(subject).strip().lower() in q.lower()) else None
+            if subj is None and subject:
+                # Phrase subjects ("true thaw") may not occur verbatim in the
+                # question; take the resolved head noun when it does occur.
+                head = str(subject).strip().lower().split()[-1:]
+                if head and head[0] in q.lower():
+                    subj = head[0]
+            if subj is None:
+                # Early-return paths can leave the staged subject unset. The
+                # last content word of the question is the subject
+                # ("what is true of thaw?" -> "thaw"); never the option text.
+                words = [w for w in re.findall(r"[A-Za-z][A-Za-z_-]*", q)
+                         if w.lower() not in STOP_WORDS
+                         and w.lower() not in {"what", "which", "true", "about"}]
+                if words:
+                    subj = words[-1]
+            if not subj:
+                return None
+            # Directly taught trusted edge decides -> defer (same rule as H4).
+            incident = trusted_candidate_edges_from_graph(
+                getattr(self, "graph", None), subj,
+                getattr(self, "_concept_keywords", None))
+            if select_trusted_candidate(subj, opts, incident) is not None:
+                return None
+            pairs = lexical_teaching_pairs_from_graph(
+                getattr(self, "graph", None))
+            return lx.pick(subj, opts, pairs)
         except Exception:
             return None
 

@@ -8320,6 +8320,22 @@ class CognitiveChatEngine(WebLearningMixin, GraphMixin, ReasoningMixin, MemoryMi
                             response = _pick
                 except Exception:
                     pass
+            # Lexical-superordinate primitive (default OFF,
+            # RAVANA_LEXICAL_SUPERORDINATE=1; the flag is read inside the
+            # primitive). Emission-boundary call AFTER H3/H4/typed-slot so a
+            # directly taught edge or a converged schema always wins: the hook
+            # defers when the response is already a bare candidate. Defensive
+            # getattr keeps older duck-typed fakes byte-identical.
+            _lx_hook = getattr(self, "_lexical_superordinate_candidate", None)
+            if callable(_lx_hook):
+                try:
+                    from ..learn import lexical_superordinate as _lx
+                    if _lx.enabled():
+                        _pick = _lx_hook(user_input, _subj_for_hooks, response)
+                        if _pick is not None:
+                            response = _pick
+                except Exception:
+                    pass
             # Emission-boundary source monitor (opt-in via RAVANA_SOURCE_EVAL=1).
             # Runs on the FINAL response so no downstream salad / uncertainty /
             # correction guard can rewrite the decision token. Inert and
