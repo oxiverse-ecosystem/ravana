@@ -70,3 +70,16 @@ finished in 475.9 s with unchanged scoring: primary credible/discredited/unknown
 Artifact: `scratch/full_B_reonly_summary.json`. Phase 0 is no longer blocked;
 WFA remains FAIL. The historical bounded-run timeouts above are retained as
 measurement evidence.
+
+
+## UPDATE 2026-11-27 (prior-act trace)
+
+The default-off prior-act trace landed as PR #556. Controlled A/B on the
+4 recorded failures and 132 discredited-arm items improved sealed
+discredited from 0.627 to 0.985 with 89 tests passing. However, two full
+harness verification runs with `RAVANA_PRIOR_ACT_TRACE=1`
+(`wfa_prior_act_full.log`, `wfa_prior_act_full2.log`) both ended in
+timeout (20 min and 60 min caps), and the summary file was stale.
+Therefore the full-harness endpoint for the flag remains UNMEASURED.
+WFA stays FAIL from the last complete full run; no capability claim is
+made for the trace until a complete harness run exists.
