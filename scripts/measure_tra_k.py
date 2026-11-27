@@ -1290,7 +1290,7 @@ def main(argv=None):
                     for k in K_LEVELS}
             if by_k.get(8):
                 keep.append(by_k[8].pop(0))
-            for idx in range(max_per_pool):
+            for idx in range(max_per_pool - 1):
                 k = K_LEVELS[idx % len(K_LEVELS)]
                 if k == 8 and not by_k.get(8):
                     continue
