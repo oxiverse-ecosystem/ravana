@@ -1,0 +1,26 @@
+perf(wfa): default-off GloVe boot memo; full-bank prior-act endpoint
+
+Add RAVANA_GLOVE_BOOT_MEMO (default OFF) to memoize the immutable GloVe
+boot payload across sequential engine boots. Key = (npz abspath, size,
+mtime_ns, dim); a sampled projected-vector SHA-256 guard rejects a mutated
+shared matrix and forces a fresh load. Per-engine mutable dicts are always
+new; with the flag unset/0 the path is unchanged.
+
+Controls: 4 new unit tests plus 93 tests in one pytest process; four
+sequential real-engine boots (0/1/1/0) returned the same 300-word+matrix
+digest 3e53f1d6c8b34b98..., matching the prior scratch memo control.
+
+Verification: full 272-item harness with RAVANA_PRIOR_ACT_TRACE=1 and the
+memo flag under a hard 3600s cap. On the GloVe-present store it timed out
+(exit 124) and was reprofiled: per-edge HRR/FFT encoding during graph
+growth, not GloVe boot, is the remaining hotspot. On the GloVe-free store
+the same capped run completed (855.5s, exit 1): internal-source primary/
+sealed discredited correctness 1.000/1.000 (baseline 0.923/0.627),
+all 24 internal-source rules true, anti-tautology PASS on both pools.
+WFA overall remains FAIL because the unchanged PD/forced-choice gates
+still fail. No gate, threshold, item, prompt or scoring rule changed.
+
+Brain grounding: the memo is a performance optimisation, not a cognitive
+mechanism; the existing source-monitoring citations in
+docs/investigations/WFA_PRIOR_ACT_TRACE.md still cover the design, so no
+new research was added.

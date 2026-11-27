@@ -212,6 +212,32 @@ def _resize_projection(proj: np.ndarray, dim: int) -> np.ndarray:
     return np.tile(p, (reps, 1))[:dim].copy()
 
 
+# --- Optional GloVe boot memo (default OFF) -------------------------------
+# Measurement harnesses boot many engines sequentially against the same npz.
+# The projected (n_words, dim) matrix and the word index are immutable for a
+# given (npz identity, dim), so with RAVANA_GLOVE_BOOT_MEMO=1 they can be
+# reused across boots; only the per-engine mutable dicts are recreated.
+# The sampled digest below is an immutable hex string recorded at first load
+# and re-checked on every reuse: any in-place corruption of the shared array
+# invalidates the entry and forces a fresh load instead of silently emitting
+# altered vectors. With the flag unset this module is byte-identical to the
+# original path (no memo read and no memo write).
+_GLOVE_BOOT_MEMO = {}
+_GLOVE_BOOT_MEMO_SAMPLE_ROWS = 300
+
+
+def _glove_projected_digest(vecs_proj):
+    """Digest of a deterministic even sample of projected GloVe rows."""
+    h = hashlib.sha256()
+    n = int(vecs_proj.shape[0])
+    rows = min(_GLOVE_BOOT_MEMO_SAMPLE_ROWS, n)
+    idx = np.linspace(0, n - 1, rows, dtype=np.int64) if n else np.empty(0, dtype=np.int64)
+    h.update(str(vecs_proj.shape).encode("ascii"))
+    for i in idx:
+        h.update(vecs_proj[int(i)].tobytes())
+    return h.hexdigest()
+
+
 class GraphMixin:
     """Graph & concept-vector mixin — GloVe loading, edge bootstrap, category error detection, definition purge, conceptnet ontology."""
 
@@ -330,6 +356,35 @@ class GraphMixin:
         if not os.path.exists(_cache_path) and os.path.exists(_repo_cache):
             _cache_path = _repo_cache
         if os.path.exists(_cache_path):
+            # Optional memo (default OFF): reuse the immutable boot payload
+            # across sequential engine boots on an identical npz + dim.
+            _memo_key = None
+            if os.environ.get("RAVANA_GLOVE_BOOT_MEMO", "0") == "1":
+                try:
+                    _st = os.stat(_cache_path)
+                    _memo_key = (os.path.abspath(_cache_path), _st.st_size,
+                                 _st.st_mtime_ns, int(self.dim))
+                    _entry = _GLOVE_BOOT_MEMO.get(_memo_key)
+                    if _entry is not None:
+                        _gd, _proj, _words, _widx, _vecs, _digest = _entry
+                        if _glove_projected_digest(_vecs) == _digest:
+                            self._glove_dim = _gd
+                            self._glove_proj = _proj
+                            self._glove_words = _words
+                            self._glove_word_index = _widx
+                            self._glove_vecs_proj = _vecs
+                            # Mutable state is ALWAYS per-engine: a memo hit
+                            # must never share a lookup cache or scratch map.
+                            self._glove_vecs = {}
+                            self._glove_raw_vecs = None
+                            self._glove_vector_cache = {}
+                            print("  [GloVe] Loaded %d projected vectors from boot memo (%dD -> %dD)"
+                                  % (len(_words), _gd, self.dim))
+                            return
+                        # Stale/corrupt shared payload: drop it and reload.
+                        _GLOVE_BOOT_MEMO.pop(_memo_key, None)
+                except Exception:
+                    _memo_key = None
             try:
                 data = np.load(_cache_path, allow_pickle=True)
                 words = data['words'].tolist()
@@ -387,6 +442,14 @@ class GraphMixin:
                 # Only the per-key memo from _glove_vector; not the full 400k map.
                 self._glove_vector_cache = {}
 
+                if _memo_key is not None:
+                    try:
+                        _GLOVE_BOOT_MEMO[_memo_key] = (
+                            self._glove_dim, self._glove_proj, self._glove_words,
+                            self._glove_word_index, self._glove_vecs_proj,
+                            _glove_projected_digest(self._glove_vecs_proj))
+                    except Exception:
+                        pass
                 print(f"  [GloVe] Loaded {len(self._glove_words)} projected vectors from cache ({self._glove_dim}D -> {self.dim}D)")
                 return
             except Exception as e:

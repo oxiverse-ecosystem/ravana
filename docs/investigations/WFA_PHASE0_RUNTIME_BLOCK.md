@@ -70,3 +70,15 @@ finished in 475.9 s with unchanged scoring: primary credible/discredited/unknown
 Artifact: `scratch/full_B_reonly_summary.json`. Phase 0 is no longer blocked;
 WFA remains FAIL. The historical bounded-run timeouts above are retained as
 measurement evidence.
+
+
+## UPDATE 2026-11-27 — prior-act trace full verification
+
+A default-off `RAVANA_GLOVE_BOOT_MEMO` boot-payload cache was added. A full
+272-item run with BOTH flags (`RAVANA_PRIOR_ACT_TRACE=1`,
+`RAVANA_GLOVE_BOOT_MEMO=1`) completed on the GloVe-free store in 855.5 s
+(exit 1, WFA still FAIL). Internal-source primary/sealed discredited
+correctness is 1.000/1.000 (baseline 0.923/0.627); all 24 internal-source
+rules pass. The GloVe-present run hit its 3600 s cap (exit 124) and was
+reprofiled: per-edge HRR/FFT encoding, not GloVe boot, is the remaining
+hotspot. See `WFA_GLOVE_BOOT_MEMO.md` for endpoints, controls and artifacts.

@@ -1,0 +1,68 @@
+         6240944 function calls (6134990 primitive calls) in 9.703 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1225 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    9.704    9.704 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\scripts\measure_learn5_wfa.py:1497(run_pd_arms)
+       13    0.001    0.000    9.693    0.746 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine.py:8220(process_turn)
+       13    0.029    0.002    9.620    0.740 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine.py:8437(_process_turn_impl)
+        6    0.000    0.000    8.393    1.399 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\scripts\measure_learn5_wfa.py:1301(__call__)
+     6419    0.112    0.000    4.614    0.001 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana_ml\src\ravana_ml\graph.py:1701(add_edge)
+     6419    0.024    0.000    4.404    0.001 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_persistence.py:688(_hrr_encode_hook)
+     6437    0.054    0.000    4.386    0.001 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\core\hrr_reasoner.py:59(encode)
+     6437    0.023    0.000    4.293    0.001 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\core\dual_code_space.py:162(encode_fact)
+    19311    0.034    0.000    3.721    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\core\dual_code_space.py:145(bind_role)
+    19311    0.197    0.000    3.346    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\core\vsa.py:4(hrr_bind)
+       10    0.125    0.012    3.075    0.308 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\chain_walker.py:295(_auto_expand_concepts)
+    57939    2.977    0.000    3.028    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\fft\_pocketfft.py:58(_raw_fft)
+        7    0.084    0.012    2.894    0.413 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\chain_walker.py:1250(_extract_and_store_causal_relations)
+   174646    0.184    0.000    2.396    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\chain_walker.py:1387(_create_causal_edge)
+    38625    0.063    0.000    2.175    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\fft\_pocketfft.py:324(rfft)
+       23    0.767    0.033    1.396    0.061 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\user_model.py:1718(mine_personal_facts)
+    19314    0.024    0.000    0.954    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\fft\_pocketfft.py:421(irfft)
+     7020    0.005    0.000    0.782    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:174(search)
+        2    0.000    0.000    0.705    0.352 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\scripts\measure_learn5_wfa.py:1344(__call__)
+        4    0.000    0.000    0.704    0.176 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\scripts\measure_learn5_wfa.py:1336(_ask)
+    18158    0.029    0.000    0.607    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\__init__.py:330(_compile)
+        3    0.000    0.000    0.606    0.202 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\scripts\measure_learn5_wfa.py:1376(__call__)
+      700    0.004    0.000    0.562    0.001 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:757(compile)
+     6437    0.072    0.000    0.550    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\core\dual_code_space.py:154(bundle)
+    37085    0.181    0.000    0.441    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_graph.py:643(_glove_vector)
+        6    0.001    0.000    0.393    0.065 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\user_model.py:6629(observe_user_query)
+     9326    0.269    0.000    0.390    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\chain_walker.py:595(_word_causal_score)
+       17    0.218    0.013    0.383    0.023 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_memory.py:3476(_activate_from_input)
+     8088    0.380    0.000    0.380    0.000 {method 'search' of 're.Pattern' objects}
+     6517    0.020    0.000    0.379    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:2342(sum)
+     6517    0.211    0.000    0.355    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\_core\fromnumeric.py:66(_wrapreduction)
+    19311    0.222    0.000    0.318    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\core\dual_code_space.py:91(atom_hrr)
+    46415    0.142    0.000    0.309    0.000 C:\Users\Likhith\Documents\projects\ravana\.venv\Lib\site-packages\numpy\linalg\_linalg.py:2598(norm)
+      700    0.003    0.000    0.303    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:963(parse)
+ 2402/700    0.019    0.000    0.298    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:452(_parse_sub)
+10046/744    0.111    0.000    0.294    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_parser.py:512(_parse)
+   933857    0.273    0.000    0.273    0.000 {method 'get' of 'dict' objects}
+      700    0.001    0.000    0.251    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:590(_code)
+       62    0.000    0.000    0.243    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_web_search.py:1855(_router_says)
+       62    0.001    0.000    0.243    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_web_search.py:1835(_route_intent)
+        2    0.126    0.063    0.238    0.119 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\web_learning.py:2565(_update_concept_learning_progress)
+       62    0.006    0.000    0.228    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\intent_router.py:472(classify)
+13681/700    0.109    0.000    0.220    0.000 C:\Users\Likhith\AppData\Roaming\uv\python\cpython-3.14-windows-x86_64-none\Lib\re\_compiler.py:39(_compile)
+411125/357282    0.110    0.000    0.190    0.000 {built-in method builtins.getattr}
+     3691    0.093    0.000    0.143    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\chain_walker.py:1988(_infer_relation_type)
+     7101    0.123    0.000    0.123    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       62    0.003    0.000    0.123    0.002 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\intent_router.py:250(_shape_features)
+       27    0.005    0.000    0.119    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine.py:3375(_structured_recall)
+      124    0.025    0.000    0.117    0.001 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\intent_router.py:228(_max_proj)
+       53    0.002    0.000    0.112    0.002 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\language\prefrontal_workspace.py:438(classify)
+      117    0.006    0.000    0.110    0.001 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\chain_walker.py:500(_prune_incidental_edges)
+      104    0.009    0.000    0.109    0.001 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\language\prefrontal_workspace.py:401(_sentence_vector)
+   564857    0.109    0.000    0.109    0.000 {method 'append' of 'list' objects}
+       27    0.000    0.000    0.106    0.004 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_reasoning.py:2708(_is_conditional_query)
+       22    0.000    0.000    0.106    0.005 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_reasoning.py:2006(_is_self_disclosure_stmt)
+        8    0.001    0.000    0.105    0.013 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\engine_memory.py:2617(_try_memory_query)
+   174494    0.057    0.000    0.102    0.000 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana_ml\src\ravana_ml\graph.py:1483(get_node)
+        2    0.001    0.001    0.101    0.051 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\self_directed_learning.py:115(run_cycle)
+        2    0.046    0.023    0.099    0.050 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\self_directed_learning.py:33(detect_gaps)
+        9    0.058    0.006    0.095    0.011 C:\Users\Likhith\Documents\projects\ravana_wfa_glove_memo\ravana\src\ravana\chat\chain_walker.py:1710(_spread_and_collect)
+
+
