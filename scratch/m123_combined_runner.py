@@ -7,6 +7,11 @@ CLI (exact contract from M123_COMBINED_PREREG.md section 7)::
       --arm {OFF,OFF2,M1,M1+M2,M1+M2+M3,SHAM} --tag <tag> \\
       --base <isolated data root> --out <report.json> [--max-per-pool N]
 
+With --taught-focus (TRA-K only) the focused subset is the k=8 item plus one
+taught k>=1 item per pool; k=0 stays a cold-baseline control endpoint. This
+is an INSTRUMENT-SELECTION REPAIR only: no gate, threshold, item, prompt,
+gold key, scorer or production default path is changed.
+
 Every invocation uses a FRESH store copy, the shipped harness's own
 run_sweep()/summarize()/instrument_controls(), and the shared arm primitives in
 m123_preflight.py.  It never reads gold/type_sets/world_model into staging or
@@ -505,9 +510,74 @@ def make_backend(stage, arm, arm_dir, counters):
     return ArmBackend(data_dir=arm_dir)
 
 
-def select_items(stage, mod, items, max_per_pool):
+# ── instrument-selection repair: taught-only focused subset ──────────────
+SELECT_BANNED = frozenset(pf.BANNED) | frozenset({"display_gold", "gold_target"})
+
+
+def focused_items_taught(items, max_per_pool):
+    """Graded focus with ONLY k>=1 (taught) items; k=0 stays a baseline control.
+
+    Per pool keep the round-robin k=8 item, then the first k>=1 non-8 item.
+    Selection reads only 'pool' and 'k': no answer-side field can influence
+    which items are graded. The unmodified harness summarize() still emits the
+    cold k=0 baseline endpoint for every selected item.
+    """
+    if not max_per_pool:
+        return list(items)
+    keep = []
+    for pool in ("primary", "sealed"):
+        by_k = {k: [it for it in items if it["pool"] == pool and it["k"] == k]
+                for k in mtk.K_LEVELS}
+        if by_k.get(8):
+            keep.append(by_k[8].pop(0))
+        remaining = max_per_pool - 1
+        for k in mtk.K_LEVELS:
+            if k == 8 or k < 1 or not by_k.get(k):
+                continue
+            for _ in range(min(remaining, len(by_k[k]))):
+                keep.append(by_k[k].pop(0))
+                remaining -= 1
+            if remaining <= 0:
+                break
+    return keep
+
+
+def ast_anti_leakage_taught_focus():
+    """AST scan of the selection repair against answer-side token names."""
+    problems, scanned = [], []
+    for name in ("focused_items_taught",):
+        fn = globals().get(name)
+        try:
+            body = textwrap.dedent(inspect.getsource(fn))
+            tree = ast.parse(body)
+            body = tree.body[0].body if isinstance(tree.body[0], ast.FunctionDef) else tree.body
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                body = body[1:]
+        except Exception as exc:
+            problems.append("parse %s: %r" % (name, exc))
+            continue
+        hits = []
+        for node in ast.walk(ast.Module(body=body, type_ignores=[])):
+            if isinstance(node, ast.Name) and node.id in SELECT_BANNED:
+                hits.append("name=" + node.id)
+            if isinstance(node, ast.Attribute) and node.attr in SELECT_BANNED:
+                hits.append("attr=" + node.attr)
+            if (isinstance(node, ast.Subscript)
+                    and isinstance(node.slice, ast.Constant)
+                    and node.slice.value in pf.BANNED_SUBSCRIPT):
+                hits.append("subscript=" + str(node.slice.value))
+        scanned.append({"function": name, "hits": sorted(set(hits))})
+        problems.extend("%s: %s" % (name, h) for h in sorted(set(hits)))
+    return {"ok": not problems, "problems": problems, "scanned": scanned,
+            "banned_tokens": sorted(SELECT_BANNED)}
+
+
+def select_items(stage, mod, items, max_per_pool, taught_focus=False):
     if stage == "trak":
-        return pf.focused_items(items, max_per_pool or 2)
+        return (focused_items_taught(items, max_per_pool) if taught_focus
+                else pf.focused_items(items, max_per_pool or 2))
     if stage == "rsi":
         pick = []
         for pool in ("primary", "sealed"):
@@ -607,7 +677,8 @@ def run_stage(args, preflight):
     if stage == "trak":
         mod = mtk
         all_items, channel = pf.load_bank()
-        items = select_items(stage, mod, all_items, args.max_per_pool or 2)
+        items = select_items(stage, mod, all_items, args.max_per_pool or 2,
+                             args.taught_focus)
         for it in items:
             seed_data_dir(os.path.join(arm_dir, it["item_id"]))
     elif stage == "rsi":
@@ -798,6 +869,8 @@ def run_stage(args, preflight):
             "env_flags": {k: os.environ.get(k) for k in pf.ARM_FLAGS[arm]},
             "base": args.base, "arm_dir": arm_dir,
             "max_per_pool": args.max_per_pool,
+            "focus_mode": ("taught_only_k_ge_1" if args.taught_focus
+                           else "legacy_round_robin"),
             "items": [it.get("item_id") for it in items],
             "item_count": len(items), "bank_count": len(all_items),
             "pythonhashseed": os.environ.get("PYTHONHASHSEED"),
@@ -859,18 +932,83 @@ def seed_data_dir_hash_only(arm_dir, start_hashes):
     return out
 
 
+def boot_free_self_test_taught_focus():
+    """No engine boot: taught-only graded focus + k=0 baseline still reported."""
+    checks = []
+
+    def add(name, ok, detail=""):
+        checks.append({"name": name, "ok": bool(ok), "detail": str(detail)})
+
+    ast = ast_anti_leakage_taught_focus()
+    add("taught_focus_ast_anti_leakage", ast["ok"], ast["problems"])
+
+    bank, _channel = pf.load_bank()
+    legacy = pf.focused_items(bank, 2)
+    focused = focused_items_taught(bank, 2)
+    per_pool = {p: [{"item_id": it["item_id"], "k": it["k"]}
+                    for it in focused if it["pool"] == p]
+                for p in ("primary", "sealed")}
+    taught_ok = (len(focused) == 4
+                 and all(int(it["k"]) >= 1 for it in focused)
+                 and all(sum(1 for it in focused
+                             if it["pool"] == p and it["k"] == 8) == 1
+                         for p in ("primary", "sealed")))
+    add("taught_focus_only_taught_items", taught_ok,
+        {"focus": per_pool,
+         "legacy": [(it["item_id"], it["k"]) for it in legacy]})
+
+    legacy_pairs = [(it["item_id"], it["k"]) for it in legacy]
+    focus_pairs = [(it["item_id"], it["k"]) for it in focused]
+    add("taught_focus_replaces_untought_k0",
+        focus_pairs != legacy_pairs
+        and all(any(it["pool"] == p and it["k"] == 0 for it in legacy)
+                for p in ("primary", "sealed")),
+        {"legacy": legacy_pairs, "focus": focus_pairs})
+
+    minimal = [{"pool": it["pool"], "k": it["k"]} for it in bank]
+    minimal_pairs = [(it["pool"], it["k"])
+                     for it in focused_items_taught(minimal, 2)]
+    full_pairs = [(it["pool"], it["k"]) for it in focused]
+    add("taught_focus_ignores_answer_side_fields",
+        minimal_pairs == full_pairs,
+        {"minimal": minimal_pairs, "full_bank": full_pairs})
+
+    # Unmodified summarize() on the taught focus via the shipped fake backend:
+    # no engine boot, no store write. The cold k=0 baseline must still appear.
+    fake = mtk.FakeBackend()
+    rows = mtk.run_sweep(focused, backend=fake)
+    summary = mtk.summarize(focused, rows)
+    baseline = {p: summary[p].get("baseline") for p in ("primary", "sealed")}
+    far_n = {p: summary[p].get("far_n") for p in ("primary", "sealed")}
+    k0_far = {p: summary[p]["by_k"]["0"]["far"]
+              for p in ("primary", "sealed")}
+    add("taught_focus_k0_baseline_reported",
+        all(isinstance(baseline[p], (int, float)) for p in baseline)
+        and all(far_n[p] == 2 for p in far_n)
+        and all(k0_far[p] is None for p in k0_far),
+        {"baseline": baseline, "far_n": far_n, "k0_far": k0_far,
+         "k0_minus_baseline": {p: summary[p].get("k0_minus_baseline")
+                               for p in ("primary", "sealed")}})
+
+    return {"ok": all(c["ok"] for c in checks),
+            "passed": sum(c["ok"] for c in checks), "total": len(checks),
+            "checks": checks, "ast": ast}
+
+
 def run_self_test(out_path):
     """Boot-free proof of arm wiring. No engine, no store write, no network."""
     for flag in pf.CLEAR_FLAGS:
         os.environ.pop(flag, None)
     preflight = pf.boot_free_self_test()
     arb = boot_free_self_test_arbitration()
+    taught = boot_free_self_test_taught_focus()
     ast = pf.ast_anti_leakage()
     pins = pf.pin_hashes()
     gold = pf.gold_mutation_fingerprint()
     checks = {
         "preflight_self_test": preflight,
         "arbitration_self_test": arb,
+        "taught_focus_self_test": taught,
         "preflight_ast_anti_leakage": ast,
         "arbitration_ast_anti_leakage": arb["ast"],
         "sha_pins": {k: v.get("match") for k, v in pins.items()},
@@ -879,7 +1017,7 @@ def run_self_test(out_path):
         "stores_written": False,
         "production_files_edited": 0,
     }
-    ok = (preflight["ok"] and arb["ok"] and ast["ok"]
+    ok = (preflight["ok"] and arb["ok"] and taught["ok"] and ast["ok"]
           and all(v for v in checks["sha_pins"].values()) and gold["ok"])
     report = {"schema": "trak-arbitration-live-selftest-v1",
               "ok": bool(ok), "checks": checks,
@@ -893,6 +1031,8 @@ def run_self_test(out_path):
                                     if not c["ok"]],
                       "arbitration": [c["name"] for c in arb["checks"]
                                       if not c["ok"]],
+                      "taught_focus": [c["name"] for c in taught["checks"]
+                                       if not c["ok"]],
                       "pins_failed": [k for k, v in checks["sha_pins"].items()
                                       if not v]}, default=str), flush=True)
     print("DONE", flush=True)
@@ -909,7 +1049,11 @@ def main(argv=None):
     ap.add_argument("--base")
     ap.add_argument("--out")
     ap.add_argument("--max-per-pool", type=int, default=0)
+    ap.add_argument("--taught-focus", action="store_true",
+                    help="TRA-K only: graded focus = k=8 + one taught k>=1 item/pool")
     args = ap.parse_args(argv)
+    if args.taught_focus and args.stage != "trak":
+        ap.error("--taught-focus is only valid with --stage trak")
     if args.self_test:
         return run_self_test(os.environ.get("TRAK_SELFTEST_OUT") or
                              os.path.join(pf.HERE, "trak_arbitration_live_selftest.json"))
