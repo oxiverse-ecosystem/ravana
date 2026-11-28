@@ -1,0 +1,634 @@
+{
+ "schema": "m123-combined-arm-v1",
+ "stage": "trak",
+ "arm": "M1+M2+M3",
+ "tag": "m123",
+ "status": "OK",
+ "scored": true,
+ "falsifiers_local": [],
+ "config": {
+  "arm_flags": {
+   "RAVANA_DURABLE_PROVENANCE": "1",
+   "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+   "RAVANA_M3_GRADED_PROBE": "1"
+  },
+  "env_flags": {
+   "RAVANA_DURABLE_PROVENANCE": "1",
+   "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+   "RAVANA_M3_GRADED_PROBE": "1"
+  },
+  "base": "C:/Users/Likhith/Documents/projects/ravana_trak_arb_taught/scratch/m123_ab_data_taught",
+  "arm_dir": "C:/Users/Likhith/Documents/projects/ravana_trak_arb_taught/scratch/m123_ab_data_taught\\trak_m123",
+  "max_per_pool": 2,
+  "focus_mode": "taught_only_k_ge_1",
+  "items": [
+   "tra_k_0020",
+   "tra_k_0018",
+   "tra_k_0000",
+   "tra_k_0010"
+  ],
+  "item_count": 4,
+  "bank_count": 400,
+  "pythonhashseed": "0",
+  "arbitration": {
+   "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_taught\\ravana\\src\\ravana\\learn\\source_arbitration.py",
+   "module_env_flag": "RAVANA_SOURCE_ARBITRATION",
+   "arm_uses_overlay": false,
+   "sham_is_wrong_tag_permuted": false
+  }
+ },
+ "ast_anti_leakage": {
+  "ok": true,
+  "problems": [],
+  "scanned": [
+   {
+    "function": "graded_probe_pick",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "read_graded_probe",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "_admit_m1",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "wrong_tag_trust",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "_fact_from",
+    "module": "m3_graded_probe",
+    "hits": []
+   },
+   {
+    "function": "stage_m1_act",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "stage_arm_evidence",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "reader_pick",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "label_from_claim",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "view_confidence",
+    "module": "__main__",
+    "hits": []
+   },
+   {
+    "function": "permuted_subject",
+    "module": "__main__",
+    "hits": []
+   }
+  ],
+  "banned_tokens": [
+   "answer_key",
+   "answer_key_leak",
+   "counterexample_target",
+   "forbidden_channel_subjects",
+   "gold",
+   "item_gold",
+   "oracle",
+   "q_gold",
+   "type_sets",
+   "typed_queries",
+   "world_model"
+  ]
+ },
+ "preflight_result": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_taught\\scratch\\m123_preflight_result.json",
+ "harness": {
+  "summary": {
+   "primary": {
+    "by_k": {
+     "0": {
+      "near": null,
+      "far": null,
+      "foil": null,
+      "negative": null
+     },
+     "1": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0
+     },
+     "2": {
+      "near": null,
+      "far": null,
+      "foil": null,
+      "negative": null
+     },
+     "4": {
+      "near": null,
+      "far": null,
+      "foil": null,
+      "negative": null
+     },
+     "8": {
+      "near": 1.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0
+     }
+    },
+    "near_n": 2,
+    "near": 0.5,
+    "far_n": 2,
+    "far": 0.0,
+    "foil_n": 2,
+    "foil": 0.0,
+    "negative_n": 2,
+    "negative": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "chance": 0.25,
+    "far_minus_chance": -0.25,
+    "negative_reject": 0.0,
+    "counterexample_reject": 0.0,
+    "foil_reject": 0.0,
+    "role_coverage": 1.0,
+    "naive_near": 0.5,
+    "naive_permuted": 0.5,
+    "permuted": 0.5,
+    "naive_permuted_gap": 0.0,
+    "channel_permuted_gap": 0.0,
+    "transfer": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "baseline": 0.0,
+    "growth": 0.5,
+    "k0_minus_baseline": null,
+    "chance_minus_baseline": 0.5,
+    "counterexample_minus_baseline": 0.5,
+    "control_max_delta": 0.5,
+    "ostensive_transfer": 0.5
+   },
+   "sealed": {
+    "by_k": {
+     "0": {
+      "near": null,
+      "far": null,
+      "foil": null,
+      "negative": null
+     },
+     "1": {
+      "near": 0.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0
+     },
+     "2": {
+      "near": null,
+      "far": null,
+      "foil": null,
+      "negative": null
+     },
+     "4": {
+      "near": null,
+      "far": null,
+      "foil": null,
+      "negative": null
+     },
+     "8": {
+      "near": 1.0,
+      "far": 0.0,
+      "foil": 0.0,
+      "negative": 0.0
+     }
+    },
+    "near_n": 2,
+    "near": 0.5,
+    "far_n": 2,
+    "far": 0.0,
+    "foil_n": 2,
+    "foil": 0.0,
+    "negative_n": 2,
+    "negative": 0.0,
+    "monotonic_max_drop": 0.0,
+    "graded_max_drop": 1.0,
+    "chance": 0.25,
+    "far_minus_chance": -0.25,
+    "negative_reject": 0.0,
+    "counterexample_reject": 0.0,
+    "foil_reject": 0.0,
+    "role_coverage": 1.0,
+    "naive_near": 0.5,
+    "naive_permuted": 0.5,
+    "permuted": 0.5,
+    "naive_permuted_gap": 0.0,
+    "channel_permuted_gap": 0.0,
+    "transfer": 0.5,
+    "immediate": 0.5,
+    "delayed": 0.5,
+    "delayed_retention": 1.0,
+    "baseline": 0.0,
+    "growth": 0.5,
+    "k0_minus_baseline": null,
+    "chance_minus_baseline": 0.5,
+    "counterexample_minus_baseline": 0.5,
+    "control_max_delta": 0.5,
+    "ostensive_transfer": 0.5
+   },
+   "engine_observation_missing": 0,
+   "engine_response_unparsed": 0
+  },
+  "controls": [
+   {
+    "id": "C1",
+    "name": "channel near(k=8)>=0.90",
+    "ok": true,
+    "detail": "near8=1.0"
+   },
+   {
+    "id": "C2",
+    "name": "foil channel reject>=0.90 and naive accept<=0.10",
+    "ok": true,
+    "detail": "channel=1.0 naive_correct=0.0"
+   },
+   {
+    "id": "C3",
+    "name": "naive near-permuted>=0.15 and channel gap<=0.10",
+    "ok": true,
+    "detail": "naive_gap=1.0 channel_gap=0.0"
+   },
+   {
+    "id": "C4",
+    "name": "chance<=0.35 and far-chance>=0.20",
+    "ok": true,
+    "detail": "chance=0.0 far-chance=0.8"
+   },
+   {
+    "id": "C5",
+    "name": "negative channel reject>=0.85 and counterexample<=0.20",
+    "ok": true,
+    "detail": "channel=1.0 counterexample=0.0"
+   },
+   {
+    "id": "C6",
+    "name": "monotonic k-curve max drop<=0.05 (both pools)",
+    "ok": true,
+    "detail": "primary=0.0 sealed=0.0"
+   },
+   {
+    "id": "C7",
+    "name": "graded near>=far>=foil max drop<=0.15 (both pools)",
+    "ok": true,
+    "detail": "primary=0.0 sealed=0.0"
+   },
+   {
+    "id": "C8",
+    "name": "role coverage>=0.95 + grader fixed vectors",
+    "ok": true,
+    "detail": "coverage=1.0/1.0 fixed_vectors=True"
+   },
+   {
+    "id": "C9",
+    "name": "cold-reload retention>=0.80, fresh engine, counters>=1",
+    "ok": true,
+    "detail": "retention=1.0/1.0 save=400 reload=400 fresh_rows=800"
+   },
+   {
+    "id": "C10",
+    "name": "type contrast flips pick; disjoint returns None",
+    "ok": true,
+    "detail": "{\"disjoint_pick\": null, \"disjoint_reason\": \"no_trusted_typed_slot_above_floor\", \"flipped_pick\": \"weather-event\", \"ok\": true, \"typed_pick\": \"effect\"}"
+   },
+   {
+    "id": "C13",
+    "name": "immediate(k=8)-baseline>=0.15 and coverage loss<=0.05",
+    "ok": true,
+    "detail": "growth=1.0 coverage_loss=0.0"
+   },
+   {
+    "id": "C14",
+    "name": "unrelated subject never gets confident answer (HARD FAIL)",
+    "ok": true,
+    "detail": "si_rows=400 si_ok=True decline_ok=True copy_detected=True"
+   },
+   {
+    "id": "C15",
+    "name": "channel evidence overlaps oracle only benignly; no deployable use",
+    "ok": true,
+    "detail": "overlap={'overlap_type_sets': 4411, 'overlap_world_model': 0, 'facts': 5600, 'answer_key_leak': 0, 'oracle_domain_tag_leak': 0, 'provenance_missing': 0} leaks=0 tags=0"
+   },
+   {
+    "id": "C11",
+    "name": "anti-fake: live backend, real API counters, query-only grading",
+    "ok": true,
+    "detail": "backend=live live=True error=None graded_from_query=True calls={'boot': 8, 'intake': 846, 'save': 4, 'cold_reload': 4, 'process_turn': 1178}"
+   },
+   {
+    "id": "C12",
+    "name": "provenance integrity; no fabricated URL/span; gate intact",
+    "ok": true,
+    "detail": "views=17 fabricated=False"
+   }
+  ],
+  "decision_rules": {
+   "primary_transfer>=0.75": false,
+   "primary_near>=0.75": false,
+   "primary_far>=0.70": false,
+   "primary_far-chance>=0.20": false,
+   "primary_foil_reject>=0.85": false,
+   "primary_negative_reject>=0.80": false,
+   "primary_permuted>=near-0.10": true,
+   "primary_monotonic<=0.05": true,
+   "primary_graded<=0.15": false,
+   "primary_coverage>=0.95": true,
+   "primary_retention>=0.80": true,
+   "primary_control_delta<=0.05": false,
+   "sealed_transfer>=0.75": false,
+   "sealed_near>=0.75": false,
+   "sealed_far>=0.70": false,
+   "sealed_far-chance>=0.20": false,
+   "sealed_foil_reject>=0.85": false,
+   "sealed_negative_reject>=0.80": false,
+   "sealed_permuted>=near-0.10": true,
+   "sealed_monotonic<=0.05": true,
+   "sealed_graded<=0.15": false,
+   "sealed_coverage>=0.95": true,
+   "sealed_retention>=0.80": true,
+   "sealed_control_delta<=0.05": false,
+   "sealed_transfer within 0.10": true,
+   "sealed_near within 0.10": true,
+   "sealed_foil_reject within 0.10": true,
+   "instrument_controls_ok": true,
+   "c11_anti_fake_ok": true,
+   "subject_independence_ok": true,
+   "channel_independence_ok": true,
+   "backend_live": true,
+   "backend_error_free": true,
+   "saturation_flag_recorded": true,
+   "mutations_passed_if_saturated": true
+  },
+  "harness_pass": false,
+  "saturation": {
+   "status": "FLAG",
+   "detail": "1 front(s) non-informative: tra_k_negative_reject=0"
+  },
+  "mutation_control": {
+   "M-A": {
+    "before": "match",
+    "after": "reject",
+    "moved": true
+   },
+   "M-B": {
+    "before": "match",
+    "after": "reject",
+    "moved": true
+   },
+   "moved": true
+  }
+ },
+ "endpoints": {
+  "primary": {
+   "transfer": 0.5,
+   "near": 0.5,
+   "far": 0.0,
+   "immediate": 0.5,
+   "delayed": 0.5,
+   "delayed_retention": 1.0,
+   "growth": 0.5,
+   "foil": 0.0,
+   "negative": 0.0,
+   "foil_reject": 0.0,
+   "negative_reject": 0.0,
+   "chance": 0.25,
+   "role_coverage": 1.0,
+   "baseline": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 1.0,
+   "control_max_delta": 0.5,
+   "ostensive_transfer": 0.5,
+   "_n": {
+    "near": 2,
+    "far": 2,
+    "foil": 2,
+    "negative": 2
+   }
+  },
+  "sealed": {
+   "transfer": 0.5,
+   "near": 0.5,
+   "far": 0.0,
+   "immediate": 0.5,
+   "delayed": 0.5,
+   "delayed_retention": 1.0,
+   "growth": 0.5,
+   "foil": 0.0,
+   "negative": 0.0,
+   "foil_reject": 0.0,
+   "negative_reject": 0.0,
+   "chance": 0.25,
+   "role_coverage": 1.0,
+   "baseline": 0.0,
+   "monotonic_max_drop": 0.0,
+   "graded_max_drop": 1.0,
+   "control_max_delta": 0.5,
+   "ostensive_transfer": 0.5,
+   "_n": {
+    "near": 2,
+    "far": 2,
+    "foil": 2,
+    "negative": 2
+   }
+  }
+ },
+ "counters": {
+  "turns": 1178,
+  "query_turns": 160,
+  "explicit_option_prompts": 160,
+  "staged_m1": 1248,
+  "staged_m2": 460,
+  "hook_calls": 160,
+  "flag_on": 160,
+  "production_calls": 160,
+  "scorer_calls": 160,
+  "records_scanned": 1708,
+  "m2_scanned": 460,
+  "trust_calls": 1708,
+  "records_admitted": 1644,
+  "m1_act_calls": 288,
+  "m1_act_writes": 288,
+  "m1_decisions": {
+   "ENDORSE": 288
+  },
+  "m1_scanned": 1248,
+  "picks": 33,
+  "emitted_picks": 33,
+  "records_rejected": 64,
+  "veto_hits": 10,
+  "boot": 8,
+  "process_turn": 1178,
+  "api_error": null,
+  "engine_response_unparsed": 87,
+  "installed_engines": 8
+ },
+ "guard": {
+  "preflight_ok": true,
+  "sha_pins_match": true,
+  "delayed_option_audit": {
+   "ok": true,
+   "bank_audit": {
+    "ok": true,
+    "validate_errors": 0,
+    "channel_overlap_ok": true,
+    "channel_overlap_totals": {
+     "overlap_type_sets": 4411,
+     "overlap_world_model": 0,
+     "facts": 5600,
+     "answer_key_leak": 0,
+     "oracle_domain_tag_leak": 0,
+     "provenance_missing": 0
+    },
+    "bad_option_rows": 0,
+    "examples": [],
+    "channel_label_count": 238
+   },
+   "row_mismatches": 0,
+   "delayed_rows": 8
+  },
+  "controls_ok": true,
+  "failed_controls": [],
+  "c11_anti_fake_ok": true,
+  "backend_error": null,
+  "mutation_control": {
+   "M-A": {
+    "before": "match",
+    "after": "reject",
+    "moved": true
+   },
+   "M-B": {
+    "before": "match",
+    "after": "reject",
+    "moved": true
+   },
+   "moved": true
+  },
+  "g6_status": "FLAG",
+  "g6_detail": "1 front(s) non-informative: tra_k_negative_reject=0",
+  "store_prefix_identical": true,
+  "negation_control": {
+   "negated_surface_vetoes": true,
+   "wrong_tag_arm": false,
+   "reject_condition_probe": {
+    "applicable": true,
+    "rows": 12,
+    "picks": 0,
+    "by_condition": {
+     "foil": 0,
+     "negative": 0,
+     "unrelated": 0
+    },
+    "examples": []
+   },
+   "admitted_on_wrong_subject": false
+  },
+  "arbitration": {
+   "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_taught\\ravana\\src\\ravana\\learn\\source_arbitration.py",
+   "env_flag": {
+    "RAVANA_SOURCE_ARBITRATION": null
+   },
+   "flag_isolation_ok": true,
+   "ast_anti_leakage": {
+    "ok": true,
+    "problems": [],
+    "scanned": [
+     {
+      "function": "channel_source_facts",
+      "hits": []
+     },
+     {
+      "function": "source_facts_for_teaching",
+      "hits": []
+     },
+     {
+      "function": "as_assertion",
+      "hits": []
+     },
+     {
+      "function": "arbitrated_views",
+      "hits": []
+     }
+    ],
+    "banned_tokens": [
+     "answer_key",
+     "answer_key_leak",
+     "condition",
+     "counterexample_target",
+     "difficulty",
+     "display_gold",
+     "domain",
+     "evidence_role",
+     "far_domain",
+     "foil",
+     "forbidden_channel_subjects",
+     "gold",
+     "item_gold",
+     "item_id",
+     "k_levels",
+     "max_per_pool",
+     "misleading",
+     "negative",
+     "oracle",
+     "pool",
+     "q_gold",
+     "role",
+     "subject_type",
+     "type_sets",
+     "typed_queries",
+     "unrelated",
+     "unseen_test_words",
+     "world_model"
+    ]
+   },
+   "overlay_calls": 0,
+   "module_decisions": {
+    "self_loop_decisions": 0,
+    "slot_decisions": 0,
+    "slot_writes": 0,
+    "arbitration_calls": 0,
+    "supersedes": 0,
+    "separations": 0,
+    "identity_slots": 0
+   }
+  }
+ },
+ "store": {
+  "start": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "9afe4fb241d61e6ecb5de25b4ae042eccd15402628a715d43cb901c567d2d6e1",
+   "ravana_weights.db": "bcdd4e3e928bc56a4a28c9abf788d286e3c443c3b9b6283d2d78544149709b43",
+   "ravana_weights.pkl": "964f1c8b3db3df9910ae942c26098bf32e5e329d8e57aa9db6cdeb568ee74046",
+   "ravana_weights.pkl.corrupt-20261119": "936a572810a04126da54d2d8890e81d892c89804c81b90d262bd51c8d09d2372",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "end": {
+   "junk_classifier.json": "bb32064f844cd5c60cdd9cfa5071dcf7da26326e29a94fbffc8404c046ea3941",
+   "junk_labels.jsonl": "9afe4fb241d61e6ecb5de25b4ae042eccd15402628a715d43cb901c567d2d6e1",
+   "ravana_weights.db": "bcdd4e3e928bc56a4a28c9abf788d286e3c443c3b9b6283d2d78544149709b43",
+   "ravana_weights.pkl": "964f1c8b3db3df9910ae942c26098bf32e5e329d8e57aa9db6cdeb568ee74046",
+   "ravana_weights.pkl.corrupt-20261119": "936a572810a04126da54d2d8890e81d892c89804c81b90d262bd51c8d09d2372",
+   "ravana_weights.pkl.sha": "a5f6729cf74b713531b94c411732bdbd69f262565ee8f24e10a8abea5c084f86"
+  },
+  "changed": {}
+ },
+ "elapsed_s": 793.7
+}

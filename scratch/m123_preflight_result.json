@@ -1,5 +1,5 @@
 {
- "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_live_arb",
+ "worktree": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_taught",
  "parent": "C:/Users/Likhith/Documents/projects/ravana",
  "engine_booted": false,
  "production_files_edited": 0,
@@ -58,7 +58,7 @@
   "RAVANA_SOURCE_ARBITRATION"
  ],
  "channel": {
-  "path": "C:/Users/Likhith/Documents/projects/ravana_trak_live_arb/scratch/trak_channel_from_substrate.json",
+  "path": "C:/Users/Likhith/Documents/projects/ravana_trak_arb_taught/scratch/trak_channel_from_substrate.json",
   "external": 400,
   "error": null
  },
@@ -370,7 +370,7 @@
    {
     "name": "channel_snapshot_loaded",
     "ok": true,
-    "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_live_arb/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
+    "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_arb_taught/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
    }
   ]
  },
