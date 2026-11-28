@@ -115,7 +115,7 @@
     {
      "name": "channel_snapshot_loaded",
      "ok": true,
-     "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_arb_taught/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
+     "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_arb_repl20/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
     }
    ]
   },
@@ -421,6 +421,6 @@
   "stores_written": false,
   "production_files_edited": 0
  },
- "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_taught\\ravana\\src\\ravana\\learn\\source_arbitration.py",
+ "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_repl20\\ravana\\src\\ravana\\learn\\source_arbitration.py",
  "env_flag": "RAVANA_SOURCE_ARBITRATION"
 }

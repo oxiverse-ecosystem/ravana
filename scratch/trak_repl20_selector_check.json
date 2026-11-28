@@ -1,0 +1,222 @@
+{
+ "schema": "trak-arbitration-repl20-selector-v1",
+ "ok": true,
+ "passed": 8,
+ "total": 8,
+ "engine_booted": false,
+ "stores_written": false,
+ "runner": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_repl20\\scratch\\m123_combined_runner.py",
+ "max_per_pool": 20,
+ "k_distribution": {
+  "8": 2,
+  "1": 38
+ },
+ "manifest": {
+  "primary": [
+   {
+    "item_id": "tra_k_0020",
+    "k": 8
+   },
+   {
+    "item_id": "tra_k_0018",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0064",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0069",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0076",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0087",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0090",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0099",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0117",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0128",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0136",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0142",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0147",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0156",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0161",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0169",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0180",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0186",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0193",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0194",
+    "k": 1
+   }
+  ],
+  "sealed": [
+   {
+    "item_id": "tra_k_0000",
+    "k": 8
+   },
+   {
+    "item_id": "tra_k_0010",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0015",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0019",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0025",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0027",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0048",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0055",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0065",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0071",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0073",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0074",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0083",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0102",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0106",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0108",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0109",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0133",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0145",
+    "k": 1
+   },
+   {
+    "item_id": "tra_k_0160",
+    "k": 1
+   }
+  ]
+ },
+ "checks": [
+  {
+   "name": "repl20_item_count",
+   "ok": true,
+   "detail": "{'n': 40}"
+  },
+  {
+   "name": "repl20_per_pool_20",
+   "ok": true,
+   "detail": "{'primary': 20, 'sealed': 20}"
+  },
+  {
+   "name": "repl20_all_taught",
+   "ok": true,
+   "detail": "{8: 2, 1: 38}"
+  },
+  {
+   "name": "repl20_exactly_one_k8_per_pool",
+   "ok": true,
+   "detail": "{8: 2, 1: 38}"
+  },
+  {
+   "name": "repl20_no_k0_graded",
+   "ok": true,
+   "detail": "{'k0': 0}"
+  },
+  {
+   "name": "repl20_ignores_answer_side_fields",
+   "ok": true,
+   "detail": "{'minimal_n': 40, 'full_n': 40}"
+  },
+  {
+   "name": "repl20_ast_anti_leakage",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "repl20_k0_baseline_only_no_graded_rows",
+   "ok": true,
+   "detail": "{'baseline': {'primary': 0.0, 'sealed': 0.0}, 'far_n': {'primary': 20, 'sealed': 20}, 'k0_far': {'primary': None, 'sealed': None}, 'k0_minus_baseline': {'primary': None, 'sealed': None}}"
+  }
+ ]
+}
