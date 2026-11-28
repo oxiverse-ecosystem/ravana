@@ -1,0 +1,369 @@
+{
+ "schema": "trak-arbitration-live-selftest-v1",
+ "ok": true,
+ "checks": {
+  "preflight_self_test": {
+   "ok": true,
+   "passed": 22,
+   "total": 22,
+   "checks": [
+    {
+     "name": "ast_anti_leakage",
+     "ok": true,
+     "detail": "[]"
+    },
+    {
+     "name": "arm_flags_default_off",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "all_arms_declared",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "arbitration_flag_only_in_own_arm",
+     "ok": true,
+     "detail": "{'OFF': None, 'OFF2': None, 'M1': None, 'M1+M2': None, 'M1+M2+M3': None, 'SHAM': None, 'ARBITRATION': '1'}"
+    },
+    {
+     "name": "gold_mutation_invariant",
+     "ok": true,
+     "detail": "{'ok': True, 'base': ['blizzard', 'snow storm', 'abc123', 'ENDORSE'], 'mutated': ['blizzard', 'snow storm', 'abc123', 'ENDORSE']}"
+    },
+    {
+     "name": "flag_off_inert",
+     "ok": true,
+     "detail": "{'flag_off': 1, 'flag_on': 0, 'production_calls': 0, 'scorer_calls': 0, 'trust_calls': 0, 'records_scanned': 0, 'm1_scanned': 0, 'm2_scanned': 0, 'records_admitted': 0, 'records_rejected': 0, 'veto_hits': 0, 'deferred_to_production': 0, 'picks': 0, 'errors': 0}"
+    },
+    {
+     "name": "read_picks_exact_option",
+     "ok": true,
+     "detail": "admitted_graded_probe_winner"
+    },
+    {
+     "name": "sham_admits_nothing",
+     "ok": true,
+     "detail": "no_admitted_subject_evidence"
+    },
+    {
+     "name": "read_sham_counters_matched",
+     "ok": true,
+     "detail": "{'production_calls': (1, 1), 'scorer_calls': (1, 1), 'trust_calls': (1, 1), 'records_scanned': (1, 1), 'm1_scanned': (1, 1), 'm2_scanned': (0, 0)}"
+    },
+    {
+     "name": "reader_arm_picks_and_matches_sham",
+     "ok": true,
+     "detail": "{'read': 'snow storm', 'sham': None, 'errors': 0}"
+    },
+    {
+     "name": "negation_veto",
+     "ok": true,
+     "detail": "all_candidates_negation_vetoed"
+    },
+    {
+     "name": "graph_view_confidence_shape",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "subject_independence",
+     "ok": true,
+     "detail": "no_admitted_subject_evidence"
+    },
+    {
+     "name": "m1_durable_roundtrip",
+     "ok": true,
+     "detail": "R_EXPLICIT_CREDIBLE_SOURCE"
+    },
+    {
+     "name": "m1_key_answer_independent",
+     "ok": true,
+     "detail": "claim key is a plain claim digest"
+    },
+    {
+     "name": "m2_subject_specific",
+     "ok": true,
+     "detail": "4"
+    },
+    {
+     "name": "m2_oov_empty",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "g6_status_recorded",
+     "ok": true,
+     "detail": "FLAG"
+    },
+    {
+     "name": "full_bank_valid",
+     "ok": true,
+     "detail": "{'errors': 0, 'overlap': {'overlap_type_sets': 4411, 'overlap_world_model': 0, 'facts': 5600, 'answer_key_leak': 0, 'oracle_domain_tag_leak': 0, 'provenance_missing': 0}}"
+    },
+    {
+     "name": "delayed_option_audit",
+     "ok": true,
+     "detail": "[]"
+    },
+    {
+     "name": "audit_mutation_detects",
+     "ok": true,
+     "detail": "{'planted': ['glow', 'mist', 'hail', 'gale'], 'detected': True, 'expected_options': ['intersection', 'snow storm', 'natural phenomenon', 'party']}"
+    },
+    {
+     "name": "channel_snapshot_loaded",
+     "ok": true,
+     "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_live_arb/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
+    }
+   ]
+  },
+  "arbitration_self_test": {
+   "ok": true,
+   "passed": 8,
+   "total": 8,
+   "checks": [
+    {
+     "name": "arbitration_ast_anti_leakage",
+     "ok": true,
+     "detail": "[]"
+    },
+    {
+     "name": "module_default_off",
+     "ok": true,
+     "detail": "RAVANA_SOURCE_ARBITRATION"
+    },
+    {
+     "name": "only_arbitration_arm_sets_flag",
+     "ok": true,
+     "detail": "{'OFF': None, 'OFF2': None, 'M1': None, 'M1+M2': None, 'M1+M2+M3': None, 'SHAM': None, 'ARBITRATION': '1'}"
+    },
+    {
+     "name": "module_hook_inert_until_enabled",
+     "ok": true,
+     "detail": "(None, <Action.ADMIT: 'ADMIT'>)"
+    },
+    {
+     "name": "credibility_ignores_label_and_role",
+     "ok": true,
+     "detail": "['license', 'license_url', 'object', 'predicate', 'sense', 'source', 'source_id', 'source_url', 'subject', 'text_evidence_kind']"
+    },
+    {
+     "name": "k0_and_cold_baseline_overlay_inert",
+     "ok": true,
+     "detail": "{'gate': True, 'counters': {}}"
+    },
+    {
+     "name": "sham_views_and_decisions_matched",
+     "ok": true,
+     "detail": "{'views_equal': True, 'counters_equal': True, 'arbitration': {'self_loop_decisions': 2, 'slot_decisions': 1, 'slot_writes': 1, 'arbitration_calls': 1, 'separations': 1}, 'sham': {'self_loop_decisions': 2, 'slot_decisions': 1, 'slot_writes': 1, 'arbitration_calls': 1, 'separations': 1}}"
+    },
+    {
+     "name": "sham_wrong_tag_permuted_reader_matched",
+     "ok": true,
+     "detail": "{'read': 'association', 'sham': None, 'calls': {'production_calls': (1, 1), 'scorer_calls': (1, 1), 'trust_calls': (2, 2), 'records_scanned': (2, 2), 'm1_scanned': (0, 0), 'm2_scanned': (2, 2), 'hook_calls': (1, 1)}}"
+    }
+   ],
+   "ast": {
+    "ok": true,
+    "problems": [],
+    "scanned": [
+     {
+      "function": "channel_source_facts",
+      "hits": []
+     },
+     {
+      "function": "source_facts_for_teaching",
+      "hits": []
+     },
+     {
+      "function": "as_assertion",
+      "hits": []
+     },
+     {
+      "function": "arbitrated_views",
+      "hits": []
+     }
+    ],
+    "banned_tokens": [
+     "answer_key",
+     "answer_key_leak",
+     "condition",
+     "counterexample_target",
+     "difficulty",
+     "display_gold",
+     "domain",
+     "evidence_role",
+     "far_domain",
+     "foil",
+     "forbidden_channel_subjects",
+     "gold",
+     "item_gold",
+     "item_id",
+     "k_levels",
+     "max_per_pool",
+     "misleading",
+     "negative",
+     "oracle",
+     "pool",
+     "q_gold",
+     "role",
+     "subject_type",
+     "type_sets",
+     "typed_queries",
+     "unrelated",
+     "unseen_test_words",
+     "world_model"
+    ]
+   }
+  },
+  "preflight_ast_anti_leakage": {
+   "ok": true,
+   "problems": [],
+   "scanned": [
+    {
+     "function": "graded_probe_pick",
+     "module": "m3_graded_probe",
+     "hits": []
+    },
+    {
+     "function": "read_graded_probe",
+     "module": "m3_graded_probe",
+     "hits": []
+    },
+    {
+     "function": "_admit_m1",
+     "module": "m3_graded_probe",
+     "hits": []
+    },
+    {
+     "function": "wrong_tag_trust",
+     "module": "m3_graded_probe",
+     "hits": []
+    },
+    {
+     "function": "_fact_from",
+     "module": "m3_graded_probe",
+     "hits": []
+    },
+    {
+     "function": "stage_m1_act",
+     "module": "m123_preflight",
+     "hits": []
+    },
+    {
+     "function": "stage_arm_evidence",
+     "module": "m123_preflight",
+     "hits": []
+    },
+    {
+     "function": "reader_pick",
+     "module": "m123_preflight",
+     "hits": []
+    },
+    {
+     "function": "label_from_claim",
+     "module": "m123_preflight",
+     "hits": []
+    },
+    {
+     "function": "view_confidence",
+     "module": "m123_preflight",
+     "hits": []
+    },
+    {
+     "function": "permuted_subject",
+     "module": "m123_preflight",
+     "hits": []
+    }
+   ],
+   "banned_tokens": [
+    "answer_key",
+    "answer_key_leak",
+    "counterexample_target",
+    "forbidden_channel_subjects",
+    "gold",
+    "item_gold",
+    "oracle",
+    "q_gold",
+    "type_sets",
+    "typed_queries",
+    "world_model"
+   ]
+  },
+  "arbitration_ast_anti_leakage": {
+   "ok": true,
+   "problems": [],
+   "scanned": [
+    {
+     "function": "channel_source_facts",
+     "hits": []
+    },
+    {
+     "function": "source_facts_for_teaching",
+     "hits": []
+    },
+    {
+     "function": "as_assertion",
+     "hits": []
+    },
+    {
+     "function": "arbitrated_views",
+     "hits": []
+    }
+   ],
+   "banned_tokens": [
+    "answer_key",
+    "answer_key_leak",
+    "condition",
+    "counterexample_target",
+    "difficulty",
+    "display_gold",
+    "domain",
+    "evidence_role",
+    "far_domain",
+    "foil",
+    "forbidden_channel_subjects",
+    "gold",
+    "item_gold",
+    "item_id",
+    "k_levels",
+    "max_per_pool",
+    "misleading",
+    "negative",
+    "oracle",
+    "pool",
+    "q_gold",
+    "role",
+    "subject_type",
+    "type_sets",
+    "typed_queries",
+    "unrelated",
+    "unseen_test_words",
+    "world_model"
+   ]
+  },
+  "sha_pins": {
+   "scripts/measure_tra_k.py": true,
+   "scripts/measure_learn5_rsi.py": true,
+   "scripts/measure_tra.py": true,
+   "scripts/front_gates.py": true,
+   "scripts/tra_k_items.py": true,
+   "data/subject_type_evidence/snapshot.json": true,
+   "scratch/trak_channel_from_substrate.json": true,
+   "scratch/m3_graded_probe.py": true,
+   "ravana/src/ravana/chat/durable_provenance.py": true,
+   "ravana/src/ravana/chat/source_evaluation.py": true,
+   "ravana/src/ravana/chat/schema_induction.py": true,
+   "ravana/src/ravana/learn/subject_type_evidence.py": true,
+   "docs/investigations/M123_COMBINED_PREREG.md": true
+  },
+  "gold_mutation_invariant": true,
+  "engine_booted": false,
+  "stores_written": false,
+  "production_files_edited": 0
+ },
+ "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_live_arb\\ravana\\src\\ravana\\learn\\source_arbitration.py",
+ "env_flag": "RAVANA_SOURCE_ARBITRATION"
+}

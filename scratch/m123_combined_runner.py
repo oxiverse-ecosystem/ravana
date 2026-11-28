@@ -16,14 +16,17 @@ control violation.
 from __future__ import annotations
 
 import argparse
+import ast
 import collections
 import contextlib
 import hashlib
+import inspect
 import json
 import os
 import re
 import shutil
 import sys
+import textwrap
 import time
 import traceback
 
@@ -42,6 +45,20 @@ from ravana.chat import durable_provenance as dp   # noqa: E402
 from ravana.chat.schema_induction import typed_slot_views_from_graph  # noqa: E402
 from ravana.chat.response_gen import parse_forced_choice  # noqa: E402
 from ravana.learn import subject_type_evidence as ste    # noqa: E402
+from ravana.learn import source_arbitration as sa        # noqa: E402  (pure, default-off)
+
+ISA = frozenset({"is_a", "type_of", "instance_of"})
+# Source-only provenance projection.  The benchmark's evidence_role and every
+# answer-side field are deliberately absent: credibility never reads them.
+SOURCE_FIELDS = ("subject", "predicate", "object", "source_id", "source",
+                 "source_url", "license", "license_url", "sense",
+                 "text_evidence_kind")
+EXTRA_BANNED = frozenset({
+    "evidence_role", "item_id", "pool", "display_gold", "unseen_test_words",
+    "negative", "foil", "unrelated", "subject_type", "misleading",
+    "condition", "k_levels", "max_per_pool", "role", "difficulty",
+    "domain", "far_domain",
+})
 
 SUBJECT_RE = re.compile(
     r"\b(?:what is true of|which option best fits|what is true about|"
@@ -106,6 +123,249 @@ def graph_views(engine):
     return out
 
 
+# ── default-off source arbitration (runner-side, caller-supplied provenance) ──
+def norm(value):
+    return str(value or "").strip().casefold()
+
+
+def channel_source_facts(item):
+    """Project ONLY licensed source provenance for arbitration staging.
+
+    The benchmark's evidence_role and all answer-side fields are excluded, so
+    no staging decision can depend on a gold key, domain or answer field.
+    """
+    out = []
+    for f in (item.get("channel_evidence", []) or ()):
+        if not isinstance(f, dict):
+            continue
+        out.append({k: f.get(k) for k in SOURCE_FIELDS})
+    return out
+
+
+def source_facts_for_teaching(item, k, taught_ever):
+    """Stage source provenance only for an item taught at k>=1 in this arm.
+
+    k=0 is the harness's neutral-exposure null and the cold baseline has not
+    been taught yet; both must leave the overlay empty. A delayed paraphrase
+    is taught=False but ``taught_ever`` is True, so it keeps the overlay.
+    """
+    if int(k or 0) < 1 or not taught_ever:
+        return []
+    return channel_source_facts(item)
+
+
+def as_assertion(fact, corroboration=1):
+    """Module input built from source fields alone; no item or answer value."""
+    return sa.SourceAssertion(
+        subject=str(fact.get("subject") or ""),
+        relation=str(fact.get("predicate") or "is_a"),
+        label=str(fact.get("object") or ""),
+        license=str(fact.get("license") or ""),
+        sense=str(fact.get("sense") or ""),
+        evidence_kind=str(fact.get("text_evidence_kind") or ""),
+        origin_id=str(fact.get("source_id") or ""),
+        corroboration=int(corroboration))
+
+
+def arbitrated_views(subject, facts, arm, counters):
+    """Rebuild one subject's typed-slot views through the default-off module.
+
+    Record order is fixed by source credibility alone. Every record costs one
+    self-loop decision and every conflict one arbitrate call in BOTH the
+    candidate and the wrong-tag control, so the control is compute-matched.
+    Returns the engine-view shape the reader already consumes.
+    """
+    who = norm(subject)
+    stream = [f for f in (facts or ())
+              if norm(f.get("subject")) == who and norm(f.get("predicate")) in ISA]
+    stream.sort(key=lambda f: (-sa.source_credibility(as_assertion(f)),
+                               str(f.get("object") or ""),
+                               str(f.get("source_id") or "")))
+    traces, incumbent = {}, None
+    for fact in stream:
+        assertion = as_assertion(fact)
+        cred = sa.source_credibility(assertion)
+        counters["self_loop_decisions"] = counters.get("self_loop_decisions", 0) + 1
+        loop = sa.self_loop_decision(subject, assertion.label, cred)
+        label = str(fact.get("object") or "").strip()
+        if incumbent is None:
+            counters["slot_decisions"] = counters.get("slot_decisions", 0) + 1
+            decision = sa.arbitrate(None, assertion)
+            if decision.action in (sa.Action.ADMIT, sa.Action.REINFORCE):
+                counters["slot_writes"] = counters.get("slot_writes", 0) + 1
+                if loop is sa.Action.WRITE_IDENTITY_SLOT:
+                    counters["identity_slots"] = counters.get("identity_slots", 0) + 1
+                incumbent = {"label": label, "assertion": assertion, "cred": cred,
+                             "conf": decision.slot_confidence, "kind": "slot"}
+                traces[label] = dict(incumbent)
+            continue
+        counters["arbitration_calls"] = counters.get("arbitration_calls", 0) + 1
+        decision = sa.arbitrate(incumbent["assertion"], assertion)
+        action = decision.action
+        if action is sa.Action.REINFORCE:
+            continue
+        if action is sa.Action.SUPERSEDE:
+            counters["supersedes"] = counters.get("supersedes", 0) + 1
+            incumbent["conf"] = 0.5 * float(incumbent["conf"])
+            incumbent["kind"] = "demoted"
+            incumbent = {"label": label, "assertion": assertion, "cred": cred,
+                         "conf": decision.slot_confidence, "kind": "slot"}
+            if loop is sa.Action.WRITE_IDENTITY_SLOT:
+                counters["identity_slots"] = counters.get("identity_slots", 0) + 1
+            traces[label] = dict(incumbent)
+        elif action is sa.Action.SEPARATE:
+            counters["separations"] = counters.get("separations", 0) + 1
+            traces[label] = {"label": label, "cred": cred,
+                             "conf": decision.alternative_confidence,
+                             "kind": "separate_alternative"}
+    if incumbent is not None:
+        traces[incumbent["label"]] = dict(incumbent)
+    views = []
+    for label, trace in sorted(traces.items()):
+        if trace.get("kind") in ("demoted", "skipped"):
+            continue
+        views.append({"source": subject, "relation_type": "is_a",
+                      "target": label, "type_label": label,
+                      "edge_kind": "curated", "edge_source": "conversation",
+                      "source_type": "user",
+                      "confidence": float(trace.get("conf") or 0.0)})
+    return views
+
+
+def ast_anti_leakage_arbitration():
+    """AST scan of every NEW arbitration decision/staging function."""
+    names = ("channel_source_facts", "source_facts_for_teaching",
+             "as_assertion", "arbitrated_views")
+    banned = frozenset(pf.BANNED) | EXTRA_BANNED
+    problems, scanned = [], []
+    for name in names:
+        fn = globals().get(name)
+        try:
+            src = textwrap.dedent(inspect.getsource(fn))
+            tree = ast.parse(src)
+        except Exception as exc:
+            problems.append("parse %s: %r" % (name, exc))
+            continue
+        body = tree.body[0].body if isinstance(tree.body[0], ast.FunctionDef) else tree.body
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            body = body[1:]
+        hits = []
+        for node in ast.walk(ast.Module(body=body, type_ignores=[])):
+            if isinstance(node, ast.Name) and node.id in banned:
+                hits.append("name=" + node.id)
+            if isinstance(node, ast.Attribute) and node.attr in banned:
+                hits.append("attr=" + node.attr)
+            if (isinstance(node, ast.Subscript)
+                    and isinstance(node.slice, ast.Constant)
+                    and node.slice.value in pf.BANNED_SUBSCRIPT):
+                hits.append("subscript=" + str(node.slice.value))
+        scanned.append({"function": name, "hits": sorted(set(hits))})
+        problems.extend("%s: %s" % (name, h) for h in sorted(set(hits)))
+    return {"ok": not problems, "problems": problems, "scanned": scanned,
+            "banned_tokens": sorted(banned)}
+
+
+def boot_free_self_test_arbitration():
+    """No engine boot: flag isolation, matched control, no-key input, AST."""
+    import types as _types
+    checks = []
+
+    def add(name, ok, detail=""):
+        checks.append({"name": name, "ok": bool(ok), "detail": str(detail)})
+
+    ast = ast_anti_leakage_arbitration()
+    add("arbitration_ast_anti_leakage", ast["ok"], ast["problems"])
+
+    add("module_default_off", sa.ENV_FLAG == "RAVANA_SOURCE_ARBITRATION"
+        and not sa.enabled(), sa.ENV_FLAG)
+    add("only_arbitration_arm_sets_flag",
+        pf.ARM_FLAGS["ARBITRATION"].get(sa.ENV_FLAG) == "1"
+        and all(pf.ARM_FLAGS[a].get(sa.ENV_FLAG) != "1"
+                for a in pf.ARM_FLAGS if a != "ARBITRATION"),
+        str({a: pf.ARM_FLAGS[a].get(sa.ENV_FLAG) for a in pf.ARM_FLAGS}))
+
+    fact = {"subject": "guild", "predicate": "is_a", "object": "association",
+            "license": "CC0-1.0", "sense": "primary",
+            "text_evidence_kind": "item_description", "source_id": "s1"}
+    previous = os.environ.get(sa.ENV_FLAG)
+    try:
+        os.environ.pop(sa.ENV_FLAG, None)
+        off = sa.integration_hook(None, as_assertion(fact))
+        os.environ[sa.ENV_FLAG] = "1"
+        on = sa.integration_hook(None, as_assertion(fact))
+    finally:
+        if previous is None:
+            os.environ.pop(sa.ENV_FLAG, None)
+        else:
+            os.environ[sa.ENV_FLAG] = previous
+    add("module_hook_inert_until_enabled",
+        off is None and on is not None and on.action is sa.Action.ADMIT,
+        str((off, getattr(on, "action", None))))
+
+    # Credibility cannot see the asserted label or a benchmark role field.
+    other = dict(fact, object="student association", evidence_role="misleading")
+    add("credibility_ignores_label_and_role",
+        sa.source_credibility(as_assertion(fact)) == 0.7
+        and sa.source_credibility(as_assertion(other)) == 0.7
+        and set(channel_source_facts({"channel_evidence": [other]})[0]) <= set(SOURCE_FIELDS),
+        str(sorted(channel_source_facts({"channel_evidence": [other]})[0])))
+
+    # k=0 neutral null and cold baseline must stage nothing (no untaught leak).
+    item0 = {"channel_evidence": [fact]}
+    gate = (source_facts_for_teaching(item0, 0, True) == []
+            and source_facts_for_teaching(item0, 8, False) == []
+            and len(source_facts_for_teaching(item0, 8, True)) == 1)
+    cnull = collections.Counter()
+    add("k0_and_cold_baseline_overlay_inert",
+        gate and arbitrated_views("guild", [], "ARBITRATION", cnull) == []
+        and not cnull, str({"gate": gate, "counters": dict(cnull)}))
+
+    # Wrong-tag/permuted SHAM is compute-matched to ARBITRATION on the SAME
+    # source-derived views, and its reader emits no pick.
+    facts = [fact, dict(fact, object="student association", sense="alternate",
+                        text_evidence_kind="type_description", source_id="s2")]
+    ca, cs = collections.Counter(), collections.Counter()
+    va = arbitrated_views("guild", facts, "ARBITRATION", ca)
+    vs = arbitrated_views("guild", facts, "SHAM", cs)
+    add("sham_views_and_decisions_matched", va == vs and ca == cs,
+        str({"views_equal": va == vs, "counters_equal": ca == cs,
+             "arbitration": dict(ca), "sham": dict(cs)}))
+
+    options = ["association", "student association"]
+    snap = [_types.SimpleNamespace(type_name="association", source="s1",
+                                   relation="is_a", source_url="u1"),
+            _types.SimpleNamespace(type_name="student association", source="s2",
+                                   relation="is_a", source_url="u2")]
+    ra_counts, rs_counts = collections.Counter(), collections.Counter()
+    ba = pf.stage_arm_evidence("guild", options, ledger_records=[], graph_views=va,
+                               snapshot_evidence=snap, negated_pairs=set(),
+                               arm="ARBITRATION", counters=ra_counts)
+    bs = pf.stage_arm_evidence("guild", options, ledger_records=[], graph_views=vs,
+                               snapshot_evidence=snap, negated_pairs=set(),
+                               arm="SHAM", counters=rs_counts)
+    ra = pf.reader_pick("guild", options, ba, "ARBITRATION", ra_counts)
+    rs = pf.reader_pick("guild", options, bs, "SHAM", rs_counts)
+    call_keys = ("production_calls", "scorer_calls", "trust_calls",
+                 "records_scanned", "m1_scanned", "m2_scanned", "hook_calls")
+    subjects_ok = (all(str(r.get("subject")) == "guild"
+                       for group in (ba.m1_records, ba.m2_subject_evidence)
+                       for r in group)
+                   and all(str(r.get("subject")) == pf.permuted_subject("guild")
+                           for group in (bs.m1_records, bs.m2_subject_evidence)
+                           for r in group))
+    add("sham_wrong_tag_permuted_reader_matched",
+        ra == "association" and rs is None and subjects_ok
+        and all(ra_counts[k] == rs_counts[k] for k in call_keys),
+        str({"read": ra, "sham": rs,
+             "calls": {k: (ra_counts[k], rs_counts[k]) for k in call_keys}}))
+
+    return {"ok": all(c["ok"] for c in checks),
+            "passed": sum(c["ok"] for c in checks), "total": len(checks),
+            "checks": checks, "ast": ast}
+
+
 def negated_pairs(surfaces):
     """Pairs explicitly negated in THIS condition's teaching surfaces."""
     out = set()
@@ -131,6 +391,8 @@ def make_backend(stage, arm, arm_dir, counters):
             self.m123_arm = arm
             self.m123_counters = counters
             self.m123_ctx = {"facts": [], "surfaces": [], "condition": ""}
+            self.m123_source_facts = []
+            self.m123_taught_item = False
             self.m123_snapshot = ste.load_snapshot()
             self.m123_installed = 0
 
@@ -155,6 +417,13 @@ def make_backend(stage, arm, arm_dir, counters):
                         views = [v for v in graph_views(eng)
                                  if str(v.get("source", "")).strip().casefold()
                                  == str(subject).strip().casefold()]
+                        if arm in ("ARBITRATION", "SHAM"):
+                            # Write-side overlay from licensed source provenance
+                            # only; both arms pay identical decision calls.
+                            views = arbitrated_views(
+                                subject, self.m123_source_facts, arm, counters)
+                            counters["arbitration_overlay_calls"] = (
+                                counters.get("arbitration_overlay_calls", 0) + 1)
                         store = dp.store_for_engine(eng)
                         ledger = store.load().to_dict().get("records", {})
                         records = [dict(v) for v in ledger.values()] if ledger else []
@@ -196,6 +465,11 @@ def make_backend(stage, arm, arm_dir, counters):
         def reset_for_item(self, item):
             print("ITEM_START", getattr(item, "get", lambda _k: "")("item_id"),
                   flush=True)
+            # Fresh per-item context: a cold baseline query must not inherit the
+            # previous item's teaching facts (which would seed a spurious pick).
+            self.m123_ctx = {"facts": [], "surfaces": [], "condition": ""}
+            self.m123_source_facts = []
+            self.m123_taught_item = False
             parent = getattr(super(), "reset_for_item", None)
             return parent(item) if callable(parent) else None
 
@@ -203,8 +477,16 @@ def make_backend(stage, arm, arm_dir, counters):
             item = args[0] if args else kwargs.get("item")
             surfaces = args[4] if len(args) > 4 else kwargs.get("surfaces")
             condition = args[2] if len(args) > 2 else kwargs.get("condition")
+            k_val = args[1] if len(args) > 1 else kwargs.get("k")
             if item is not None:
                 self.m123_ctx["facts"] = allowed_facts(item)
+                # A k>=1 call with real surfaces marks the item as taught;
+                # the cold baseline and the delayed paraphrase both pass no
+                # surfaces, so this persistent flag decides the overlay.
+                if int(k_val or 0) >= 1 and surfaces:
+                    self.m123_taught_item = True
+                self.m123_source_facts = source_facts_for_teaching(
+                    item, k_val, self.m123_taught_item)
             self.m123_ctx["surfaces"] = list(surfaces or [])
             self.m123_ctx["condition"] = str(condition or "")
             self.m123_ctx["item_id"] = str(getattr(item, "get", lambda _k: "")("item_id") or "")
@@ -215,6 +497,7 @@ def make_backend(stage, arm, arm_dir, counters):
             condition = args[3] if len(args) > 3 else kwargs.get("condition")
             if item is not None:
                 self.m123_ctx["facts"] = allowed_facts(item)
+                self.m123_source_facts = channel_source_facts(item)
             self.m123_ctx["surfaces"] = []
             self.m123_ctx["condition"] = str(condition or "")
             return super().present(*args, **kwargs)
@@ -248,7 +531,7 @@ def offline_reject_probe(items, arm, arm_dir):
     stored graph/ledger and the independent subject channel.
     """
     import pickle
-    out = {"applicable": arm in ("M1+M2+M3", "SHAM"),
+    out = {"applicable": arm in ("M1+M2+M3", "SHAM", "ARBITRATION"),
            "rows": 0, "picks": 0, "by_condition": {}, "examples": []}
     if not out["applicable"]:
         return out
@@ -272,6 +555,12 @@ def offline_reject_probe(items, arm, arm_dir):
             surfaces = mtk.teaching_surfaces(it, it["k"], cond, mtk.CHANNEL_ARM)
             scoped = [v for v in views
                       if str(v["source"]).strip().casefold() == subject.casefold()]
+            if arm in ("ARBITRATION", "SHAM") and int(it.get("k") or 0) >= 1:
+                cnt_tmp = collections.Counter()
+                scoped = arbitrated_views(subject, channel_source_facts(it),
+                                          arm, cnt_tmp)
+            elif arm in ("ARBITRATION", "SHAM"):
+                scoped = []   # k=0 null: nothing was taught, so no slot views
             snap, _ = ste.evidence_for_subject(subject, ste.load_snapshot())
             cnt = collections.Counter()
             bundle = pf.stage_arm_evidence(
@@ -464,11 +753,24 @@ def run_stage(args, preflight):
         "store_prefix_identical": all(
             start_hashes[k] == end_hashes[k] for k in start_hashes),
         "negation_control": {
-            "negated_surface_vetoes": arm in ("M1", "M1+M2", "M1+M2+M3", "SHAM"),
+            "negated_surface_vetoes": arm in ("M1", "M1+M2", "M1+M2+M3",
+                                              "SHAM", "ARBITRATION"),
             "wrong_tag_arm": arm == "SHAM",
             "reject_condition_probe": reject_probe,
             "admitted_on_wrong_subject": counters.get("staged_m1", 0) > 0
             and arm == "SHAM" and counters.get("picks", 0) > 0,
+        },
+        "arbitration": {
+            "module": getattr(sa, "__file__", ""),
+            "env_flag": {sa.ENV_FLAG: os.environ.get(sa.ENV_FLAG)},
+            "flag_isolation_ok": (os.environ.get(sa.ENV_FLAG) == "1") ==
+                                 (arm == "ARBITRATION"),
+            "ast_anti_leakage": ast_anti_leakage_arbitration(),
+            "overlay_calls": counters.get("arbitration_overlay_calls", 0),
+            "module_decisions": {k: counters.get(k, 0) for k in (
+                "self_loop_decisions", "slot_decisions", "slot_writes",
+                "arbitration_calls", "supersedes", "separations",
+                "identity_slots")},
         },
     }
     failed = []
@@ -481,6 +783,10 @@ def run_stage(args, preflight):
     if (guard["negation_control"]["admitted_on_wrong_subject"]
             or reject_probe["picks"] > 0):
         failed.append("F5")
+    if not guard["arbitration"]["flag_isolation_ok"]:
+        failed.append("F6")
+    if not guard["arbitration"]["ast_anti_leakage"]["ok"]:
+        failed.append("F7")
     status = "INSTRUMENT INVALID" if failed else "OK"
     report = {
         "schema": "m123-combined-arm-v1",
@@ -495,6 +801,12 @@ def run_stage(args, preflight):
             "items": [it.get("item_id") for it in items],
             "item_count": len(items), "bank_count": len(all_items),
             "pythonhashseed": os.environ.get("PYTHONHASHSEED"),
+            "arbitration": {
+                "module": getattr(sa, "__file__", ""),
+                "module_env_flag": sa.ENV_FLAG,
+                "arm_uses_overlay": arm in ("ARBITRATION", "SHAM"),
+                "sham_is_wrong_tag_permuted": arm == "SHAM",
+            },
         },
         "ast_anti_leakage": preflight["ast_anti_leakage"],
         "preflight_result": os.path.join(pf.HERE, "m123_preflight_result.json"),
@@ -529,7 +841,9 @@ def run_stage(args, preflight):
                                     "turns", "query_turns", "emitted_picks",
                                     "hook_calls", "scorer_calls", "m1_act_writes",
                                     "staged_m1", "staged_m2", "process_turn",
-                                    "api_error")},
+                                    "api_error", "arbitration_calls",
+                                    "arbitration_overlay_calls", "separations",
+                                    "identity_slots")},
                                 "controls_failed": guard["failed_controls"],
                                 "g6": sat.status,
                                 "elapsed_s": elapsed}, default=str), flush=True)
@@ -545,15 +859,64 @@ def seed_data_dir_hash_only(arm_dir, start_hashes):
     return out
 
 
+def run_self_test(out_path):
+    """Boot-free proof of arm wiring. No engine, no store write, no network."""
+    for flag in pf.CLEAR_FLAGS:
+        os.environ.pop(flag, None)
+    preflight = pf.boot_free_self_test()
+    arb = boot_free_self_test_arbitration()
+    ast = pf.ast_anti_leakage()
+    pins = pf.pin_hashes()
+    gold = pf.gold_mutation_fingerprint()
+    checks = {
+        "preflight_self_test": preflight,
+        "arbitration_self_test": arb,
+        "preflight_ast_anti_leakage": ast,
+        "arbitration_ast_anti_leakage": arb["ast"],
+        "sha_pins": {k: v.get("match") for k, v in pins.items()},
+        "gold_mutation_invariant": gold["ok"],
+        "engine_booted": False,
+        "stores_written": False,
+        "production_files_edited": 0,
+    }
+    ok = (preflight["ok"] and arb["ok"] and ast["ok"]
+          and all(v for v in checks["sha_pins"].values()) and gold["ok"])
+    report = {"schema": "trak-arbitration-live-selftest-v1",
+              "ok": bool(ok), "checks": checks,
+              "module": getattr(sa, "__file__", ""),
+              "env_flag": sa.ENV_FLAG}
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=1, ensure_ascii=False, default=str)
+    print("SELFTEST", "OK" if ok else "INVALID",
+          json.dumps({"preflight": [c["name"] for c in preflight["checks"]
+                                    if not c["ok"]],
+                      "arbitration": [c["name"] for c in arb["checks"]
+                                      if not c["ok"]],
+                      "pins_failed": [k for k, v in checks["sha_pins"].items()
+                                      if not v]}, default=str), flush=True)
+    print("DONE", flush=True)
+    return 0 if ok else 2
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--stage", choices=pf.STAGES, required=True)
-    ap.add_argument("--arm", choices=pf.ARMS, required=True)
-    ap.add_argument("--tag", required=True)
-    ap.add_argument("--base", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--self-test", action="store_true",
+                    help="boot-free arbitration wiring self-test; no engine boot")
+    ap.add_argument("--stage", choices=pf.STAGES)
+    ap.add_argument("--arm", choices=pf.ARMS)
+    ap.add_argument("--tag")
+    ap.add_argument("--base")
+    ap.add_argument("--out")
     ap.add_argument("--max-per-pool", type=int, default=0)
     args = ap.parse_args(argv)
+    if args.self_test:
+        return run_self_test(os.environ.get("TRAK_SELFTEST_OUT") or
+                             os.path.join(pf.HERE, "trak_arbitration_live_selftest.json"))
+    missing = [k for k in ("stage", "arm", "tag", "base", "out")
+               if getattr(args, k) is None]
+    if missing:
+        ap.error("missing required for an arm run: %s" % ", ".join(missing))
     if args.tag != pf.TAGS[args.arm]:
         print("CONFIG arm/tag mismatch: %s expects %s" % (args.arm, pf.TAGS[args.arm]))
         print("DONE")

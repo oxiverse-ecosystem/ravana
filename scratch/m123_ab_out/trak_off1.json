@@ -9,8 +9,8 @@
  "config": {
   "arm_flags": {},
   "env_flags": {},
-  "base": "/c/Users/Likhith/Documents/projects/ravana_trak_far_ab/scratch/m123_ab_data",
-  "arm_dir": "/c/Users/Likhith/Documents/projects/ravana_trak_far_ab/scratch/m123_ab_data\\trak_off1",
+  "base": "C:/Users/Likhith/Documents/projects/ravana_trak_live_arb/scratch/m123_ab_data",
+  "arm_dir": "C:/Users/Likhith/Documents/projects/ravana_trak_live_arb/scratch/m123_ab_data\\trak_off1",
   "max_per_pool": 2,
   "items": [
    "tra_k_0020",
@@ -20,7 +20,13 @@
   ],
   "item_count": 4,
   "bank_count": 400,
-  "pythonhashseed": "0"
+  "pythonhashseed": "0",
+  "arbitration": {
+   "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_live_arb\\ravana\\src\\ravana\\learn\\source_arbitration.py",
+   "module_env_flag": "RAVANA_SOURCE_ARBITRATION",
+   "arm_uses_overlay": false,
+   "sham_is_wrong_tag_permuted": false
+  }
  },
  "ast_anti_leakage": {
   "ok": true,
@@ -80,16 +86,6 @@
     "function": "permuted_subject",
     "module": "__main__",
     "hits": []
-   },
-   {
-    "function": "_neutral_like",
-    "module": "__main__",
-    "hits": []
-   },
-   {
-    "function": "repair_far_surfaces",
-    "module": "__main__",
-    "hits": []
    }
   ],
   "banned_tokens": [
@@ -106,7 +102,7 @@
    "world_model"
   ]
  },
- "preflight_result": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_far_ab\\scratch\\m123_preflight_result.json",
+ "preflight_result": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_live_arb\\scratch\\m123_preflight_result.json",
  "harness": {
   "summary": {
    "primary": {
@@ -516,6 +512,71 @@
     "examples": []
    },
    "admitted_on_wrong_subject": false
+  },
+  "arbitration": {
+   "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_live_arb\\ravana\\src\\ravana\\learn\\source_arbitration.py",
+   "env_flag": {
+    "RAVANA_SOURCE_ARBITRATION": null
+   },
+   "flag_isolation_ok": true,
+   "ast_anti_leakage": {
+    "ok": true,
+    "problems": [],
+    "scanned": [
+     {
+      "function": "channel_source_facts",
+      "hits": []
+     },
+     {
+      "function": "as_assertion",
+      "hits": []
+     },
+     {
+      "function": "arbitrated_views",
+      "hits": []
+     }
+    ],
+    "banned_tokens": [
+     "answer_key",
+     "answer_key_leak",
+     "condition",
+     "counterexample_target",
+     "difficulty",
+     "display_gold",
+     "domain",
+     "evidence_role",
+     "far_domain",
+     "foil",
+     "forbidden_channel_subjects",
+     "gold",
+     "item_gold",
+     "item_id",
+     "k_levels",
+     "max_per_pool",
+     "misleading",
+     "negative",
+     "oracle",
+     "pool",
+     "q_gold",
+     "role",
+     "subject_type",
+     "type_sets",
+     "typed_queries",
+     "unrelated",
+     "unseen_test_words",
+     "world_model"
+    ]
+   },
+   "overlay_calls": 0,
+   "module_decisions": {
+    "self_loop_decisions": 0,
+    "slot_decisions": 0,
+    "slot_writes": 0,
+    "arbitration_calls": 0,
+    "supersedes": 0,
+    "separations": 0,
+    "identity_slots": 0
+   }
   }
  },
  "store": {
@@ -537,6 +598,5 @@
   },
   "changed": {}
  },
- "elapsed_s": 892.0,
- "rows_path": "C:\\c\\Users\\Likhith\\Documents\\projects\\ravana_trak_far_ab\\scratch\\m123_ab_out\\trak_off1.json.rows.json"
+ "elapsed_s": 847.0
 }
