@@ -1,0 +1,268 @@
+{
+ "schema": "trak-arbitration-live-verdict-v1",
+ "verdict": "PASS_MECHANISM_ONLY",
+ "full_bank_claim": false,
+ "n_per_pool": 2,
+ "falsifiers_in_order": [
+  {
+   "name": "L1_instrument_valid",
+   "ok": true,
+   "detail": "all five arms OK/scored/controls OK"
+  },
+  {
+   "name": "L2_ast_anti_leak_clean",
+   "ok": true,
+   "detail": "{'bad_arms': [], 'selftest_ok': True}"
+  },
+  {
+   "name": "L3_flag_only_in_arbitration",
+   "ok": true,
+   "detail": "{'OFF': None, 'OFF2': None, 'M123': None, 'ARBITRATION': '1', 'SHAM': None}"
+  },
+  {
+   "name": "L4_off_equals_off2",
+   "ok": true,
+   "detail": "identical on all endpoints"
+  },
+  {
+   "name": "L5_sham_matched_and_flat",
+   "ok": true,
+   "detail": "{'decision_mismatch': {}, 'sham_emitted_picks': 0, 'sham_far': {'primary': 0.0, 'sealed': 0.0}, 'off_far': {'primary': 0.0, 'sealed': 0.0}}"
+  },
+  {
+   "name": "L6_mechanism_fired",
+   "ok": true,
+   "detail": "{'arbitration_decisions': {'self_loop_decisions': 225, 'slot_decisions': 124, 'slot_writes': 124, 'arbitration_calls': 101, 'supersedes': 0, 'separations': 101, 'identity_slots': 8}, 'm123_far': {'primary': 0.0, 'sealed': 0.0}}"
+  },
+  {
+   "name": "L7_far_reach_and_gain",
+   "ok": true,
+   "detail": "{'arbitration_far': {'primary': 1.0, 'sealed': 1.0}, 'gain_over_m123': {'primary': 1.0, 'sealed': 1.0}}"
+  },
+  {
+   "name": "L8_near_growth_held_no_regression",
+   "ok": true,
+   "detail": "{'retention': {'primary.near': {'arbitration': 1.0, 'm123': 0.5, 'delta': 0.5}, 'primary.growth': {'arbitration': 1.0, 'm123': 0.5, 'delta': 0.5}, 'primary.delayed_retention': {'arbitration': 1.0, 'm123': 1.0, 'delta': 0.0}, 'sealed.near': {'arbitration': 1.0, 'm123': 0.5, 'delta': 0.5}, 'sealed.growth': {'arbitration': 1.0, 'm123': 0.5, 'delta': 0.5}, 'sealed.delayed_retention': {'arbitration': 1.0, 'm123': 1.0, 'delta': 0.0}}, 'rejects': {'primary.foil': {'arbitration': 0.0, 'm123': 0.0}, 'primary.negative': {'arbitration': 0.0, 'm123': 0.0}, 'sealed.foil': {'arbitration': 0.0, 'm123': 0.0}, 'sealed.negative': {'arbitration': 0.0, 'm123': 0.0}}}"
+  },
+  {
+   "name": "L9_cold_null_and_pins",
+   "ok": true,
+   "detail": "{'arb_baseline': {'primary': 0.0, 'sealed': 0.0}, 'pins_ok': True}"
+  }
+ ],
+ "first_falsifier_fired": null,
+ "endpoints": {
+  "OFF": {
+   "primary": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0,
+    "delayed_retention": null,
+    "baseline": 0.0
+   },
+   "sealed": {
+    "near": 0.5,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0,
+    "delayed_retention": null,
+    "baseline": 0.0
+   }
+  },
+  "OFF2": {
+   "primary": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0,
+    "delayed_retention": null,
+    "baseline": 0.0
+   },
+   "sealed": {
+    "near": 0.5,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0,
+    "delayed_retention": null,
+    "baseline": 0.0
+   }
+  },
+  "M123": {
+   "primary": {
+    "near": 0.5,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0.5,
+    "delayed_retention": 1.0,
+    "baseline": 0.0
+   },
+   "sealed": {
+    "near": 0.5,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0.5,
+    "delayed_retention": 1.0,
+    "baseline": 0.0
+   }
+  },
+  "ARBITRATION": {
+   "primary": {
+    "near": 1.0,
+    "far": 1.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 1.0,
+    "delayed_retention": 1.0,
+    "baseline": 0.0
+   },
+   "sealed": {
+    "near": 1.0,
+    "far": 1.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 1.0,
+    "delayed_retention": 1.0,
+    "baseline": 0.0
+   }
+  },
+  "SHAM": {
+   "primary": {
+    "near": 0.0,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0,
+    "delayed_retention": null,
+    "baseline": 0.0
+   },
+   "sealed": {
+    "near": 0.5,
+    "far": 0.0,
+    "foil": 0.0,
+    "negative": 0.0,
+    "growth": 0,
+    "delayed_retention": null,
+    "baseline": 0.0
+   }
+  }
+ },
+ "details": {
+  "L1_instrument_valid": "all five arms OK/scored/controls OK",
+  "L2_ast_anti_leak_clean": {
+   "bad_arms": [],
+   "selftest_ok": true
+  },
+  "L3_flag_only_in_arbitration": {
+   "OFF": null,
+   "OFF2": null,
+   "M123": null,
+   "ARBITRATION": "1",
+   "SHAM": null
+  },
+  "L4_off_equals_off2": "identical on all endpoints",
+  "L5_sham_matched_and_flat": {
+   "decision_mismatch": {},
+   "sham_emitted_picks": 0,
+   "sham_far": {
+    "primary": 0.0,
+    "sealed": 0.0
+   },
+   "off_far": {
+    "primary": 0.0,
+    "sealed": 0.0
+   }
+  },
+  "L6_mechanism_fired": {
+   "arbitration_decisions": {
+    "self_loop_decisions": 225,
+    "slot_decisions": 124,
+    "slot_writes": 124,
+    "arbitration_calls": 101,
+    "supersedes": 0,
+    "separations": 101,
+    "identity_slots": 8
+   },
+   "m123_far": {
+    "primary": 0.0,
+    "sealed": 0.0
+   }
+  },
+  "L7_far_reach_and_gain": {
+   "arbitration_far": {
+    "primary": 1.0,
+    "sealed": 1.0
+   },
+   "gain_over_m123": {
+    "primary": 1.0,
+    "sealed": 1.0
+   }
+  },
+  "L8_near_growth_held_no_regression": {
+   "retention": {
+    "primary.near": {
+     "arbitration": 1.0,
+     "m123": 0.5,
+     "delta": 0.5
+    },
+    "primary.growth": {
+     "arbitration": 1.0,
+     "m123": 0.5,
+     "delta": 0.5
+    },
+    "primary.delayed_retention": {
+     "arbitration": 1.0,
+     "m123": 1.0,
+     "delta": 0.0
+    },
+    "sealed.near": {
+     "arbitration": 1.0,
+     "m123": 0.5,
+     "delta": 0.5
+    },
+    "sealed.growth": {
+     "arbitration": 1.0,
+     "m123": 0.5,
+     "delta": 0.5
+    },
+    "sealed.delayed_retention": {
+     "arbitration": 1.0,
+     "m123": 1.0,
+     "delta": 0.0
+    }
+   },
+   "rejects": {
+    "primary.foil": {
+     "arbitration": 0.0,
+     "m123": 0.0
+    },
+    "primary.negative": {
+     "arbitration": 0.0,
+     "m123": 0.0
+    },
+    "sealed.foil": {
+     "arbitration": 0.0,
+     "m123": 0.0
+    },
+    "sealed.negative": {
+     "arbitration": 0.0,
+     "m123": 0.0
+    }
+   }
+  },
+  "L9_cold_null_and_pins": {
+   "arb_baseline": {
+    "primary": 0.0,
+    "sealed": 0.0
+   },
+   "pins_ok": true
+  }
+ },
+ "note": "Focused n=2/pool mechanism probe on isolated stores. No full-bank verdict and no production default-path change."
+}

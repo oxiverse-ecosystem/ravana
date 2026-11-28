@@ -115,7 +115,7 @@
     {
      "name": "channel_snapshot_loaded",
      "ok": true,
-     "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_live_arb/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
+     "detail": "{'path': 'C:/Users/Likhith/Documents/projects/ravana_trak_arb_taught/scratch/trak_channel_from_substrate.json', 'external': 400, 'error': None}"
     }
    ]
   },
@@ -214,6 +214,63 @@
      "typed_queries",
      "unrelated",
      "unseen_test_words",
+     "world_model"
+    ]
+   }
+  },
+  "taught_focus_self_test": {
+   "ok": true,
+   "passed": 5,
+   "total": 5,
+   "checks": [
+    {
+     "name": "taught_focus_ast_anti_leakage",
+     "ok": true,
+     "detail": "[]"
+    },
+    {
+     "name": "taught_focus_only_taught_items",
+     "ok": true,
+     "detail": "{'focus': {'primary': [{'item_id': 'tra_k_0020', 'k': 8}, {'item_id': 'tra_k_0018', 'k': 1}], 'sealed': [{'item_id': 'tra_k_0000', 'k': 8}, {'item_id': 'tra_k_0010', 'k': 1}]}, 'legacy': [('tra_k_0020', 8), ('tra_k_0008', 0), ('tra_k_0000', 8), ('tra_k_0006', 0)]}"
+    },
+    {
+     "name": "taught_focus_replaces_untought_k0",
+     "ok": true,
+     "detail": "{'legacy': [('tra_k_0020', 8), ('tra_k_0008', 0), ('tra_k_0000', 8), ('tra_k_0006', 0)], 'focus': [('tra_k_0020', 8), ('tra_k_0018', 1), ('tra_k_0000', 8), ('tra_k_0010', 1)]}"
+    },
+    {
+     "name": "taught_focus_ignores_answer_side_fields",
+     "ok": true,
+     "detail": "{'minimal': [('primary', 8), ('primary', 1), ('sealed', 8), ('sealed', 1)], 'full_bank': [('primary', 8), ('primary', 1), ('sealed', 8), ('sealed', 1)]}"
+    },
+    {
+     "name": "taught_focus_k0_baseline_reported",
+     "ok": true,
+     "detail": "{'baseline': {'primary': 0.0, 'sealed': 0.0}, 'far_n': {'primary': 2, 'sealed': 2}, 'k0_far': {'primary': None, 'sealed': None}, 'k0_minus_baseline': {'primary': None, 'sealed': None}}"
+    }
+   ],
+   "ast": {
+    "ok": true,
+    "problems": [],
+    "scanned": [
+     {
+      "function": "focused_items_taught",
+      "hits": []
+     }
+    ],
+    "banned_tokens": [
+     "answer_key",
+     "answer_key_leak",
+     "counterexample_target",
+     "display_gold",
+     "forbidden_channel_subjects",
+     "gold",
+     "gold_target",
+     "item_gold",
+     "oracle",
+     "q_gold",
+     "type_sets",
+     "typed_queries",
      "world_model"
     ]
    }
@@ -364,6 +421,6 @@
   "stores_written": false,
   "production_files_edited": 0
  },
- "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_live_arb\\ravana\\src\\ravana\\learn\\source_arbitration.py",
+ "module": "C:\\Users\\Likhith\\Documents\\projects\\ravana_trak_arb_taught\\ravana\\src\\ravana\\learn\\source_arbitration.py",
  "env_flag": "RAVANA_SOURCE_ARBITRATION"
 }
