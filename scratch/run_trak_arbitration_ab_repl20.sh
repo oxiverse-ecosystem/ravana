@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # TRA-K taught-focus REPLICATION at 20/pool.  Fresh isolated stores and output;
-# gates/thresholds/scoring are unchanged from PR #573.  3600s cap per arm.
+# gates/thresholds/scoring are unchanged from PR #573.  9000s cap per arm
+# (budget amendment logged in the BUDGET_AMENDMENT doc: 3600s could not finish
+# 40 items).  Arms stay sequential; no partial state is carried forward.
 set -u
 WT=C:/Users/Likhith/Documents/projects/ravana_trak_arb_repl20
 cd "$WT" || exit 9
@@ -16,7 +18,7 @@ echo "START $(date -u +%FT%TZ)" >> "$STAMP"
 for SPEC in "OFF:off1" "OFF2:off2" "M1+M2+M3:m123" "ARBITRATION:arb" "SHAM:sham"; do
   A="${SPEC%%:*}"; T="${SPEC##*:}"
   echo "ARM_START $A $T $(date -u +%FT%TZ)" >> "$STAMP"
-  timeout 3600 "$PY" scratch/m123_combined_runner.py --stage trak --arm "$A" \
+  timeout 9000 "$PY" scratch/m123_combined_runner.py --stage trak --arm "$A" \
     --tag "$T" --base "$BASE" --out "$OUT/trak_${T}.json" --max-per-pool 20 \
     --taught-focus >> "$OUT/run.log" 2>&1
   RC=$?
