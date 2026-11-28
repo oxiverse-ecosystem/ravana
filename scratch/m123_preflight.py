@@ -44,9 +44,10 @@ from ravana.chat.source_evaluation import (          # noqa: E402
     ClaimContext, Decision, SourceStatus, TrustClass, evaluate_source)
 from ravana.learn import subject_type_evidence as ste  # noqa: E402
 
-ARMS = ("OFF", "OFF2", "M1", "M1+M2", "M1+M2+M3", "SHAM")
+ARMS = ("OFF", "OFF2", "M1", "M1+M2", "M1+M2+M3", "SHAM", "ARBITRATION")
 TAGS = {"OFF": "off1", "OFF2": "off2", "M1": "m1",
-        "M1+M2": "m12", "M1+M2+M3": "m123", "SHAM": "sham"}
+        "M1+M2": "m12", "M1+M2+M3": "m123", "SHAM": "sham",
+        "ARBITRATION": "arb"}
 STAGES = ("trak", "rsi", "tra")
 RESULT_PATH = os.path.join(HERE, "m123_preflight_result.json")
 
@@ -63,9 +64,17 @@ ARM_FLAGS = {
     "SHAM": {"RAVANA_DURABLE_PROVENANCE": "1",
              "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
              "RAVANA_M3_GRADED_PROBE": "1"},
+    # Default-OFF source arbitration: the module's own flag is the ONLY
+    # difference from M1+M2+M3. SHAM keeps the wrong-tag/permuted reader and
+    # does NOT set this flag; its write-side overlay is applied by the runner.
+    "ARBITRATION": {"RAVANA_DURABLE_PROVENANCE": "1",
+                    "RAVANA_SUBJECT_TYPE_EVIDENCE": "1",
+                    "RAVANA_M3_GRADED_PROBE": "1",
+                    "RAVANA_SOURCE_ARBITRATION": "1"},
 }
 CLEAR_FLAGS = ("RAVANA_TRA_SLOTS", "RAVANA_TRA_K_SLOTS", "RAVANA_SOURCE_EVAL",
-               "RAVANA_PRIOR_ACT_TRACE", "RAVANA_LEXICAL_SUPERORDINATE")
+               "RAVANA_PRIOR_ACT_TRACE", "RAVANA_LEXICAL_SUPERORDINATE",
+               "RAVANA_SOURCE_ARBITRATION")
 
 BANNED = frozenset({
     "gold", "type_sets", "world_model", "answer_key", "answer_key_leak",
@@ -238,7 +247,7 @@ def stage_arm_evidence(subject, options, *, ledger_records, graph_views,
 
 def reader_pick(subject, options, bundle, arm, counters):
     """M3 decision surface; OFF arms do zero work, SHAM matches M1+M2+M3."""
-    enabled = str(arm) in ("M1+M2+M3", "SHAM")
+    enabled = str(arm) in ("M1+M2+M3", "SHAM", "ARBITRATION")
     counters["hook_calls"] = counters.get("hook_calls", 0) + 1
     trust = m3.wrong_tag_trust if str(arm) == "SHAM" else None
     kwargs = {} if trust is None else {"trust": trust}
@@ -438,8 +447,13 @@ def boot_free_self_test():
     add("ast_anti_leakage", ast["ok"], ast["problems"])
     add("arm_flags_default_off", all(
         not os.environ.get("RAVANA_DURABLE_PROVENANCE") for _ in (0,)))
-    add("all_six_arms_declared", len(ARMS) == 6 and set(TAGS.values()) ==
-        {"off1", "off2", "m1", "m12", "m123", "sham"})
+    add("all_arms_declared", len(ARMS) == 7 and set(TAGS.values()) ==
+        {"off1", "off2", "m1", "m12", "m123", "sham", "arb"})
+    arb_flag = "RAVANA_SOURCE_ARBITRATION"
+    add("arbitration_flag_only_in_own_arm",
+        all((f.get(arb_flag) == "1") == (name == "ARBITRATION")
+            for name, f in ARM_FLAGS.items()),
+        str({name: f.get(arb_flag) for name, f in ARM_FLAGS.items()})),
 
     fingerprint = gold_mutation_fingerprint()
     add("gold_mutation_invariant", fingerprint["ok"], fingerprint)
